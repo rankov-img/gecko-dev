@@ -1976,6 +1976,8 @@ ICCompare_String::Compiler::generateStubCode(MacroAssembler &masm)
 // Compare_Boolean
 //
 
+// Implemented for MIPS in BaselineIC-mips.cpp
+#ifndef JS_CPU_MIPS
 bool
 ICCompare_Boolean::Compiler::generateStubCode(MacroAssembler &masm)
 {
@@ -2000,6 +2002,7 @@ ICCompare_Boolean::Compiler::generateStubCode(MacroAssembler &masm)
     EmitStubGuardFailure(masm);
     return true;
 }
+#endif
 
 //
 // Compare_NumberWithUndefined
@@ -2134,6 +2137,8 @@ ICCompare_ObjectWithUndefined::Compiler::generateStubCode(MacroAssembler &masm)
 // Compare_Int32WithBoolean
 //
 
+// Implemented for MIPS in BaselineIC-mips.cpp
+#ifndef JS_CPU_MIPS
 bool
 ICCompare_Int32WithBoolean::Compiler::generateStubCode(MacroAssembler &masm)
 {
@@ -2174,6 +2179,7 @@ ICCompare_Int32WithBoolean::Compiler::generateStubCode(MacroAssembler &masm)
     EmitStubGuardFailure(masm);
     return true;
 }
+#endif
 
 //
 // ToBool_Fallback
@@ -2281,6 +2287,8 @@ ICToBool_Fallback::Compiler::generateStubCode(MacroAssembler &masm)
 // ToBool_Int32
 //
 
+// Implemented for MIPS in BaselineIC-mips.cpp
+#ifndef JS_CPU_MIPS
 bool
 ICToBool_Int32::Compiler::generateStubCode(MacroAssembler &masm)
 {
@@ -2303,11 +2311,14 @@ ICToBool_Int32::Compiler::generateStubCode(MacroAssembler &masm)
     EmitStubGuardFailure(masm);
     return true;
 }
+#endif
 
 //
 // ToBool_String
 //
 
+// Implemented for MIPS in BaselineIC-mips.cpp
+#ifndef JS_CPU_MIPS
 bool
 ICToBool_String::Compiler::generateStubCode(MacroAssembler &masm)
 {
@@ -2330,7 +2341,9 @@ ICToBool_String::Compiler::generateStubCode(MacroAssembler &masm)
     EmitStubGuardFailure(masm);
     return true;
 }
+#endif
 
+//
 //
 // ToBool_NullUndefined
 //
@@ -2356,6 +2369,8 @@ ICToBool_NullUndefined::Compiler::generateStubCode(MacroAssembler &masm)
 // ToBool_Double
 //
 
+// Implemented for MIPS in BaselineIC-mips.cpp
+#ifndef JS_CPU_MIPS
 bool
 ICToBool_Double::Compiler::generateStubCode(MacroAssembler &masm)
 {
@@ -2377,11 +2392,14 @@ ICToBool_Double::Compiler::generateStubCode(MacroAssembler &masm)
     EmitStubGuardFailure(masm);
     return true;
 }
+#endif
 
 //
 // ToBool_Object
 //
 
+// Implemented for MIPS in BaselineIC-mips.cpp
+#ifndef JS_CPU_MIPS
 bool
 ICToBool_Object::Compiler::generateStubCode(MacroAssembler &masm)
 {
@@ -2415,6 +2433,7 @@ ICToBool_Object::Compiler::generateStubCode(MacroAssembler &masm)
     EmitStubGuardFailure(masm);
     return true;
 }
+#endif
 
 //
 // ToNumber_Fallback
@@ -2870,6 +2889,8 @@ ICBinaryArith_Double::Compiler::generateStubCode(MacroAssembler &masm)
     return true;
 }
 
+// Implemented for MIPS in BaselineIC-mips.cpp
+#ifndef JS_CPU_MIPS
 bool
 ICBinaryArith_BooleanWithInt32::Compiler::generateStubCode(MacroAssembler &masm)
 {
@@ -2946,6 +2967,7 @@ ICBinaryArith_BooleanWithInt32::Compiler::generateStubCode(MacroAssembler &masm)
     EmitStubGuardFailure(masm);
     return true;
 }
+#endif
 
 bool
 ICBinaryArith_DoubleWithInt32::Compiler::generateStubCode(MacroAssembler &masm)
@@ -9165,6 +9187,8 @@ ICIteratorMore_Fallback::Compiler::generateStubCode(MacroAssembler &masm)
 // IteratorMore_Native
 //
 
+// Implemented for MIPS in BaselineIC-mips.cpp
+#ifndef JS_CPU_MIPS
 bool
 ICIteratorMore_Native::Compiler::generateStubCode(MacroAssembler &masm)
 {
@@ -9196,6 +9220,7 @@ ICIteratorMore_Native::Compiler::generateStubCode(MacroAssembler &masm)
     EmitStubGuardFailure(masm);
     return true;
 }
+#endif
 
 //
 // IteratorNext_Fallback

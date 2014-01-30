@@ -15,6 +15,8 @@
 # include "jit/x64/BaselineHelpers-x64.h"
 #elif defined(JS_CPU_ARM)
 # include "jit/arm/BaselineHelpers-arm.h"
+#elif defined(JS_CPU_MIPS)
+# include "jit/mips/BaselineHelpers-mips.h"
 #else
 # error "Unknown architecture!"
 #endif

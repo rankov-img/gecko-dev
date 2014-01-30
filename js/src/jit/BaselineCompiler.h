@@ -14,8 +14,12 @@
 # include "jit/x86/BaselineCompiler-x86.h"
 #elif defined(JS_CPU_X64)
 # include "jit/x64/BaselineCompiler-x64.h"
-#else
+#elif defined(JS_CPU_ARM)
 # include "jit/arm/BaselineCompiler-arm.h"
+#elif defined(JS_CPU_MIPS)
+# include "jit/mips/BaselineCompiler-mips.h"
+#else
+# error "Invalid architecture."
 #endif
 
 namespace js {

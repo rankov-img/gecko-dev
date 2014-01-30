@@ -252,6 +252,16 @@ struct AssemblerBuffer
         tail = tmp;
     }
 
+    void executableCopy(uint8_t *dest_) {
+        if (this->oom())
+            return;
+
+        for (Slice *cur = head; cur != nullptr; cur = cur->getNext()) {
+            memcpy(dest_, &cur->instructions, cur->size());
+            dest_ += cur->size();
+        }
+    }
+
     class AssemblerBufferInstIterator {
       private:
         BufferOffset bo;

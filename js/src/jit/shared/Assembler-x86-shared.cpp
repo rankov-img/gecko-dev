@@ -12,6 +12,8 @@
 # include "jit/x64/MacroAssembler-x64.h"
 #elif defined(JS_CPU_ARM)
 # include "jit/arm/MacroAssembler-arm.h"
+#elif defined(JS_CPU_MIPS)
+# include "jit/mips/MacroAssembler-mips.h"
 #endif
 
 using namespace js;

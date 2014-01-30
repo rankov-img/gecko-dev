@@ -2076,6 +2076,8 @@ dnl ENABLE_ION=0
     fi
     ;;
 mips*-*)
+    ENABLE_ION=1
+    ENABLE_YARR_JIT=1
     AC_DEFINE(JS_CPU_MIPS)
     AC_DEFINE(JS_NUNBOX32)
     ;;

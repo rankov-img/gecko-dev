@@ -348,7 +348,14 @@ SnapshotWriter::writeSlotHeader(JSValueType type, uint32_t regCode)
 {
     JS_ASSERT(uint32_t(type) <= MAX_TYPE_FIELD_VALUE);
     JS_ASSERT(uint32_t(regCode) <= MAX_REG_FIELD_VALUE);
+
+    // NOTE: We have 32 registers on MIPS, but we can scilence this assert
+    // because we never let Ion allocate registers with code over 28.
+    // These registers are: $gp, $sp, $fp and $ra.
+    // TODO: We should propose to make this value 16bits anyway.
+#ifndef JS_CPU_MIPS
     JS_STATIC_ASSERT(Registers::Total < MIN_REG_FIELD_ESC);
+#endif
 
     uint8_t byte = uint32_t(type) | (regCode << 3);
     writer_.writeByte(byte);

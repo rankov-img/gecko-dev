@@ -17,6 +17,8 @@
 # include "jit/x64/MacroAssembler-x64.h"
 #elif defined(JS_CPU_ARM)
 # include "jit/arm/MacroAssembler-arm.h"
+#elif defined(JS_CPU_MIPS)
+# include "jit/mips/MacroAssembler-mips.h"
 #endif
 #include "jit/IonInstrumentation.h"
 #include "jit/JitCompartment.h"
@@ -315,6 +317,8 @@ class MacroAssembler : public MacroAssemblerSpecific
         branchPtr(cond, familyAddr, ImmPtr(handlerp), label);
     }
 
+// Implemented for MIPS in MacroAssembler-mips.h
+#ifndef JS_CPU_MIPS
     template <typename Value>
     Condition testMIRType(Condition cond, const Value &val, MIRType type) {
         switch (type) {
@@ -336,6 +340,7 @@ class MacroAssembler : public MacroAssemblerSpecific
         cond = testMIRType(cond, val, type);
         j(cond, label);
     }
+#endif
 
     // Branches to |label| if |reg| is false. |reg| should be a C++ bool.
     void branchIfFalseBool(const Register &reg, Label *label) {
@@ -905,6 +910,8 @@ class MacroAssembler : public MacroAssemblerSpecific
         return ret;
     }
 
+// Implemented for MIPS in MacroAssembler-mips.h
+#ifndef JS_CPU_MIPS
     Condition branchTestObjectTruthy(bool truthy, Register objReg, Register scratch,
                                      Label *slowCheck)
     {
@@ -919,6 +926,23 @@ class MacroAssembler : public MacroAssemblerSpecific
         test32(Address(scratch, Class::offsetOfFlags()), Imm32(JSCLASS_EMULATES_UNDEFINED));
         return truthy ? Assembler::Zero : Assembler::NonZero;
     }
+#else
+    void branchTestObjectTruthy(bool truthy, Register objReg, Register scratch,
+                                Label *slowCheck, Label *checked)
+    {
+        // The branches to out-of-line code here implement a conservative version
+        // of the JSObject::isWrapper test performed in EmulatesUndefined.  If none
+        // of the branches are taken, we can check class flags directly.
+        loadObjClass(objReg, scratch);
+        branchPtr(Assembler::Equal, scratch, ImmPtr(&ProxyObject::callableClass_), slowCheck);
+        branchPtr(Assembler::Equal, scratch, ImmPtr(&ProxyObject::uncallableClass_), slowCheck);
+        branchPtr(Assembler::Equal, scratch, ImmPtr(&OuterWindowProxyObject::class_), slowCheck);
+
+        Condition cond = truthy ? Assembler::Zero : Assembler::NonZero;
+        branchTest32(cond, Address(scratch, Class::offsetOfFlags()),
+                    Imm32(JSCLASS_EMULATES_UNDEFINED), checked);
+    }
+#endif
 
   private:
     // These two functions are helpers used around call sites throughout the

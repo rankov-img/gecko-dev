@@ -1550,6 +1550,8 @@ LAllocation::toRegister() const
 # include "jit/shared/LIR-x86-shared.h"
 #elif defined(JS_CPU_ARM)
 # include "jit/arm/LIR-arm.h"
+#elif defined(JS_CPU_MIPS)
+# include "jit/mips/LIR-mips.h"
 #endif
 
 #undef LIR_HEADER

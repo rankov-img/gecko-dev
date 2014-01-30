@@ -6159,6 +6159,8 @@ GenerateFFIInterpreterExit(ModuleCompiler &m, const ModuleCompiler::ExitDescript
     // registers to restore.
     masm.freeStack(stackDec);
     masm.ret();
+#elif defined(JS_CPU_MIPS)
+    MOZ_ASSUME_UNREACHABLE("NYI");
 #else
     const unsigned arrayLength = Max<size_t>(1, exit.sig().args().length());
     const unsigned arraySize = arrayLength * sizeof(Value);
@@ -6498,8 +6500,11 @@ GenerateOperationCallbackExit(ModuleCompiler &m, Label *throwLabel)
     MacroAssembler &masm = m.masm();
     masm.align(CodeAlignment);
     masm.bind(&m.operationCallbackLabel());
+#ifdef JS_CPU_MIPS
+    MOZ_ASSUME_UNREACHABLE("NYI");
+#endif
 
-#ifndef JS_CPU_ARM
+#if !defined(JS_CPU_ARM) && !defined(JS_CPU_MIPS)
     // Be very careful here not to perturb the machine state before saving it
     // to the stack. In particular, add/sub instructions may set conditions in
     // the flags register.
@@ -6545,6 +6550,8 @@ GenerateOperationCallbackExit(ModuleCompiler &m, Label *throwLabel)
     masm.PopRegsInMask(AllRegsExceptSP); // restore all GP/FP registers (except SP)
     masm.popFlags();              // after this, nothing that sets conditions
     masm.ret();                   // pop resumePC into PC
+#elif defined(JS_CPU_MIPS)
+    MOZ_ASSUME_UNREACHABLE("NYI");
 #else
     masm.setFramePushed(0);         // set to zero so we can use masm.framePushed() below
     masm.PushRegsInMask(RegisterSet(GeneralRegisterSet(Registers::AllMask & ~(1<<Registers::sp)), FloatRegisterSet(uint32_t(0))));   // save all GP registers,excep sp

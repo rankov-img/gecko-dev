@@ -1049,9 +1049,12 @@ class ICStubCompiler
     inline GeneralRegisterSet availableGeneralRegs(size_t numInputs) const {
         GeneralRegisterSet regs(GeneralRegisterSet::All());
         JS_ASSERT(!regs.has(BaselineStackReg));
-#ifdef JS_CPU_ARM
+#if defined(JS_CPU_ARM)
         JS_ASSERT(!regs.has(BaselineTailCallReg));
         regs.take(BaselineSecondScratchReg);
+#elif defined(JS_CPU_MIPS)
+        JS_ASSERT(!regs.has(BaselineTailCallReg));
+        JS_ASSERT(!regs.has(BaselineSecondScratchReg));
 #endif
         regs.take(BaselineFrameReg);
         regs.take(BaselineStubReg);

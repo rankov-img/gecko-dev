@@ -325,6 +325,19 @@ if CONFIG['ENABLE_ION']:
             'jit/arm/MoveEmitter-arm.cpp',
             'jit/arm/Trampoline-arm.cpp',
         ]
+    elif CONFIG['TARGET_CPU'].find('mips') != -1:
+        SOURCES += [
+            'jit/mips/Architecture-mips.cpp',
+            'jit/mips/Assembler-mips.cpp',
+            'jit/mips/Bailouts-mips.cpp',
+            'jit/mips/BaselineCompiler-mips.cpp',
+            'jit/mips/BaselineIC-mips.cpp',
+            'jit/mips/CodeGenerator-mips.cpp',
+            'jit/mips/Lowering-mips.cpp',
+            'jit/mips/MacroAssembler-mips.cpp',
+            'jit/mips/MoveEmitter-mips.cpp',
+            'jit/mips/Trampoline-mips.cpp',
+        ]
 
 if CONFIG['OS_ARCH'] == 'WINNT':
     SOURCES += [

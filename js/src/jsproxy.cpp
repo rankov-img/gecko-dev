@@ -3330,7 +3330,7 @@ proxy_createFunction(JSContext *cx, unsigned argc, Value *vp)
     // Stash the call and construct traps on a holder object that we can stick
     // in a slot on the proxy.
     RootedObject ccHolder(cx, JS_NewObjectWithGivenProto(cx, Jsvalify(&CallConstructHolder),
-                                                         NullPtr(), cx->global()));
+                                                         js::NullPtr(), cx->global()));
     if (!ccHolder)
         return false;
     ccHolder->setReservedSlot(0, ObjectValue(*call));

@@ -17,6 +17,8 @@
 # include "jit/x64/Lowering-x64.h"
 #elif defined(JS_CPU_ARM)
 # include "jit/arm/Lowering-arm.h"
+#elif defined(JS_CPU_MIPS)
+# include "jit/mips/Lowering-mips.h"
 #else
 # error "CPU!"
 #endif
