@@ -280,6 +280,17 @@ MacroAssembler::PushRegsInMask(RegisterSet set)
 #ifdef JS_CPU_ARM
     adjustFrame(diffF);
     diffF += transferMultipleByRuns(set.fpus(), IsStore, StackPointer, DB);
+#elif defined(JS_CPU_MIPS)
+    // Double values have to be aligned. Reserve four bytes more and align
+    // if needed.
+    ma_and(secondScratchReg_, sp, Imm32(~(StackAlignment - 1)));
+    ma_subu(secondScratchReg_, secondScratchReg_, Imm32(diffF));
+    reserveStack(diffF + sizeof(intptr_t));
+
+    for (FloatRegisterBackwardIterator iter(set.fpus()); iter.more(); iter++) {
+        diffF -= sizeof(double);
+        storeDouble(*iter, Address(secondScratchReg_, diffF));
+    }
 #else
     reserveStack(diffF);
     for (FloatRegisterBackwardIterator iter(set.fpus()); iter.more(); iter++) {
@@ -307,12 +318,23 @@ MacroAssembler::PopRegsInMaskIgnore(RegisterSet set, RegisterSet ignore)
     } else
 #endif
     {
+#ifdef JS_CPU_MIPS
+        freeStack(reservedF + sizeof(intptr_t));
+        ma_and(secondScratchReg_, sp, Imm32(~(StackAlignment - 1)));
+        ma_subu(secondScratchReg_, secondScratchReg_, Imm32(diffF));
+        for (FloatRegisterBackwardIterator iter(set.fpus()); iter.more(); iter++) {
+            diffF -= sizeof(double);
+            if (!ignore.has(*iter))
+                loadDouble(Address(secondScratchReg_, diffF), *iter);
+        }
+#else
         for (FloatRegisterBackwardIterator iter(set.fpus()); iter.more(); iter++) {
             diffF -= sizeof(double);
             if (!ignore.has(*iter))
                 loadDouble(Address(StackPointer, diffF), *iter);
         }
         freeStack(reservedF);
+#endif
     }
     JS_ASSERT(diffF == 0);
 

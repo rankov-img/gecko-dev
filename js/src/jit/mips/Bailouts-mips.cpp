@@ -69,7 +69,34 @@ IonBailoutIterator::IonBailoutIterator(const JitActivationIterator &activations,
   : IonFrameIterator(activations),
     machine_(bailout->machine())
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
+    uint8_t *sp = bailout->parentStackPointer();
+    uint8_t *fp = sp + bailout->frameSize();
+
+    current_ = fp;
+    type_ = IonFrame_OptimizedJS;
+    topFrameSize_ = current_ - sp;
+    topIonScript_ = script()->ionScript();
+
+    if (bailout->frameClass() == FrameSizeClass::None()) {
+        snapshotOffset_ = bailout->snapshotOffset();
+        return;
+    }
+
+    // Compute the snapshot offset from the bailout ID.
+    JitActivation *activation = activations.activation()->asJit();
+    JSRuntime *rt = activation->compartment()->runtimeFromMainThread();
+    JitCode *code = rt->jitRuntime()->getBailoutTable(bailout->frameClass());
+    uintptr_t tableOffset = bailout->tableOffset();
+    uintptr_t tableStart = reinterpret_cast<uintptr_t>(code->raw());
+
+    JS_ASSERT(tableOffset >= tableStart &&
+              tableOffset < tableStart + code->instructionsSize());
+    JS_ASSERT((tableOffset - tableStart) % BAILOUT_TABLE_ENTRY_SIZE == 0);
+
+    uint32_t bailoutId = ((tableOffset - tableStart) / BAILOUT_TABLE_ENTRY_SIZE) - 1;
+    JS_ASSERT(bailoutId < BAILOUT_TABLE_SIZE);
+
+    snapshotOffset_ = topIonScript_->bailoutToSnapshot(bailoutId);
 }
 
 IonBailoutIterator::IonBailoutIterator(const JitActivationIterator &activations,
@@ -77,5 +104,12 @@ IonBailoutIterator::IonBailoutIterator(const JitActivationIterator &activations,
   : IonFrameIterator(activations),
     machine_(bailout->machine())
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
+    returnAddressToFp_ = bailout->osiPointReturnAddress();
+    topIonScript_ = bailout->ionScript();
+    const OsiIndex *osiIndex = topIonScript_->getOsiIndex(returnAddressToFp_);
+
+    current_ = (uint8_t*) bailout->fp();
+    type_ = IonFrame_OptimizedJS;
+    topFrameSize_ = current_ - bailout->sp();
+    snapshotOffset_ = osiIndex->snapshotOffset();
 }

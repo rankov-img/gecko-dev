@@ -339,6 +339,12 @@ IonFrameIterator::machineState() const
     for (GeneralRegisterBackwardIterator iter(reader.allGprSpills()); iter.more(); iter++)
         machine.setRegisterLocation(*iter, --spill);
 
+#ifdef JS_CPU_MIPS
+    // Double values are aligned. If spill address is not aligned, add 4 bytes
+    // to match code in MacroAssembler::PushRegsInMask.
+    spill = (uintptr_t *)(uint32_t(spill) & (~(StackAlignment - 1)));
+#endif
+
     double *floatSpill = reinterpret_cast<double *>(spill);
     for (FloatRegisterBackwardIterator iter(reader.allFloatSpills()); iter.more(); iter++)
         machine.setRegisterLocation(*iter, --floatSpill);

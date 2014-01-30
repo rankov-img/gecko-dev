@@ -34,44 +34,98 @@ EmitRepushTailCallReg(MacroAssembler &masm)
 inline void
 EmitCallIC(CodeOffsetLabel *patchOffset, MacroAssembler &masm)
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
+    // Move ICEntry offset into BaselineStubReg.
+    CodeOffsetLabel offset = masm.movWithPatch(ImmWord(-1), BaselineStubReg);
+    *patchOffset = offset;
+
+    // Load stub pointer into BaselineStubReg.
+    masm.loadPtr(Address(BaselineStubReg, ICEntry::offsetOfFirstStub()), BaselineStubReg);
+
+    // Load stubcode pointer from BaselineStubEntry.
+    // R2 won't be active when we call ICs, so we can use it as scratch.
+    masm.loadPtr(Address(BaselineStubReg, ICStub::offsetOfStubCode()), R2.scratchReg());
+
+    // Call the stubcode via a direct branch-and-link
+    masm.as_jalr(R2.scratchReg());
+    masm.as_nop();
 }
 
 inline void
 EmitEnterTypeMonitorIC(MacroAssembler &masm,
                        size_t monitorStubOffset = ICMonitoredStub::offsetOfFirstMonitorStub())
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
+    // This is expected to be called from within an IC, when BaselineStubReg
+    // is properly initialized to point to the stub.
+    masm.loadPtr(Address(BaselineStubReg, (uint32_t) monitorStubOffset), BaselineStubReg);
+
+    // Load stubcode pointer from BaselineStubEntry.
+    // R2 won't be active when we call ICs, so we can use it.
+    masm.loadPtr(Address(BaselineStubReg, ICStub::offsetOfStubCode()), R2.scratchReg());
+
+    // Jump to the stubcode.
+    masm.branch(R2.scratchReg());
 }
 
 inline void
 EmitReturnFromIC(MacroAssembler &masm)
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
+    masm.as_jr(ra);
+    masm.as_nop();
 }
 
 inline void
 EmitChangeICReturnAddress(MacroAssembler &masm, Register reg)
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
+    masm.ma_move(ra, reg);
 }
 
 inline void
 EmitTailCallVM(JitCode *target, MacroAssembler &masm, uint32_t argSize)
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
+    // We assume during this that R0 and R1 have been pushed, and that R2 is
+    // unused.
+    JS_ASSERT(R2 == ValueOperand(t7, t6));
+
+    // Compute frame size.
+    masm.ma_move(t6, BaselineFrameReg);
+    masm.ma_addu(t6, t6, Imm32(BaselineFrame::FramePointerOffset));
+    masm.ma_subu(t6, t6, BaselineStackReg);
+
+    // Store frame size without VMFunction arguments for GC marking.
+    masm.ma_subu(t7, t6, Imm32(argSize));
+    masm.store32(t7, Address(BaselineFrameReg, BaselineFrame::reverseOffsetOfFrameSize()));
+
+    // Push frame descriptor and perform the tail call.
+    // BaselineTailCallReg (ra) already contains the return address (as we keep it there through
+    // the stub calls), but the VMWrapper code being called expects the return address to also
+    // be pushed on the stack.
+    JS_ASSERT(BaselineTailCallReg == ra);
+    masm.makeFrameDescriptor(t6, IonFrame_BaselineJS);
+    masm.ma_subu(StackPointer, StackPointer, Imm32(2 * sizeof(intptr_t)));
+    masm.as_sw(t6, StackPointer, sizeof(intptr_t));
+    masm.as_sw(ra, StackPointer, 0);
+
+    masm.branch(target);
 }
 
 inline void
 EmitCreateStubFrameDescriptor(MacroAssembler &masm, Register reg)
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
+    // Compute stub frame size. We have to add two pointers: the stub reg and previous
+    // frame pointer pushed by EmitEnterStubFrame.
+    masm.mov(BaselineFrameReg, reg);
+    masm.ma_addu(reg, reg, Imm32(sizeof(void *) * 2));
+    masm.ma_subu(reg, reg, BaselineStackReg);
+
+    masm.makeFrameDescriptor(reg, IonFrame_BaselineStub);
 }
 
 inline void
 EmitCallVM(JitCode *target, MacroAssembler &masm)
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
+    EmitCreateStubFrameDescriptor(masm, t6);
+    masm.push(t6);
+    masm.call(target);
 }
 
 // Size of vales pushed by EmitEnterStubFrame.
@@ -81,44 +135,182 @@ static const uint32_t STUB_FRAME_SAVED_STUB_OFFSET = sizeof(void *);
 inline void
 EmitEnterStubFrame(MacroAssembler &masm, Register scratch)
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
+    JS_ASSERT(scratch != BaselineTailCallReg);
+
+    // Compute frame size.
+    masm.ma_move(scratch, BaselineFrameReg);
+    masm.ma_addu(scratch, scratch, Imm32(BaselineFrame::FramePointerOffset));
+    masm.ma_subu(scratch, scratch, BaselineStackReg);
+
+    masm.store32(scratch, Address(BaselineFrameReg, BaselineFrame::reverseOffsetOfFrameSize()));
+
+    // Note: when making changes here, don't forget to update STUB_FRAME_SIZE
+    // if needed.
+
+    // Push frame descriptor and return address.
+    masm.makeFrameDescriptor(scratch, IonFrame_BaselineJS);
+    masm.ma_subu(StackPointer, StackPointer, Imm32(4 * sizeof(intptr_t)));
+    masm.as_sw(scratch, StackPointer, 3 * sizeof(intptr_t));
+    masm.as_sw(BaselineTailCallReg, StackPointer, 2 * sizeof(intptr_t));
+
+    // Save old frame pointer, stack pointer and stub reg.
+    masm.as_sw(BaselineStubReg, StackPointer, sizeof(intptr_t));
+    masm.as_sw(BaselineFrameReg, StackPointer, 0);
+    masm.mov(BaselineStackReg, BaselineFrameReg);
+
+    // We pushed 4 words, so the stack is still aligned to 8 bytes.
+    masm.checkStackAlignment();
 }
 
 inline void
 EmitLeaveStubFrame(MacroAssembler &masm, bool calledIntoIon = false)
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
+    // Ion frames do not save and restore the frame pointer. If we called
+    // into Ion, we have to restore the stack pointer from the frame descriptor.
+    // If we performed a VM call, the descriptor has been popped already so
+    // in that case we use the frame pointer.
+    if (calledIntoIon) {
+        masm.pop(ScratchRegister);
+        masm.ma_srl(ScratchRegister, ScratchRegister, Imm32(FRAMESIZE_SHIFT));
+        masm.as_addu(BaselineStackReg, BaselineStackReg, ScratchRegister);
+    } else {
+        masm.mov(BaselineFrameReg, BaselineStackReg);
+    }
+
+    masm.as_lw(BaselineFrameReg, StackPointer, 0);
+    masm.as_lw(BaselineStubReg, StackPointer, sizeof(intptr_t));
+
+    // Load the return address.
+    masm.as_lw(BaselineTailCallReg, StackPointer, 2 * sizeof(intptr_t));
+
+    // Discard the frame descriptor.
+    masm.as_lw(ScratchRegister, StackPointer, 3 * sizeof(intptr_t));
+    masm.as_addiu(StackPointer, StackPointer, 4 * sizeof(intptr_t));
 }
 
 inline void
 EmitStowICValues(MacroAssembler &masm, int values)
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
+    JS_ASSERT(values >= 0 && values <= 2);
+    switch(values) {
+      case 1:
+        // Stow R0
+        masm.pushValue(R0);
+        break;
+      case 2:
+        // Stow R0 and R1
+        masm.pushValue(R0);
+        masm.pushValue(R1);
+        break;
+    }
 }
 
 inline void
 EmitUnstowICValues(MacroAssembler &masm, int values, bool discard = false)
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
+    JS_ASSERT(values >= 0 && values <= 2);
+    switch(values) {
+      case 1:
+        // Unstow R0
+        if (discard)
+            masm.addPtr(Imm32(sizeof(Value)), BaselineStackReg);
+        else
+            masm.popValue(R0);
+        break;
+      case 2:
+        // Unstow R0 and R1
+        if (discard) {
+            masm.addPtr(Imm32(sizeof(Value) * 2), BaselineStackReg);
+        } else {
+            masm.popValue(R1);
+            masm.popValue(R0);
+        }
+        break;
+    }
 }
 
 inline void
 EmitCallTypeUpdateIC(MacroAssembler &masm, JitCode *code, uint32_t objectOffset)
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
+    // R0 contains the value that needs to be typechecked.
+    // The object we're updating is a boxed Value on the stack, at offset
+    // objectOffset from $sp, excluding the return address.
+
+    // Save the current BaselineStubReg to stack, as well as the TailCallReg,
+    // since on mips, the $ra is live.
+    masm.ma_subu(StackPointer, StackPointer, Imm32(2 * sizeof(intptr_t)));
+    masm.as_sw(BaselineStubReg, StackPointer, sizeof(intptr_t));
+    masm.as_sw(BaselineTailCallReg, StackPointer, 0);
+
+    // This is expected to be called from within an IC, when BaselineStubReg
+    // is properly initialized to point to the stub.
+    masm.loadPtr(Address(BaselineStubReg, ICUpdatedStub::offsetOfFirstUpdateStub()),
+                 BaselineStubReg);
+
+    // Load stubcode pointer from BaselineStubReg into BaselineTailCallReg.
+    masm.loadPtr(Address(BaselineStubReg, ICStub::offsetOfStubCode()), R2.scratchReg());
+
+    // Call the stubcode.
+    masm.as_jalr(R2.scratchReg());
+    masm.nop();
+
+    // Restore the old stub reg and tailcall reg.
+    masm.as_lw(BaselineTailCallReg, StackPointer, 0);
+    masm.as_lw(BaselineStubReg, StackPointer, sizeof(intptr_t));
+    masm.as_addiu(StackPointer, StackPointer, 2 * sizeof(intptr_t));
+
+    // The update IC will store 0 or 1 in R1.scratchReg() reflecting if the
+    // value in R0 type-checked properly or not.
+    Label success;
+    masm.ma_b(R1.scratchReg(), Imm32(1), &success, Assembler::Equal, true);
+
+    // If the IC failed, then call the update fallback function.
+    EmitEnterStubFrame(masm, R1.scratchReg());
+
+    masm.loadValue(Address(BaselineStackReg, STUB_FRAME_SIZE + objectOffset), R1);
+
+    masm.pushValue(R0);
+    masm.pushValue(R1);
+    masm.push(BaselineStubReg);
+
+    // Load previous frame pointer, push BaselineFrame *.
+    masm.loadPtr(Address(BaselineFrameReg, 0), R0.scratchReg());
+    masm.pushBaselineFramePtr(R0.scratchReg(), R0.scratchReg());
+
+    EmitCallVM(code, masm);
+    EmitLeaveStubFrame(masm);
+
+    // Success at end.
+    masm.bind(&success);
 }
 
 template <typename AddrType>
 inline void
 EmitPreBarrier(MacroAssembler &masm, const AddrType &addr, MIRType type)
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
+    // On MIPS, $ra is clobbered by patchableCallPreBarrier. Save it first.
+    masm.push(ra);
+    masm.patchableCallPreBarrier(addr, type);
+    masm.pop(ra);
 }
 
 inline void
 EmitStubGuardFailure(MacroAssembler &masm)
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
+    // NOTE: This routine assumes that the stub guard code left the stack in the
+    // same state it was in when it was entered.
+
+    // BaselineStubEntry points to the current stub.
+
+    // Load next stub into BaselineStubReg
+    masm.loadPtr(Address(BaselineStubReg, ICStub::offsetOfNext()), BaselineStubReg);
+
+    // Load stubcode pointer from BaselineStubEntry into scratch register.
+    masm.loadPtr(Address(BaselineStubReg, ICStub::offsetOfStubCode()), R2.scratchReg());
+
+    // Return address is already loaded, just jump to the next stubcode.
+    JS_ASSERT(BaselineTailCallReg == ra);
+    masm.branch(R2.scratchReg());
 }
 
 

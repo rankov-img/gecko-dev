@@ -6836,6 +6836,11 @@ js::IsAsmJSCompilationAvailable(JSContext *cx, unsigned argc, Value *vp)
                      !cx->compartment()->debugMode() &&
                      cx->compartment()->options().asmJS(cx);
 
+// Disable AsmJS for MIPS for now.
+#ifndef JS_CPU_MIPS
     args.rval().set(BooleanValue(available));
+#else
+    args.rval().set(BooleanValue(false));
+#endif
     return true;
 }

@@ -390,7 +390,9 @@ FrameSizeClass::ClassLimit()
 uint32_t
 FrameSizeClass::frameSize() const
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
+    JS_ASSERT(class_ != NO_FRAME_SIZE_CLASS_ID);
+    JS_ASSERT(class_ < JS_ARRAY_LENGTH(FrameSizes));
+
     return FrameSizes[class_];
 }
 
