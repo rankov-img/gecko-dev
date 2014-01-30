@@ -20,7 +20,10 @@
 using namespace js;
 using namespace js::jit;
 
-ABIArgGenerator::ABIArgGenerator()
+ABIArgGenerator::ABIArgGenerator() :
+    usedArgSlots_(0),
+    firstArgFloat(false),
+    current_()
 {}
 
 ABIArg

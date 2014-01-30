@@ -35,7 +35,7 @@ class CodeGeneratorMIPS : public CodeGeneratorShared
     NonAssertingLabel deoptLabel_;
 
     inline Address ToAddress(const LAllocation &a) {
-        MOZ_ASSUME_UNREACHABLE("NYI");
+        JS_ASSERT(a.isMemory());
         return Address(StackPointer, ToStackOffset(&a));
     }
 
@@ -44,7 +44,6 @@ class CodeGeneratorMIPS : public CodeGeneratorShared
     }
 
     inline Operand ToOperand(const LAllocation &a) {
-        MOZ_ASSUME_UNREACHABLE("NYI");
         if (a.isGeneralReg())
             return Operand(a.toGeneralReg()->reg());
         if (a.isFloatReg())

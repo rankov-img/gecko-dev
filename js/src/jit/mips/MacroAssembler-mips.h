@@ -740,7 +740,7 @@ class MacroAssemblerMIPSCompat : public MacroAssemblerMIPS
 
     void loadValue(Address src, ValueOperand val);
     void loadValue(Operand dest, ValueOperand val) {
-        MOZ_ASSUME_UNREACHABLE("NYI");
+        loadValue(dest.toAddress(), val);
     }
     void loadValue(const BaseIndex &addr, ValueOperand val);
     void tagValue(JSValueType type, Register payload, ValueOperand dest);

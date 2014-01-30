@@ -2620,7 +2620,7 @@ MacroAssemblerMIPSCompat::unboxValue(const ValueOperand &src, AnyRegister dest)
 void
 MacroAssemblerMIPSCompat::unboxPrivate(const ValueOperand &src, Register dest)
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
+    ma_move(dest, src.payloadReg());
 }
 
 void

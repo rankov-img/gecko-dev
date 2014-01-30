@@ -8014,7 +8014,7 @@ CodeGenerator::visitHaveSameClass(LHaveSameClass *ins)
     masm.cmpPtr(temp, output);
     masm.emitSet(Assembler::Equal, output);
 #else
-    MOZ_ASSUME_UNREACHABLE("NYI");
+    masm.ma_cmp_set(output, output, temp, Assembler::Equal);
 #endif
 
     return true;
