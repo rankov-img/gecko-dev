@@ -64,7 +64,25 @@ MacroAssemblerMIPS::convertUInt32ToDouble(const Register &src, const FloatRegist
     as_addd(dest, dest, SecondScratchFloatReg);
 }
 
-void MacroAssemblerMIPS::convertDoubleToFloat32(const FloatRegister &src, const FloatRegister &dest)
+void
+MacroAssemblerMIPS::convertUInt32ToFloat32(const Register &src, const FloatRegister &dest)
+{
+    JS_ASSERT(dest != ScratchFloatReg);
+
+    // Subtract LONG_MIN to get a positive number
+    ma_subu(ScratchRegister, src, Imm32(LONG_MIN));
+
+    // Convert value
+    as_mtc1(ScratchRegister, dest);
+    as_cvtsw(dest, dest);
+
+    // Add unsigned value of LONG_MIN
+    ma_lis(ScratchFloatReg, 2147483648.0);
+    as_adds(dest, dest, ScratchFloatReg);
+}
+
+void
+MacroAssemblerMIPS::convertDoubleToFloat32(const FloatRegister &src, const FloatRegister &dest)
 {
     as_cvtsd(dest, src);
 }
@@ -1464,6 +1482,13 @@ MacroAssemblerMIPS::ma_mv(FloatRegister src, Register dest1, Register dest2)
 }
 
 void
+MacroAssemblerMIPS::ma_mv(Register src1, Register src2, FloatRegister dest)
+{
+    as_mtc1(src1, dest);
+    as_mtc1(src2, dest, true);
+}
+
+void
 MacroAssemblerMIPS::ma_ls(FloatRegister ft, Register base, int32_t off)
 {
     if (Imm16::isInSignedRange(off)) {
@@ -1918,7 +1943,9 @@ MacroAssemblerMIPSCompat::movePtr(const ImmPtr &imm, const Register &dest)
 void
 MacroAssemblerMIPSCompat::movePtr(const AsmJSImmPtr &imm, const Register &dest)
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
+    AsmJSAbsoluteLink link(nextOffset().getOffset(), imm.kind());
+    enoughMemory_ &= asmJSAbsoluteLinks_.append(link);
+    ma_liPatchable(dest, Imm32(-1));
 }
 
 void
@@ -2011,7 +2038,8 @@ MacroAssemblerMIPSCompat::loadPtr(const AbsoluteAddress &address, const Register
 void
 MacroAssemblerMIPSCompat::loadPtr(const AsmJSAbsoluteAddress &address, const Register &dest)
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
+    movePtr(AsmJSImmPtr(address.kind()), ScratchRegister);
+    loadPtr(Address(ScratchRegister, 0x0), dest);
 }
 
 void
@@ -3067,7 +3095,10 @@ MacroAssemblerMIPSCompat::linkParallelExitFrame(const Register &pt)
 void
 MacroAssemblerMIPS::ma_callIon(const Register r)
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
+    // This is a MIPS hack to push return address during jalr in case of aligned stack
+    as_addiu(StackPointer, StackPointer, -2 * sizeof(intptr_t));
+    as_jalr(r);
+    as_sw(ra, StackPointer, 0);
 }
 
 void
@@ -3324,7 +3355,10 @@ MacroAssemblerMIPSCompat::callWithABI(void *fun, MoveOp::Type result)
 void
 MacroAssemblerMIPSCompat::callWithABI(AsmJSImmPtr imm, MoveOp::Type result)
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
+    uint32_t stackAdjust;
+    callWithABIPre(&stackAdjust);
+    call(imm);
+    callWithABIPost(stackAdjust, result);
 }
 
 void

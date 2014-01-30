@@ -62,13 +62,16 @@ CodeGeneratorMIPS::generateEpilogue()
     if (gen->compilingAsmJS()) {
         // Pop the stack we allocated at the start of the function.
         masm.freeStack(frameDepth_);
+        masm.Pop(ra);
+        masm.as_jr(ra);
+        masm.as_nop();
         JS_ASSERT(masm.framePushed() == 0);
     } else {
         // Pop the stack we allocated at the start of the function.
         masm.freeStack(frameSize());
         JS_ASSERT(masm.framePushed() == 0);
+        masm.ret();
     }
-    masm.ret();
     return true;
 }
 
@@ -1735,14 +1738,14 @@ CodeGeneratorMIPS::visitBitAndAndBranch(LBitAndAndBranch *baab)
 bool
 CodeGeneratorMIPS::visitAsmJSUInt32ToDouble(LAsmJSUInt32ToDouble *lir)
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
+    masm.convertUInt32ToDouble(ToRegister(lir->input()), ToFloatRegister(lir->output()));
     return true;
 }
 
 bool
 CodeGeneratorMIPS::visitAsmJSUInt32ToFloat32(LAsmJSUInt32ToFloat32 *lir)
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
+    masm.convertUInt32ToFloat32(ToRegister(lir->input()), ToFloatRegister(lir->output()));
     return true;
 }
 
@@ -2043,21 +2046,179 @@ CodeGeneratorMIPS::visitStoreTypedArrayElementStatic(LStoreTypedArrayElementStat
 bool
 CodeGeneratorMIPS::visitAsmJSLoadHeap(LAsmJSLoadHeap *ins)
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
-    return true;
+    const MAsmJSLoadHeap *mir = ins->mir();
+    const LAllocation *ptr = ins->ptr();
+    const LDefinition *out = ins->output();
+
+    bool isSigned;
+    int size;
+    bool isFloat = false;
+    switch (mir->viewType()) {
+      case ArrayBufferView::TYPE_INT8:    isSigned = true;  size =  8; break;
+      case ArrayBufferView::TYPE_UINT8:   isSigned = false; size =  8; break;
+      case ArrayBufferView::TYPE_INT16:   isSigned = true;  size = 16; break;
+      case ArrayBufferView::TYPE_UINT16:  isSigned = false; size = 16; break;
+      case ArrayBufferView::TYPE_INT32:
+      case ArrayBufferView::TYPE_UINT32:  isSigned = true;  size = 32; break;
+      case ArrayBufferView::TYPE_FLOAT64: isFloat = true;   size = 64; break;
+      case ArrayBufferView::TYPE_FLOAT32: isFloat = true;   size = 32; break;
+      default: MOZ_ASSUME_UNREACHABLE("unexpected array type");
+    }
+
+    if (ptr->isConstant()) {
+        JS_ASSERT(mir->skipBoundsCheck());
+        int32_t ptrImm = ptr->toConstant()->toInt32();
+        JS_ASSERT(ptrImm >= 0);
+        if (isFloat) {
+            if (size == 32) {
+                masm.loadFloat32(Address(HeapReg, ptrImm), ToFloatRegister(out));
+            } else {
+                masm.loadDouble(Address(HeapReg, ptrImm), ToFloatRegister(out));
+            }
+        }  else {
+            masm.ma_load(ToRegister(out), HeapReg, ptrImm, static_cast<LoadStoreSize>(size),
+                         isSigned ? lsSign : lsZero);
+        }
+        return true;
+    }
+
+    Register ptrReg = ToRegister(ptr);
+
+    if (mir->skipBoundsCheck()) {
+        if (isFloat) {
+            if (size == 32) {
+                masm.loadFloat32(BaseIndex(HeapReg, ptrReg, TimesOne), ToFloatRegister(out));
+            } else {
+                masm.loadDouble(BaseIndex(HeapReg, ptrReg, TimesOne), ToFloatRegister(out));
+            }
+        } else {
+            masm.ma_load(ToRegister(out), BaseIndex(HeapReg, ptrReg, TimesOne),
+                         static_cast<LoadStoreSize>(size), isSigned ? lsSign : lsZero);
+        }
+        return true;
+    }
+
+    BufferOffset bo = masm.ma_BoundsCheck(ScratchRegister);
+
+    Label outOfRange;
+    Label done;
+    masm.ma_b(ptrReg, ScratchRegister, &outOfRange, Assembler::AboveOrEqual, true);
+    // Offset is ok, let's load value.
+    if (isFloat) {
+        if (size == 32)
+            masm.loadFloat32(BaseIndex(HeapReg, ptrReg, TimesOne), ToFloatRegister(out));
+        else
+            masm.loadDouble(BaseIndex(HeapReg, ptrReg, TimesOne), ToFloatRegister(out));
+    } else {
+        masm.ma_load(ToRegister(out), BaseIndex(HeapReg, ptrReg, TimesOne),
+                     static_cast<LoadStoreSize>(size), isSigned ? lsSign : lsZero);
+    }
+    masm.ma_b(&done, true);
+    masm.bind(&outOfRange);
+    // Offset is out of range. Load default values.
+    if (isFloat) {
+        if (size == 32)
+            masm.convertDoubleToFloat32(NANReg, ToFloatRegister(out));
+        else
+            masm.moveDouble(NANReg, ToFloatRegister(out));
+    } else {
+        masm.ma_li(ToRegister(out), Imm32(0));
+    }
+    masm.bind(&done);
+
+    return gen->noteHeapAccess(AsmJSHeapAccess(bo.getOffset()));
 }
 
 bool
 CodeGeneratorMIPS::visitAsmJSStoreHeap(LAsmJSStoreHeap *ins)
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
-    return true;
+    const MAsmJSStoreHeap *mir = ins->mir();
+    const LAllocation *value = ins->value();
+    const LAllocation *ptr = ins->ptr();
+
+    bool isSigned;
+    int size;
+    bool isFloat = false;
+    switch (mir->viewType()) {
+      case ArrayBufferView::TYPE_INT8:
+      case ArrayBufferView::TYPE_UINT8:   isSigned = false; size = 8; break;
+      case ArrayBufferView::TYPE_INT16:
+      case ArrayBufferView::TYPE_UINT16:  isSigned = false; size = 16; break;
+      case ArrayBufferView::TYPE_INT32:
+      case ArrayBufferView::TYPE_UINT32:  isSigned = true;  size = 32; break;
+      case ArrayBufferView::TYPE_FLOAT64: isFloat  = true;  size = 64; break;
+      case ArrayBufferView::TYPE_FLOAT32: isFloat = true;   size = 32; break;
+      default: MOZ_ASSUME_UNREACHABLE("unexpected array type");
+    }
+
+    if (ptr->isConstant()) {
+        JS_ASSERT(mir->skipBoundsCheck());
+        int32_t ptrImm = ptr->toConstant()->toInt32();
+        JS_ASSERT(ptrImm >= 0);
+
+        if (isFloat) {
+            if (size == 32) {
+                masm.storeFloat32(ToFloatRegister(value), Address(HeapReg, ptrImm));
+            } else {
+                masm.storeDouble(ToFloatRegister(value), Address(HeapReg, ptrImm));
+            }
+        }  else {
+            masm.ma_store(ToRegister(value), HeapReg, ptrImm,static_cast<LoadStoreSize>(size),
+                          isSigned ? lsSign : lsZero);
+        }
+        return true;
+    }
+
+    Register ptrReg = ToRegister(ptr);
+    Address dstAddr(ptrReg, 0);
+
+    if (mir->skipBoundsCheck()) {
+        if (isFloat) {
+            if (size == 32) {
+                masm.storeFloat32(ToFloatRegister(value), BaseIndex(HeapReg, ptrReg, TimesOne));
+            } else
+                masm.storeDouble(ToFloatRegister(value), BaseIndex(HeapReg, ptrReg, TimesOne));
+        } else {
+            masm.ma_store(ToRegister(value), BaseIndex(HeapReg, ptrReg, TimesOne),
+                          static_cast<LoadStoreSize>(size), isSigned ? lsSign : lsZero);
+        }
+        return true;
+    }
+
+    BufferOffset bo = masm.ma_BoundsCheck(ScratchRegister);
+
+    Label rejoin;
+    masm.ma_b(ptrReg, ScratchRegister, &rejoin, Assembler::AboveOrEqual, true);
+
+    // Offset is ok, let's store value.
+    if (isFloat) {
+        if (size == 32) {
+            masm.storeFloat32(ToFloatRegister(value), BaseIndex(HeapReg, ptrReg, TimesOne));
+        } else
+            masm.storeDouble(ToFloatRegister(value), BaseIndex(HeapReg, ptrReg, TimesOne));
+    } else {
+        masm.ma_store(ToRegister(value), BaseIndex(HeapReg, ptrReg, TimesOne),
+                      static_cast<LoadStoreSize>(size), isSigned ? lsSign : lsZero);
+    }
+    masm.bind(&rejoin);
+
+    return gen->noteHeapAccess(AsmJSHeapAccess(bo.getOffset()));
 }
 
 bool
 CodeGeneratorMIPS::visitAsmJSPassStackArg(LAsmJSPassStackArg *ins)
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
+    const MAsmJSPassStackArg *mir = ins->mir();
+    if (ins->arg()->isConstant()) {
+        masm.ma_storeImm(Imm32(ToInt32(ins->arg())), Address(StackPointer, mir->spOffset()));
+    } else {
+        if (ins->arg()->isGeneralReg()) {
+            masm.ma_sw(ToRegister(ins->arg()), StackPointer, mir->spOffset());
+        } else {
+            masm.ma_sd(ToFloatRegister(ins->arg()), StackPointer, mir->spOffset());
+        }
+    }
+
     return true;
 }
 
@@ -2068,12 +2229,14 @@ CodeGeneratorMIPS::visitUDiv(LUDiv *ins)
     Register rhs = ToRegister(ins->rhs());
     Register output = ToRegister(ins->output());
 
-    // If divide by zero, the result is zero.
     Label done;
     if (ins->mir()->canBeDivideByZero()) {
         if (ins->mir()->isTruncated()) {
+            Label notzero;
+            masm.ma_b(rhs, rhs, &notzero, Assembler::NonZero, true);
             masm.ma_li(output, Imm32(0));
-            masm.ma_b(rhs, rhs, &done, Assembler::Zero, true);
+            masm.ma_b(&done, true);
+            masm.bind(&notzero);
         } else {
             JS_ASSERT(ins->mir()->fallible());
             if (!bailoutIf(rhs, Imm32(0), Assembler::Equal, ins->snapshot()))
@@ -2104,8 +2267,11 @@ CodeGeneratorMIPS::visitUMod(LUMod *ins)
     if (ins->mir()->canBeDivideByZero()) {
         if (ins->mir()->isTruncated()) {
             // Infinity|0 == 0
+            Label notzero;
+            masm.ma_b(rhs, rhs, &notzero, Assembler::NonZero, true);
             masm.ma_li(output, Imm32(0));
-            masm.ma_b(rhs, rhs, &done, Assembler::Zero, true);
+            masm.ma_b(&done, true);
+            masm.bind(&notzero);
         } else {
             JS_ASSERT(ins->mir()->fallible());
             if (!bailoutIf(rhs, Imm32(0), Assembler::Equal, ins->snapshot()))
@@ -2142,28 +2308,56 @@ CodeGeneratorMIPS::visitEffectiveAddress(LEffectiveAddress *ins)
 bool
 CodeGeneratorMIPS::visitAsmJSLoadGlobalVar(LAsmJSLoadGlobalVar *ins)
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
+    const MAsmJSLoadGlobalVar *mir = ins->mir();
+    unsigned addr = mir->globalDataOffset();
+    if (mir->type() == MIRType_Int32)
+        masm.ma_lw(ToRegister(ins->output()), GlobalReg, addr);
+    else if (mir->type() == MIRType_Float32)
+        masm.ma_ls(ToFloatRegister(ins->output()), GlobalReg, addr);
+    else
+        masm.ma_ld(ToFloatRegister(ins->output()), GlobalReg, addr);
     return true;
 }
 
 bool
 CodeGeneratorMIPS::visitAsmJSStoreGlobalVar(LAsmJSStoreGlobalVar *ins)
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
+    const MAsmJSStoreGlobalVar *mir = ins->mir();
+
+    MIRType type = mir->value()->type();
+    JS_ASSERT(IsNumberType(type));
+    unsigned addr = mir->globalDataOffset();
+    if (mir->value()->type() == MIRType_Int32)
+        masm.ma_sw(ToRegister(ins->value()), GlobalReg, addr);
+    else if (mir->value()->type() == MIRType_Float32)
+        masm.ma_ss(ToFloatRegister(ins->value()), GlobalReg, addr);
+    else
+        masm.ma_sd(ToFloatRegister(ins->value()), GlobalReg, addr);
     return true;
 }
 
 bool
 CodeGeneratorMIPS::visitAsmJSLoadFuncPtr(LAsmJSLoadFuncPtr *ins)
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
+    const MAsmJSLoadFuncPtr *mir = ins->mir();
+
+    Register index = ToRegister(ins->index());
+    Register tmp = ToRegister(ins->temp());
+    Register out = ToRegister(ins->output());
+    unsigned addr = mir->globalDataOffset();
+    masm.ma_li(tmp, Imm32(addr));
+    masm.ma_sll(index, index, Imm32(2));
+    masm.ma_addu(tmp, index);
+    BaseIndex source(GlobalReg, tmp, TimesOne);
+    masm.load32(source, out);
     return true;
 }
 
 bool
 CodeGeneratorMIPS::visitAsmJSLoadFFIFunc(LAsmJSLoadFFIFunc *ins)
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
+    const MAsmJSLoadFFIFunc *mir = ins->mir();
+    masm.ma_load(ToRegister(ins->output()), GlobalReg, mir->globalDataOffset());
     return true;
 }
 
@@ -2179,9 +2373,9 @@ bool
 CodeGeneratorMIPS::visitNegD(LNegD *ins)
 {
     FloatRegister input = ToFloatRegister(ins->input());
-    JS_ASSERT(input == ToFloatRegister(ins->output()));
+    FloatRegister output = ToFloatRegister(ins->output());
 
-    masm.negateDouble(input);
+    masm.as_negd(output, input);
     return true;
 }
 

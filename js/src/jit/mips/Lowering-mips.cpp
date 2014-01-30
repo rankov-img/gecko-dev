@@ -403,8 +403,11 @@ LIRGeneratorMIPS::lowerUrshD(MUrsh *mir)
 bool
 LIRGeneratorMIPS::visitAsmJSNeg(MAsmJSNeg *ins)
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
-    return true;
+    if (ins->type() == MIRType_Int32)
+        return define(new(alloc()) LNegI(useRegisterAtStart(ins->input())), ins);
+
+    JS_ASSERT(ins->type() == MIRType_Double);
+    return define(new(alloc()) LNegD(useRegisterAtStart(ins->input())), ins);
 }
 
 bool
@@ -440,36 +443,58 @@ LIRGeneratorMIPS::lowerUMod(MMod *mod)
 bool
 LIRGeneratorMIPS::visitAsmJSUnsignedToDouble(MAsmJSUnsignedToDouble *ins)
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
-    return true;
+    JS_ASSERT(ins->input()->type() == MIRType_Int32);
+    LAsmJSUInt32ToDouble *lir = new(alloc()) LAsmJSUInt32ToDouble(useRegisterAtStart(ins->input()));
+    return define(lir, ins);
 }
 
 bool
 LIRGeneratorMIPS::visitAsmJSUnsignedToFloat32(MAsmJSUnsignedToFloat32 *ins)
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
-    return true;
+    JS_ASSERT(ins->input()->type() == MIRType_Int32);
+    LAsmJSUInt32ToFloat32 *lir = new(alloc()) LAsmJSUInt32ToFloat32(useRegisterAtStart(ins->input()));
+    return define(lir, ins);
 }
 
 bool
 LIRGeneratorMIPS::visitAsmJSLoadHeap(MAsmJSLoadHeap *ins)
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
-    return true;
+    MDefinition *ptr = ins->ptr();
+    JS_ASSERT(ptr->type() == MIRType_Int32);
+    LAllocation ptrAlloc;
+
+    // For the ARM it is best to keep the 'ptr' in a register if a bounds check is needed.
+    if (ptr->isConstant() && ins->skipBoundsCheck()) {
+        int32_t ptrValue = ptr->toConstant()->value().toInt32();
+        // A bounds check is only skipped for a positive index.
+        JS_ASSERT(ptrValue >= 0);
+        ptrAlloc = LAllocation(ptr->toConstant()->vp());
+    } else
+        ptrAlloc = useRegisterAtStart(ptr);
+
+    return define(new(alloc()) LAsmJSLoadHeap(ptrAlloc), ins);
 }
 
 bool
 LIRGeneratorMIPS::visitAsmJSStoreHeap(MAsmJSStoreHeap *ins)
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
-    return true;
+    MDefinition *ptr = ins->ptr();
+    JS_ASSERT(ptr->type() == MIRType_Int32);
+    LAllocation ptrAlloc;
+
+    if (ptr->isConstant() && ins->skipBoundsCheck()) {
+        JS_ASSERT(ptr->toConstant()->value().toInt32() >= 0);
+        ptrAlloc = LAllocation(ptr->toConstant()->vp());
+    } else
+        ptrAlloc = useRegisterAtStart(ptr);
+
+    return add(new(alloc()) LAsmJSStoreHeap(ptrAlloc, useRegisterAtStart(ins->value())), ins);
 }
 
 bool
 LIRGeneratorMIPS::visitAsmJSLoadFuncPtr(MAsmJSLoadFuncPtr *ins)
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
-    return true;
+    return define(new(alloc()) LAsmJSLoadFuncPtr(useRegister(ins->index()), temp()), ins);
 }
 
 bool

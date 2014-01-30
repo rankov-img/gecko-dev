@@ -59,6 +59,7 @@ class MacroAssemblerMIPS : public Assembler
     void convertInt32ToDouble(const Register &src, const FloatRegister &dest);
     void convertInt32ToDouble(const Address &src, FloatRegister dest);
     void convertUInt32ToDouble(const Register &src, const FloatRegister &dest);
+    void convertUInt32ToFloat32(const Register &src, const FloatRegister &dest);
     void convertDoubleToFloat32(const FloatRegister &src, const FloatRegister &dest);
     void branchTruncateDouble(const FloatRegister &src, const Register &dest, Label *fail);
     void convertDoubleToInt32(const FloatRegister &src, const Register &dest, Label *fail,
@@ -197,6 +198,7 @@ class MacroAssemblerMIPS : public Assembler
     void ma_liNegZero(FloatRegister dest);
 
     void ma_mv(FloatRegister src, Register dest1, Register dest2);
+    void ma_mv(Register src1, Register src2, FloatRegister dest);
 
     void ma_ls(FloatRegister fd, Register base, int32_t off);
     void ma_ld(FloatRegister fd, Register base, int32_t off);
@@ -328,7 +330,8 @@ class MacroAssemblerMIPSCompat : public MacroAssemblerMIPS
         ma_call(imm);
     }
     void call(AsmJSImmPtr imm) {
-        MOZ_ASSUME_UNREACHABLE("NYI");
+        movePtr(imm, CallReg);
+        call(CallReg);
     }
     void call(JitCode *c) {
         BufferOffset bo = m_buffer.nextOffset();
@@ -694,7 +697,8 @@ class MacroAssemblerMIPSCompat : public MacroAssemblerMIPS
     }
     void branchPtr(Condition cond, const AsmJSAbsoluteAddress &addr, const Register &ptr,
                    Label *label) {
-        MOZ_ASSUME_UNREACHABLE("NYI");
+        loadPtr(addr, ScratchRegister);
+        ma_b(ScratchRegister, ptr, label, cond);
     }
     void branch32(Condition cond, const AbsoluteAddress &lhs, Imm32 rhs, Label *label) {
         loadPtr(lhs, secondScratchReg_); // ma_b might use scratch
@@ -1087,23 +1091,28 @@ class MacroAssemblerMIPSCompat : public MacroAssemblerMIPS
     }
 
     void memIntToValue(Address Source, Address Dest) {
-        MOZ_ASSUME_UNREACHABLE("NYI");
+        load32(Source, secondScratchReg_);
+        storeValue(JSVAL_TYPE_INT32, secondScratchReg_, Dest);
     }
 
     void lea(Operand addr, Register dest) {
-        MOZ_ASSUME_UNREACHABLE("NYI");
+        ma_addu(dest, addr.baseReg(), Imm32(addr.disp()));
     }
 
     void abiret() {
-        MOZ_ASSUME_UNREACHABLE("NYI");
+        as_jr(ra);
+        as_nop();
     }
 
-    void ma_storeImm(Imm32 c, const Operand &dest) {
-        MOZ_ASSUME_UNREACHABLE("NYI");
+    void ma_storeImm(Imm32 imm, const Address &addr) {
+        ma_li(secondScratchReg_, imm);
+        ma_sw(secondScratchReg_, addr.base, addr.offset);
     }
+
     BufferOffset ma_BoundsCheck(Register bounded) {
-        MOZ_ASSUME_UNREACHABLE("NYI");
-        return BufferOffset();
+        BufferOffset bo = m_buffer.nextOffset();
+        ma_liPatchable(bounded, Imm32(0));
+        return bo;
     }
 
     void moveFloat32(FloatRegister src, FloatRegister dest) {

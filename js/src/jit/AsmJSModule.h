@@ -54,6 +54,9 @@ struct AsmJSStaticLinkData
 {
     struct RelativeLink
     {
+#ifdef JS_CPU_MIPS
+        bool isTableEntry;
+#endif
         uint32_t patchAtOffset;
         uint32_t targetOffset;
     };
@@ -631,6 +634,8 @@ class AsmJSModule
     // offset codeBytes_) in the module's linear allocation. The global data
     // are laid out in this order:
     //   0. a pointer/descriptor for the heap that was linked to the module
+    //   0.1 On MIPS we need scratch slot for OperationCallbackExit() and also
+    //       to align the data.
     //   1. global variable state (elements are sizeof(uint64_t))
     //   2. interleaved function-pointer tables and exits. These are allocated
     //      while type checking function bodies (as exits and uses of
@@ -644,6 +649,10 @@ class AsmJSModule
     }
     size_t globalDataBytes() const {
         return sizeof(void*) +
+#ifdef JS_CPU_MIPS
+               // MIPS scratch slot
+               sizeof(void*) +
+#endif
                pod.numGlobalVars_ * sizeof(uint64_t) +
                pod.funcPtrTableAndExitBytes_;
     }
@@ -656,6 +665,10 @@ class AsmJSModule
     unsigned globalVarIndexToGlobalDataOffset(unsigned i) const {
         JS_ASSERT(i < pod.numGlobalVars_);
         return sizeof(void*) +
+#ifdef JS_CPU_MIPS
+               // MIPS scratch slot
+               sizeof(void*) +
+#endif
                i * sizeof(uint64_t);
     }
     void *globalVarIndexToGlobalDatum(unsigned i) const {

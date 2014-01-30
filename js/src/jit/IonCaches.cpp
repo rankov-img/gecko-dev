@@ -876,6 +876,15 @@ EmitGetterCall(JSContext *cx, MacroAssembler &masm,
     JS_ASSERT_IF(!callNative, IsCacheableGetPropCallPropertyOp(obj, holder, shape));
 
     if (callNative) {
+
+#ifdef JS_CPU_MIPS
+        // Ensure stack is aligned
+        masm.ma_move(scratchReg, StackPointer);
+        masm.ma_subu(StackPointer, StackPointer, Imm32(sizeof(intptr_t)));
+        masm.ma_and(StackPointer, StackPointer, Imm32(~(StackAlignment - 1)));
+        masm.ma_sw(scratchReg, StackPointer, 0);
+#endif
+
         JS_ASSERT(shape->hasGetterValue() && shape->getterValue().isObject() &&
                   shape->getterValue().toObject().is<JSFunction>());
         JSFunction *target = &shape->getterValue().toObject().as<JSFunction>();
@@ -923,6 +932,10 @@ EmitGetterCall(JSContext *cx, MacroAssembler &masm,
 
         // masm.leaveExitFrame & pop locals
         masm.adjustStack(IonOOLNativeExitFrameLayout::Size(0));
+
+#ifdef JS_CPU_MIPS
+        masm.ma_lw(StackPointer, StackPointer, 0);
+#endif
     } else {
         Register argObjReg       = argUintNReg;
         Register argIdReg        = regSet.takeGeneral();

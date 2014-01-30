@@ -2558,14 +2558,9 @@ Parser<ParseHandler>::maybeParseDirective(Node list, Node pn, bool *cont)
                 }
             }
         } else if (directive == context->names().useAsm) {
-// Disable AsmJS for MIPS for now.
-#ifndef JS_CPU_MIPS
             if (pc->sc->isFunctionBox())
                 return asmJS(list);
             return report(ParseWarning, false, pn, JSMSG_USE_ASM_DIRECTIVE_FAIL);
-#else
-            return true;
-#endif
         }
     }
     return true;

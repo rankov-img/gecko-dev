@@ -85,7 +85,14 @@ class ABIArgGenerator
     ABIArgGenerator();
     ABIArg next(MIRType argType);
     ABIArg &current() { return current_; }
-    uint32_t stackBytesConsumedSoFar() const { return usedArgSlots_; }
+
+    uint32_t stackBytesConsumedSoFar() const {
+        if (usedArgSlots_ <= 4)
+            return 4 * sizeof(intptr_t);
+
+        return usedArgSlots_ * sizeof(intptr_t);
+    }
+
     static const Register NonArgReturnVolatileReg0;
     static const Register NonArgReturnVolatileReg1;
 };
@@ -128,9 +135,10 @@ static MOZ_CONSTEXPR_VAR FloatRegister f30 = {FloatRegisters::f30};
 static const uint32_t StackAlignment = 8;
 static const uint32_t CodeAlignment = 4;
 static const bool StackKeptAligned = true;
+// NativeFrameSize is the size of return adress on stack in AsmJS functions.
 static const uint32_t NativeFrameSize = sizeof(void*);
 static const uint32_t AlignmentAtPrologue = 0;
-static const uint32_t AlignmentMidPrologue = 4;
+static const uint32_t AlignmentMidPrologue = NativeFrameSize;
 
 static const Scale ScalePointer = TimesFour;
 
@@ -961,7 +969,6 @@ class Assembler
 
     // See Bind
     size_t labelOffsetToPatchOffset(size_t offset) {
-        MOZ_ASSUME_UNREACHABLE("NYI");
         return actualOffset(offset);
     }
 
@@ -988,6 +995,13 @@ class Assembler
     }
 
   public:
+    size_t numLongJumps() const {
+        return longJumps_.length();
+    }
+    uint32_t longJump(size_t i) {
+        return longJumps_[i];
+    }
+
     // Copy the assembly code to the given buffer, and perform any pending
     // relocations relying on the target address.
     void executableCopy(uint8_t *buffer);

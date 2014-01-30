@@ -281,15 +281,16 @@ MacroAssembler::PushRegsInMask(RegisterSet set)
     adjustFrame(diffF);
     diffF += transferMultipleByRuns(set.fpus(), IsStore, StackPointer, DB);
 #elif defined(JS_CPU_MIPS)
-    // Double values have to be aligned. Reserve four bytes more and align
-    // if needed.
+    // Double values have to be aligned. We reserve extra space so that we can
+    // start writing from the first aligned location.
+    // We reserve a whole extra double so that the buffer has even size.
     ma_and(secondScratchReg_, sp, Imm32(~(StackAlignment - 1)));
-    ma_subu(secondScratchReg_, secondScratchReg_, Imm32(diffF));
-    reserveStack(diffF + sizeof(intptr_t));
+    reserveStack(diffF + sizeof(double));
 
-    for (FloatRegisterBackwardIterator iter(set.fpus()); iter.more(); iter++) {
+    for (FloatRegisterForwardIterator iter(set.fpus()); iter.more(); iter++) {
+        // Use assembly s.d because we have alligned the stack.
+        as_sd(*iter, secondScratchReg_, -diffF);
         diffF -= sizeof(double);
-        storeDouble(*iter, Address(secondScratchReg_, diffF));
     }
 #else
     reserveStack(diffF);
@@ -319,14 +320,17 @@ MacroAssembler::PopRegsInMaskIgnore(RegisterSet set, RegisterSet ignore)
 #endif
     {
 #ifdef JS_CPU_MIPS
-        freeStack(reservedF + sizeof(intptr_t));
-        ma_and(secondScratchReg_, sp, Imm32(~(StackAlignment - 1)));
-        ma_subu(secondScratchReg_, secondScratchReg_, Imm32(diffF));
-        for (FloatRegisterBackwardIterator iter(set.fpus()); iter.more(); iter++) {
-            diffF -= sizeof(double);
+        // Read the buffer form the first aligned location.
+        ma_addu(secondScratchReg_, sp, Imm32(reservedF + sizeof(double)));
+        ma_and(secondScratchReg_, secondScratchReg_, Imm32(~(StackAlignment - 1)));
+
+        for (FloatRegisterForwardIterator iter(set.fpus()); iter.more(); iter++) {
             if (!ignore.has(*iter))
-                loadDouble(Address(secondScratchReg_, diffF), *iter);
+                // Use assembly l.d because we have alligned the stack.
+                as_ld(*iter, secondScratchReg_, -diffF);
+            diffF -= sizeof(double);
         }
+        freeStack(reservedF + sizeof(double));
 #else
         for (FloatRegisterBackwardIterator iter(set.fpus()); iter.more(); iter++) {
             diffF -= sizeof(double);

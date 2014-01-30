@@ -36,7 +36,15 @@ class CodeGeneratorMIPS : public CodeGeneratorShared
 
     inline Address ToAddress(const LAllocation &a) {
         JS_ASSERT(a.isMemory());
-        return Address(StackPointer, ToStackOffset(&a));
+        int32_t offset = ToStackOffset(&a);
+
+        // The way the stack slots work, we assume that everything from
+        // depth == 0 downwards is writable however, since our frame is
+        // included in this, ensure that the frame gets skipped.
+        if (gen->compilingAsmJS())
+            offset -= AlignmentMidPrologue;
+
+        return Address(StackPointer, offset);
     }
 
     inline Address ToAddress(const LAllocation *a) {
@@ -48,7 +56,17 @@ class CodeGeneratorMIPS : public CodeGeneratorShared
             return Operand(a.toGeneralReg()->reg());
         if (a.isFloatReg())
             return Operand(a.toFloatReg()->reg());
-        return Operand(StackPointer, ToStackOffset(&a));
+
+        JS_ASSERT(a.isMemory());
+        int32_t offset = ToStackOffset(&a);
+
+        // The way the stack slots work, we assume that everything from
+        // depth == 0 downwards is writable however, since our frame is
+        // included in this, ensure that the frame gets skipped.
+        if (gen->compilingAsmJS())
+            offset -= AlignmentMidPrologue;
+
+        return Operand(StackPointer, offset);
     }
     inline Operand ToOperand(const LAllocation *a) {
         return ToOperand(*a);
@@ -190,9 +208,7 @@ class CodeGeneratorMIPS : public CodeGeneratorShared
 
     bool generateInvalidateEpilogue();
   protected:
-    void postAsmJSCall(LAsmJSCall *lir) {
-        MOZ_ASSUME_UNREACHABLE("NYI");
-    }
+    void postAsmJSCall(LAsmJSCall *lir) {}
 
     bool visitEffectiveAddress(LEffectiveAddress *ins);
     bool visitUDiv(LUDiv *ins);

@@ -56,7 +56,7 @@ AsmJSModule::initHeap(Handle<ArrayBufferObject*> heap, JSContext *cx)
         JS_ASSERT(disp <= INT32_MAX);
         JSC::X86Assembler::setPointer(addr, (void *)(heapOffset + disp));
     }
-#elif defined(JS_CPU_ARM)
+#elif defined(JS_CPU_ARM) || defined(JS_CPU_MIPS)
     uint32_t heapLength = heap->byteLength();
     for (unsigned i = 0; i < heapAccesses_.length(); i++) {
         jit::Assembler::updateBoundsCheck(heapLength,
@@ -296,7 +296,17 @@ AsmJSModule::staticallyLink(const AsmJSStaticLinkData &linkData, ExclusiveContex
 
     for (size_t i = 0; i < linkData.relativeLinks.length(); i++) {
         AsmJSStaticLinkData::RelativeLink link = linkData.relativeLinks[i];
+#ifndef JS_CPU_MIPS
         *(void **)(code_ + link.patchAtOffset) = code_ + link.targetOffset;
+#else
+        if (link.isTableEntry) {
+            *(void **)(code_ + link.patchAtOffset) = code_ + link.targetOffset;
+        } else {
+            InstImm *inst = (InstImm *)(code_ + link.patchAtOffset);
+            Assembler::updateLuiOriValue(inst, inst->next(), (uint32_t)code_ + link.targetOffset);
+            AutoFlushCache::updateTop(uintptr_t(inst), 8);
+        }
+#endif
     }
 
     for (size_t i = 0; i < linkData.absoluteLinks.length(); i++) {
@@ -730,7 +740,8 @@ GetCPUID(uint32_t *cpuId)
         X86 = 0x1,
         X64 = 0x2,
         ARM = 0x3,
-        ARCH_BITS = 2
+        MIPS = 0x4,
+        ARCH_BITS = 3
     };
 
 #if defined(JS_CPU_X86)
@@ -744,6 +755,10 @@ GetCPUID(uint32_t *cpuId)
 #elif defined(JS_CPU_ARM)
     JS_ASSERT(GetARMFlags() <= (UINT32_MAX >> ARCH_BITS));
     *cpuId = ARM | (GetARMFlags() << ARCH_BITS);
+    return true;
+#elif defined(JS_CPU_MIPS)
+    JS_ASSERT(GetMIPSFlags() <= (UINT32_MAX >> ARCH_BITS));
+    *cpuId = MIPS | (GetMIPSFlags() << ARCH_BITS);
     return true;
 #else
     return false;
@@ -1092,6 +1107,10 @@ js::LookupAsmJSModuleInCache(ExclusiveContext *cx,
         return true;
 
     module->staticallyLink(linkData, cx);
+
+#ifdef JS_CPU_MIPS
+    jit::AutoFlushCache::updateTop(uintptr_t(module->codeBase()), module->offsetOfGlobalData());
+#endif
 
     parser.tokenStream.advance(module->charsEnd());
 

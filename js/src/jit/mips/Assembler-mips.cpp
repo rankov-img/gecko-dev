@@ -29,8 +29,40 @@ ABIArgGenerator::ABIArgGenerator() :
 ABIArg
 ABIArgGenerator::next(MIRType type)
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
-    return ABIArg();
+    switch (type) {
+      case MIRType_Int32:
+      case MIRType_Pointer:
+        Register destReg;
+        if (GetIntArgReg(usedArgSlots_, &destReg)) {
+            current_ = ABIArg(destReg);
+        } else {
+            current_ = ABIArg(usedArgSlots_ * sizeof(intptr_t));
+        }
+        usedArgSlots_++;
+        break;
+      case MIRType_Float32:
+      case MIRType_Double:
+        if (!usedArgSlots_) {
+            current_ = ABIArg(f12);
+            usedArgSlots_ += 2;
+            firstArgFloat = true;
+        } else if (usedArgSlots_ <= 2) {
+            // NOTE: We will use f14 always. This is not compatible with
+            // system ABI. We will have to introduce some infrastructure
+            // changes if we have to use system ABI here.
+            current_ = ABIArg(f14);
+            usedArgSlots_ = 4;
+        } else {
+            usedArgSlots_ += usedArgSlots_ % 2;
+            current_ = ABIArg(usedArgSlots_ * sizeof(intptr_t));
+            usedArgSlots_ += 2;
+        }
+        break;
+      default:
+        MOZ_ASSUME_UNREACHABLE("Unexpected argument type");
+    }
+    return current_;
+
 }
 const Register ABIArgGenerator::NonArgReturnVolatileReg0 = t0;
 const Register ABIArgGenerator::NonArgReturnVolatileReg1 = t1;
@@ -1631,7 +1663,15 @@ Assembler::ToggleCall(CodeLocationLabel inst_, bool enabled)
 
 void Assembler::updateBoundsCheck(uint32_t heapSize, Instruction *inst)
 {
-    MOZ_ASSUME_UNREACHABLE("NYI");
+    InstImm *i0 = (InstImm *) inst;
+    InstImm *i1 = (InstImm *) i0->next();
+
+    // Replace with new value
+    Assembler::updateLuiOriValue(i0, i1, heapSize);
+
+    // NOTE: we don't update the Auto Flush Cache!  this function is currently
+    // only called from within AsmJSModule::patchHeapAccesses, which does that
+    // for us.  Don't call this!
 }
 
 void
