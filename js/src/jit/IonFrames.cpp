@@ -694,15 +694,15 @@ HandleException(ResumeFromException *rfe)
 void
 HandleParallelFailure(ResumeFromException *rfe)
 {
-    ForkJoinSlice *slice = ForkJoinSlice::current();
-    IonFrameIterator iter(slice->perThreadData->ionTop, ParallelExecution);
+    ForkJoinContext *cx = ForkJoinContext::current();
+    IonFrameIterator iter(cx->perThreadData->ionTop, ParallelExecution);
 
     parallel::Spew(parallel::SpewBailouts, "Bailing from VM reentry");
 
     while (!iter.isEntry()) {
         if (iter.isScripted()) {
-            slice->bailoutRecord->updateCause(ParallelBailoutUnsupportedVM,
-                                              iter.script(), iter.script(), nullptr);
+            cx->bailoutRecord->updateCause(ParallelBailoutUnsupportedVM,
+                                           iter.script(), iter.script(), nullptr);
             break;
         }
         ++iter;
@@ -1251,7 +1251,7 @@ GetPcScript(JSContext *cx, JSScript **scriptRes, jsbytecode **pcRes)
     JS_ASSERT(retAddr != nullptr);
 
     // Lazily initialize the cache. The allocation may safely fail and will not GC.
-    if (JS_UNLIKELY(rt->ionPcScriptCache == nullptr)) {
+    if (MOZ_UNLIKELY(rt->ionPcScriptCache == nullptr)) {
         rt->ionPcScriptCache = (PcScriptCache *)js_malloc(sizeof(struct PcScriptCache));
         if (rt->ionPcScriptCache)
             rt->ionPcScriptCache->clear(rt->gcNumber);

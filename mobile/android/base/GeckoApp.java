@@ -29,6 +29,7 @@ import org.mozilla.gecko.util.HardwareUtils;
 import org.mozilla.gecko.util.ThreadUtils;
 import org.mozilla.gecko.util.UiAsyncTask;
 import org.mozilla.gecko.webapp.UninstallListener;
+import org.mozilla.gecko.webapp.EventListener;
 import org.mozilla.gecko.widget.ButtonToast;
 
 import org.json.JSONArray;
@@ -633,34 +634,13 @@ public abstract class GeckoApp
                 final String title = message.getString("title");
                 final String type = message.getString("shortcutType");
                 GeckoAppShell.removeShortcut(title, url, origin, type);
-            } else if (AppConstants.MOZ_ANDROID_SYNTHAPKS && event.equals("WebApps:InstallApk")) {
-                GeckoAppShell.installApk(this, message.getString("filePath"), message.getString("data"));
             } else if (!AppConstants.MOZ_ANDROID_SYNTHAPKS && event.equals("WebApps:PreInstall")) {
                 String name = message.getString("name");
                 String manifestURL = message.getString("manifestURL");
                 String origin = message.getString("origin");
+
                 // preInstallWebapp will return a File object pointing to the profile directory of the webapp
-                mCurrentResponse = GeckoAppShell.preInstallWebApp(name, manifestURL, origin).toString();
-            } else if (event.equals("WebApps:PostInstall")) {
-                if (AppConstants.MOZ_ANDROID_SYNTHAPKS) {
-                    GeckoAppShell.postInstallWebApp(message.getString("apkPackageName"), message.getString("origin"));
-                } else {
-                    String name = message.getString("name");
-                    String manifestURL = message.getString("manifestURL");
-                    String iconURL = message.getString("iconURL");
-                    String originalOrigin = message.getString("originalOrigin");
-                    String origin = message.getString("origin");
-                    GeckoAppShell.postInstallWebApp(name, manifestURL, origin, iconURL, originalOrigin);
-                }
-            } else if (event.equals("WebApps:Open")) {
-                String manifestURL = message.getString("manifestURL");
-                String origin = message.getString("origin");
-                Intent intent = GeckoAppShell.getWebAppIntent(manifestURL, origin, "", null);
-                if (intent == null)
-                    return;
-                startActivity(intent);
-            } else if (!AppConstants.MOZ_ANDROID_SYNTHAPKS && event.equals("WebApps:Uninstall")) {
-                GeckoAppShell.uninstallWebApp(message.getString("origin"));
+                mCurrentResponse = EventListener.preInstallWebApp(name, manifestURL, origin).toString();
             } else if (event.equals("Share:Text")) {
                 String text = message.getString("text");
                 GeckoAppShell.openUriExternal(text, "text/plain", "", "", Intent.ACTION_SEND, "");
@@ -716,6 +696,8 @@ public abstract class GeckoApp
                     message.optString("className"), message.optString("action"), message.optString("title"));
             } else if (event.equals("Locale:Set")) {
                 setLocale(message.getString("locale"));
+            } else if (event.equals("NativeApp:IsDebuggable")) {
+                mCurrentResponse = getIsDebuggable() ? "true" : "false";
             } else if (event.equals("SystemUI:Visibility")) {
                 setSystemUiVisible(message.getBoolean("visible"));
             }
@@ -1564,12 +1546,6 @@ public abstract class GeckoApp
         registerEventListener("Accessibility:Event");
         registerEventListener("Accessibility:Ready");
         registerEventListener("Shortcut:Remove");
-        // TODO Consider moving webapp install-related things into InstallHelper.
-        registerEventListener("WebApps:InstallApk");
-        registerEventListener("WebApps:PreInstall");
-        registerEventListener("WebApps:PostInstall");
-        registerEventListener("WebApps:Open");
-        registerEventListener("WebApps:Uninstall");
         registerEventListener("Share:Text");
         registerEventListener("Share:Image");
         registerEventListener("Image:SetAs");
@@ -1582,7 +1558,11 @@ public abstract class GeckoApp
         registerEventListener("Intent:Open");
         registerEventListener("Intent:GetHandlers");
         registerEventListener("Locale:Set");
+        registerEventListener("NativeApp:IsDebuggable");
         registerEventListener("SystemUI:Visibility");
+        registerEventListener("WebApps:PreInstall");
+
+        EventListener.registerEvents();
 
         if (SmsManager.getInstance() != null) {
           SmsManager.getInstance().start();
@@ -2095,11 +2075,6 @@ public abstract class GeckoApp
         unregisterEventListener("Accessibility:Event");
         unregisterEventListener("Accessibility:Ready");
         unregisterEventListener("Shortcut:Remove");
-        unregisterEventListener("WebApps:InstallApk");
-        unregisterEventListener("WebApps:PreInstall");
-        unregisterEventListener("WebApps:PostInstall");
-        unregisterEventListener("WebApps:Open");
-        unregisterEventListener("WebApps:Uninstall");
         unregisterEventListener("Share:Text");
         unregisterEventListener("Share:Image");
         unregisterEventListener("Image:SetAs");
@@ -2112,7 +2087,11 @@ public abstract class GeckoApp
         unregisterEventListener("Intent:Open");
         unregisterEventListener("Intent:GetHandlers");
         unregisterEventListener("Locale:Set");
+        unregisterEventListener("NativeApp:IsDebuggable");
         unregisterEventListener("SystemUI:Visibility");
+        unregisterEventListener("WebApps:PreInstall");
+
+        EventListener.unregisterEvents();
 
         deleteTempFiles();
 
@@ -2770,6 +2749,23 @@ public abstract class GeckoApp
             Log.wtf(LOGTAG, getPackageName() + " not found", e);
         }
         return versionCode;
+    }
+
+    protected boolean getIsDebuggable() {
+        // Return false so Fennec doesn't appear to be debuggable.  WebAppImpl
+        // then overrides this and returns the value of android:debuggable for
+        // the webapp APK, so webapps get the behavior supported by this method
+        // (i.e. automatic configuration and enabling of the remote debugger).
+        return false;
+
+        // If we ever want to expose this for Fennec, here's how we would do it:
+        // int flags = 0;
+        // try {
+        //     flags = getPackageManager().getPackageInfo(getPackageName(), 0).applicationInfo.flags;
+        // } catch (NameNotFoundException e) {
+        //     Log.wtf(LOGTAG, getPackageName() + " not found", e);
+        // }
+        // return (flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0;
     }
 
     // FHR reason code for a session end prior to a restart for a

@@ -176,7 +176,6 @@ const JSClass sNPObjectJSWrapperClass =
     (JSResolveOp)NPObjWrapper_NewResolve,
     NPObjWrapper_Convert,
     NPObjWrapper_Finalize,
-    nullptr,                                                /* checkAccess */
     NPObjWrapper_Call,
     nullptr,                                                /* hasInstance */
     NPObjWrapper_Construct
@@ -207,7 +206,7 @@ static const JSClass sNPObjectMemberClass =
     JS_PropertyStub, JS_DeletePropertyStub,
     JS_PropertyStub, JS_StrictPropertyStub, JS_EnumerateStub,
     JS_ResolveStub, NPObjectMember_Convert,
-    NPObjectMember_Finalize, nullptr, NPObjectMember_Call,
+    NPObjectMember_Finalize, NPObjectMember_Call,
     nullptr, nullptr, NPObjectMember_Trace
   };
 
@@ -558,11 +557,13 @@ nsJSObjWrapper::NP_Invalidate(NPObject *npobj)
 }
 
 static bool
-GetProperty(JSContext *cx, JSObject *obj, NPIdentifier id, JS::MutableHandle<JS::Value> rval)
+GetProperty(JSContext *cx, JSObject *objArg, NPIdentifier npid, JS::MutableHandle<JS::Value> rval)
 {
-  NS_ASSERTION(NPIdentifierIsInt(id) || NPIdentifierIsString(id),
+  NS_ASSERTION(NPIdentifierIsInt(npid) || NPIdentifierIsString(npid),
                "id must be either string or int!\n");
-  return ::JS_GetPropertyById(cx, obj, NPIdentifierToJSId(id), rval);
+  JS::Rooted<JSObject *> obj(cx, objArg);
+  JS::Rooted<jsid> id(cx, NPIdentifierToJSId(npid));
+  return ::JS_GetPropertyById(cx, obj, id, rval);
 }
 
 // static
@@ -636,50 +637,31 @@ doInvoke(NPObject *npobj, NPIdentifier method, const NPVariant *args,
     fv = OBJECT_TO_JSVAL(npjsobj->mJSObj);
   }
 
-  JS::Value jsargs_buf[8];
-  JS::Value *jsargs = jsargs_buf;
-
-  if (argCount > (sizeof(jsargs_buf) / sizeof(JS::Value))) {
-    // Our stack buffer isn't large enough to hold all arguments,
-    // malloc a buffer.
-    jsargs = (JS::Value *)PR_Malloc(argCount * sizeof(JS::Value));
-    if (!jsargs) {
+  // Convert args
+  JS::AutoValueVector jsargs(cx);
+  if (!jsargs.reserve(argCount)) {
       ::JS_ReportOutOfMemory(cx);
-
       return false;
-    }
+  }
+  for (uint32_t i = 0; i < argCount; ++i) {
+    jsargs.infallibleAppend(NPVariantToJSVal(npp, cx, args + i));
   }
 
   JS::Rooted<JS::Value> v(cx);
-  bool ok;
+  bool ok = false;
 
-  {
-    JS::AutoArrayRooter tvr(cx, 0, jsargs);
+  if (ctorCall) {
+    JSObject *newObj =
+      ::JS_New(cx, npjsobj->mJSObj, jsargs.length(), jsargs.begin());
 
-    // Convert args
-    for (uint32_t i = 0; i < argCount; ++i) {
-      jsargs[i] = NPVariantToJSVal(npp, cx, args + i);
-      tvr.changeLength(i + 1);
+    if (newObj) {
+      v.setObject(*newObj);
+      ok = true;
     }
-
-    if (ctorCall) {
-      JSObject *newObj =
-        ::JS_New(cx, npjsobj->mJSObj, argCount, jsargs);
-
-      if (newObj) {
-        v = OBJECT_TO_JSVAL(newObj);
-        ok = true;
-      } else {
-        ok = false;
-      }
-    } else {
-      ok = ::JS_CallFunctionValue(cx, npjsobj->mJSObj, fv, argCount, jsargs, v.address());
-    }
-
+  } else {
+    ok = ::JS_CallFunctionValue(cx, npjsobj->mJSObj, fv, jsargs.length(),
+                                jsargs.begin(), v.address());
   }
-
-  if (jsargs != jsargs_buf)
-    PR_Free(jsargs);
 
   if (ok)
     ok = JSValToNPVariant(npp, cx, v, result);
@@ -776,7 +758,7 @@ nsJSObjWrapper::NP_GetProperty(NPObject *npobj, NPIdentifier id,
 
 // static
 bool
-nsJSObjWrapper::NP_SetProperty(NPObject *npobj, NPIdentifier id,
+nsJSObjWrapper::NP_SetProperty(NPObject *npobj, NPIdentifier npid,
                                const NPVariant *value)
 {
   NPP npp = NPPStack::Peek();
@@ -799,13 +781,15 @@ nsJSObjWrapper::NP_SetProperty(NPObject *npobj, NPIdentifier id,
   nsCxPusher pusher;
   pusher.Push(cx);
   AutoJSExceptionReporter reporter(cx);
-  JSAutoCompartment ac(cx, npjsobj->mJSObj);
+  JS::Rooted<JSObject*> jsObj(cx, npjsobj->mJSObj);
+  JSAutoCompartment ac(cx, jsObj);
 
   JS::Rooted<JS::Value> v(cx, NPVariantToJSVal(npp, cx, value));
 
-  NS_ASSERTION(NPIdentifierIsInt(id) || NPIdentifierIsString(id),
+  NS_ASSERTION(NPIdentifierIsInt(npid) || NPIdentifierIsString(npid),
                "id must be either string or int!\n");
-  ok = ::JS_SetPropertyById(cx, npjsobj->mJSObj, NPIdentifierToJSId(id), v);
+  JS::Rooted<jsid> id(cx, NPIdentifierToJSId(npid));
+  ok = ::JS_SetPropertyById(cx, jsObj, id, v);
 
   return ok;
 }

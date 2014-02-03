@@ -8,7 +8,7 @@
 /*****************************************************************************/
 
 #include <stdint.h>
-const PRTime gPreloadListExpirationTime = INT64_C(1400929573943000);
+const PRTime gPreloadListExpirationTime = INT64_C(1402139146259000);
 
 class nsSTSPreload
 {
@@ -25,11 +25,11 @@ static const nsSTSPreload kSTSPreloadList[] = {
   { "api.xero.com", false },
   { "apis.google.com", true },
   { "app.recurly.com", false },
+  { "app.yinxiang.com", false },
   { "appengine.google.com", false },
   { "appseccalifornia.org", true },
   { "arivo.com.br", true },
   { "bank.simple.com", false },
-  { "bassh.net", true },
   { "bccx.com", true },
   { "bitbucket.org", false },
   { "blog.cyveillance.com", true },
@@ -89,6 +89,7 @@ static const nsSTSPreload kSTSPreloadList[] = {
   { "googleplex.com", true },
   { "goto.google.com", true },
   { "grc.com", false },
+  { "grepular.com", true },
   { "groups.google.com", true },
   { "haste.ch", true },
   { "history.google.com", true },
@@ -103,9 +104,11 @@ static const nsSTSPreload kSTSPreloadList[] = {
   { "lastpass.com", false },
   { "launchkey.com", true },
   { "library.linode.com", false },
+  { "lifeguard.aecom.com", false },
   { "linode.com", false },
   { "linx.net", false },
   { "lockify.com", true },
+  { "logentries.com", false },
   { "login.persona.org", true },
   { "login.sapo.pt", true },
   { "login.xero.com", false },
@@ -130,6 +133,7 @@ static const nsSTSPreload kSTSPreloadList[] = {
   { "mudcrab.us", true },
   { "my.onlime.ch", false },
   { "my.xero.com", false },
+  { "mykolab.com", true },
   { "mylookout.com", false },
   { "neg9.org", false },
   { "oplop.appspot.com", true },
@@ -149,6 +153,7 @@ static const nsSTSPreload kSTSPreloadList[] = {
   { "profiles.google.com", true },
   { "publications.qld.gov.au", false },
   { "riseup.net", true },
+  { "romab.com", true },
   { "roundcube.mayfirst.org", false },
   { "sandbox.mydigipass.com", false },
   { "script.google.com", true },
@@ -178,7 +183,6 @@ static const nsSTSPreload kSTSPreloadList[] = {
   { "ubertt.org", true },
   { "wallet.google.com", true },
   { "webmail.gigahost.dk", false },
-  { "webmail.mayfirst.org", false },
   { "webmail.onlime.ch", false },
   { "wiki.python.org", true },
   { "wiz.biz", true },
@@ -187,6 +191,7 @@ static const nsSTSPreload kSTSPreloadList[] = {
   { "www.braintreepayments.com", false },
   { "www.cyveillance.com", true },
   { "www.entropia.de", false },
+  { "www.evernote.com", false },
   { "www.gov.uk", false },
   { "www.grc.com", false },
   { "www.heliosnet.com", true },

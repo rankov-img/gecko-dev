@@ -95,17 +95,6 @@ XPCOMUtils.defineLazyModuleGetter(this, "WebappManager",
   });
 });
 
-// Lazily-loaded browser scripts that use observer notifcations:
-var LazyNotificationGetter = {
-  observers: [],
-  shutdown: function lng_shutdown() {
-    this.observers.forEach(function(o) {
-      Services.obs.removeObserver(o, o.notification);
-    });
-    this.observers = [];
-  }
-};
-
 [
 #ifdef MOZ_WEBRTC
   ["WebrtcUI", ["getUserMedia:request", "recording-device-events"], "chrome://browser/content/WebrtcUI.js"],
@@ -125,14 +114,9 @@ var LazyNotificationGetter = {
     return sandbox[name];
   });
   notifications.forEach(function (aNotification) {
-    let o = {
-      notification: aNotification,
-      observe: function(s, t, d) {
-        window[name].observe(s, t, d);
-      }
-    };
-    Services.obs.addObserver(o, aNotification, false);
-    LazyNotificationGetter.observers.push(o);
+    Services.obs.addObserver(function(s, t, d) {
+        window[name].observe(s, t, d)
+    }, aNotification, false);
   });
 });
 
@@ -143,12 +127,9 @@ var LazyNotificationGetter = {
   let [name, notifications, resource] = module;
   XPCOMUtils.defineLazyModuleGetter(this, name, resource);
   notifications.forEach(notification => {
-    let o = {
-      notification: notification,
-      observe: (s, t, d) => this[name].observe(s, t, d)
-    };
-    Services.obs.addObserver(o, notification, false);
-    LazyNotificationGetter.observers.push(o);
+    Services.obs.addObserver((s,t,d) => {
+      this[name].observe(s,t,d)
+    }, notification, false);
   });
 });
 
@@ -306,6 +287,14 @@ var BrowserApp = {
     dump("zerdatime " + Date.now() + " - browser chrome startup finished.");
 
     this.deck = document.getElementById("browsers");
+    this.deck.addEventListener("DOMContentLoaded", function BrowserApp_delayedStartup() {
+      try {
+        BrowserApp.deck.removeEventListener("DOMContentLoaded", BrowserApp_delayedStartup, false);
+        Services.obs.notifyObservers(window, "browser-delayed-startup-finished", "");
+        sendMessageToJava({ type: "Gecko:DelayedStartup" });
+      } catch(ex) { console.log(ex); }
+    }, false);
+
     BrowserEventHandler.init();
     ViewportHandler.init();
 
@@ -334,7 +323,8 @@ var BrowserApp = {
     Services.obs.addObserver(this, "gather-telemetry", false);
     Services.obs.addObserver(this, "keyword-search", false);
 #ifdef MOZ_ANDROID_SYNTHAPKS
-    Services.obs.addObserver(this, "webapps-download-apk", false);
+    Services.obs.addObserver(this, "webapps-runtime-install", false);
+    Services.obs.addObserver(this, "webapps-runtime-install-package", false);
     Services.obs.addObserver(this, "webapps-ask-install", false);
     Services.obs.addObserver(this, "webapps-launch", false);
     Services.obs.addObserver(this, "webapps-uninstall", false);
@@ -380,9 +370,6 @@ var BrowserApp = {
     // TODO: replace with Android implementation of WebappOSUtils.isLaunchable.
     Cu.import("resource://gre/modules/Webapps.jsm");
     DOMApplicationRegistry.allAppsLaunchable = true;
-
-    // TODO: figure out why this is needed here.
-    Cu.import("resource://gre/modules/AppsUtils.jsm");
 #else
     WebappsUI.init();
 #endif
@@ -435,6 +422,8 @@ var BrowserApp = {
     let event = document.createEvent("Events");
     event.initEvent("UIReady", true, false);
     window.dispatchEvent(event);
+
+    Services.obs.addObserver(this, "browser-delayed-startup-finished", false);
 
     if (this._startupStatus)
       this.onAppUpdated();
@@ -490,6 +479,7 @@ var BrowserApp = {
       NativeWindow.contextmenus.linkOpenableNonPrivateContext,
       function(aTarget) {
         let url = NativeWindow.contextmenus._getLinkURL(aTarget);
+        ContentAreaUtils.urlSecurityCheck(url, aTarget.ownerDocument.nodePrincipal);
         BrowserApp.addTab(url, { selected: false, parentId: BrowserApp.selectedTab.id });
 
         let newtabStrings = Strings.browser.GetStringFromName("newtabpopup.opened");
@@ -501,6 +491,7 @@ var BrowserApp = {
       NativeWindow.contextmenus.linkOpenableContext,
       function(aTarget) {
         let url = NativeWindow.contextmenus._getLinkURL(aTarget);
+        ContentAreaUtils.urlSecurityCheck(url, aTarget.ownerDocument.nodePrincipal);
         BrowserApp.addTab(url, { selected: false, parentId: BrowserApp.selectedTab.id, isPrivate: true });
 
         let newtabStrings = Strings.browser.GetStringFromName("newprivatetabpopup.opened");
@@ -705,10 +696,6 @@ var BrowserApp = {
   },
 
   onAppUpdated: function() {
-    // initialize the form history and passwords databases on upgrades
-    Services.obs.notifyObservers(null, "FormHistory:Init", "");
-    Services.obs.notifyObservers(null, "Passwords:Init", "");
-
     // Migrate user-set "plugins.click_to_play" pref. See bug 884694.
     // Because the default value is true, a user-set pref means that the pref was set to false.
     if (Services.prefs.prefHasUserValue("plugins.click_to_play")) {
@@ -777,7 +764,6 @@ var BrowserApp = {
       return;
 
     if (this._selectedTab) {
-      Tabs.touch(this._selectedTab);
       this._selectedTab.setActive(false);
     }
 
@@ -785,7 +771,6 @@ var BrowserApp = {
     if (!aTab)
       return;
 
-    Tabs.touch(aTab);
     aTab.setActive(true);
     aTab.setResolution(aTab._zoom, true);
     this.contentDocumentChanged();
@@ -895,8 +880,6 @@ var BrowserApp = {
     let evt = document.createEvent("UIEvents");
     evt.initUIEvent("TabOpen", true, false, window, null);
     newTab.browser.dispatchEvent(evt);
-
-    Tabs.expireLruTab();
 
     return newTab;
   },
@@ -1583,8 +1566,12 @@ var BrowserApp = {
         break;
 
 #ifdef MOZ_ANDROID_SYNTHAPKS
-      case "webapps-download-apk":
-        WebappManager.downloadApk(JSON.parse(aData));
+      case "webapps-runtime-install":
+        WebappManager.install(JSON.parse(aData), aSubject);
+        break;
+
+      case "webapps-runtime-install-package":
+        WebappManager.installPackage(JSON.parse(aData), aSubject);
         break;
 
       case "webapps-ask-install":
@@ -1625,10 +1612,22 @@ var BrowserApp = {
         Services.prefs.setCharPref("general.useragent.locale", aData);
         break;
 
+      case "browser-delayed-startup-finished":
+        this._delayedStartup();
+        break;
+
       default:
         dump('BrowserApp.observe: unexpected topic "' + aTopic + '"\n');
         break;
 
+    }
+  },
+
+  _delayedStartup: function() {
+    // initialize the form history and passwords databases on upgrades
+    if (this._startupStatus) {
+      Services.obs.notifyObservers(null, "FormHistory:Init", "");
+      Services.obs.notifyObservers(null, "Passwords:Init", "");
     }
   },
 
@@ -3052,6 +3051,8 @@ Tab.prototype = {
   setActive: function setActive(aActive) {
     if (!this.browser || !this.browser.docShell)
       return;
+
+    this.lastTouchedAt = Date.now();
 
     if (aActive) {
       this.browser.setAttribute("type", "content-primary");
@@ -8240,6 +8241,7 @@ var Tabs = {
     Services.obs.addObserver(this, "Session:Prefetch", false);
 
     BrowserApp.deck.addEventListener("pageshow", this, false);
+    BrowserApp.deck.addEventListener("TabOpen", this, false);
   },
 
   uninit: function() {
@@ -8252,14 +8254,20 @@ var Tabs = {
     Services.obs.removeObserver(this, "Session:Prefetch");
 
     BrowserApp.deck.removeEventListener("pageshow", this);
+    BrowserApp.deck.removeEventListener("TabOpen", this);
   },
 
   observe: function(aSubject, aTopic, aData) {
     switch (aTopic) {
       case "memory-pressure":
         if (aData != "heap-minimize") {
+          // We received a low-memory related notification. This will enable
+          // expirations.
           this._enableTabExpiration = true;
           Services.obs.removeObserver(this, "memory-pressure");
+        } else {
+          // Use "heap-minimize" as a trigger to expire the most stale tab.
+          this.expireLruTab();
         }
         break;
       case "Session:Prefetch":
@@ -8282,11 +8290,11 @@ var Tabs = {
         // Clear the domain cache whenever a page get loaded into any browser.
         this._domains.clear();
         break;
+      case "TabOpen":
+        // Use opening a new tab as a trigger to expire the most stale tab.
+        this.expireLruTab();
+        break;
     }
-  },
-
-  touch: function(aTab) {
-    aTab.lastTouchedAt = Date.now();
   },
 
   // Manage the most-recently-used list of tabs. Each tab has a timestamp

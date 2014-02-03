@@ -229,3 +229,37 @@ class WaitUntilTest(MarionetteTestCase):
         with self.assertRaisesRegexp(errors.TimeoutException,
                                      "Timed out after 2 seconds"):
             self.w.until(lambda x: x.true(wait=4), is_true=at_third_attempt)
+
+    def test_message(self):
+        self.w.exceptions = (TypeError,)
+        exc = None
+        try:
+            self.w.until(lambda x: x.exception(e=TypeError), message="hooba")
+        except errors.TimeoutException as e:
+            exc = e
+
+        result = str(exc)
+        self.assertIn("seconds with message: hooba, caused by", result)
+
+    def test_no_message(self):
+        self.w.exceptions = (TypeError,)
+        exc = None
+        try:
+            self.w.until(lambda x: x.exception(e=TypeError), message="")
+        except errors.TimeoutException as e:
+            exc = e
+
+        result = str(exc)
+        self.assertIn("seconds, caused by", result)
+
+    def test_message_has_none_as_its_value(self):
+        self.w.exceptions = (TypeError,)
+        exc = None
+        try:
+            self.w.until(False, None, None)
+        except errors.TimeoutException as e:
+            exc = e
+
+        result = str(exc)
+        self.assertNotIn("with message:", result)
+        self.assertNotIn("secondsNone", result)

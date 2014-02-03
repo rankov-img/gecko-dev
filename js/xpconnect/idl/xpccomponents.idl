@@ -120,7 +120,7 @@ interface ScheduledGCCallback : nsISupports
 /**
 * interface of Components.utils
 */
-[scriptable, uuid(872b0aa4-c234-4c46-b72c-1bc861d6c5eb)]
+[scriptable, uuid(cd4bccf4-3433-492e-8dfd-dfdb3fe9efa1)]
 interface nsIXPCComponents_Utils : nsISupports
 {
 
@@ -258,7 +258,7 @@ interface nsIXPCComponents_Utils : nsISupports
      * Force an immediate cycle collection cycle.
      */
     void forceCC();
-    
+
     /*
      * To be called from JS only.
      *
@@ -271,7 +271,7 @@ interface nsIXPCComponents_Utils : nsISupports
      * is running. Call the provided function once this has occurred.
      */
     void schedulePreciseGC(in ScheduledGCCallback callback);
-    
+
     /*
      * Schedule a shrinking garbage collection cycle for a point in the future
      * when no JS is running. Call the provided function once this has occured.
@@ -548,6 +548,19 @@ interface nsIXPCComponents_Utils : nsISupports
       *   "WatchdogHibernateStop"   - Watchdog stops hibernating
       */
     PRTime getWatchdogTimestamp(in AString aCategory);
+
+    [implicit_jscontext]
+    jsval getJSEngineTelemetryValue();
+
+    /*
+     * Clone an object into a scope.
+     * The 3rd argument is an optional options object:
+     * - cloneFunction: boolean. If true, any function in the value is are
+     *   wrapped in a function forwarder that appears to be a native function in
+     *   the content scope.
+     */
+    [implicit_jscontext]
+    jsval cloneInto(in jsval value, in jsval scope, [optional] in jsval options);
 };
 
 /**

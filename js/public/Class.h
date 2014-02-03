@@ -39,7 +39,7 @@ class SpecialId;
 // to #include jsfun.h.
 extern JS_FRIEND_DATA(const js::Class* const) FunctionClassPtr;
 
-static JS_ALWAYS_INLINE jsid
+static MOZ_ALWAYS_INLINE jsid
 SPECIALID_TO_JSID(const SpecialId &sid);
 
 /*
@@ -58,7 +58,7 @@ class SpecialId
     uintptr_t bits_;
 
     /* Needs access to raw bits. */
-    friend JS_ALWAYS_INLINE jsid SPECIALID_TO_JSID(const SpecialId &sid);
+    friend MOZ_ALWAYS_INLINE jsid SPECIALID_TO_JSID(const SpecialId &sid);
     friend class PropertyId;
 
     static const uintptr_t TYPE_VOID = JSID_TYPE_VOID;
@@ -113,7 +113,7 @@ class SpecialId
     }
 };
 
-static JS_ALWAYS_INLINE jsid
+static MOZ_ALWAYS_INLINE jsid
 SPECIALID_TO_JSID(const SpecialId &sid)
 {
     jsid id;
@@ -124,13 +124,13 @@ SPECIALID_TO_JSID(const SpecialId &sid)
     return id;
 }
 
-static JS_ALWAYS_INLINE bool
+static MOZ_ALWAYS_INLINE bool
 JSID_IS_SPECIAL(jsid id)
 {
     return JSID_IS_OBJECT(id) || JSID_IS_EMPTY(id) || JSID_IS_VOID(id);
 }
 
-static JS_ALWAYS_INLINE SpecialId
+static MOZ_ALWAYS_INLINE SpecialId
 JSID_TO_SPECIALID(jsid id)
 {
     JS_ASSERT(JSID_IS_SPECIAL(id));
@@ -263,14 +263,6 @@ typedef void
 struct JSStringFinalizer {
     void (*finalize)(const JSStringFinalizer *fin, jschar *chars);
 };
-
-// JSClass.checkAccess type: check whether obj[id] may be accessed per mode,
-// returning false on error/exception, true on success with obj[id]'s last-got
-// value in *vp, and its attributes in *attrsp.  As for JSPropertyOp above, id
-// is either a string or an int jsval.
-typedef bool
-(* JSCheckAccessOp)(JSContext *cx, JS::HandleObject obj, JS::HandleId id,
-                    JSAccessMode mode, JS::MutableHandleValue vp);
 
 // Return whether the first principal subsumes the second. The exact meaning of
 // 'subsumes' is left up to the browser. Subsumption is checked inside the JS
@@ -410,7 +402,6 @@ typedef void
                                                                               \
     /* Optional members (may be null). */                                     \
     FinalizeOp          finalize;                                             \
-    JSCheckAccessOp     checkAccess;                                          \
     JSNative            call;                                                 \
     JSHasInstanceOp     hasInstance;                                          \
     JSNative            construct;                                            \
@@ -510,7 +501,6 @@ struct JSClass {
 
     // Optional members (may be null).
     JSFinalizeOp        finalize;
-    JSCheckAccessOp     checkAccess;
     JSNative            call;
     JSHasInstanceOp     hasInstance;
     JSNative            construct;
@@ -551,9 +541,9 @@ struct JSClass {
 #define JSCLASS_INTERNAL_FLAG2          (1<<(JSCLASS_HIGH_FLAGS_SHIFT+2))
 #define JSCLASS_INTERNAL_FLAG3          (1<<(JSCLASS_HIGH_FLAGS_SHIFT+3))
 
-// Indicate whether the proto or ctor should be frozen.
-#define JSCLASS_FREEZE_PROTO            (1<<(JSCLASS_HIGH_FLAGS_SHIFT+4))
-#define JSCLASS_FREEZE_CTOR             (1<<(JSCLASS_HIGH_FLAGS_SHIFT+5))
+#define JSCLASS_IS_PROXY                (1<<(JSCLASS_HIGH_FLAGS_SHIFT+4))
+
+// Bit 22 unused.
 
 // Reserved for embeddings.
 #define JSCLASS_USERBIT2                (1<<(JSCLASS_HIGH_FLAGS_SHIFT+6))
@@ -626,6 +616,10 @@ struct Class
         return this == js::FunctionClassPtr || call;
     }
 
+    bool isProxy() const {
+        return flags & JSCLASS_IS_PROXY;
+    }
+
     static size_t offsetOfFlags() { return offsetof(Class, flags); }
 };
 
@@ -639,20 +633,19 @@ JS_STATIC_ASSERT(offsetof(JSClass, enumerate) == offsetof(Class, enumerate));
 JS_STATIC_ASSERT(offsetof(JSClass, resolve) == offsetof(Class, resolve));
 JS_STATIC_ASSERT(offsetof(JSClass, convert) == offsetof(Class, convert));
 JS_STATIC_ASSERT(offsetof(JSClass, finalize) == offsetof(Class, finalize));
-JS_STATIC_ASSERT(offsetof(JSClass, checkAccess) == offsetof(Class, checkAccess));
 JS_STATIC_ASSERT(offsetof(JSClass, call) == offsetof(Class, call));
 JS_STATIC_ASSERT(offsetof(JSClass, construct) == offsetof(Class, construct));
 JS_STATIC_ASSERT(offsetof(JSClass, hasInstance) == offsetof(Class, hasInstance));
 JS_STATIC_ASSERT(offsetof(JSClass, trace) == offsetof(Class, trace));
 JS_STATIC_ASSERT(sizeof(JSClass) == sizeof(Class));
 
-static JS_ALWAYS_INLINE const JSClass *
+static MOZ_ALWAYS_INLINE const JSClass *
 Jsvalify(const Class *c)
 {
     return (const JSClass *)c;
 }
 
-static JS_ALWAYS_INLINE const Class *
+static MOZ_ALWAYS_INLINE const Class *
 Valueify(const JSClass *c)
 {
     return (const Class *)c;

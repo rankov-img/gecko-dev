@@ -45,7 +45,7 @@ def isTypeCopyConstructible(type):
 
 def wantsAddProperty(desc):
     return desc.concrete and \
-           desc.wrapperCache and not desc.customWrapperManagement and \
+           desc.wrapperCache and \
            not desc.interface.getExtendedAttribute("Global")
 
 class CGThing():
@@ -201,12 +201,12 @@ static const DOMJSClass Class = {
     %s, /* resolve */
     JS_ConvertStub,
     %s, /* finalize */
-    nullptr,               /* checkAccess */
     %s, /* call */
     nullptr,               /* hasInstance */
     nullptr,               /* construct */
     %s, /* trace */
-    JSCLASS_NO_INTERNAL_MEMBERS
+    JS_NULL_CLASS_EXT,
+    JS_NULL_OBJECT_OPS
   },
 %s
 };
@@ -214,6 +214,28 @@ static const DOMJSClass Class = {
        classFlags,
        ADDPROPERTY_HOOK_NAME if wantsAddProperty(self.descriptor) else 'JS_PropertyStub',
        enumerateHook, newResolveHook, FINALIZE_HOOK_NAME, callHook, traceHook,
+       CGIndenter(CGGeneric(DOMClass(self.descriptor))).define())
+
+class CGDOMProxyJSClass(CGThing):
+    """
+    Generate a DOMJSClass for a given proxy descriptor
+    """
+    def __init__(self, descriptor):
+        CGThing.__init__(self)
+        self.descriptor = descriptor
+    def declare(self):
+        return ""
+    def define(self):
+        return """
+static const DOMJSClass Class = {
+  PROXY_CLASS_DEF("%s",
+                  0, /* extra slots */
+                  JSCLASS_IS_DOMJSCLASS,
+                  nullptr, /* call */
+                  nullptr  /* construct */),
+%s
+};
+""" % (self.descriptor.interface.identifier.name,
        CGIndenter(CGGeneric(DOMClass(self.descriptor))).define())
 
 def PrototypeIDAndDepth(descriptor):
@@ -292,7 +314,6 @@ class CGPrototypeJSClass(CGThing):
     JS_ResolveStub,
     JS_ConvertStub,
     nullptr,               /* finalize */
-    nullptr,               /* checkAccess */
     nullptr,               /* call */
     nullptr,               /* hasInstance */
     nullptr,               /* construct */
@@ -350,7 +371,6 @@ static DOMIfaceAndProtoJSClass InterfaceObjectClass = {
     JS_ResolveStub,
     JS_ConvertStub,
     nullptr,               /* finalize */
-    nullptr,               /* checkAccess */
     %s, /* call */
     %s, /* hasInstance */
     %s, /* construct */
@@ -1057,19 +1077,16 @@ def DeferredFinalizeSmartPtr(descriptor):
         smartPtr = 'nsRefPtr'
     return smartPtr
 
-def finalizeHook(descriptor, hookName, context):
-    if descriptor.customFinalize:
-        finalize = "self->%s(%s);" % (hookName, context)
-    else:
-        finalize = "JSBindingFinalized<%s>::Finalized(self);\n" % descriptor.nativeType
-        if descriptor.wrapperCache:
-            finalize += "ClearWrapper(self, self);\n"
-        if descriptor.interface.getExtendedAttribute('OverrideBuiltins'):
-            finalize += "self->mExpandoAndGeneration.expando = JS::UndefinedValue();\n"
-        if descriptor.interface.getExtendedAttribute("Global"):
-            finalize += "mozilla::dom::FinalizeGlobal(fop, obj);\n"
-        finalize += ("AddForDeferredFinalization<%s, %s >(self);" %
-            (descriptor.nativeType, DeferredFinalizeSmartPtr(descriptor)))
+def finalizeHook(descriptor, hookName, freeOp):
+    finalize = "JSBindingFinalized<%s>::Finalized(self);\n" % descriptor.nativeType
+    if descriptor.wrapperCache:
+        finalize += "ClearWrapper(self, self);\n"
+    if descriptor.interface.getExtendedAttribute('OverrideBuiltins'):
+        finalize += "self->mExpandoAndGeneration.expando = JS::UndefinedValue();\n"
+    if descriptor.interface.getExtendedAttribute("Global"):
+        finalize += "mozilla::dom::FinalizeGlobal(CastToJSFreeOp(%s), obj);\n" % freeOp
+    finalize += ("AddForDeferredFinalization<%s, %s >(self);" %
+        (descriptor.nativeType, DeferredFinalizeSmartPtr(descriptor)))
     return CGIfWrapper(CGGeneric(finalize), "self")
 
 class CGClassFinalizeHook(CGAbstractClassHook):
@@ -1077,7 +1094,7 @@ class CGClassFinalizeHook(CGAbstractClassHook):
     A hook for finalize, used to release our native object.
     """
     def __init__(self, descriptor):
-        args = [Argument('JSFreeOp*', 'fop'), Argument('JSObject*', 'obj')]
+        args = [Argument('js::FreeOp*', 'fop'), Argument('JSObject*', 'obj')]
         CGAbstractClassHook.__init__(self, descriptor, FINALIZE_HOOK_NAME,
                                      'void', args)
 
@@ -1929,10 +1946,7 @@ if (!unforgeableHolder) {
             interfaceCache = "nullptr"
 
         if self.descriptor.concrete:
-            if self.descriptor.proxy:
-                domClass = "&Class"
-            else:
-                domClass = "&Class.mClass"
+            domClass = "&Class.mClass"
         else:
             domClass = "nullptr"
 
@@ -2151,8 +2165,10 @@ def CreateBindingJSObject(descriptor, properties, parent):
     objDecl = "  JS::Rooted<JSObject*> obj(aCx);\n"
     if descriptor.proxy:
         create = """  JS::Rooted<JS::Value> proxyPrivateVal(aCx, JS::PrivateValue(aObject));
+  js::ProxyOptions options;
+  options.setClass(&Class.mBase);
   obj = NewProxyObject(aCx, DOMProxyHandler::getInstance(),
-                       proxyPrivateVal, proto, %s);
+                       proxyPrivateVal, proto, %s, options);
   if (!obj) {
     return nullptr;
   }
@@ -2164,7 +2180,7 @@ def CreateBindingJSObject(descriptor, properties, parent):
 
 """
     else:
-        create = """  obj = JS_NewObject(aCx, &Class.mBase, proto, %s);
+        create = """  obj = JS_NewObject(aCx, Class.ToJSClass(), proto, %s);
   if (!obj) {
     return nullptr;
   }
@@ -2411,7 +2427,7 @@ class CGWrapGlobalMethod(CGAbstractMethod):
   obj = CreateGlobal<%s, GetProtoObject>(aCx,
                                          aObject,
                                          aCache,
-                                         &Class.mBase,
+                                         Class.ToJSClass(),
                                          aOptions,
                                          aPrincipal);
 
@@ -2480,6 +2496,7 @@ class CGClearCachedValueMethod(CGAbstractMethod):
             regetMember = ("\n"
                            "JS::Rooted<JS::Value> temp(aCx);\n"
                            "JSJitGetterCallArgs args(&temp);\n"
+                           "JSAutoCompartment ac(aCx, obj);\n"
                            "if (!get_%s(aCx, obj, aObject, args)) {\n"
                            "  js::SetReservedSlot(obj, %s, oldValue);\n"
                            "  nsJSUtils::ReportPendingException(aCx);\n"
@@ -6024,6 +6041,20 @@ class CGNewResolveHook(CGAbstractBindingMethod):
                 "objp.set(obj);\n"
                 "return true;"))
 
+    def definition_body(self):
+        if self.descriptor.interface.getExtendedAttribute("Global"):
+            # Resolve standard classes
+            prefix = CGIndenter(CGGeneric(
+                    "if (!ResolveGlobal(cx, obj, id, flags, objp)) {\n"
+                    "  return false;\n"
+                    "}\n"
+                    "if (objp) {\n"
+                    "  return true;\n"
+                    "}\n\n")).define()
+        else:
+            prefix = ""
+        return prefix + CGAbstractBindingMethod.definition_body(self)
+
 class CGEnumerateHook(CGAbstractBindingMethod):
     """
     Enumerate hook for objects with custom hooks.
@@ -6055,12 +6086,23 @@ class CGEnumerateHook(CGAbstractBindingMethod):
                 "}\n"
                 "return true;"))
 
+    def definition_body(self):
+        if self.descriptor.interface.getExtendedAttribute("Global"):
+            # Enumerate standard classes
+            prefix = CGIndenter(CGGeneric(
+                    "if (!EnumerateGlobal(cx, obj)) {\n"
+                    "  return false;\n"
+                    "}\n\n")).define()
+        else:
+            prefix = ""
+        return prefix + CGAbstractBindingMethod.definition_body(self)
+
 class CppKeywords():
     """
     A class for checking if method names declared in webidl
     are not in conflict with C++ keywords.
     """
-    keywords = frozenset(['alignas', 'alignof', 'and', 'and_eq', 'asm', 'auto', 'bitand', 'bitor', 'bool',
+    keywords = frozenset(['alignas', 'alignof', 'and', 'and_eq', 'asm', 'assert', 'auto', 'bitand', 'bitor', 'bool',
     'break', 'case', 'catch', 'char', 'char16_t', 'char32_t', 'class', 'compl', 'const', 'constexpr',
     'const_cast', 'continue', 'decltype', 'default', 'delete', 'do', 'double', 'dynamic_cast', 'else', 'enum',
     'explicit', 'export', 'extern', 'false', 'final', 'float', 'for', 'friend', 'goto', 'if', 'inline',
@@ -6072,8 +6114,10 @@ class CppKeywords():
 
     @staticmethod
     def checkMethodName(name):
+        # Double '_' because 'assert' and '_assert' cannot be used in MS2013 compiler.
+        # Bug 964892 and bug 963560.
         if name in CppKeywords.keywords:
-          name = '_' + name
+          name = '_' + name + '_'
         return name
 
 class CGStaticMethod(CGAbstractStaticBindingMethod):
@@ -6312,7 +6356,8 @@ if (!v.isObject()) {
   return ThrowErrorMessage(cx, MSG_NOT_OBJECT, "%s.%s");
 }
 
-return JS_SetProperty(cx, &v.toObject(), "%s", args[0]);""" % (attrName, self.descriptor.interface.identifier.name, attrName, forwardToAttrName))).define()
+JS::Rooted<JSObject*> targetObj(cx, &v.toObject());
+return JS_SetProperty(cx, targetObj, "%s", args[0]);""" % (attrName, self.descriptor.interface.identifier.name, attrName, forwardToAttrName))).define()
 
 class CGSpecializedReplaceableSetter(CGSpecializedSetter):
     """
@@ -7732,6 +7777,29 @@ class CGResolveOwnPropertyViaNewresolve(CGAbstractBindingMethod):
                                          callArgs="")
     def generate_code(self):
         return CGIndenter(CGGeneric(
+                "{\n"
+                "  // Since we're dealing with an Xray, do the resolve on the\n"
+                "  // underlying object first.  That gives it a chance to\n"
+                "  // define properties on the actual object as needed, and\n"
+                "  // then use the fact that it created the objects as a flag\n"
+                "  // o avoid re-resolving the properties if someone deletes\n"
+                "  // them.\n"
+                "  JSAutoCompartment ac(cx, obj);\n"
+                "  JS::Rooted<JSPropertyDescriptor> objDesc(cx);\n"
+                "  if (!self->DoNewResolve(cx, obj, id, &objDesc)) {\n"
+                "    return false;\n"
+                "  }\n"
+                "  // If desc.value() is undefined, then the DoNewResolve call\n"
+                "  // has already defined the property on the object.  Don't\n"
+                "  // try to also define it.\n"
+                "  if (objDesc.object() &&\n"
+                "      !objDesc.value().isUndefined() &&\n"
+                "      !JS_DefinePropertyById(cx, obj, id, objDesc.value(),\n"
+                "                             objDesc.getter(), objDesc.setter(),\n"
+                "                             objDesc.attributes())) {\n"
+                "    return false;\n"
+                "  }\n"
+                "}\n"
                 "return self->DoNewResolve(cx, wrapper, id, desc);"))
 
 class CGEnumerateOwnProperties(CGAbstractStaticMethod):
@@ -8042,23 +8110,6 @@ class CGProxyUnwrap(CGAbstractMethod):
   }
   MOZ_ASSERT(IsProxy(obj));
   return static_cast<%s*>(js::GetProxyPrivate(obj).toPrivate());""" % (self.descriptor.nativeType)
-
-class CGDOMJSProxyHandlerDOMClass(CGThing):
-    def __init__(self, descriptor):
-        CGThing.__init__(self)
-        self.descriptor = descriptor
-    def declare(self):
-        return ""
-    def define(self):
-        return """
-static const DOMClass Class = """ + DOMClass(self.descriptor) + """;
-
-"""
-
-class CGDOMJSProxyHandler_CGDOMJSProxyHandler(ClassConstructor):
-    def __init__(self):
-        ClassConstructor.__init__(self, [], inline=True, visibility="private",
-                                  baseConstructors=["mozilla::dom::DOMProxyHandler(Class)"])
 
 class CGDOMJSProxyHandler_getOwnPropertyDescriptor(ClassMethod):
     def __init__(self, descriptor):
@@ -8605,7 +8656,6 @@ class CGDOMJSProxyHandler(CGClass):
     def __init__(self, descriptor):
         assert (descriptor.supportsIndexedProperties() or
                 descriptor.supportsNamedProperties())
-        constructors = [CGDOMJSProxyHandler_CGDOMJSProxyHandler()]
         methods = [CGDOMJSProxyHandler_getOwnPropertyDescriptor(descriptor),
                    CGDOMJSProxyHandler_defineProperty(descriptor),
                    ClassUsingDeclaration("mozilla::dom::DOMProxyHandler",
@@ -8623,7 +8673,6 @@ class CGDOMJSProxyHandler(CGClass):
 
         CGClass.__init__(self, 'DOMProxyHandler',
                          bases=[ClassBase('mozilla::dom::DOMProxyHandler')],
-                         constructors=constructors,
                          methods=methods)
 
 class CGDOMJSProxyHandlerDeclarer(CGThing):
@@ -8859,8 +8908,8 @@ class CGDescriptor(CGThing):
                 cgThings.append(CGDOMJSProxyHandlerDeclarer(handlerThing))
                 cgThings.append(CGProxyIsProxy(descriptor))
                 cgThings.append(CGProxyUnwrap(descriptor))
-                cgThings.append(CGDOMJSProxyHandlerDOMClass(descriptor))
                 cgThings.append(CGDOMJSProxyHandlerDefiner(handlerThing))
+                cgThings.append(CGDOMProxyJSClass(descriptor))
             else:
                 cgThings.append(CGDOMJSClass(descriptor))
                 cgThings.append(CGGetJSClassMethod(descriptor))
@@ -9053,9 +9102,11 @@ if (cx) {
         if memberInits:
             body += (
                 "bool isNull = val.isNullOrUndefined();\n"
-                "// We only need |temp| if !isNull, in which case we have |cx|.\n"
+                "// We only need these if !isNull, in which case we have |cx|.\n"
+                "Maybe<JS::Rooted<JSObject *> > object;\n"
                 "Maybe<JS::Rooted<JS::Value> > temp;\n"
                 "if (!isNull) {\n"
+                "  object.construct(cx, &val.toObject());\n"
                 "  temp.construct(cx);\n"
                 "}\n")
             body += "\n\n".join(memberInits) + "\n"
@@ -9121,7 +9172,7 @@ if (!*reinterpret_cast<jsid**>(atomsCache) && !InitIds(cx, atomsCache)) {
 
     def initIdsMethod(self):
         assert self.needToInitIds
-        idinit = [CGGeneric('!InternJSString(cx, atomsCache->%s, "%s")' %
+        idinit = [CGGeneric('!atomsCache->%s.init(cx, "%s")' %
                             (m.identifier.name + "_id", m.identifier.name))
                   for m in self.dictionary.members]
         idinit.reverse();
@@ -9306,7 +9357,7 @@ if (""",
             replacements["haveValue"] = "!isNull && !temp.ref().isUndefined()"
 
         propId = self.makeIdName(member.identifier.name);
-        propGet = ("JS_GetPropertyById(cx, &val.toObject(), atomsCache->%s, &temp.ref())" %
+        propGet = ("JS_GetPropertyById(cx, object.ref(), atomsCache->%s, &temp.ref())" %
                    propId)
 
         conversionReplacements = {
@@ -9480,11 +9531,11 @@ class CGRegisterProtos(CGAbstractMethod):
     def _defineMacro(self):
        return """
 #define REGISTER_PROTO(_dom_class, _ctor_check) \\
-  aNameSpaceManager->RegisterDefineDOMInterface(NS_LITERAL_STRING(#_dom_class), _dom_class##Binding::DefineDOMInterface, _ctor_check);
+  aNameSpaceManager->RegisterDefineDOMInterface(MOZ_UTF16(#_dom_class), _dom_class##Binding::DefineDOMInterface, _ctor_check);
 #define REGISTER_CONSTRUCTOR(_dom_constructor, _dom_class, _ctor_check) \\
-  aNameSpaceManager->RegisterDefineDOMInterface(NS_LITERAL_STRING(#_dom_constructor), _dom_class##Binding::DefineDOMInterface, _ctor_check);
+  aNameSpaceManager->RegisterDefineDOMInterface(MOZ_UTF16(#_dom_constructor), _dom_class##Binding::DefineDOMInterface, _ctor_check);
 #define REGISTER_NAVIGATOR_CONSTRUCTOR(_prop, _dom_class, _ctor_check) \\
-  aNameSpaceManager->RegisterNavigatorDOMConstructor(NS_LITERAL_STRING(_prop), _dom_class##Binding::ConstructNavigatorObject, _ctor_check);
+  aNameSpaceManager->RegisterNavigatorDOMConstructor(MOZ_UTF16(_prop), _dom_class##Binding::ConstructNavigatorObject, _ctor_check);
 
 """
     def _undefineMacro(self):
@@ -10907,7 +10958,7 @@ class CGCallback(CGClass):
                              "eReportExceptions"))
         # And now insert our template argument.
         argsWithoutThis = list(args)
-        args.insert(0, Argument("const T&",  "thisObj"))
+        args.insert(0, Argument("const T&",  "thisObjPtr"))
 
         setupCall = ("CallSetup s(this, aRv, aExceptionHandling);\n"
                      "if (!s.GetContext()) {\n"
@@ -10918,7 +10969,7 @@ class CGCallback(CGClass):
         bodyWithThis = string.Template(
             setupCall+
             "JS::Rooted<JSObject*> thisObjJS(s.GetContext(),\n"
-            "  WrapCallThisObject(s.GetContext(), CallbackPreserveColor(), thisObj));\n"
+            "  WrapCallThisObject(s.GetContext(), CallbackPreserveColor(), thisObjPtr));\n"
             "if (!thisObjJS) {\n"
             "  aRv.Throw(NS_ERROR_FAILURE);\n"
             "  return${errorReturn};\n"
@@ -11383,7 +11434,8 @@ class CallbackGetter(CallbackAccessor):
                                                                 self.attrName)
             }
         return string.Template(
-            'if (!JS_GetProperty(cx, mCallback, "${attrName}", &rval)) {\n'
+            'JS::Rooted<JSObject *> callback(cx, mCallback);\n'
+            'if (!JS_GetProperty(cx, callback, "${attrName}", &rval)) {\n'
             '  aRv.Throw(NS_ERROR_UNEXPECTED);\n'
             '  return${errorReturn};\n'
             '}\n').substitute(replacements);
@@ -11409,7 +11461,7 @@ class CallbackSetter(CallbackAccessor):
             }
         return string.Template(
             'MOZ_ASSERT(argv.length() == 1);\n'
-            'if (!JS_SetProperty(cx, mCallback, "${attrName}", ${argv})) {\n'
+            'if (!JS_SetProperty(cx, CallbackPreserveColor(), "${attrName}", ${argv})) {\n'
             '  aRv.Throw(NS_ERROR_UNEXPECTED);\n'
             '  return${errorReturn};\n'
             '}\n').substitute(replacements)
@@ -11450,9 +11502,8 @@ class GlobalGenRoots():
                 continue
 
             classMembers = [ClassMember(m.identifier.name + "_id",
-                                        "jsid",
-                                        visibility="public",
-                                        body="JSID_VOID") for m in dictMembers]
+                                        "InternedStringId",
+                                        visibility="public") for m in dictMembers]
 
             structName = dict.identifier.name + "Atoms"
             structs.append((structName,
@@ -11475,6 +11526,11 @@ class GlobalGenRoots():
         curr = CGNamespace.build(['mozilla', 'dom'],
                                   CGWrapper(structs, pre='\n'))
         curr = CGWrapper(curr, post='\n')
+
+        # Add include statement for InternedStringId.
+        declareIncludes = ['mozilla/dom/BindingUtils.h']
+        curr = CGHeaders([], [], [], [], declareIncludes, [], 'GeneratedAtomList',
+                         curr)
 
         # Add include guards.
         curr = CGIncludeGuard('GeneratedAtomList', curr)

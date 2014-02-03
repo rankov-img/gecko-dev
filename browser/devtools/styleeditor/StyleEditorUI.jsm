@@ -14,8 +14,10 @@ const Cu = Components.utils;
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/PluralForm.jsm");
 Cu.import("resource://gre/modules/NetUtil.jsm");
+Cu.import("resource://gre/modules/osfile.jsm");
 let promise = Cu.import("resource://gre/modules/commonjs/sdk/core/promise.js").Promise;
 Cu.import("resource:///modules/devtools/shared/event-emitter.js");
+Cu.import("resource:///modules/devtools/gDevTools.jsm");
 Cu.import("resource:///modules/devtools/StyleEditorUtil.jsm");
 Cu.import("resource:///modules/devtools/SplitView.jsm");
 Cu.import("resource:///modules/devtools/StyleSheetEditor.jsm");
@@ -60,15 +62,6 @@ function StyleEditorUI(debuggee, target, panelDoc) {
   this._clear = this._clear.bind(this);
   this._onError = this._onError.bind(this);
 
-  this.createUI();
-
-  this._debuggee.getStyleSheets().then((styleSheets) => {
-    this._resetStyleSheetList(styleSheets);
-
-    this._target.on("will-navigate", this._clear);
-    this._target.on("navigate", this._onNewDocument);
-  });
-
   this._prefObserver = new PrefObserver("devtools.styleeditor.");
   this._prefObserver.on(PREF_ORIG_SOURCES, this._onNewDocument);
 }
@@ -79,8 +72,7 @@ StyleEditorUI.prototype = {
    *
    * @return boolean
    */
-  get isDirty()
-  {
+  get isDirty() {
     if (this._markedDirty === true) {
       return true;
     }
@@ -102,6 +94,24 @@ StyleEditorUI.prototype = {
   get selectedStyleSheetIndex() {
     return this.selectedEditor ?
            this.selectedEditor.styleSheet.styleSheetIndex : -1;
+  },
+
+  /**
+   * Initiates the style editor ui creation and the inspector front to get
+   * reference to the walker.
+   */
+  initialize: function() {
+    let toolbox = gDevTools.getToolbox(this._target);
+    return toolbox.initInspector().then(() => {
+      this._walker = toolbox.walker;
+    }).then(() => this.createUI())
+      .then(() => this._debuggee.getStyleSheets())
+      .then((styleSheets) => {
+      this._resetStyleSheetList(styleSheets);
+
+      this._target.on("will-navigate", this._clear);
+      this._target.on("navigate", this._onNewDocument);
+    });
   },
 
   /**
@@ -218,6 +228,7 @@ StyleEditorUI.prototype = {
         sources.forEach((source) => {
           // set so the first sheet will be selected, even if it's a source
           source.styleSheetIndex = styleSheet.styleSheetIndex;
+          source.relatedStyleSheet = styleSheet;
 
           this._addStyleSheetEditor(source);
         });
@@ -236,10 +247,13 @@ StyleEditorUI.prototype = {
    *         Optional if stylesheet is a new sheet created by user
    */
   _addStyleSheetEditor: function(styleSheet, file, isNew) {
-    let editor = new StyleSheetEditor(styleSheet, this._window, file, isNew);
+    let editor =
+      new StyleSheetEditor(styleSheet, this._window, file, isNew, this._walker);
 
     editor.on("property-change", this._summaryChange.bind(this, editor));
     editor.on("style-applied", this._summaryChange.bind(this, editor));
+    editor.on("linked-css-file", this._summaryChange.bind(this, editor));
+    editor.on("linked-css-file-error", this._summaryChange.bind(this, editor));
     editor.on("error", this._onError);
 
     this.editors.push(editor);
@@ -258,8 +272,7 @@ StyleEditorUI.prototype = {
    * @param {nsIWindow} parentWindow
    *        Optional parent window for the file picker.
    */
-  _importFromFile: function(file, parentWindow)
-  {
+  _importFromFile: function(file, parentWindow) {
     let onFileSelected = function(file) {
       if (!file) {
         // nothing selected
@@ -410,8 +423,9 @@ StyleEditorUI.prototype = {
           this.switchToSelectedSheet();
         }
 
-        // If this is the first stylesheet, select it
-        if (!this.selectedEditor
+        // If this is the first stylesheet and there is no pending request to
+        // select a particular style sheet, select this sheet.
+        if (!this.selectedEditor && !this._styleSheetBoundToSelect
             && editor.styleSheet.styleSheetIndex == 0) {
           this._selectEditor(editor);
         }
@@ -443,6 +457,11 @@ StyleEditorUI.prototype = {
 
     for each (let editor in this.editors) {
       if (editor.styleSheet.href == sheet.href) {
+        // The _styleSheetBoundToSelect will always hold the latest pending
+        // requested style sheet (with line and column) which is not yet
+        // selected by the source editor. Only after we select that particular
+        // editor and go the required line and column, it will become null.
+        this._styleSheetBoundToSelect = this._styleSheetToSelect;
         this._selectEditor(editor, sheet.line, sheet.col);
         this._styleSheetToSelect = null;
         return;
@@ -466,6 +485,7 @@ StyleEditorUI.prototype = {
 
     editor.getSourceEditor().then(() => {
       editor.sourceEditor.setCursor({line: line, ch: col});
+      this._styleSheetBoundToSelect = null;
     });
 
     this.getEditorSummary(editor).then((summary) => {
@@ -504,8 +524,7 @@ StyleEditorUI.prototype = {
    * @param {Number} [col]
    *        Column to which the caret should be moved (zero-indexed).
    */
-  selectStyleSheet: function(href, line, col)
-  {
+  selectStyleSheet: function(href, line, col) {
     this._styleSheetToSelect = {
       href: href,
       line: line,
@@ -542,9 +561,13 @@ StyleEditorUI.prototype = {
     if (!summary) {
       return;
     }
-    let ruleCount = "-";
-    if (editor.styleSheet.ruleCount !== undefined) {
-      ruleCount = editor.styleSheet.ruleCount;
+
+    let ruleCount = editor.styleSheet.ruleCount;
+    if (editor.styleSheet.relatedStyleSheet) {
+      ruleCount = editor.styleSheet.relatedStyleSheet.ruleCount;
+    }
+    if (ruleCount === undefined) {
+      ruleCount = "-";
     }
 
     var flags = [];
@@ -554,15 +577,22 @@ StyleEditorUI.prototype = {
     if (editor.unsaved) {
       flags.push("unsaved");
     }
+    if (editor.linkedCSSFileError) {
+      flags.push("linked-file-error");
+    }
     this._view.setItemClassName(summary, flags.join(" "));
 
     let label = summary.querySelector(".stylesheet-name > label");
     label.setAttribute("value", editor.friendlyName);
 
+    let linkedCSSFile = "";
+    if (editor.linkedCSSFile) {
+      linkedCSSFile = OS.Path.basename(editor.linkedCSSFile);
+    }
+    text(summary, ".stylesheet-linked-file", linkedCSSFile);
     text(summary, ".stylesheet-title", editor.styleSheet.title || "");
     text(summary, ".stylesheet-rule-count",
       PluralForm.get(ruleCount, _("ruleCount.label")).replace("#1", ruleCount));
-    text(summary, ".stylesheet-error-message", editor.errorMessage);
   },
 
   destroy: function() {

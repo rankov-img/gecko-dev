@@ -33,9 +33,11 @@ pref("metro.debug.selection.displayRanges", false);
 pref("metro.debug.selection.dumpRanges", false);
 pref("metro.debug.selection.dumpEvents", false);
 
+// Private browsing is disabled by default until implementation and testing are complete
+pref("metro.private_browsing.enabled", false);
+
 // Enable tab-modal prompts
 pref("prompts.tab_modal.enabled", true);
-
 
 // Enable off main thread compositing
 pref("layers.offmainthreadcomposition.enabled", true);
@@ -47,7 +49,9 @@ pref("apz.touch_start_tolerance", "0.1"); // dpi * tolerance = pixel threshold
 pref("apz.pan_repaint_interval", 50);   // prefer 20 fps
 pref("apz.fling_repaint_interval", 50); // prefer 20 fps
 pref("apz.fling_stopped_threshold", "0.2");
-
+pref("apz.x_skate_size_multiplier", "2.5");
+pref("apz.y_skate_size_multiplier", "2.5");
+pref("apz.min_skate_speed", "10.0");
 // 0 = free, 1 = standard, 2 = sticky
 pref("apz.axis_lock_mode", 2);
 pref("apz.cross_slide.enabled", true);
@@ -55,6 +59,7 @@ pref("apz.cross_slide.enabled", true);
 // Enable Microsoft TSF support by default for imes.
 pref("intl.tsf.enable", true);
 pref("intl.tsf.support_imm", false);
+pref("intl.tsf.hack.atok.create_native_caret", false);
 
 pref("general.autoScroll", true);
 pref("general.smoothScroll", true);

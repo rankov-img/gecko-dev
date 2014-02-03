@@ -1165,7 +1165,7 @@ XPCConvert::JSValToXPCException(MutableHandleValue s,
             // If it is an engine Error with an error report then let's
             // extract the report and build an xpcexception from that
             const JSErrorReport* report;
-            if (nullptr != (report = JS_ErrorFromException(cx, s))) {
+            if (nullptr != (report = JS_ErrorFromException(cx, obj))) {
                 JSAutoByteString message;
                 JSString* str;
                 if (nullptr != (str = ToString(cx, s)))
@@ -1376,7 +1376,7 @@ XPCConvert::NativeArray2JS(MutableHandleValue d, const void** s,
     PR_BEGIN_MACRO                                                                      \
         for (i = 0; i < count; i++) {                                                   \
             if (!NativeData2JS(&current, ((_t*)*s)+i, type, iid, pErr) ||               \
-                !JS_SetElement(cx, array, i, &current))                                 \
+                !JS_SetElement(cx, array, i, current))                                  \
                 goto failure;                                                           \
         }                                                                               \
     PR_END_MACRO

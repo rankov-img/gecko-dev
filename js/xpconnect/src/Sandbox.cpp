@@ -664,7 +664,7 @@ static const JSClass SandboxClass = {
     XPCONNECT_GLOBAL_FLAGS_WITH_EXTRA_SLOTS(1),
     JS_PropertyStub,   JS_DeletePropertyStub, JS_PropertyStub, JS_StrictPropertyStub,
     sandbox_enumerate, sandbox_resolve, sandbox_convert,  sandbox_finalize,
-    nullptr, nullptr, nullptr, nullptr, TraceXPCGlobal
+    nullptr, nullptr, nullptr, TraceXPCGlobal
 };
 
 static const JSFunctionSpec SandboxFunctions[] = {
@@ -789,7 +789,7 @@ WrapCallable(JSContext *cx, JSObject *callable, JSObject *sandboxProtoProxy)
 
     RootedValue priv(cx, ObjectValue(*callable));
     js::ProxyOptions options;
-    options.setCallable(true);
+    options.selectDefaultClass(true);
     return js::NewProxyObject(cx, &xpc::sandboxCallableProxyHandler,
                               priv, nullptr,
                               sandboxProtoProxy, options);
@@ -1802,6 +1802,17 @@ xpc::NewFunctionForwarder(JSContext *cx, HandleId id, HandleObject callable, boo
     js::SetFunctionNativeReserved(funobj, 0, ObjectValue(*callable));
     vp.setObject(*funobj);
     return true;
+}
+
+bool
+xpc::NewFunctionForwarder(JSContext *cx, HandleObject callable, bool doclone,
+                          MutableHandleValue vp)
+{
+    RootedId emptyId(cx);
+    if (!JS_ValueToId(cx, JS_GetEmptyStringValue(cx), &emptyId))
+        return false;
+
+    return NewFunctionForwarder(cx, emptyId, callable, doclone, vp);
 }
 
 

@@ -917,7 +917,7 @@ class ICMonitoredFallbackStub : public ICFallbackStub
 
   public:
     bool initMonitoringChain(JSContext *cx, ICStubSpace *space);
-    bool addMonitorStubForValue(JSContext *cx, HandleScript script, HandleValue val);
+    bool addMonitorStubForValue(JSContext *cx, JSScript *script, HandleValue val);
 
     inline ICTypeMonitor_Fallback *fallbackMonitorStub() const {
         return fallbackMonitorStub_;
@@ -1049,7 +1049,7 @@ class ICStubCompiler
     inline GeneralRegisterSet availableGeneralRegs(size_t numInputs) const {
         GeneralRegisterSet regs(GeneralRegisterSet::All());
         JS_ASSERT(!regs.has(BaselineStackReg));
-#if defined(JS_CPU_ARM)
+#if defined(JS_CODEGEN_ARM)
         JS_ASSERT(!regs.has(BaselineTailCallReg));
         regs.take(BaselineSecondScratchReg);
 #elif defined(JS_CPU_MIPS)
@@ -1058,7 +1058,7 @@ class ICStubCompiler
 #endif
         regs.take(BaselineFrameReg);
         regs.take(BaselineStubReg);
-#ifdef JS_CPU_X64
+#ifdef JS_CODEGEN_X64
         regs.take(ExtractTemp0);
         regs.take(ExtractTemp1);
 #endif
@@ -1456,7 +1456,7 @@ class ICTypeMonitor_Fallback : public ICStub
 
     // Create a new monitor stub for the type of the given value, and
     // add it to this chain.
-    bool addMonitorStubForValue(JSContext *cx, HandleScript script, HandleValue val);
+    bool addMonitorStubForValue(JSContext *cx, JSScript *script, HandleValue val);
 
     void resetMonitorStubChain(Zone *zone);
 
@@ -5417,6 +5417,10 @@ class ICCall_Native : public ICMonitoredStub
     HeapPtrObject templateObject_;
     uint32_t pcOffset_;
 
+#ifdef JS_ARM_SIMULATOR
+    void *native_;
+#endif
+
     ICCall_Native(JitCode *stubCode, ICStub *firstMonitorStub,
                   HandleFunction callee, HandleObject templateObject,
                   uint32_t pcOffset);
@@ -5445,6 +5449,12 @@ class ICCall_Native : public ICMonitoredStub
     static size_t offsetOfPCOffset() {
         return offsetof(ICCall_Native, pcOffset_);
     }
+
+#ifdef JS_ARM_SIMULATOR
+    static size_t offsetOfNative() {
+        return offsetof(ICCall_Native, native_);
+    }
+#endif
 
     // Compiler for this stub kind.
     class Compiler : public ICCallStubCompiler {

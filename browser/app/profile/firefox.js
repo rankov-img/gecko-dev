@@ -33,6 +33,9 @@ pref("extensions.strictCompatibility", false);
 // Specifies a minimum maxVersion an addon needs to say it's compatible with
 // for it to be compatible by default.
 pref("extensions.minCompatibleAppVersion", "4.0");
+// Temporary preference to forcibly make themes more safe with Australis even if
+// extensions.checkCompatibility=false has been set.
+pref("extensions.checkCompatibility.temporaryThemeOverride_minAppVersion", "29.0a1");
 
 // Preferences for AMO integration
 pref("extensions.getAddons.cache.enabled", true);
@@ -871,8 +874,6 @@ pref("browser.sessionstore.restore_pinned_tabs_on_demand", false);
 pref("browser.sessionstore.upgradeBackup.latestBuildID", "");
 // End-users should not run sessionstore in debug mode
 pref("browser.sessionstore.debug", false);
-// Enable asynchronous data collection by default.
-pref("browser.sessionstore.async", true);
 
 // allow META refresh by default
 pref("accessibility.blockautorefresh", false);
@@ -1117,7 +1118,7 @@ pref("devtools.debugger.pause-on-exceptions", false);
 pref("devtools.debugger.ignore-caught-exceptions", true);
 pref("devtools.debugger.source-maps-enabled", true);
 pref("devtools.debugger.pretty-print-enabled", true);
-pref("devtools.debugger.auto-pretty-print", true);
+pref("devtools.debugger.auto-pretty-print", false);
 pref("devtools.debugger.tracer", false);
 
 // The default Debugger UI settings
@@ -1140,6 +1141,7 @@ pref("devtools.netmonitor.enabled", true);
 // The default Network Monitor UI settings
 pref("devtools.netmonitor.panes-network-details-width", 450);
 pref("devtools.netmonitor.panes-network-details-height", 450);
+pref("devtools.netmonitor.statistics", true);
 
 // Enable the Tilt inspector
 pref("devtools.tilt.enabled", true);
@@ -1160,6 +1162,7 @@ pref("devtools.scratchpad.enableCodeFolding", true);
 // Enable the Style Editor.
 pref("devtools.styleeditor.enabled", true);
 pref("devtools.styleeditor.source-maps-enabled", false);
+pref("devtools.styleeditor.autocompletion-enabled", true);
 
 // Enable the Shader Editor.
 pref("devtools.shadereditor.enabled", false);
@@ -1234,9 +1237,11 @@ pref("devtools.hud.loglimit.console", 200);
 // - tabsize: how many spaces to use when a Tab character is displayed.
 // - expandtab: expand Tab characters to spaces.
 // - keymap: which keymap to use (can be 'default', 'emacs' or 'vim')
+// - autoclosebrackets: whether to permit automatic bracket/quote closing.
 pref("devtools.editor.tabsize", 4);
 pref("devtools.editor.expandtab", true);
 pref("devtools.editor.keymap", "default");
+pref("devtools.editor.autoclosebrackets", true);
 
 // Enable the Font Inspector
 pref("devtools.fontinspector.enabled", true);
@@ -1337,7 +1342,16 @@ pref("browser.uiCustomization.debug", false);
 
 // The URL where remote content that composes the UI for Firefox Accounts should
 // be fetched. Must use HTTPS.
-pref("identity.fxaccounts.remote.uri", "https://accounts.dev.lcip.org/?service=sync");
+pref("identity.fxaccounts.remote.uri", "https://accounts.firefox.com/?service=sync&context=fx_desktop_v1");
+
+// The URL where remote content that forces re-authentication for Firefox Accounts
+// should be fetched.  Must use HTTPS.
+pref("identity.fxaccounts.remote.force_auth.uri", "https://accounts.firefox.com/force_auth?service=sync&context=fx_desktop_v1");
+
+// The URL we take the user to when they opt to "manage" their Firefox Account.
+// Note that this will always need to be in the same TLD as the
+// "identity.fxaccounts.remote.uri" pref.
+pref("identity.fxaccounts.settings.uri", "https://accounts.firefox.com/settings");
 
 // The URL of the Firefox Accounts auth server backend
-pref("identity.fxaccounts.auth.uri", "https://api-accounts.dev.lcip.org/v1");
+pref("identity.fxaccounts.auth.uri", "https://api.accounts.firefox.com/v1");

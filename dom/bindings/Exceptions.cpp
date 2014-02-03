@@ -281,7 +281,7 @@ public:
   virtual ~JSStackFrame();
 
   static already_AddRefed<nsIStackFrame>
-  CreateStack(JSContext* cx);
+  CreateStack(JSContext* aCx, int32_t aMaxDepth = -1);
   static already_AddRefed<nsIStackFrame>
   CreateStackFrameLocation(uint32_t aLanguage,
                            const char* aFilename,
@@ -378,10 +378,7 @@ NS_IMETHODIMP JSStackFrame::GetFilename(nsACString& aFilename)
   if (!mFilenameInitialized) {
     JS::FrameDescription& desc = mStackDescription->FrameAt(mIndex);
     if (desc.script()) {
-      // This cx dance is silly, since JS_GetScriptFilename ignores
-      // its cx argument.
-      JSContext* cx = nsContentUtils::GetDefaultJSContextForThread();
-      JSAutoRequest ar(cx);
+      ThreadsafeAutoSafeJSContext cx;
       JSAutoCompartment ac(cx, desc.script());
       const char* filename = JS_GetScriptFilename(cx, desc.script());
       if (filename) {
@@ -407,8 +404,7 @@ NS_IMETHODIMP JSStackFrame::GetName(nsACString& aFunction)
   if (!mFunnameInitialized) {
     JS::FrameDescription& desc = mStackDescription->FrameAt(mIndex);
     if (desc.fun() && desc.script()) {
-      JSContext* cx = nsContentUtils::GetDefaultJSContextForThread();
-      JSAutoRequest ar(cx);
+      ThreadsafeAutoSafeJSContext cx;
       JSAutoCompartment ac(cx, desc.script());
       JS::Rooted<JSFunction*> fun(cx, desc.fun());
       JS::Rooted<JSString*> funid(cx, JS_GetFunctionDisplayId(fun));
@@ -495,11 +491,14 @@ NS_IMETHODIMP JSStackFrame::ToString(nsACString& _retval)
 }
 
 /* static */ already_AddRefed<nsIStackFrame>
-JSStackFrame::CreateStack(JSContext* cx)
+JSStackFrame::CreateStack(JSContext* aCx, int32_t aMaxDepth)
 {
   static const unsigned MAX_FRAMES = 100;
+  if (aMaxDepth < 0) {
+    aMaxDepth = MAX_FRAMES;
+  }
 
-  JS::StackDescription* desc = JS::DescribeStack(cx, MAX_FRAMES);
+  JS::StackDescription* desc = JS::DescribeStack(aCx, aMaxDepth);
   if (!desc) {
     return nullptr;
   }
@@ -530,9 +529,9 @@ JSStackFrame::CreateStackFrameLocation(uint32_t aLanguage,
 }
 
 already_AddRefed<nsIStackFrame>
-CreateStack(JSContext* cx)
+CreateStack(JSContext* aCx, int32_t aMaxDepth)
 {
-  return JSStackFrame::CreateStack(cx);
+  return JSStackFrame::CreateStack(aCx, aMaxDepth);
 }
 
 already_AddRefed<nsIStackFrame>

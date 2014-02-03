@@ -49,12 +49,11 @@ using namespace JS;
 
 using mozilla::dom::indexedDB::IndexedDatabaseManager;
 
-NS_IMPL_ISUPPORTS5(nsXPConnect,
+NS_IMPL_ISUPPORTS4(nsXPConnect,
                    nsIXPConnect,
                    nsISupportsWeakReference,
                    nsIThreadObserver,
-                   nsIJSRuntimeService,
-                   nsIJSEngineTelemetryStats)
+                   nsIJSRuntimeService)
 
 nsXPConnect* nsXPConnect::gSelf = nullptr;
 bool         nsXPConnect::gOnceAliveNowDead = false;
@@ -79,7 +78,6 @@ const char XPC_XPCONNECT_CONTRACTID[]     = "@mozilla.org/js/xpc/XPConnect;1";
 
 nsXPConnect::nsXPConnect()
     :   mRuntime(nullptr),
-        mDefaultSecurityManager(nullptr),
         mShuttingDown(false),
         mEventDepth(0)
 {
@@ -113,7 +111,7 @@ nsXPConnect::~nsXPConnect()
     // maps that our finalize callback depends on.
     JS_GC(mRuntime->Runtime());
 
-    NS_IF_RELEASE(mDefaultSecurityManager);
+    mDefaultSecurityManager = nullptr;
     gScriptSecurityManager = nullptr;
 
     // shutdown the logging system
@@ -799,8 +797,6 @@ nsXPConnect::RescueOrphansInScope(JSContext *aJSContext, JSObject *aScopeArg)
 NS_IMETHODIMP
 nsXPConnect::SetDefaultSecurityManager(nsIXPCSecurityManager *aManager)
 {
-    NS_IF_ADDREF(aManager);
-    NS_IF_RELEASE(mDefaultSecurityManager);
     mDefaultSecurityManager = aManager;
 
     nsCOMPtr<nsIScriptSecurityManager> ssm =
@@ -949,7 +945,7 @@ nsXPConnect::DebugDump(int16_t depth)
     XPC_LOG_INDENT();
         XPC_LOG_ALWAYS(("gSelf @ %x", gSelf));
         XPC_LOG_ALWAYS(("gOnceAliveNowDead is %d", (int)gOnceAliveNowDead));
-        XPC_LOG_ALWAYS(("mDefaultSecurityManager @ %x", mDefaultSecurityManager));
+        XPC_LOG_ALWAYS(("mDefaultSecurityManager @ %x", mDefaultSecurityManager.get()));
         if (mRuntime) {
             if (depth)
                 mRuntime->DebugDump(depth);
@@ -1404,29 +1400,6 @@ nsXPConnect::SetDebugModeWhenPossible(bool mode, bool allowSyncDisable)
     gDesiredDebugMode = mode;
     if (!mode && allowSyncDisable)
         CheckForDebugMode(mRuntime->Runtime());
-    return NS_OK;
-}
-
-NS_IMETHODIMP
-nsXPConnect::GetTelemetryValue(JSContext *cx, MutableHandleValue rval)
-{
-    RootedObject obj(cx, JS_NewObject(cx, nullptr, JS::NullPtr(), JS::NullPtr()));
-    if (!obj)
-        return NS_ERROR_OUT_OF_MEMORY;
-
-    unsigned attrs = JSPROP_ENUMERATE | JSPROP_READONLY | JSPROP_PERMANENT;
-
-    size_t i = JS_SetProtoCalled(cx);
-    RootedValue v(cx, DoubleValue(i));
-    if (!JS_DefineProperty(cx, obj, "setProto", v, nullptr, nullptr, attrs))
-        return NS_ERROR_OUT_OF_MEMORY;
-
-    i = JS_GetCustomIteratorCount(cx);
-    v.setDouble(i);
-    if (!JS_DefineProperty(cx, obj, "customIter", v, nullptr, nullptr, attrs))
-        return NS_ERROR_OUT_OF_MEMORY;
-
-    rval.setObject(*obj);
     return NS_OK;
 }
 

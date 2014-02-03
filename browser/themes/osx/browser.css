@@ -199,8 +199,8 @@ toolbarbutton.bookmark-item[open="true"] {
   background-color: rgba(0, 0, 0, .205);
 }
 
-+toolbarbutton.bookmark-item:hover:not(.subviewbutton),
-+toolbarbutton.bookmark-item[open="true"]:not(.subviewbutton) {
+toolbarbutton.bookmark-item:hover:not(.subviewbutton),
+toolbarbutton.bookmark-item[open="true"]:not(.subviewbutton) {
   color: #FFF !important;
   text-shadow: 0 1px rgba(0, 0, 0, .4) !important;
 }
@@ -424,7 +424,7 @@ toolbar .toolbarbutton-1:not([type="menu-button"]),
 #nav-bar .toolbaritem-combined-buttons > .toolbarbutton-1 + .toolbarbutton-1::before {
   content: "";
   display: -moz-box;
-  position: absolute;
+  position: relative;
   top: calc(50% - 9px);
   width: 1px;
   height: 18px;
@@ -435,6 +435,10 @@ toolbar .toolbarbutton-1:not([type="menu-button"]),
   background-repeat: no-repeat;
   background-size: 1px 18px;
   box-shadow: 0 0 0 1px hsla(0,0%,100%,.2);
+}
+
+#nav-bar .toolbarbutton-1 > .toolbarbutton-menubutton-dropmarker {
+  -moz-box-orient: horizontal;
 }
 
 #nav-bar .toolbarbutton-1 > .toolbarbutton-menubutton-dropmarker > .dropmarker-icon {
@@ -606,7 +610,7 @@ toolbar .toolbarbutton-1:not([type="menu-button"]),
   }
 
   #email-link-button@toolbarButtonPressed@ {
-    -moz-image-region: rect(18px, 306px, 36px, 288px);
+    -moz-image-region: rect(18px, 666px, 36px, 648px);
   }
 
   /**
@@ -757,14 +761,6 @@ toolbar .toolbarbutton-1:not([type="menu-button"]),
   }
 
   #social-share-button[cui-areatype="toolbar"]:hover:active:not([disabled="true"]) {
-    -moz-image-region: rect(36px, 612px, 72px, 576px);
-  }
-
-  #email-link-button[cui-areatype="toolbar"] {
-    -moz-image-region: rect(0, 612px, 36px, 576px);
-  }
-
-  #email-link-button[cui-areatype="toolbar"]:hover:active:not([disabled="true"]) {
     -moz-image-region: rect(36px, 612px, 72px, 576px);
   }
 
@@ -936,6 +932,14 @@ toolbar .toolbarbutton-1:not([type="menu-button"]),
     -moz-image-region: rect(36px, 1296px, 72px, 1260px);
   }
 
+  #email-link-button[cui-areatype="toolbar"] {
+    -moz-image-region: rect(0, 1332px, 36px, 1296px);
+  }
+
+  #email-link-button[cui-areatype="toolbar"]:hover:active:not([disabled="true"]) {
+    -moz-image-region: rect(36px, 1332px, 72px, 1296px);
+  }
+
   :-moz-any(@primaryToolbarButtons@) > .toolbarbutton-icon,
   :-moz-any(@primaryToolbarButtons@) > .toolbarbutton-menubutton-button > .toolbarbutton-icon {
     width: 18px;
@@ -956,10 +960,6 @@ toolbar .toolbarbutton-1:not([type="menu-button"]),
   #bookmarks-menu-button[cui-areatype="menu-panel"],
   toolbarpaletteitem[place="palette"] > #bookmarks-menu-button {
     -moz-image-region: rect(0px, 320px, 64px, 256px);
-  }
-
-  #bookmarks-menu-button[starred][cui-areatype="menu-panel"] {
-    -moz-image-region: rect(0px, 384px, 64px, 320px);
   }
 
   #history-panelmenu[cui-areatype="menu-panel"],
@@ -1054,12 +1054,7 @@ toolbar .toolbarbutton-1:not([type="menu-button"]),
 
   #email-link-button[cui-areatype="menu-panel"],
   toolbarpaletteitem[place="palette"] > #email-link-button {
-    -moz-image-region: rect(0px, 896px, 64px, 832px);
-  }
-
-  /* This is temporary until we have an email-link icon (Bug 932235) */
-  #email-link-button > image {
-    transform: scale(-1, -1);
+    -moz-image-region: rect(0px, 1600px, 64px, 1536px);
   }
 
   /* Footer and wide panel control icons */
@@ -1068,6 +1063,15 @@ toolbar .toolbarbutton-1:not([type="menu-button"]),
   toolbarpaletteitem[place="palette"] > #edit-controls > toolbarbutton,
   toolbarpaletteitem[place="palette"] > #zoom-controls > toolbarbutton {
     list-style-image: url(chrome://browser/skin/menuPanel-small@2x.png);
+  }
+
+  /* Wide items like the Cut/Copy/Paste and Zoom controls are special in that their icons
+     are 16x16 when in the panel, but 18x18 when in a toolbar. */
+  #edit-controls@inAnyPanel@ > toolbarbutton > .toolbarbutton-icon,
+  #zoom-controls@inAnyPanel@ > toolbarbutton > .toolbarbutton-icon,
+  toolbarpaletteitem[place="palette"] > #edit-controls > toolbarbutton > .toolbarbutton-icon,
+  toolbarpaletteitem[place="palette"] > #zoom-controls > toolbarbutton > .toolbarbutton-icon {
+    width: 16px;
   }
 
   #edit-controls@inAnyPanel@ > #cut-button,
@@ -1102,8 +1106,8 @@ toolbar .toolbarbutton-1:not([type="menu-button"]),
   }
 }
 
-.toolbarbutton-1:not([type="menu-button"]),
-.toolbarbutton-1 > .toolbarbutton-menubutton-button,
+toolbar .toolbarbutton-1:not([type="menu-button"]),
+toolbar .toolbarbutton-1 > .toolbarbutton-menubutton-button,
 #restore-button {
   min-width: 28px;
 }
@@ -1471,7 +1475,6 @@ toolbar .toolbarbutton-1:not([type="menu-button"]),
 #urlbar,
 .searchbar-textbox {
   font: icon;
-  width: 7em;
   -moz-appearance: none;
   box-shadow: 0 1px rgba(255, 255, 255, 0.2), inset 0 1px hsla(0,0%,0%,.05);
   margin: 0 4px;
@@ -2558,6 +2561,10 @@ toolbarbutton.chevron > .toolbarbutton-menu-dropmarker {
   text-shadow: @loweredShadow@;
 }
 
+.tabbrowser-tab[selected=true]:-moz-lwtheme {
+  text-shadow: inherit;
+}
+
 .tabbrowser-tabs[closebuttons="hidden"] > * > * > * > .tab-close-button:not([pinned]) {
   display: -moz-box;
   visibility: hidden;
@@ -2601,7 +2608,7 @@ toolbarbutton.chevron > .toolbarbutton-menu-dropmarker {
 /*
  * Draw the bottom border of the tabstrip when core doesn't do it for us:
  */
-#main-window:-moz-any([privatebrowsingmode=temporary],[sizemode="fullscreen"],[customizing],[customize-exiting]) #TabsToolbar::after,
+#main-window:-moz-any([privatebrowsingmode=temporary],[sizemode="fullscreen"],[customize-entered]) #TabsToolbar::after,
 #main-window:not([tabsintitlebar]) #TabsToolbar::after,
 #TabsToolbar:-moz-lwtheme::after {
   content: '';
@@ -3588,6 +3595,54 @@ toolbarbutton.chevron > .toolbarbutton-menu-dropmarker {
   margin-top: .5em;
 }
 
+/* Sync Panels */
+
+.sync-panel-icon {
+  width: 32px;
+  background: url("chrome://browser/content/abouthome/sync.png") top left no-repeat;
+}
+
+@media (min-resolution: 2dppx) {
+  .sync-panel-icon {
+    background: url("chrome://browser/content/abouthome/sync@2x.png") top left no-repeat;
+    background-size: 32px 32px;
+  }
+}
+
+.sync-panel-inner {
+  width: 0;
+  padding-left: 10px;
+}
+
+.sync-panel-button-box {
+  margin-top: 1em;
+}
+
+.sync-panel-button {
+  @hudButton@
+  margin: 0;
+  min-width: 72px;
+  min-height: 22px;
+}
+
+.sync-panel-button:hover:active {
+  @hudButtonPressed@
+}
+
+.sync-panel-button:-moz-focusring {
+  @hudButtonFocused@
+}
+
+#sync-error-panel-title,
+#sync-start-panel-title {
+  font-weight: bold;
+}
+
+#sync-start-panel-subtitle,
+#sync-error-panel-subtitle {
+  margin: 0;
+}
+
 /* Status panel */
 
 .statuspanel-label {
@@ -3964,8 +4019,9 @@ window > chatbox {
   padding-top: 0;
 }
 
-#main-window:-moz-any([customize-entering],[customize-entered]) #tab-view-deck {
-  padding: 0 2em 2em;
+#main-window[tabsintitlebar][customize-entered] #titlebar-content {
+  margin-bottom: 0px !important;
+  margin-top: 11px !important;
 }
 
 #main-window[customize-entered] #tab-view-deck {
@@ -3995,6 +4051,27 @@ window > chatbox {
   background-clip: padding-box;
   border-right: 3px solid transparent;
   border-left: 3px solid transparent;
+}
+
+@media (min-resolution: 2dppx) {
+  #customization-titlebar-visibility-button {
+    list-style-image: url("chrome://browser/skin/customizableui/customize-titleBar-toggle@2x.png");
+    -moz-image-region: rect(0, 48px, 48px, 0);
+  }
+
+  #customization-titlebar-visibility-button[checked] {
+    -moz-image-region: rect(0, 96px, 48px, 48px);
+  }
+
+  #customization-titlebar-visibility-button > .button-box > .button-icon {
+    width: 24px;
+  }
+}
+
+#main-window[customizing] #navigator-toolbox::after,
+#main-window[customize-entered] #TabsToolbar::after {
+  margin-left: 2em;
+  margin-right: 2em;
 }
 
 /* End customization mode */
@@ -4055,3 +4132,17 @@ window > chatbox {
 }
 
 %include ../shared/UITour.inc.css
+
+#UITourTooltipIcon {
+  -moz-margin-start: 0;
+}
+
+#UITourTooltipDescription {
+  font-size: 1.1rem;
+  line-height: 1.9rem;
+}
+
+#UITourTooltipClose {
+  -moz-margin-end: -15px;
+  margin-top: -12px;
+}

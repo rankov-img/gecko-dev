@@ -203,7 +203,8 @@ public:
   virtual bool IsLeaf() const MOZ_OVERRIDE;
 
   // layout, position and display the popup as needed
-  void LayoutPopup(nsBoxLayoutState& aState, nsIFrame* aParentMenu, bool aSizedToPopup);
+  void LayoutPopup(nsBoxLayoutState& aState, nsIFrame* aParentMenu,
+                   nsIFrame* aAnchor, bool aSizedToPopup);
 
   nsView* GetRootViewForPopup(nsIFrame* aStartFrame);
 
@@ -212,7 +213,7 @@ public:
   // point if a screen position (mScreenXPos and mScreenYPos) are set. The popup
   // will be adjusted so that it is on screen. If aIsMove is true, then the popup
   // is being moved, and should not be flipped.
-  nsresult SetPopupPosition(nsIFrame* aAnchorFrame, bool aIsMove);
+  nsresult SetPopupPosition(nsIFrame* aAnchorFrame, bool aIsMove, bool aSizedToPopup);
 
   bool HasGeneratedChildren() { return mGeneratedChildren; }
   void SetGeneratedChildren() { mGeneratedChildren = true; }
@@ -229,7 +230,7 @@ public:
   bool IsMenu() MOZ_OVERRIDE { return mPopupType == ePopupTypeMenu; }
   bool IsOpen() MOZ_OVERRIDE { return mPopupState == ePopupOpen || mPopupState == ePopupOpenAndVisible; }
 
-  bool IsDragPopup() { return mIsDragPopup; }
+  bool IsMouseTransparent() { return mMouseTransparent; }
 
   static nsIContent* GetTriggerContent(nsMenuPopupFrame* aMenuPopupFrame);
   void ClearTriggerContent() { mTriggerContent = nullptr; }
@@ -332,10 +333,6 @@ public:
   // Return the screen coordinates of the popup, or (-1, -1) if anchored.
   // This position is in CSS pixels.
   nsIntPoint ScreenPosition() const { return nsIntPoint(mScreenXPos, mScreenYPos); }
-
-  virtual void BuildDisplayList(nsDisplayListBuilder*   aBuilder,
-                                const nsRect&           aDirtyRect,
-                                const nsDisplayListSet& aLists) MOZ_OVERRIDE;
 
   nsIntPoint GetLastClientOffset() const { return mLastClientOffset; }
 
@@ -479,7 +476,7 @@ protected:
   bool mShouldAutoPosition; // Should SetPopupPosition be allowed to auto position popup?
   bool mInContentShell; // True if the popup is in a content shell
   bool mIsMenuLocked; // Should events inside this menu be ignored?
-  bool mIsDragPopup; // True if this is a popup used for drag feedback
+  bool mMouseTransparent; // True if this is a popup is transparent to mouse events
 
   // the flip modes that were used when the popup was opened
   bool mHFlip;

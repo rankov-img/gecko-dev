@@ -2682,12 +2682,12 @@ nsDOMWindowUtils::WrapDOMFile(nsIFile *aFile,
 static bool
 CheckLeafLayers(Layer* aLayer, const nsIntPoint& aOffset, nsIntRegion* aCoveredRegion)
 {
-  gfxMatrix transform;
+  gfx::Matrix transform;
   if (!aLayer->GetTransform().Is2D(&transform) ||
       transform.HasNonIntegerTranslation())
     return false;
   transform.NudgeToIntegers();
-  nsIntPoint offset = aOffset + nsIntPoint(transform.x0, transform.y0);
+  nsIntPoint offset = aOffset + nsIntPoint(transform._31, transform._32);
 
   Layer* child = aLayer->GetFirstChild();
   if (child) {
@@ -2835,8 +2835,8 @@ GetXPConnectNative(JSContext* aCx, JSObject* aObj) {
 }
 
 static nsresult
-GetFileOrBlob(const nsAString& aName, const JS::Value& aBlobParts,
-              const JS::Value& aParameters, JSContext* aCx,
+GetFileOrBlob(const nsAString& aName, JS::Handle<JS::Value> aBlobParts,
+              JS::Handle<JS::Value> aParameters, JSContext* aCx,
               uint8_t aOptionalArgCount, nsISupports** aResult)
 {
   if (!nsContentUtils::IsCallerChrome()) {
@@ -2858,9 +2858,12 @@ GetFileOrBlob(const nsAString& aName, const JS::Value& aBlobParts,
   nsDOMMultipartFile* domFile =
     static_cast<nsDOMMultipartFile*>(static_cast<nsIDOMFile*>(file.get()));
 
-  JS::Value args[2] = { aBlobParts, aParameters };
+  JS::AutoValueVector args(aCx);
+  MOZ_ALWAYS_TRUE(args.resize(2));
+  args[0] = aBlobParts;
+  args[1] = aParameters;
 
-  rv = domFile->InitBlob(aCx, aOptionalArgCount, args, GetXPConnectNative);
+  rv = domFile->InitBlob(aCx, aOptionalArgCount, args.begin(), GetXPConnectNative);
   NS_ENSURE_SUCCESS(rv, rv);
 
   file.forget(aResult);

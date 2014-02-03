@@ -125,7 +125,6 @@
 #include "nsAutoJSValHolder.h"
 
 #include "MainThreadUtils.h"
-#include "nsIJSEngineTelemetryStats.h"
 
 #include "nsIConsoleService.h"
 #include "nsIScriptError.h"
@@ -269,8 +268,7 @@ AddToCCKind(JSGCTraceKind kind)
 class nsXPConnect : public nsIXPConnect,
                     public nsIThreadObserver,
                     public nsSupportsWeakReference,
-                    public nsIJSRuntimeService,
-                    public nsIJSEngineTelemetryStats
+                    public nsIJSRuntimeService
 {
 public:
     // all the interface method declarations...
@@ -278,7 +276,6 @@ public:
     NS_DECL_NSIXPCONNECT
     NS_DECL_NSITHREADOBSERVER
     NS_DECL_NSIJSRUNTIMESERVICE
-    NS_DECL_NSIJSENGINETELEMETRYSTATS
 
     // non-interface implementation
 public:
@@ -346,12 +343,12 @@ protected:
 
 private:
     // Singleton instance
-    static nsXPConnect*      gSelf;
-    static bool              gOnceAliveNowDead;
+    static nsXPConnect*             gSelf;
+    static bool                     gOnceAliveNowDead;
 
-    XPCJSRuntime*            mRuntime;
-    nsIXPCSecurityManager*   mDefaultSecurityManager;
-    bool                     mShuttingDown;
+    XPCJSRuntime*                   mRuntime;
+    nsRefPtr<nsIXPCSecurityManager> mDefaultSecurityManager;
+    bool                            mShuttingDown;
 
     // nsIThreadInternal doesn't remember which observers it called
     // OnProcessNextEvent on when it gets around to calling AfterProcessNextEvent.
@@ -534,15 +531,17 @@ public:
         IDX_TOTAL_COUNT // just a count of the above
     };
 
-    jsid GetStringID(unsigned index) const
+    JS::HandleId GetStringID(unsigned index) const
     {
         MOZ_ASSERT(index < IDX_TOTAL_COUNT, "index out of range");
-        return mStrIDs[index];
+        // fromMarkedLocation() is safe because the string is interned.
+        return JS::HandleId::fromMarkedLocation(&mStrIDs[index]);
     }
-    jsval GetStringJSVal(unsigned index) const
+    JS::HandleValue GetStringJSVal(unsigned index) const
     {
         MOZ_ASSERT(index < IDX_TOTAL_COUNT, "index out of range");
-        return mStrJSVals[index];
+        // fromMarkedLocation() is safe because the string is interned.
+        return JS::HandleValue::fromMarkedLocation(&mStrJSVals[index]);
     }
     const char* GetStringName(unsigned index) const
     {
@@ -713,14 +712,12 @@ public:
 
     nsresult GetException(nsIException** e)
         {
-            NS_IF_ADDREF(mException);
-            *e = mException;
+            nsCOMPtr<nsIException> rval = mException;
+            rval.forget(e);
             return NS_OK;
         }
     void SetException(nsIException* e)
         {
-            NS_IF_ADDREF(e);
-            NS_IF_RELEASE(mException);
             mException = e;
         }
 
@@ -751,7 +748,7 @@ private:
     JSContext*  mJSContext;
     nsresult mLastResult;
     nsresult mPendingResult;
-    nsIException* mException;
+    nsCOMPtr<nsIException> mException;
     LangType mCallingLangType;
     bool mErrorUnreported;
 
@@ -1601,7 +1598,6 @@ public:
     bool WantNewResolve()               GET_IT(WANT_NEWRESOLVE)
     bool WantConvert()                  GET_IT(WANT_CONVERT)
     bool WantFinalize()                 GET_IT(WANT_FINALIZE)
-    bool WantCheckAccess()              GET_IT(WANT_CHECKACCESS)
     bool WantCall()                     GET_IT(WANT_CALL)
     bool WantConstruct()                GET_IT(WANT_CONSTRUCT)
     bool WantHasInstance()              GET_IT(WANT_HASINSTANCE)
@@ -2378,7 +2374,7 @@ private:
 
 private:
     XPCJSRuntime* mRuntime;
-    nsIInterfaceInfo* mInfo;
+    nsCOMPtr<nsIInterfaceInfo> mInfo;
     char* mName;
     nsIID mIID;
     uint32_t* mDescriptors;
@@ -3335,6 +3331,10 @@ bool
 NewFunctionForwarder(JSContext *cx, JS::HandleId id, JS::HandleObject callable,
                      bool doclone, JS::MutableHandleValue vp);
 
+bool
+NewFunctionForwarder(JSContext *cx, JS::HandleObject callable,
+                     bool doclone, JS::MutableHandleValue vp);
+
 // Old fashioned xpc error reporter. Try to use JS_ReportError instead.
 nsresult
 ThrowAndFail(nsresult errNum, JSContext *cx, bool *retval);
@@ -3499,7 +3499,7 @@ ExportFunction(JSContext *cx, JS::HandleValue vscope, JS::HandleValue vfunction,
 // Inlined utilities.
 
 inline bool
-xpc_ForcePropertyResolve(JSContext* cx, JSObject* obj, jsid id);
+xpc_ForcePropertyResolve(JSContext* cx, JS::HandleObject obj, jsid id);
 
 inline jsid
 GetRTIdByIndex(JSContext *cx, unsigned index);

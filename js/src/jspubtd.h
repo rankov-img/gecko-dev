@@ -79,28 +79,6 @@ typedef enum JSProtoKey {
     JSProto_LIMIT
 } JSProtoKey;
 
-/* js_CheckAccess mode enumeration. */
-typedef enum JSAccessMode {
-    JSACC_PROTO  = 0,           /* XXXbe redundant w.r.t. id */
-
-                                /*
-                                 * enum value #1 formerly called JSACC_PARENT,
-                                 * gap preserved for ABI compatibility.
-                                 */
-
-                                /*
-                                 * enum value #2 formerly called JSACC_IMPORT,
-                                 * gap preserved for ABI compatibility.
-                                 */
-
-    JSACC_WATCH  = 3,           /* a watchpoint on object foo for id 'bar' */
-    JSACC_READ   = 4,           /* a "get" of foo.bar */
-    JSACC_WRITE  = 8,           /* a "set" of foo.bar = baz */
-    JSACC_LIMIT
-} JSAccessMode;
-
-#define JSACC_TYPEMASK          (JSACC_WRITE - 1)
-
 /*
  * This enum type is used to control the behavior of a JSObject property
  * iterator function that has type JSNewEnumerate.
@@ -287,7 +265,7 @@ namespace js {
 enum ParallelResult { TP_SUCCESS, TP_RETRY_SEQUENTIALLY, TP_RETRY_AFTER_GC, TP_FATAL };
 
 struct ThreadSafeContext;
-struct ForkJoinSlice;
+struct ForkJoinContext;
 class ExclusiveContext;
 
 class Allocator;

@@ -54,10 +54,18 @@ const R_HOST       = new RegExp ("\\*|(((\\*\\.)?" + R_HOSTCHAR.source +
 // port            = ":" ( 1*DIGIT / "*" )
 const R_PORT       = new RegExp ("(\\:([0-9]+|\\*))", 'i');
 
-// host-source     = [ scheme "://" ] host [ port ]
-const R_HOSTSRC    = new RegExp ("^((" + R_SCHEME.source + "\\:\\/\\/)?("
-                                       +   R_HOST.source + ")"
-                                       +   R_PORT.source + "?)$", 'i');
+// path
+const R_PATH       = new RegExp("(\\/(([a-zA-Z0-9\\-\\_]+)\\/?)*)", 'i');
+
+// file
+const R_FILE       = new RegExp("(\\/([a-zA-Z0-9\\-\\_]+)\\.([a-zA-Z]+))", 'i');
+
+// host-source     = [ scheme "://" ] host [ port path file ]
+const R_HOSTSRC    = new RegExp ("^((((" + R_SCHEME.source + "\\:\\/\\/)?("
+                                         + R_HOST.source + ")"
+                                         + R_PORT.source + "?)"
+                                         + R_PATH.source + "?)"
+                                         + R_FILE.source + "?)$", 'i');
 
 // ext-host-source = host-source "/" *( <VCHAR except ";" and ","> )
 //                 ; ext-host-source is reserved for future use.
@@ -386,32 +394,17 @@ CSPRep.fromString = function(aStr, self, reportOnly, docRequest, csp) {
           // The resulting CSPRep instance will have only absolute URIs.
           uri = gIoService.newURI(uriStrings[i],null,selfUri);
 
-          // if there's no host, don't do the ETLD+ check.  This will throw
-          // NS_ERROR_FAILURE if the URI doesn't have a host, causing a parse
-          // failure.
+          // if there's no host, this will throw NS_ERROR_FAILURE, causing a
+          // parse failure.
           uri.host;
 
-          // Verify that each report URI is in the same etld + 1 and that the
-          // scheme and port match "self" if "self" is defined, and just that
-          // it's valid otherwise.
-          if (self) {
-            if (gETLDService.getBaseDomain(uri) !==
-                gETLDService.getBaseDomain(selfUri)) {
-              cspWarn(aCSPR,
-                      CSPLocalizer.getFormatStr("reportURInotETLDPlus1",
-                                                [gETLDService.getBaseDomain(uri)]));
-              continue;
-            }
-            if (!uri.schemeIs(selfUri.scheme)) {
-              cspWarn(aCSPR, CSPLocalizer.getFormatStr("reportURInotSameSchemeAsSelf",
-                                                       [uri.asciiSpec]));
-              continue;
-            }
-            if (uri.port && uri.port !== selfUri.port) {
-              cspWarn(aCSPR, CSPLocalizer.getFormatStr("reportURInotSamePortAsSelf",
-                                                       [uri.asciiSpec]));
-              continue;
-            }
+          // warn about, but do not prohibit non-http and non-https schemes for
+          // reporting URIs.  The spec allows unrestricted URIs resolved
+          // relative to "self", but we should let devs know if the scheme is
+          // abnormal and may fail a POST.
+          if (!uri.schemeIs("http") && !uri.schemeIs("https")) {
+            cspWarn(aCSPR, CSPLocalizer.getFormatStr("reportURInotHttpsOrHttp2",
+                                                     [uri.asciiSpec]));
           }
         } catch(e) {
           switch (e.result) {
@@ -431,7 +424,7 @@ CSPRep.fromString = function(aStr, self, reportOnly, docRequest, csp) {
               continue;
           }
         }
-        // all verification passed: same ETLD+1, scheme, and port.
+        // all verification passed
         okUriStrings.push(uri.asciiSpec);
       }
       aCSPR._directives[UD.REPORT_URI] = okUriStrings.join(' ');
@@ -649,34 +642,17 @@ CSPRep.fromStringSpecCompliant = function(aStr, self, reportOnly, docRequest, cs
           // The resulting CSPRep instance will have only absolute URIs.
           uri = gIoService.newURI(uriStrings[i],null,selfUri);
 
-          // if there's no host, don't do the ETLD+ check.  This will throw
-          // NS_ERROR_FAILURE if the URI doesn't have a host, causing a parse
-          // failure.
+          // if there's no host, this will throw NS_ERROR_FAILURE, causing a
+          // parse failure.
           uri.host;
 
-          // Verify that each report URI is in the same etld + 1 and that the
-          // scheme and port match "self" if "self" is defined, and just that
-          // it's valid otherwise.
-          if (self) {
-            if (gETLDService.getBaseDomain(uri) !==
-                gETLDService.getBaseDomain(selfUri)) {
-              cspWarn(aCSPR, 
-                      CSPLocalizer.getFormatStr("reportURInotETLDPlus1",
-                                                [gETLDService.getBaseDomain(uri)]));
-              continue;
-            }
-            if (!uri.schemeIs(selfUri.scheme)) {
-              cspWarn(aCSPR,
-                      CSPLocalizer.getFormatStr("reportURInotSameSchemeAsSelf",
-                                                [uri.asciiSpec]));
-              continue;
-            }
-            if (uri.port && uri.port !== selfUri.port) {
-              cspWarn(aCSPR,
-                      CSPLocalizer.getFormatStr("reportURInotSamePortAsSelf",
-                                                [uri.asciiSpec]));
-              continue;
-            }
+          // warn about, but do not prohibit non-http and non-https schemes for
+          // reporting URIs.  The spec allows unrestricted URIs resolved
+          // relative to "self", but we should let devs know if the scheme is
+          // abnormal and may fail a POST.
+          if (!uri.schemeIs("http") && !uri.schemeIs("https")) {
+            cspWarn(aCSPR, CSPLocalizer.getFormatStr("reportURInotHttpsOrHttp2",
+                                                     [uri.asciiSpec]));
           }
         } catch(e) {
           switch (e.result) {
@@ -695,7 +671,7 @@ CSPRep.fromStringSpecCompliant = function(aStr, self, reportOnly, docRequest, cs
               continue;
           }
         }
-        // all verification passed: same ETLD+1, scheme, and port.
+        // all verification passed.
        okUriStrings.push(uri.asciiSpec);
       }
       aCSPR._directives[UD.REPORT_URI] = okUriStrings.join(' ');
@@ -1377,6 +1353,11 @@ CSPSource.fromString = function(aStr, aCSPRep, self, enforceSelfChecks) {
     // Host regex gets scheme, so remove scheme from aStr. Add 3 for '://'
     if (schemeMatch)
       hostMatch = R_HOSTSRC.exec(aStr.substring(schemeMatch[0].length + 3));
+
+    // Bug 916054: in CSP 1.0, source-expressions that are paths should have
+    // the path after the origin ignored and only the origin enforced.
+    hostMatch[0] = hostMatch[0].replace(R_FILE, "");
+    hostMatch[0] = hostMatch[0].replace(R_PATH, "");
 
     var portMatch = R_PORT.exec(hostMatch);
 

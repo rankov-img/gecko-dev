@@ -912,11 +912,11 @@ Chunk::allocateArena(Zone *zone, AllocKind thingKind)
     if (!rt->isHeapMinorCollecting() && rt->gcBytes >= rt->gcMaxBytes)
         return nullptr;
 
-    ArenaHeader *aheader = JS_LIKELY(info.numArenasFreeCommitted > 0)
+    ArenaHeader *aheader = MOZ_LIKELY(info.numArenasFreeCommitted > 0)
                            ? fetchNextFreeArena(rt)
                            : fetchNextDecommittedArena();
     aheader->init(zone, thingKind);
-    if (JS_UNLIKELY(!hasAvailableArenas()))
+    if (MOZ_UNLIKELY(!hasAvailableArenas()))
         removeFromAvailableList();
 
     rt->gcBytes += ArenaSize;
@@ -1412,7 +1412,7 @@ ArenaLists::allocateFromArenaInline(Zone *zone, AllocKind thingKind)
              */
             freeLists[thingKind] = aheader->getFirstFreeSpan();
             aheader->setAsFullyUsed();
-            if (JS_UNLIKELY(zone->wasGCStarted())) {
+            if (MOZ_UNLIKELY(zone->wasGCStarted())) {
                 if (zone->needsBarrier()) {
                     aheader->allocatedDuringIncremental = true;
                     zone->runtimeFromMainThread()->gcMarker.delayMarkingArena(aheader);
@@ -1445,7 +1445,7 @@ ArenaLists::allocateFromArenaInline(Zone *zone, AllocKind thingKind)
     if (!aheader)
         return nullptr;
 
-    if (JS_UNLIKELY(zone->wasGCStarted())) {
+    if (MOZ_UNLIKELY(zone->wasGCStarted())) {
         if (zone->needsBarrier()) {
             aheader->allocatedDuringIncremental = true;
             zone->runtimeFromMainThread()->gcMarker.delayMarkingArena(aheader);
@@ -1678,7 +1678,7 @@ ArenaLists::refillFreeList(ThreadSafeContext *cx, AllocKind thingKind)
 #endif
 
     for (;;) {
-        if (JS_UNLIKELY(runGC)) {
+        if (MOZ_UNLIKELY(runGC)) {
             if (void *thing = RunLastDitchGC(cx->asJSContext(), zone, thingKind))
                 return thing;
         }
@@ -1694,7 +1694,7 @@ ArenaLists::refillFreeList(ThreadSafeContext *cx, AllocKind thingKind)
              */
             for (bool secondAttempt = false; ; secondAttempt = true) {
                 void *thing = cx->allocator()->arenas.allocateFromArenaInline(zone, thingKind);
-                if (JS_LIKELY(!!thing))
+                if (MOZ_LIKELY(!!thing))
                     return thing;
                 if (secondAttempt)
                     break;
@@ -1713,9 +1713,9 @@ ArenaLists::refillFreeList(ThreadSafeContext *cx, AllocKind thingKind)
             mozilla::Maybe<AutoLockWorkerThreadState> lock;
             JSRuntime *rt = zone->runtimeFromAnyThread();
             if (rt->exclusiveThreadsPresent()) {
-                lock.construct<WorkerThreadState &>(*rt->workerThreadState);
+                lock.construct();
                 while (rt->isHeapBusy())
-                    rt->workerThreadState->wait(WorkerThreadState::PRODUCER);
+                    WorkerThreadState().wait(GlobalWorkerThreadState::PRODUCER);
             }
 
             void *thing = cx->allocator()->arenas.allocateFromArenaInline(zone, thingKind);
@@ -2113,7 +2113,7 @@ js::TriggerGC(JSRuntime *rt, JS::gcreason::Reason reason)
 {
     /* Wait till end of parallel section to trigger GC. */
     if (InParallelSection()) {
-        ForkJoinSlice::current()->requestGC(reason);
+        ForkJoinContext::current()->requestGC(reason);
         return true;
     }
 
@@ -2140,7 +2140,7 @@ js::TriggerZoneGC(Zone *zone, JS::gcreason::Reason reason)
      * are stopped to trigger GC.
      */
     if (InParallelSection()) {
-        ForkJoinSlice::current()->requestZoneGC(zone, reason);
+        ForkJoinContext::current()->requestZoneGC(zone, reason);
         return true;
     }
 
@@ -4300,7 +4300,7 @@ AutoTraceSession::AutoTraceSession(JSRuntime *rt, js::HeapState heapState)
         // Lock the worker thread state when changing the heap state in the
         // presence of exclusive threads, to avoid racing with refillFreeList.
 #ifdef JS_THREADSAFE
-        AutoLockWorkerThreadState lock(*rt->workerThreadState);
+        AutoLockWorkerThreadState lock;
         rt->heapState = heapState;
 #else
         MOZ_CRASH();
@@ -4316,11 +4316,11 @@ AutoTraceSession::~AutoTraceSession()
 
     if (runtime->exclusiveThreadsPresent()) {
 #ifdef JS_THREADSAFE
-        AutoLockWorkerThreadState lock(*runtime->workerThreadState);
+        AutoLockWorkerThreadState lock;
         runtime->heapState = prevState;
 
         // Notify any worker threads waiting for the trace session to end.
-        runtime->workerThreadState->notifyAll(WorkerThreadState::PRODUCER);
+        WorkerThreadState().notifyAll(GlobalWorkerThreadState::PRODUCER);
 #else
         MOZ_CRASH();
 #endif
@@ -4746,7 +4746,7 @@ BudgetIncrementalGC(JSRuntime *rt, int64_t *budget)
  * Returns true if we "reset" an existing incremental GC, which would force us
  * to run another cycle.
  */
-static JS_NEVER_INLINE bool
+static MOZ_NEVER_INLINE bool
 GCCycle(JSRuntime *rt, bool incremental, int64_t budget,
         JSGCInvocationKind gckind, JS::gcreason::Reason reason)
 {

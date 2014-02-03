@@ -10,7 +10,6 @@ Cu.import('resource://gre/modules/DataStoreChangeNotifier.jsm');
 Cu.import('resource://gre/modules/AlarmService.jsm');
 Cu.import('resource://gre/modules/ActivitiesService.jsm');
 Cu.import('resource://gre/modules/PermissionPromptHelper.jsm');
-Cu.import('resource://gre/modules/ObjectWrapper.jsm');
 Cu.import('resource://gre/modules/NotificationDB.jsm');
 Cu.import('resource://gre/modules/Payment.jsm');
 Cu.import("resource://gre/modules/AppsUtils.jsm");
@@ -550,7 +549,7 @@ var shell = {
   sendCustomEvent: function shell_sendCustomEvent(type, details) {
     let content = getContentWindow();
     let event = content.document.createEvent('CustomEvent');
-    let payload = details ? ObjectWrapper.wrap(details, content) : {};
+    let payload = details ? Cu.cloneInto(details, content) : {};
     event.initCustomEvent(type, true, true, payload);
     content.dispatchEvent(event);
   },
@@ -566,7 +565,7 @@ var shell = {
     }
 
     this.sendEvent(getContentWindow(), "mozChromeEvent",
-                   ObjectWrapper.wrap(details, getContentWindow()));
+                   Cu.cloneInto(details, getContentWindow()));
   },
 
   openAppForSystemMessage: function shell_openAppForSystemMessage(msg) {
@@ -1088,27 +1087,12 @@ let RemoteDebugger = {
     if (!DebuggerServer.initialized) {
       // Ask for remote connections.
       DebuggerServer.init(this.prompt.bind(this));
-      DebuggerServer.chromeWindowType = "navigator:browser";
-      DebuggerServer.addActors("resource://gre/modules/devtools/server/actors/webbrowser.js");
-      // Prevent tab actors to be loaded in parent process,
-      // unless we enable certified apps debugging
-      if (!Services.prefs.getBoolPref("devtools.debugger.forbid-certified-apps")) {
-        DebuggerServer.addActors("resource://gre/modules/devtools/server/actors/script.js");
-        DebuggerServer.addGlobalActor(DebuggerServer.ChromeDebuggerActor, "chromeDebugger");
-        DebuggerServer.addActors("resource://gre/modules/devtools/server/actors/webconsole.js");
-        DebuggerServer.addActors("resource://gre/modules/devtools/server/actors/gcli.js");
-        if ("nsIProfiler" in Ci) {
-          DebuggerServer.addActors("resource://gre/modules/devtools/server/actors/profiler.js");
-        }
-        DebuggerServer.registerModule("devtools/server/actors/inspector");
-        DebuggerServer.registerModule("devtools/server/actors/styleeditor");
-        DebuggerServer.registerModule("devtools/server/actors/stylesheets");
-        DebuggerServer.registerModule("devtools/server/actors/tracer");
-        DebuggerServer.registerModule("devtools/server/actors/webgl");
-      }
+
+      // Add Firefox-specific actors, but prevent tab actors to be loaded in
+      // the parent process, unless we enable certified apps debugging.
+      let restrictPrivileges = Services.prefs.getBoolPref("devtools.debugger.forbid-certified-apps");
+      DebuggerServer.addBrowserActors("navigator:browser", restrictPrivileges);
       DebuggerServer.addActors('chrome://browser/content/dbg-browser-actors.js');
-      DebuggerServer.addActors("resource://gre/modules/devtools/server/actors/webapps.js");
-      DebuggerServer.registerModule("devtools/server/actors/device");
 
 #ifdef MOZ_WIDGET_GONK
       DebuggerServer.onConnectionChange = function(what) {
@@ -1121,8 +1105,8 @@ let RemoteDebugger = {
                "/data/local/debugger-socket";
     try {
       DebuggerServer.openListener(path);
-      // Temporary event, until bug 942756 lands and offer a way to know
-      // when the server is up and running
+      // Temporary event, until bug 942756 lands and offers a way to know
+      // when the server is up and running.
       Services.obs.notifyObservers(null, 'debugger-server-started', null);
       this._running = true;
     } catch (e) {

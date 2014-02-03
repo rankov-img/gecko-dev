@@ -1324,11 +1324,16 @@ BuildTextRuns(gfxContext* aContext, nsTextFrame* aForFrame,
                  "Wrong line container hint");
   }
 
-  if (aForFrame && aForFrame->HasAnyStateBits(NS_FRAME_IS_IN_SINGLE_CHAR_MI)) {
-    aLineContainer->AddStateBits(NS_FRAME_IS_IN_SINGLE_CHAR_MI);
-  }
-  if (aForFrame && aForFrame->HasAnyStateBits(NS_FRAME_MATHML_SCRIPT_DESCENDANT)) {
-    aLineContainer->AddStateBits(NS_FRAME_MATHML_SCRIPT_DESCENDANT);
+  if (aForFrame) {
+    if (aForFrame->HasAnyStateBits(TEXT_IS_IN_TOKEN_MATHML)) {
+      aLineContainer->AddStateBits(TEXT_IS_IN_TOKEN_MATHML);
+      if (aForFrame->HasAnyStateBits(NS_FRAME_IS_IN_SINGLE_CHAR_MI)) {
+        aLineContainer->AddStateBits(NS_FRAME_IS_IN_SINGLE_CHAR_MI);
+      }
+    }
+    if (aForFrame->HasAnyStateBits(NS_FRAME_MATHML_SCRIPT_DESCENDANT)) {
+      aLineContainer->AddStateBits(NS_FRAME_MATHML_SCRIPT_DESCENDANT);
+    }
   }
 
   nsPresContext* presContext = aLineContainer->PresContext();
@@ -1980,6 +1985,13 @@ BuildTextRunsScanner::BuildTextRunForFrames(void* aTextBuffer)
       anyMathMLStyling = true;
     }
     nsIFrame* parent = mLineContainer->GetParent();
+    if (mLineContainer->HasAnyStateBits(TEXT_IS_IN_TOKEN_MATHML)) {
+      // All MathML tokens except <mtext> use 'math' script.
+      if (!(parent && parent->GetContent() &&
+          parent->GetContent()->Tag() == nsGkAtoms::mtext_)) {
+        textFlags |= gfxTextRunFactory::TEXT_USE_MATH_SCRIPT;
+      }
+    }
     nsIFrame* child = mLineContainer;
     uint8_t oldScriptLevel = 0;
     while (parent && 
@@ -7382,8 +7394,9 @@ nsTextFrame::GetPrefWidthTightBounds(nsRenderingContext* aContext,
                               ComputeTransformedLength(provider),
                               gfxFont::TIGHT_HINTED_OUTLINE_EXTENTS,
                               aContext->ThebesContext(), &provider);
-  *aX = metrics.mBoundingBox.x;
-  *aXMost = metrics.mBoundingBox.XMost();
+  // Round it like nsTextFrame::ComputeTightBounds() to ensure consistency.
+  *aX = NSToCoordFloor(metrics.mBoundingBox.x);
+  *aXMost = NSToCoordCeil(metrics.mBoundingBox.XMost());
 
   return NS_OK;
 }
@@ -8503,21 +8516,22 @@ nsTextFrame::GetFrameName(nsAString& aResult) const
 }
 
 void
-nsTextFrame::List(FILE* out, int32_t aIndent, uint32_t aFlags) const
+nsTextFrame::List(FILE* out, const char* aPrefix, uint32_t aFlags) const
 {
-  ListGeneric(out, aIndent, aFlags);
+  nsCString str;
+  ListGeneric(str, aPrefix, aFlags);
 
-  fprintf(out, " [run=%p]", static_cast<void*>(mTextRun));
+  str += nsPrintfCString(" [run=%p]", static_cast<void*>(mTextRun));
 
   // Output the first/last content offset and prev/next in flow info
   bool isComplete = uint32_t(GetContentEnd()) == GetContent()->TextLength();
-  fprintf(out, "[%d,%d,%c] ", GetContentOffset(), GetContentLength(),
+  str += nsPrintfCString("[%d,%d,%c] ", GetContentOffset(), GetContentLength(),
           isComplete ? 'T':'F');
   
   if (IsSelected()) {
-    fprintf(out, " SELECTED");
+    str += " SELECTED";
   }
-  fputs("\n", out);
+  fprintf_stderr(out, "%s\n", str.get());
 }
 #endif
 
