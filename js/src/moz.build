@@ -329,7 +329,7 @@ if CONFIG['ENABLE_ION']:
             UNIFIED_SOURCES += [
                 'jit/arm/Simulator-arm.cpp'
             ]
-    elif CONFIG['TARGET_CPU'].find('mips') != -1:
+    elif CONFIG['JS_CODEGEN_MIPS']:
         SOURCES += [
             'jit/mips/Architecture-mips.cpp',
             'jit/mips/Assembler-mips.cpp',

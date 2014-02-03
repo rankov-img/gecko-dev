@@ -1977,7 +1977,7 @@ ICCompare_String::Compiler::generateStubCode(MacroAssembler &masm)
 //
 
 // Implemented for MIPS in BaselineIC-mips.cpp
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
 bool
 ICCompare_Boolean::Compiler::generateStubCode(MacroAssembler &masm)
 {
@@ -2138,7 +2138,7 @@ ICCompare_ObjectWithUndefined::Compiler::generateStubCode(MacroAssembler &masm)
 //
 
 // Implemented for MIPS in BaselineIC-mips.cpp
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
 bool
 ICCompare_Int32WithBoolean::Compiler::generateStubCode(MacroAssembler &masm)
 {
@@ -2288,7 +2288,7 @@ ICToBool_Fallback::Compiler::generateStubCode(MacroAssembler &masm)
 //
 
 // Implemented for MIPS in BaselineIC-mips.cpp
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
 bool
 ICToBool_Int32::Compiler::generateStubCode(MacroAssembler &masm)
 {
@@ -2318,7 +2318,7 @@ ICToBool_Int32::Compiler::generateStubCode(MacroAssembler &masm)
 //
 
 // Implemented for MIPS in BaselineIC-mips.cpp
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
 bool
 ICToBool_String::Compiler::generateStubCode(MacroAssembler &masm)
 {
@@ -2370,7 +2370,7 @@ ICToBool_NullUndefined::Compiler::generateStubCode(MacroAssembler &masm)
 //
 
 // Implemented for MIPS in BaselineIC-mips.cpp
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
 bool
 ICToBool_Double::Compiler::generateStubCode(MacroAssembler &masm)
 {
@@ -2399,7 +2399,7 @@ ICToBool_Double::Compiler::generateStubCode(MacroAssembler &masm)
 //
 
 // Implemented for MIPS in BaselineIC-mips.cpp
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
 bool
 ICToBool_Object::Compiler::generateStubCode(MacroAssembler &masm)
 {
@@ -2890,7 +2890,7 @@ ICBinaryArith_Double::Compiler::generateStubCode(MacroAssembler &masm)
 }
 
 // Implemented for MIPS in BaselineIC-mips.cpp
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
 bool
 ICBinaryArith_BooleanWithInt32::Compiler::generateStubCode(MacroAssembler &masm)
 {
@@ -9203,7 +9203,7 @@ ICIteratorMore_Fallback::Compiler::generateStubCode(MacroAssembler &masm)
 //
 
 // Implemented for MIPS in BaselineIC-mips.cpp
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
 bool
 ICIteratorMore_Native::Compiler::generateStubCode(MacroAssembler &masm)
 {

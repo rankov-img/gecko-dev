@@ -1550,7 +1550,7 @@ LAllocation::toRegister() const
 # include "jit/shared/LIR-x86-shared.h"
 #elif defined(JS_CODEGEN_ARM)
 # include "jit/arm/LIR-arm.h"
-#elif defined(JS_CPU_MIPS)
+#elif defined(JS_CODEGEN_MIPS)
 # include "jit/mips/LIR-mips.h"
 #endif
 

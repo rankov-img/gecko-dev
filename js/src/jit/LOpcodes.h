@@ -298,7 +298,7 @@
 # include "jit/x64/LOpcodes-x64.h"
 #elif defined(JS_CODEGEN_ARM)
 # include "jit/arm/LOpcodes-arm.h"
-#elif defined(JS_CPU_MIPS)
+#elif defined(JS_CODEGEN_MIPS)
 # include "jit/mips/LOpcodes-mips.h"
 #endif
 

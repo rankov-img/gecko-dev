@@ -404,7 +404,7 @@ class CodeGeneratorShared : public LInstructionVisitor
     void jumpToBlock(MBasicBlock *mir);
 
 // This function is not used for MIPS. MIPS has branchToBlock.
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
     void jumpToBlock(MBasicBlock *mir, Assembler::Condition cond);
 #endif
 

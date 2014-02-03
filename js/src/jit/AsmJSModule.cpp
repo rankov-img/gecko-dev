@@ -56,7 +56,7 @@ AsmJSModule::initHeap(Handle<ArrayBufferObject*> heap, JSContext *cx)
         JS_ASSERT(disp <= INT32_MAX);
         JSC::X86Assembler::setPointer(addr, (void *)(heapOffset + disp));
     }
-#elif defined(JS_CODEGEN_ARM) || defined(JS_CPU_MIPS)
+#elif defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_MIPS)
     uint32_t heapLength = heap->byteLength();
     for (unsigned i = 0; i < heapAccesses_.length(); i++) {
         jit::Assembler::updateBoundsCheck(heapLength,
@@ -305,7 +305,7 @@ AsmJSModule::staticallyLink(const AsmJSStaticLinkData &linkData, ExclusiveContex
 
     for (size_t i = 0; i < linkData.relativeLinks.length(); i++) {
         AsmJSStaticLinkData::RelativeLink link = linkData.relativeLinks[i];
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
         *(void **)(code_ + link.patchAtOffset) = code_ + link.targetOffset;
 #else
         if (link.isTableEntry) {
@@ -764,7 +764,7 @@ GetCPUID(uint32_t *cpuId)
     JS_ASSERT(GetARMFlags() <= (UINT32_MAX >> ARCH_BITS));
     *cpuId = ARM | (GetARMFlags() << ARCH_BITS);
     return true;
-#elif defined(JS_CPU_MIPS)
+#elif defined(JS_CODEGEN_MIPS)
     JS_ASSERT(GetMIPSFlags() <= (UINT32_MAX >> ARCH_BITS));
     *cpuId = MIPS | (GetMIPSFlags() << ARCH_BITS);
     return true;
@@ -1116,7 +1116,7 @@ js::LookupAsmJSModuleInCache(ExclusiveContext *cx,
 
     module->staticallyLink(linkData, cx);
 
-#ifdef JS_CPU_MIPS
+#ifdef JS_CODEGEN_MIPS
     jit::AutoFlushCache::updateTop(uintptr_t(module->codeBase()), module->offsetOfGlobalData());
 #endif
 

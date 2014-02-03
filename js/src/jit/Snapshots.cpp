@@ -353,7 +353,7 @@ SnapshotWriter::writeSlotHeader(JSValueType type, uint32_t regCode)
     // because we never let Ion allocate registers with code over 28.
     // These registers are: $gp, $sp, $fp and $ra.
     // TODO: We should propose to make this value 16bits anyway.
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
     JS_STATIC_ASSERT(Registers::Total < MIN_REG_FIELD_ESC);
 #endif
 

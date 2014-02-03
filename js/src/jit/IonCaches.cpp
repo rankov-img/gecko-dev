@@ -877,7 +877,7 @@ EmitGetterCall(JSContext *cx, MacroAssembler &masm,
 
     if (callNative) {
 
-#ifdef JS_CPU_MIPS
+#ifdef JS_CODEGEN_MIPS
         // Ensure stack is aligned
         masm.ma_move(scratchReg, StackPointer);
         masm.ma_subu(StackPointer, StackPointer, Imm32(sizeof(intptr_t)));
@@ -933,7 +933,7 @@ EmitGetterCall(JSContext *cx, MacroAssembler &masm,
         // masm.leaveExitFrame & pop locals
         masm.adjustStack(IonOOLNativeExitFrameLayout::Size(0));
 
-#ifdef JS_CPU_MIPS
+#ifdef JS_CODEGEN_MIPS
         masm.ma_lw(StackPointer, StackPointer, 0);
 #endif
     } else {

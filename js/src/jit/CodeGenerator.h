@@ -18,7 +18,7 @@
 # include "jit/x64/CodeGenerator-x64.h"
 #elif defined(JS_CODEGEN_ARM)
 # include "jit/arm/CodeGenerator-arm.h"
-#elif defined(JS_CPU_MIPS)
+#elif defined(JS_CODEGEN_MIPS)
 # include "jit/mips/CodeGenerator-mips.h"
 #else
 #error "CPU Not Supported"

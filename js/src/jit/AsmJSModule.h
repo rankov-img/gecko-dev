@@ -54,7 +54,7 @@ struct AsmJSStaticLinkData
 {
     struct RelativeLink
     {
-#ifdef JS_CPU_MIPS
+#ifdef JS_CODEGEN_MIPS
         bool isTableEntry;
 #endif
         uint32_t patchAtOffset;
@@ -649,7 +649,7 @@ class AsmJSModule
     }
     size_t globalDataBytes() const {
         return sizeof(void*) +
-#ifdef JS_CPU_MIPS
+#ifdef JS_CODEGEN_MIPS
                // MIPS scratch slot
                sizeof(void*) +
 #endif
@@ -665,7 +665,7 @@ class AsmJSModule
     unsigned globalVarIndexToGlobalDataOffset(unsigned i) const {
         JS_ASSERT(i < pod.numGlobalVars_);
         return sizeof(void*) +
-#ifdef JS_CPU_MIPS
+#ifdef JS_CODEGEN_MIPS
                // MIPS scratch slot
                sizeof(void*) +
 #endif

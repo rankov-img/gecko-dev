@@ -1052,7 +1052,7 @@ class ICStubCompiler
 #if defined(JS_CODEGEN_ARM)
         JS_ASSERT(!regs.has(BaselineTailCallReg));
         regs.take(BaselineSecondScratchReg);
-#elif defined(JS_CPU_MIPS)
+#elif defined(JS_CODEGEN_MIPS)
         JS_ASSERT(!regs.has(BaselineTailCallReg));
         JS_ASSERT(!regs.has(BaselineSecondScratchReg));
 #endif

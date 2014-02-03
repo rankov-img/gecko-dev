@@ -1603,12 +1603,12 @@ class MOZ_STACK_CLASS ModuleCompiler
                 AsmJSStaticLinkData::RelativeLink link;
                 link.patchAtOffset = patchAtOffset;
                 link.targetOffset = targetOffset;
-#ifdef JS_CPU_MIPS
+#ifdef JS_CODEGEN_MIPS
                 link.isTableEntry = false;
 #endif
                 if (!linkData->relativeLinks.append(link))
                     return false;
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
                 labelOffset = *(uintptr_t *)(module_->codeBase() + patchAtOffset);
 #else
                 InstImm *inst = (InstImm *)(module_->codeBase() + patchAtOffset);
@@ -1625,7 +1625,7 @@ class MOZ_STACK_CLASS ModuleCompiler
                 AsmJSStaticLinkData::RelativeLink link;
                 link.patchAtOffset = tableBaseOffset + elemIndex * sizeof(uint8_t*);
                 link.targetOffset = masm_.actualOffset(table.elem(elemIndex).code()->offset());
-#ifdef JS_CPU_MIPS
+#ifdef JS_CODEGEN_MIPS
                 link.isTableEntry = true;
 #endif
                 if (!linkData->relativeLinks.append(link))
@@ -1657,7 +1657,7 @@ class MOZ_STACK_CLASS ModuleCompiler
         }
 #endif
 
-#if defined(JS_CPU_MIPS)
+#if defined(JS_CODEGEN_MIPS)
         // On MIPS we need to update all the long jumps because they contain an
         // absolute adress.
         for (size_t i = 0; i < masm_.numLongJumps(); i++) {
@@ -5856,7 +5856,7 @@ StackDecrementForCall(MacroAssembler &masm, const VectorT &argTypes, unsigned ex
     return AlignBytes(alreadyPushed + extraBytes + argBytes, StackAlignment) - alreadyPushed;
 }
 
-#if defined(JS_CPU_MIPS)
+#if defined(JS_CODEGEN_MIPS)
 // Mips is using one more double slot due to stack alignment for double values.
 // Look at MacroAssembler::PushRegsInMask(RegisterSet set)
 static const unsigned FramePushedAfterSave = NonVolatileRegs.gprs().size() * sizeof(intptr_t) +
@@ -5896,14 +5896,14 @@ GenerateEntry(ModuleCompiler &m, const AsmJSModule::ExportedFunction &exportedFu
 #if defined(JS_CODEGEN_ARM)
     masm.movePtr(IntArgReg1, GlobalReg);
     masm.ma_vimm(GenericNaN(), NANReg);
-#elif defined(JS_CPU_MIPS)
+#elif defined(JS_CODEGEN_MIPS)
     masm.movePtr(IntArgReg1, GlobalReg);
     masm.ma_lid(NANReg, GenericNaN());
 #endif
 
     // ARM, MIPS and x64 have a globally-pinned HeapReg (x86 uses immediates in
     // effective addresses).
-#if defined(JS_CODEGEN_X64) || defined(JS_CODEGEN_ARM) || defined(JS_CPU_MIPS)
+#if defined(JS_CODEGEN_X64) || defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_MIPS)
     masm.loadPtr(Address(IntArgReg1, m.module().heapOffset()), HeapReg);
 #endif
 
@@ -6222,21 +6222,21 @@ GenerateFFIInterpreterExit(ModuleCompiler &m, const ModuleCompiler::ExitDescript
 #else
     const unsigned arrayLength = Max<size_t>(1, exit.sig().args().length());
     const unsigned arraySize = arrayLength * sizeof(Value);
-#if defined(JS_CPU_ARM)
+#if defined(JS_CODEGEN_ARM)
     const unsigned reserveSize = AlignBytes(arraySize, StackAlignment) +
         ShadowStackSpace;
-#elif defined(JS_CPU_MIPS)
+#elif defined(JS_CODEGEN_MIPS)
     // On MIPS we have to reserve 4 * STACK_SLOT_SIZE for the pending call.
     const unsigned reserveSize = AlignBytes(arraySize, StackAlignment) +
         ShadowStackSpace + 4 * sizeof(intptr_t);
 #endif
     const unsigned callerArgsOffset = reserveSize + NativeFrameSize + sizeof(int32_t);
     masm.setFramePushed(0);
-#if defined(JS_CPU_ARM)
+#if defined(JS_CODEGEN_ARM)
     masm.Push(lr);
     masm.reserveStack(reserveSize + sizeof(int32_t));
     int offsetToArgs = ShadowStackSpace;
-#elif defined(JS_CPU_MIPS)
+#elif defined(JS_CODEGEN_MIPS)
     masm.Push(ra);
     masm.reserveStack(reserveSize + sizeof(int32_t));
     int offsetToArgs = ShadowStackSpace + 4 * sizeof(intptr_t);
@@ -6366,7 +6366,7 @@ GenerateFFIIonExit(ModuleCompiler &m, const ModuleCompiler::ExitDescriptor &exit
                                                     RegisterSet::Not(RegisterSet::Volatile()));
 #if defined(JS_CODEGEN_ARM)
     masm.Push(lr);
-#elif defined(JS_CPU_MIPS)
+#elif defined(JS_CODEGEN_MIPS)
     masm.Push(ra);
 #endif
     masm.PushRegsInMask(restoreSet);
@@ -6378,7 +6378,7 @@ GenerateFFIIonExit(ModuleCompiler &m, const ModuleCompiler::ExitDescriptor &exit
     MIRTypeVector emptyVector(m.cx());
     unsigned argBytes = 3 * sizeof(size_t) + (1 + exit.sig().args().length()) * sizeof(Value);
     unsigned extraBytes = 0;
-#if defined(JS_CODEGEN_ARM) || defined(JS_CPU_MIPS)
+#if defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_MIPS)
     extraBytes += sizeof(size_t);
 #endif
     unsigned stackDec = StackDecrementForCall(masm, emptyVector, argBytes + extraBytes);
@@ -6448,12 +6448,12 @@ GenerateFFIIonExit(ModuleCompiler &m, const ModuleCompiler::ExitDescriptor &exit
     masm.pop(scratch);
 
     // 2. Call
-#if (defined(JS_CODEGEN_ARM) || defined(JS_CPU_MIPS)) && defined(DEBUG)
+#if (defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_MIPS)) && defined(DEBUG)
     // ARM still needs to push, before stack is aligned
     masm.Push(scratch);
 #endif
     AssertStackAlignment(masm);
-#if (defined(JS_CODEGEN_ARM) || defined(JS_CPU_MIPS)) && defined(DEBUG)
+#if (defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_MIPS)) && defined(DEBUG)
     masm.freeStack(sizeof(size_t));
 #endif
     masm.callIon(scratch);
@@ -6555,14 +6555,14 @@ GenerateStackOverflowExit(ModuleCompiler &m, Label *throwLabel)
 #endif
 
     // MIPS ABI requires rewserving stack for registes $a0 to $a3.
-#if defined(JS_CPU_MIPS)
+#if defined(JS_CODEGEN_MIPS)
     masm.ma_subu(StackPointer, StackPointer, Imm32(4 * sizeof(intptr_t)));
 #endif
 
     masm.call(AsmJSImm_ReportOverRecursed);
     masm.jump(throwLabel);
 
-#if defined(JS_CPU_MIPS)
+#if defined(JS_CODEGEN_MIPS)
     masm.ma_addu(StackPointer, StackPointer, Imm32(4 * sizeof(intptr_t)));
 #endif
 
@@ -6584,7 +6584,7 @@ GenerateOperationCallbackExit(ModuleCompiler &m, Label *throwLabel)
     masm.align(CodeAlignment);
     masm.bind(&m.operationCallbackLabel());
 
-#if !defined(JS_CODEGEN_ARM) && !defined(JS_CPU_MIPS)
+#if !defined(JS_CODEGEN_ARM) && !defined(JS_CODEGEN_MIPS)
     // Be very careful here not to perturb the machine state before saving it
     // to the stack. In particular, add/sub instructions may set conditions in
     // the flags register.
@@ -6630,7 +6630,7 @@ GenerateOperationCallbackExit(ModuleCompiler &m, Label *throwLabel)
     masm.PopRegsInMask(AllRegsExceptSP); // restore all GP/FP registers (except SP)
     masm.popFlags();              // after this, nothing that sets conditions
     masm.ret();                   // pop resumePC into PC
-#elif defined(JS_CPU_MIPS)
+#elif defined(JS_CODEGEN_MIPS)
     // Reserve space to store resumePC.
     masm.ma_subu(StackPointer, StackPointer, Imm32(sizeof(intptr_t)));
     // set to zero so we can use masm.framePushed() below.

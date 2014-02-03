@@ -280,7 +280,7 @@ MacroAssembler::PushRegsInMask(RegisterSet set)
 #ifdef JS_CODEGEN_ARM
     adjustFrame(diffF);
     diffF += transferMultipleByRuns(set.fpus(), IsStore, StackPointer, DB);
-#elif defined(JS_CPU_MIPS)
+#elif defined(JS_CODEGEN_MIPS)
     // Double values have to be aligned. We reserve extra space so that we can
     // start writing from the first aligned location.
     // We reserve a whole extra double so that the buffer has even size.
@@ -319,7 +319,7 @@ MacroAssembler::PopRegsInMaskIgnore(RegisterSet set, RegisterSet ignore)
     } else
 #endif
     {
-#ifdef JS_CPU_MIPS
+#ifdef JS_CODEGEN_MIPS
         // Read the buffer form the first aligned location.
         ma_addu(secondScratchReg_, sp, Imm32(reservedF + sizeof(double)));
         ma_and(secondScratchReg_, secondScratchReg_, Imm32(~(StackAlignment - 1)));
@@ -470,7 +470,7 @@ MacroAssembler::loadFromTypedArray(int arrayType, const T &src, AnyRegister dest
             // Bail out if the value doesn't fit into a signed int32 value. This
             // is what allows MLoadTypedArrayElement to have a type() of
             // MIRType_Int32 for UInt32 array loads.
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
             test32(dest.gpr(), dest.gpr());
             j(Assembler::Signed, fail);
 #else
@@ -519,14 +519,14 @@ MacroAssembler::loadFromTypedArray(int arrayType, const T &src, const ValueOpera
       case ScalarTypeRepresentation::TYPE_UINT32:
         // Don't clobber dest when we could fail, instead use temp.
         load32(src, temp);
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
         test32(temp, temp);
 #endif
         if (allowDouble) {
             // If the value fits in an int32, store an int32 type tag.
             // Else, convert the value to double and box it.
             Label done, isDouble;
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
             j(Assembler::Signed, &isDouble);
 #else
             ma_b(temp, temp, &isDouble, Assembler::Signed, true);
@@ -543,7 +543,7 @@ MacroAssembler::loadFromTypedArray(int arrayType, const T &src, const ValueOpera
             bind(&done);
         } else {
             // Bailout if the value does not fit in an int32.
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
             j(Assembler::Signed, fail);
 #else
             ma_b(temp, temp, fail, Assembler::Signed);
@@ -647,7 +647,7 @@ MacroAssembler::clampDoubleToUint8(FloatRegister input, Register output)
 
     Label outOfRange;
 
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
     // Truncate to int32 and ensure the result <= 255. This relies on the
     // processor setting output to a value > 255 for doubles outside the int32
     // range (for instance 0x80000000).
@@ -904,7 +904,7 @@ MacroAssembler::compareStrings(JSOp op, Register left, Register right, Register 
     branchTest32(Assembler::Zero, result, atomBit, &notAtom);
     branchTest32(Assembler::Zero, temp, atomBit, &notAtom);
 
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
     cmpPtr(left, right);
     emitSet(JSOpToCondition(MCompare::Compare_String, op), result);
 #else

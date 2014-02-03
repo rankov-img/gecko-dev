@@ -474,7 +474,7 @@ CodeGenerator::testObjectEmulatesUndefinedKernel(Register objreg,
     // Perform a fast-path check of the object's class flags if the object's
     // not a proxy.  Let out-of-line code handle the slow cases that require
     // saving registers, making a function call, and restoring registers.
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
     Assembler::Condition cond = masm.branchTestObjectTruthy(false, objreg, scratch, ool->entry());
     masm.j(cond, ifEmulatesUndefined);
 #else
@@ -532,7 +532,7 @@ CodeGenerator::testValueTruthyKernel(const ValueOperand &value,
 
     Label notInt32;
     masm.branchTestInt32(Assembler::NotEqual, tag, &notInt32);
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
     cond = masm.testInt32Truthy(false, value);
     masm.j(cond, ifFalsy);
 #else
@@ -557,7 +557,7 @@ CodeGenerator::testValueTruthyKernel(const ValueOperand &value,
     // Test if a string is non-empty.
     Label notString;
     masm.branchTestString(Assembler::NotEqual, tag, &notString);
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
     cond = masm.testStringTruthy(false, value);
     masm.j(cond, ifFalsy);
 #else
@@ -568,7 +568,7 @@ CodeGenerator::testValueTruthyKernel(const ValueOperand &value,
 
     // If we reach here the value is a double.
     masm.unboxDouble(value, fr);
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
     cond = masm.testDoubleTruthy(false, fr);
     masm.j(cond, ifFalsy);
 #else
@@ -1685,7 +1685,7 @@ CodeGenerator::visitGuardObjectIdentity(LGuardObjectIdentity *guard)
 {
     Register obj = ToRegister(guard->input());
 
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
     masm.cmpPtr(obj, ImmGCPtr(guard->mir()->singleObject()));
 
     Assembler::Condition cond =
@@ -2169,7 +2169,7 @@ CodeGenerator::visitCallGeneric(LCallGeneric *call)
 
     // Check whether the provided arguments satisfy target argc.
     masm.load16ZeroExtend(Address(calleereg, JSFunction::offsetOfNargs()), nargsreg);
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
     masm.cmp32(nargsreg, Imm32(call->numStackArgs()));
     masm.j(Assembler::Above, &thunk);
 #else
@@ -2450,7 +2450,7 @@ CodeGenerator::visitApplyArgsGeneric(LApplyArgsGeneric *apply)
     // Unless already known, guard that calleereg is actually a function object.
     if (!apply->hasSingleTarget()) {
         masm.loadObjClass(calleereg, objreg);
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
         masm.cmpPtr(objreg, ImmPtr(&JSFunction::class_));
         if (!bailoutIf(Assembler::NotEqual, apply->snapshot()))
             return false;
@@ -2510,14 +2510,14 @@ CodeGenerator::visitApplyArgsGeneric(LApplyArgsGeneric *apply)
         // Check whether the provided arguments satisfy target argc.
         if (!apply->hasSingleTarget()) {
             masm.load16ZeroExtend(Address(calleereg, JSFunction::offsetOfNargs()), copyreg);
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
             masm.cmp32(argcreg, copyreg);
             masm.j(Assembler::Below, &underflow);
 #else
             masm.branch32(Assembler::Below, argcreg, copyreg, &underflow);
 #endif
         } else {
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
             masm.cmp32(argcreg, Imm32(apply->getSingleTarget()->nargs()));
             masm.j(Assembler::Below, &underflow);
 #else
@@ -2609,7 +2609,7 @@ CodeGenerator::visitGetDynamicName(LGetDynamicName *lir)
     masm.loadValue(Address(StackPointer, 0), out);
     masm.adjustStack(sizeof(Value));
 
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
     Assembler::Condition cond = masm.testUndefined(Assembler::Equal, out);
     return bailoutIf(cond, lir->snapshot());
 #else
@@ -3428,7 +3428,7 @@ CodeGenerator::visitNewSlots(LNewSlots *lir)
     masm.passABIArg(temp2);
     masm.callWithABI(JS_FUNC_TO_DATA_PTR(void *, NewSlots));
 
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
     masm.testPtr(output, output);
     if (!bailoutIf(Assembler::Zero, lir->snapshot()))
         return false;
@@ -4161,7 +4161,7 @@ CodeGenerator::visitStringLength(LStringLength *lir)
 }
 
 // Implemented for MIPS in CodeGenerator-mips.cpp
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
 bool
 CodeGenerator::visitMinMaxI(LMinMaxI *ins)
 {
@@ -4659,7 +4659,7 @@ CodeGenerator::visitIsNullOrLikeUndefined(LIsNullOrLikeUndefined *lir)
     JS_ASSERT(op == JSOP_STRICTEQ || op == JSOP_STRICTNE);
 
     Assembler::Condition cond = JSOpToCondition(compareType, op);
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
     if (compareType == MCompare::Compare_Null)
         cond = masm.testNull(cond, value);
     else
@@ -4736,7 +4736,7 @@ CodeGenerator::visitIsNullOrLikeUndefinedAndBranch(LIsNullOrLikeUndefinedAndBran
     JS_ASSERT(op == JSOP_STRICTEQ || op == JSOP_STRICTNE);
 
     Assembler::Condition cond = JSOpToCondition(compareType, op);
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
     if (compareType == MCompare::Compare_Null)
         cond = masm.testNull(cond, value);
     else
@@ -4918,7 +4918,7 @@ CopyStringChars(MacroAssembler &masm, Register to, Register from, Register len, 
     masm.addPtr(Imm32(2), from);
     masm.addPtr(Imm32(2), to);
     masm.sub32(Imm32(1), len);
-#if defined(JS_CPU_MIPS)
+#if defined(JS_CODEGEN_MIPS)
     masm.ma_b(len, len, &start, Assembler::NonZero, true);
 #else
     masm.j(Assembler::NonZero, &start);
@@ -5236,7 +5236,7 @@ CodeGenerator::visitNotV(LNotV *lir)
 }
 
 // Implemented for MIPS in CodeGenerator-mips.cpp
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
 bool
 CodeGenerator::visitBoundsCheck(LBoundsCheck *lir)
 {
@@ -5262,7 +5262,7 @@ CodeGenerator::visitBoundsCheck(LBoundsCheck *lir)
 #endif
 
 // Implemented for MIPS in CodeGenerator-mips.cpp
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
 bool
 CodeGenerator::visitBoundsCheckRange(LBoundsCheckRange *lir)
 {
@@ -5323,7 +5323,7 @@ CodeGenerator::visitBoundsCheckRange(LBoundsCheckRange *lir)
 #endif
 
 // Implemented for MIPS in CodeGenerator-mips.cpp
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
 bool
 CodeGenerator::visitBoundsCheckLower(LBoundsCheckLower *lir)
 {
@@ -5357,7 +5357,7 @@ class OutOfLineStoreElementHole : public OutOfLineCodeBase<CodeGenerator>
 };
 
 // Implemented for MIPS in CodeGenerator-mips.cpp
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
 bool
 CodeGenerator::emitStoreHoleCheck(Register elements, const LAllocation *index, LSnapshot *snapshot)
 {
@@ -5499,7 +5499,7 @@ CodeGenerator::visitOutOfLineStoreElementHole(OutOfLineStoreElementHole *ool)
     // If index > initializedLength, call a stub. Note that this relies on the
     // condition flags sticking from the incoming branch.
     Label callStub;
-#ifdef JS_CPU_MIPS
+#ifdef JS_CODEGEN_MIPS
     // Had to reimplement for MIPS because there are no flags.
     Address initLength(elements, ObjectElements::offsetOfInitializedLength());
     masm.branchKey(Assembler::NotEqual, initLength, ToInt32Key(index), &callStub);
@@ -5942,7 +5942,7 @@ CodeGenerator::visitIteratorMore(LIteratorMore *lir)
 
     // Set output to true if props_cursor < props_end.
     masm.loadPtr(Address(output, offsetof(NativeIterator, props_end)), temp);
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
     masm.cmpPtr(Address(output, offsetof(NativeIterator, props_cursor)), temp);
     masm.emitSet(Assembler::LessThan, output);
 #else
@@ -6479,7 +6479,7 @@ CodeGenerator::visitOutOfLineUnboxFloatingPoint(OutOfLineUnboxFloatingPoint *ool
     const ValueOperand value = ToValue(ins, LUnboxFloatingPoint::Input);
 
     if (ins->mir()->fallible()) {
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
         Assembler::Condition cond = masm.testInt32(Assembler::NotEqual, value);
         if (!bailoutIf(cond, ins->snapshot()))
             return false;
@@ -7352,7 +7352,7 @@ CodeGenerator::visitLoadElementV(LLoadElementV *load)
         masm.loadValue(BaseIndex(elements, ToRegister(load->index()), TimesEight), out);
 
     if (load->mir()->needsHoleCheck()) {
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
         Assembler::Condition cond = masm.testMagic(Assembler::Equal, out);
         if (!bailoutIf(cond, load->snapshot()))
             return false;
@@ -8058,7 +8058,7 @@ CodeGenerator::visitIsCallable(LIsCallable *ins)
     masm.jump(&done);
 
     masm.bind(&notFunction);
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
     masm.cmpPtr(Address(output, offsetof(js::Class, call)), ImmPtr(nullptr));
     masm.emitSet(Assembler::NonZero, output);
 #else
@@ -8121,7 +8121,7 @@ CodeGenerator::visitHaveSameClass(LHaveSameClass *ins)
 
     masm.loadObjClass(lhs, temp);
     masm.loadObjClass(rhs, output);
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
     masm.cmpPtr(temp, output);
     masm.emitSet(Assembler::Equal, output);
 #else

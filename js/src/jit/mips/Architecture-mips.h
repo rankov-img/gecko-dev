@@ -10,10 +10,12 @@
 #include <limits.h>
 #include <stdint.h>
 
+#include "js/Utility.h"
+
 // gcc appears to use _mips_hard_float to denote
 // that the target is a hard-float target.
 #ifdef _mips_hard_float
-#define JS_CPU_MIPS_HARDFP
+#define JS_CODEGEN_MIPS_HARDFP
 #endif
 namespace js {
 namespace jit {
@@ -109,6 +111,12 @@ class Registers
                                               "t8",   "t9", "k0", "k1", "gp", "sp", "fp", "ra"};
         return Names[code];
     }
+    static const char *GetName(uint32_t i) {
+        MOZ_ASSERT(i < Total);
+        return GetName(Code(i));
+    }
+
+    static Code FromName(const char *name);
 
     static const Code StackPointer = sp;
     static const Code Invalid = invalid_reg;
@@ -215,6 +223,12 @@ class FloatRegisters
                                               "f24", "f26", "f28", "f30"};
         return Names[code];
     }
+    static const char *GetName(uint32_t i) {
+        JS_ASSERT(i < Total);
+        return GetName(Code(i));
+    }
+
+    static Code FromName(const char *name);
 
     static const Code Invalid = invalid_freg;
 

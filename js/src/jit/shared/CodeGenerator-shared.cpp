@@ -64,7 +64,7 @@ CodeGeneratorShared::CodeGeneratorShared(MIRGenerator *gen, LIRGraph *graph, Mac
         // An MAsmJSCall does not align the stack pointer at calls sites but instead
         // relies on the a priori stack adjustment (in the prologue) on platforms
         // (like x64) which require the stack to be aligned.
-#if defined JS_CODEGEN_ARM || defined JS_CPU_MIPS
+#if defined JS_CODEGEN_ARM || defined JS_CODEGEN_MIPS
         bool forceAlign = true;
 #else
         bool forceAlign = false;
@@ -981,7 +981,7 @@ CodeGeneratorShared::jumpToBlock(MBasicBlock *mir)
 }
 
 // This function is not used for MIPS. MIPS has branchToBlock.
-#ifndef JS_CPU_MIPS
+#ifndef JS_CODEGEN_MIPS
 void
 CodeGeneratorShared::jumpToBlock(MBasicBlock *mir, Assembler::Condition cond)
 {
