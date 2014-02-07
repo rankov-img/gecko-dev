@@ -272,14 +272,14 @@ class RelocationIterator
 uintptr_t
 Assembler::getPointer(uint8_t *instPtr)
 {
-    InstructionIterator iter((Instruction*)instPtr);
-    return Assembler::extractLuiOriValue(iter.cur(), iter.next());
+    Instruction *inst = (Instruction*)instPtr;
+    return Assembler::extractLuiOriValue(inst, inst->next());
 }
 
 static JitCode *
-CodeFromJump(InstructionIterator *jump)
+CodeFromJump(Instruction *jump)
 {
-    uint8_t *target = (uint8_t *)Assembler::extractLuiOriValue(jump->cur(), jump->next());
+    uint8_t *target = (uint8_t *)Assembler::extractLuiOriValue(jump, jump->next());
     return JitCode::FromExecutable(target);
 }
 
@@ -288,8 +288,7 @@ Assembler::TraceJumpRelocations(JSTracer *trc, JitCode *code, CompactBufferReade
 {
     RelocationIterator iter(reader);
     while (iter.read()) {
-        InstructionIterator institer((Instruction *) (code->raw() + iter.offset()));
-        JitCode *child = CodeFromJump(&institer);
+        JitCode *child = CodeFromJump((Instruction *)(code->raw() + iter.offset()));
         MarkJitCodeUnbarriered(trc, &child, "rel32");
     }
 }
@@ -299,9 +298,8 @@ TraceDataRelocations(JSTracer *trc, uint8_t *buffer, CompactBufferReader &reader
 {
     while (reader.more()) {
         size_t offset = reader.readUnsigned();
-        InstructionIterator iter((Instruction*)(buffer + offset));
-
-        void *ptr = (void *)Assembler::extractLuiOriValue(iter.cur(), iter.next());
+        Instruction *inst = (Instruction*)(buffer + offset);
+        void *ptr = (void *)Assembler::extractLuiOriValue(inst, inst->next());
 
         // No barrier needed since these are constants.
         gc::MarkGCThingUnbarriered(trc, reinterpret_cast<void **>(&ptr), "ion-masm-ptr");

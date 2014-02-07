@@ -609,7 +609,6 @@ class Operand
 
 void
 PatchJump(CodeLocationJump &jump_, CodeLocationLabel label);
-class InstructionIterator;
 class Assembler;
 typedef js::jit::AssemblerBuffer<1024, Instruction> MIPSBuffer;
 
@@ -1282,19 +1281,6 @@ class InstJAL : public InstJump
     static InstJAL *asTHIS (const Instruction &i);
 };
 
-class InstructionIterator {
-  private:
-    Instruction *i;
-  public:
-    InstructionIterator(Instruction *i_) : i(i_) {}
-    Instruction *next() {
-        i = i->next();
-        return cur();
-    }
-    Instruction *cur() const {
-        return i;
-    }
-};
 
 static const uint32_t NumIntArgRegs = 4;
 static const uint32_t NumFloatArgRegs = 8;
