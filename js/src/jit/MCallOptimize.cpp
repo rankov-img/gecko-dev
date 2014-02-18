@@ -143,7 +143,8 @@ IonBuilder::inlineNativeCall(CallInfo &callInfo, JSNative native)
         return inlineUnsafeGetReservedSlot(callInfo);
 
     // Parallel intrinsics.
-    if (native == intrinsic_ShouldForceSequential)
+    if (native == intrinsic_ShouldForceSequential ||
+        native == intrinsic_InParallelSection)
         return inlineForceSequentialOrInParallelSection(callInfo);
 
     // Utility intrinsics.
@@ -256,13 +257,10 @@ IonBuilder::inlineArray(CallInfo &callInfo)
 
     types::TemporaryTypeSet::DoubleConversion conversion =
         getInlineReturnTypeSet()->convertDoubleElements(constraints());
-    {
-        AutoThreadSafeAccess ts(templateObject);
-        if (conversion == types::TemporaryTypeSet::AlwaysConvertToDoubles)
-            templateObject->setShouldConvertDoubleElements();
-        else
-            templateObject->clearShouldConvertDoubleElements();
-    }
+    if (conversion == types::TemporaryTypeSet::AlwaysConvertToDoubles)
+        templateObject->setShouldConvertDoubleElements();
+    else
+        templateObject->clearShouldConvertDoubleElements();
 
     MNewArray *ins = MNewArray::New(alloc(), constraints(), initLength, templateObject,
                                     templateObject->type()->initialHeap(constraints()),
@@ -619,6 +617,21 @@ IonBuilder::inlineMathCeil(CallInfo &callInfo)
     if (argType == MIRType_Int32 && returnType == MIRType_Int32) {
         callInfo.setImplicitlyUsedUnchecked();
         current->push(callInfo.getArg(0));
+        return InliningStatus_Inlined;
+    }
+
+    if (IsFloatingPointType(argType) && returnType == MIRType_Int32) {
+        // Math.ceil(x) == -Math.floor(-x)
+        callInfo.setImplicitlyUsedUnchecked();
+        MConstant *minusOne = MConstant::New(alloc(), DoubleValue(-1.0));
+        current->add(minusOne);
+        MMul *mul = MMul::New(alloc(), callInfo.getArg(0), minusOne, argType);
+        current->add(mul);
+        MFloor *floor = MFloor::New(alloc(), mul);
+        current->add(floor);
+        MMul *result = MMul::New(alloc(), floor, minusOne, MIRType_Int32);
+        current->add(result);
+        current->push(result);
         return InliningStatus_Inlined;
     }
 
@@ -1256,7 +1269,7 @@ IonBuilder::inlineUnsafePutElements(CallInfo &callInfo)
 
         // We can only inline setelem on dense arrays that do not need type
         // barriers and on typed arrays.
-        ScalarTypeRepresentation::Type arrayType;
+        ScalarTypeDescr::Type arrayType;
         if ((!isDenseNative || writeNeedsBarrier) &&
             !ElementAccessIsTypedArray(obj, id, &arrayType))
         {
@@ -1285,7 +1298,7 @@ IonBuilder::inlineUnsafePutElements(CallInfo &callInfo)
             continue;
         }
 
-        ScalarTypeRepresentation::Type arrayType;
+        ScalarTypeDescr::Type arrayType;
         if (ElementAccessIsTypedArray(obj, id, &arrayType)) {
             if (!inlineUnsafeSetTypedArrayElement(callInfo, base, arrayType))
                 return InliningStatus_Error;
@@ -1322,7 +1335,7 @@ IonBuilder::inlineUnsafeSetDenseArrayElement(CallInfo &callInfo, uint32_t base)
 bool
 IonBuilder::inlineUnsafeSetTypedArrayElement(CallInfo &callInfo,
                                              uint32_t base,
-                                             ScalarTypeRepresentation::Type arrayType)
+                                             ScalarTypeDescr::Type arrayType)
 {
     // Note: we do not check the conditions that are asserted as true
     // in intrinsic_UnsafePutElements():

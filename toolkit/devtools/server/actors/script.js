@@ -436,7 +436,10 @@ function ThreadActor(aHooks, aGlobal)
   this._state = "detached";
   this._frameActors = [];
   this._hooks = aHooks;
-  this.global = aGlobal;
+  this.global = this.globalSafe = aGlobal;
+  if (aGlobal && aGlobal.wrappedJSObject) {
+    this.global = aGlobal.wrappedJSObject;
+  }
   // A map of actorID -> actor for breakpoints created and managed by the server.
   this._hiddenBreakpoints = new Map();
 
@@ -1763,7 +1766,7 @@ ThreadActor.prototype = {
     // Clear DOM event breakpoints.
     // XPCShell tests don't use actual DOM windows for globals and cause
     // removeListenerForAllEvents to throw.
-    if (this.global && !this.global.toString().contains("Sandbox")) {
+    if (this.globalSafe && !this.globalSafe.toString().contains("Sandbox")) {
       let els = Cc["@mozilla.org/eventlistenerservice;1"]
                 .getService(Ci.nsIEventListenerService);
       els.removeListenerForAllEvents(this.global, this._allEventsListener, true);
@@ -2460,7 +2463,14 @@ SourceActor.prototype = {
     // XXX bug 865252: Don't load from the cache if this is a source mapped
     // source because we can't guarantee that the cache has the most up to date
     // content for this source like we can if it isn't source mapped.
-    return fetch(this._url, { loadFromCache: !this._sourceMap });
+    let sourceFetched = fetch(this._url, { loadFromCache: !this._sourceMap });
+
+    // Record the contentType we just learned during fetching
+    sourceFetched.then(({ contentType }) => {
+      this._contentType = contentType;
+    });
+
+    return sourceFetched;
   },
 
   /**

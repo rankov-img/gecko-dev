@@ -139,7 +139,7 @@ struct GLContextSymbols
     PFNGLGETQUERYOBJECTUIVPROC fGetQueryObjectuiv;
     typedef void (GLAPIENTRY * PFNGLTEXPARAMETERIPROC) (GLenum target, GLenum pname, GLint param);
     PFNGLTEXPARAMETERIPROC fTexParameteri;
-    typedef void (GLAPIENTRY * PFNGLTEXPARAMETERIVPROC) (GLenum target, GLenum pname, GLint* param);
+    typedef void (GLAPIENTRY * PFNGLTEXPARAMETERIVPROC) (GLenum target, GLenum pname, const GLint* param);
     PFNGLTEXPARAMETERIVPROC fTexParameteriv;
     typedef void (GLAPIENTRY * PFNGLTEXPARAMETERFPROC) (GLenum target, GLenum pname, GLfloat param);
     PFNGLTEXPARAMETERFPROC fTexParameterf;
@@ -149,9 +149,9 @@ struct GLContextSymbols
     PFNGLGETTEXIMAGEPROC fGetTexImage;
     typedef void (GLAPIENTRY * PFNGLGETTEXLEVELPARAMETERIVPROC) (GLenum target, GLint level, GLenum pname, GLint *params);
     PFNGLGETTEXLEVELPARAMETERIVPROC fGetTexLevelParameteriv;
-    typedef void (GLAPIENTRY * PFNGLGETTEXPARAMETERFVPROC) (GLenum target, GLenum pname, const GLfloat *params);
+    typedef void (GLAPIENTRY * PFNGLGETTEXPARAMETERFVPROC) (GLenum target, GLenum pname, GLfloat *params);
     PFNGLGETTEXPARAMETERFVPROC fGetTexParameterfv;
-    typedef void (GLAPIENTRY * PFNGLGETTEXPARAMETERIVPROC) (GLenum target, GLenum pname, const GLint *params);
+    typedef void (GLAPIENTRY * PFNGLGETTEXPARAMETERIVPROC) (GLenum target, GLenum pname, GLint *params);
     PFNGLGETTEXPARAMETERIVPROC fGetTexParameteriv;
     typedef void (GLAPIENTRY * PFNGLGETUNIFORMFVPROC) (GLuint program, GLint location, GLfloat* params);
     PFNGLGETUNIFORMFVPROC fGetUniformfv;
@@ -211,6 +211,8 @@ struct GLContextSymbols
     PFNGLTEXIMAGE2DPROC fTexImage2D;
     typedef void (GLAPIENTRY * PFNGLTEXSUBIMAGE2DPROC) (GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height, GLenum format, GLenum type, const void* pixels);
     PFNGLTEXSUBIMAGE2DPROC fTexSubImage2D;
+    typedef void (GLAPIENTRY * PFNGLTEXTURERANGEAPPLEPROC) (GLenum target, GLsizei length, GLvoid *pointer);
+    PFNGLTEXTURERANGEAPPLEPROC fTextureRangeAPPLE;
     typedef void (GLAPIENTRY * PFNGLUNIFORM1FPROC) (GLint location, GLfloat v0);
     PFNGLUNIFORM1FPROC fUniform1f;
     typedef void (GLAPIENTRY * PFNGLUNIFORM1FVPROC) (GLint location, GLsizei count, const GLfloat* value);
@@ -462,9 +464,9 @@ struct GLContextSymbols
     PFNGLOBJECTLABEL fObjectLabel;
     typedef void (GLAPIENTRY * PFNGLGETOBJECTLABEL) (GLenum identifier, GLuint name, GLsizei bufSize, GLsizei* length, GLchar* label);
     PFNGLGETOBJECTLABEL fGetObjectLabel;
-    typedef void (GLAPIENTRY * PFNGLOBJECTPTRLABEL) (GLvoid* ptr, GLsizei length, const GLchar* label);
+    typedef void (GLAPIENTRY * PFNGLOBJECTPTRLABEL) (const GLvoid* ptr, GLsizei length, const GLchar* label);
     PFNGLOBJECTPTRLABEL fObjectPtrLabel;
-    typedef void (GLAPIENTRY * PFNGLGETOBJECTPTRLABEL) (GLvoid* ptr, GLsizei bufSize, GLsizei* length, GLchar* label);
+    typedef void (GLAPIENTRY * PFNGLGETOBJECTPTRLABEL) (const GLvoid* ptr, GLsizei bufSize, GLsizei* length, GLchar* label);
     PFNGLGETOBJECTPTRLABEL fGetObjectPtrLabel;
 };
 

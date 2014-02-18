@@ -118,8 +118,8 @@ fun_getProperty(JSContext *cx, HandleObject obj_, HandleId id, MutableHandleValu
 
         /* Callsite clones should never escape to script. */
         JSObject &maybeClone = iter.calleev().toObject();
-        if (maybeClone.is<JSFunction>() && maybeClone.as<JSFunction>().nonLazyScript()->isCallsiteClone())
-            vp.setObject(*maybeClone.as<JSFunction>().nonLazyScript()->originalFunction());
+        if (maybeClone.is<JSFunction>())
+            vp.setObject(*maybeClone.as<JSFunction>().originalFunction());
         else
             vp.set(iter.calleev());
 
@@ -339,8 +339,7 @@ js::fun_resolve(JSContext *cx, HandleObject obj, HandleId id, unsigned flags,
                 setter = JS_StrictPropertyStub;
             }
 
-            RootedValue value(cx, UndefinedValue());
-            if (!DefineNativeProperty(cx, fun, id, value, getter, setter,
+            if (!DefineNativeProperty(cx, fun, id, UndefinedHandleValue, getter, setter,
                                       attrs, 0, 0)) {
                 return false;
             }
@@ -582,7 +581,7 @@ const Class* const js::FunctionClassPtr = &JSFunction::class_;
 
 /* Find the body of a function (not including braces). */
 static bool
-FindBody(JSContext *cx, HandleFunction fun, StableCharPtr chars, size_t length,
+FindBody(JSContext *cx, HandleFunction fun, ConstTwoByteChars chars, size_t length,
          size_t *bodyStart, size_t *bodyEnd)
 {
     // We don't need principals, since those are only used for error reporting.
@@ -625,7 +624,7 @@ FindBody(JSContext *cx, HandleFunction fun, StableCharPtr chars, size_t length,
     *bodyStart = ts.currentToken().pos.begin;
     if (braced)
         *bodyStart += 1;
-    StableCharPtr end(chars.get() + length, chars.get(), length);
+    ConstTwoByteChars end(chars.get() + length, chars.get(), length);
     if (end[-1] == '}') {
         end--;
     } else {
@@ -693,11 +692,11 @@ js::FunctionToString(JSContext *cx, HandleFunction fun, bool bodyOnly, bool lamb
         RootedString srcStr(cx, script->sourceData(cx));
         if (!srcStr)
             return nullptr;
-        Rooted<JSStableString *> src(cx, srcStr->ensureStable(cx));
+        Rooted<JSFlatString *> src(cx, srcStr->ensureFlat(cx));
         if (!src)
             return nullptr;
 
-        StableCharPtr chars = src->chars();
+        ConstTwoByteChars chars(src->chars(), src->length());
         bool exprBody = fun->isExprClosure();
 
         // The source data for functions created by calling the Function
@@ -1151,7 +1150,6 @@ JSFunction::createScriptForLazilyInterpretedFunction(JSContext *cx, HandleFuncti
         RootedScript script(cx, lazy->maybeScript());
 
         if (script) {
-            AutoLockForCompilation lock(cx);
             fun->setUnlazifiedScript(script);
             // Remember the lazy script on the compiled script, so it can be
             // stored on the function again in case of re-lazification.
@@ -1168,7 +1166,6 @@ JSFunction::createScriptForLazilyInterpretedFunction(JSContext *cx, HandleFuncti
             if (!script)
                 return false;
 
-            AutoLockForCompilation lock(cx);
             fun->setUnlazifiedScript(script);
             return true;
         }
@@ -1197,10 +1194,7 @@ JSFunction::createScriptForLazilyInterpretedFunction(JSContext *cx, HandleFuncti
             fun->initAtom(script->functionNonDelazifying()->displayAtom());
             clonedScript->setFunction(fun);
 
-            {
-                AutoLockForCompilation lock(cx);
-                fun->setUnlazifiedScript(clonedScript);
-            }
+            fun->setUnlazifiedScript(clonedScript);
 
             CallNewScriptHook(cx, clonedScript, fun);
 
@@ -1478,18 +1472,29 @@ FunctionConstructor(JSContext *cx, unsigned argc, Value *vp, GeneratorKind gener
     bool isStarGenerator = generatorKind == StarGenerator;
     JS_ASSERT(generatorKind != LegacyGenerator);
 
+    JSScript *script = nullptr;
     const char *filename;
     unsigned lineno;
     JSPrincipals *originPrincipals;
-    CurrentScriptFileLineOrigin(cx, &filename, &lineno, &originPrincipals);
+    uint32_t pcOffset;
+    CurrentScriptFileLineOrigin(cx, &script, &filename, &lineno, &pcOffset, &originPrincipals);
     JSPrincipals *principals = PrincipalsForCompiledCode(args, cx);
+
+    const char *introductionType = "Function";
+    if (generatorKind != NotGenerator)
+        introductionType = "GeneratorFunction";
+
+    const char *introducerFilename = filename;
+    if (script && script->scriptSource()->introducerFilename())
+        introducerFilename = script->scriptSource()->introducerFilename();
 
     CompileOptions options(cx);
     options.setPrincipals(principals)
            .setOriginPrincipals(originPrincipals)
-           .setFileAndLine(filename, lineno)
+           .setFileAndLine(filename, 1)
            .setNoScriptRval(false)
-           .setCompileAndGo(true);
+           .setCompileAndGo(true)
+           .setIntroductionInfo(introducerFilename, introductionType, lineno, pcOffset);
 
     unsigned n = args.length() ? args.length() - 1 : 0;
     if (n > 0) {
@@ -1543,7 +1548,7 @@ FunctionConstructor(JSContext *cx, unsigned argc, Value *vp, GeneratorKind gener
             js_ReportOutOfMemory(cx);
             return false;
         }
-        StableCharPtr collected_args(cp, args_length + 1);
+        ConstTwoByteChars collected_args(cp, args_length + 1);
 
         /*
          * Concatenate the arguments into the new string, separated by commas.

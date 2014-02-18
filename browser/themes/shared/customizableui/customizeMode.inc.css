@@ -8,7 +8,7 @@
   margin: 0 2em 2em;
 }
 
-#main-window:-moz-any([customize-entering],[customize-entered]) #navigator-toolbox > toolbar:not(#TabsToolbar) {
+#main-window:-moz-any([customize-entering],[customize-entered]) #navigator-toolbox > toolbar {
   margin-left: 2em;
   margin-right: 2em;
 }
@@ -83,6 +83,10 @@
   -moz-appearance: none;
 }
 
+.customizationmode-button[disabled="true"] {
+  opacity: .5;
+}
+
 #customization-titlebar-visibility-button {
   list-style-image: url("chrome://browser/skin/customizableui/customize-titleBar-toggle.png");
   -moz-image-region: rect(0, 24px, 24px, 0);
@@ -104,6 +108,9 @@
               inset 0 1px rgb(196, 196, 196);
 }
 
+#customization-undo-reset-button {
+  -moz-margin-end: 10px;
+}
 
 #main-window[customize-entered] #customization-panel-container {
   background-image: url("chrome://browser/skin/customizableui/customizeMode-separatorHorizontal.png"),
@@ -117,7 +124,7 @@
   background-attachment: scroll, scroll, fixed, fixed, scroll;
 }
 
-toolbarpaletteitem {
+toolbarpaletteitem[place="toolbar"] {
   transition: border-width 250ms ease-in-out;
 }
 
@@ -132,6 +139,7 @@ toolbarpaletteitem[place="panel"] {
 }
 
 toolbarpaletteitem[notransition].panel-customization-placeholder,
+toolbarpaletteitem[notransition][place="toolbar"],
 toolbarpaletteitem[notransition][place="palette"],
 toolbarpaletteitem[notransition][place="panel"] {
   transition: none;

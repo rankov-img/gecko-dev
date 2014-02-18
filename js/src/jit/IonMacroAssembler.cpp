@@ -9,7 +9,7 @@
 #include "jsinfer.h"
 #include "jsprf.h"
 
-#include "builtin/TypeRepresentation.h"
+#include "builtin/TypedObject.h"
 #include "jit/Bailouts.h"
 #include "jit/BaselineFrame.h"
 #include "jit/BaselineIC.h"
@@ -401,7 +401,7 @@ static void
 StoreToTypedFloatArray(MacroAssembler &masm, int arrayType, const S &value, const T &dest)
 {
     switch (arrayType) {
-      case ScalarTypeRepresentation::TYPE_FLOAT32:
+      case ScalarTypeDescr::TYPE_FLOAT32:
         if (LIRGenerator::allowFloat32Optimizations()) {
             masm.storeFloat32(value, dest);
         } else {
@@ -413,7 +413,7 @@ StoreToTypedFloatArray(MacroAssembler &masm, int arrayType, const S &value, cons
             masm.storeFloat32(ScratchFloatReg, dest);
         }
         break;
-      case ScalarTypeRepresentation::TYPE_FLOAT64:
+      case ScalarTypeDescr::TYPE_FLOAT64:
 #ifdef JS_MORE_DETERMINISTIC
         // See the comment in ToDoubleForTypedArray.
         masm.canonicalizeDouble(value);
@@ -444,23 +444,23 @@ MacroAssembler::loadFromTypedArray(int arrayType, const T &src, AnyRegister dest
                                    Label *fail)
 {
     switch (arrayType) {
-      case ScalarTypeRepresentation::TYPE_INT8:
+      case ScalarTypeDescr::TYPE_INT8:
         load8SignExtend(src, dest.gpr());
         break;
-      case ScalarTypeRepresentation::TYPE_UINT8:
-      case ScalarTypeRepresentation::TYPE_UINT8_CLAMPED:
+      case ScalarTypeDescr::TYPE_UINT8:
+      case ScalarTypeDescr::TYPE_UINT8_CLAMPED:
         load8ZeroExtend(src, dest.gpr());
         break;
-      case ScalarTypeRepresentation::TYPE_INT16:
+      case ScalarTypeDescr::TYPE_INT16:
         load16SignExtend(src, dest.gpr());
         break;
-      case ScalarTypeRepresentation::TYPE_UINT16:
+      case ScalarTypeDescr::TYPE_UINT16:
         load16ZeroExtend(src, dest.gpr());
         break;
-      case ScalarTypeRepresentation::TYPE_INT32:
+      case ScalarTypeDescr::TYPE_INT32:
         load32(src, dest.gpr());
         break;
-      case ScalarTypeRepresentation::TYPE_UINT32:
+      case ScalarTypeDescr::TYPE_UINT32:
         if (dest.isFloat()) {
             load32(src, temp);
             convertUInt32ToDouble(temp, dest.fpu());
@@ -478,7 +478,7 @@ MacroAssembler::loadFromTypedArray(int arrayType, const T &src, AnyRegister dest
 #endif
         }
         break;
-      case ScalarTypeRepresentation::TYPE_FLOAT32:
+      case ScalarTypeDescr::TYPE_FLOAT32:
         if (LIRGenerator::allowFloat32Optimizations()) {
             loadFloat32(src, dest.fpu());
             canonicalizeFloat(dest.fpu());
@@ -487,7 +487,7 @@ MacroAssembler::loadFromTypedArray(int arrayType, const T &src, AnyRegister dest
             canonicalizeDouble(dest.fpu());
         }
         break;
-      case ScalarTypeRepresentation::TYPE_FLOAT64:
+      case ScalarTypeDescr::TYPE_FLOAT64:
         loadDouble(src, dest.fpu());
         canonicalizeDouble(dest.fpu());
         break;
@@ -507,16 +507,16 @@ MacroAssembler::loadFromTypedArray(int arrayType, const T &src, const ValueOpera
                                    bool allowDouble, Register temp, Label *fail)
 {
     switch (arrayType) {
-      case ScalarTypeRepresentation::TYPE_INT8:
-      case ScalarTypeRepresentation::TYPE_UINT8:
-      case ScalarTypeRepresentation::TYPE_UINT8_CLAMPED:
-      case ScalarTypeRepresentation::TYPE_INT16:
-      case ScalarTypeRepresentation::TYPE_UINT16:
-      case ScalarTypeRepresentation::TYPE_INT32:
+      case ScalarTypeDescr::TYPE_INT8:
+      case ScalarTypeDescr::TYPE_UINT8:
+      case ScalarTypeDescr::TYPE_UINT8_CLAMPED:
+      case ScalarTypeDescr::TYPE_INT16:
+      case ScalarTypeDescr::TYPE_UINT16:
+      case ScalarTypeDescr::TYPE_INT32:
         loadFromTypedArray(arrayType, src, AnyRegister(dest.scratchReg()), InvalidReg, nullptr);
         tagValue(JSVAL_TYPE_INT32, dest.scratchReg(), dest);
         break;
-      case ScalarTypeRepresentation::TYPE_UINT32:
+      case ScalarTypeDescr::TYPE_UINT32:
         // Don't clobber dest when we could fail, instead use temp.
         load32(src, temp);
 #ifndef JS_CODEGEN_MIPS
@@ -551,14 +551,14 @@ MacroAssembler::loadFromTypedArray(int arrayType, const T &src, const ValueOpera
             tagValue(JSVAL_TYPE_INT32, temp, dest);
         }
         break;
-      case ScalarTypeRepresentation::TYPE_FLOAT32:
+      case ScalarTypeDescr::TYPE_FLOAT32:
         loadFromTypedArray(arrayType, src, AnyRegister(ScratchFloatReg), dest.scratchReg(),
                            nullptr);
         if (LIRGenerator::allowFloat32Optimizations())
             convertFloat32ToDouble(ScratchFloatReg, ScratchFloatReg);
         boxDouble(ScratchFloatReg, dest);
         break;
-      case ScalarTypeRepresentation::TYPE_FLOAT64:
+      case ScalarTypeDescr::TYPE_FLOAT64:
         loadFromTypedArray(arrayType, src, AnyRegister(ScratchFloatReg), dest.scratchReg(),
                            nullptr);
         boxDouble(ScratchFloatReg, dest);
@@ -831,10 +831,6 @@ MacroAssembler::initGCThing(const Register &obj, JSObject *templateObject)
 {
     // Fast initialization of an empty object returned by NewGCThing().
 
-    AutoThreadSafeAccess ts0(templateObject);
-    AutoThreadSafeAccess ts1(templateObject->lastProperty());
-    AutoThreadSafeAccess ts2(templateObject->lastProperty()->base()); // For isNative() assertions.
-
     JS_ASSERT(!templateObject->hasDynamicElements());
 
     storePtr(ImmGCPtr(templateObject->lastProperty()), Address(obj, JSObject::offsetOfShape()));
@@ -866,7 +862,7 @@ MacroAssembler::initGCThing(const Register &obj, JSObject *templateObject)
 
         // Fixed slots of non-array objects are required to be initialized.
         // Use the values currently in the template object.
-        size_t nslots = Min(templateObject->numFixedSlotsForCompilation(),
+        size_t nslots = Min(templateObject->numFixedSlots(),
                             templateObject->lastProperty()->slotSpan(templateObject->getClass()));
         for (unsigned i = 0; i < nslots; i++) {
             storeValue(templateObject->getFixedSlot(i),
@@ -923,11 +919,14 @@ MacroAssembler::compareStrings(JSOp op, Register left, Register right, Register 
 }
 
 void
-MacroAssembler::checkInterruptFlagsPar(const Register &tempReg,
-                                            Label *fail)
+MacroAssembler::checkInterruptFlagPar(const Register &tempReg, Label *fail)
 {
-    movePtr(ImmPtr(GetIonContext()->runtime->addressOfInterrupt()), tempReg);
+#ifdef JS_THREADSAFE
+    movePtr(ImmPtr(GetIonContext()->runtime->addressOfInterruptPar()), tempReg);
     branch32(Assembler::NonZero, Address(tempReg, 0), Imm32(0), fail);
+#else
+    MOZ_ASSUME_UNREACHABLE("JSRuntime::interruptPar doesn't exist on non-threadsafe builds.");
+#endif
 }
 
 static void

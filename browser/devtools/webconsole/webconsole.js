@@ -129,7 +129,8 @@ const LEVELS = {
   groupCollapsed: SEVERITY_LOG,
   groupEnd: SEVERITY_LOG,
   time: SEVERITY_LOG,
-  timeEnd: SEVERITY_LOG
+  timeEnd: SEVERITY_LOG,
+  count: SEVERITY_LOG
 };
 
 // The lowest HTTP response code (inclusive) that is considered an error.
@@ -562,7 +563,6 @@ WebConsoleFrame.prototype = {
 
     this.jsterm = new JSTerm(this);
     this.jsterm.init();
-    this.jsterm.inputNode.focus();
 
     let toolbox = gDevTools.getToolbox(this.owner.target);
     if (toolbox) {
@@ -576,8 +576,9 @@ WebConsoleFrame.prototype = {
      */
     this._addFocusCallback(this.outputNode, (evt) => {
       if ((evt.target.nodeName.toLowerCase() != "a") &&
-          (evt.target.parentNode.nodeName.toLowerCase() != "a"))
+          (evt.target.parentNode.nodeName.toLowerCase() != "a")) {
         this.jsterm.inputNode.focus();
+      }
     });
 
     // Toggle the timestamp on preference change
@@ -586,14 +587,17 @@ WebConsoleFrame.prototype = {
       pref: PREF_MESSAGE_TIMESTAMP,
       newValue: Services.prefs.getBoolPref(PREF_MESSAGE_TIMESTAMP),
     });
+
+    // focus input node
+    this.jsterm.inputNode.focus();
   },
 
   /**
    * Sets the focus to JavaScript input field when the web console tab is
-   * selected.
+   * selected or when there is a split console present.
    * @private
    */
-  _onPanelSelected: function WCF__onPanelSelected()
+  _onPanelSelected: function WCF__onPanelSelected(evt, id)
   {
     this.jsterm.inputNode.focus();
   },
@@ -1241,6 +1245,20 @@ WebConsoleFrame.prototype = {
         break;
       }
 
+      case "count": {
+        let counter = aMessage.counter;
+        if (!counter) {
+          return null;
+        }
+        if (counter.error) {
+          Cu.reportError(l10n.getStr(counter.error));
+          return null;
+        }
+        let msg = new Messages.ConsoleGeneric(aMessage);
+        node = msg.init(this.output).render().element;
+        break;
+      }
+
       default:
         Cu.reportError("Unknown Console API log level: " + level);
         return null;
@@ -1254,6 +1272,7 @@ WebConsoleFrame.prototype = {
       case "groupEnd":
       case "time":
       case "timeEnd":
+      case "count":
         for (let actor of objectActors) {
           this._releaseObject(actor);
         }

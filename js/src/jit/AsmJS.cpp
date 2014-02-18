@@ -12,6 +12,7 @@
 # include "vtune/VTuneWrapper.h"
 #endif
 
+#include "jsmath.h"
 #include "jsprf.h"
 #include "jsworkers.h"
 #include "prmjtime.h"
@@ -936,7 +937,7 @@ class MOZ_STACK_CLASS ModuleCompiler
             FuncPtrTable,
             FFI,
             ArrayView,
-            MathBuiltin
+            MathBuiltinFunction
         };
 
       private:
@@ -951,7 +952,7 @@ class MOZ_STACK_CLASS ModuleCompiler
             uint32_t funcPtrTableIndex_;
             uint32_t ffiIndex_;
             ArrayBufferView::ViewType viewType_;
-            AsmJSMathBuiltin mathBuiltin_;
+            AsmJSMathBuiltinFunction mathBuiltinFunc_;
         } u;
 
         friend class ModuleCompiler;
@@ -994,9 +995,9 @@ class MOZ_STACK_CLASS ModuleCompiler
             JS_ASSERT(which_ == ArrayView);
             return u.viewType_;
         }
-        AsmJSMathBuiltin mathBuiltin() const {
-            JS_ASSERT(which_ == MathBuiltin);
-            return u.mathBuiltin_;
+        AsmJSMathBuiltinFunction mathBuiltinFunction() const {
+            JS_ASSERT(which_ == MathBuiltinFunction);
+            return u.mathBuiltinFunc_;
         }
     };
 
@@ -1063,6 +1064,25 @@ class MOZ_STACK_CLASS ModuleCompiler
 
     typedef HashMap<ExitDescriptor, unsigned, ExitDescriptor> ExitMap;
 
+    struct MathBuiltin
+    {
+        enum Kind { Function, Constant };
+        Kind kind;
+
+        union {
+            double cst;
+            AsmJSMathBuiltinFunction func;
+        } u;
+
+        MathBuiltin() : kind(Kind(-1)) {}
+        MathBuiltin(double cst) : kind(Constant) {
+            u.cst = cst;
+        }
+        MathBuiltin(AsmJSMathBuiltinFunction func) : kind(Function) {
+            u.func = func;
+        }
+    };
+
   private:
     struct SlowFunction
     {
@@ -1072,7 +1092,7 @@ class MOZ_STACK_CLASS ModuleCompiler
         unsigned column;
     };
 
-    typedef HashMap<PropertyName*, AsmJSMathBuiltin> MathNameMap;
+    typedef HashMap<PropertyName*, MathBuiltin> MathNameMap;
     typedef HashMap<PropertyName*, Global*> GlobalMap;
     typedef js::Vector<Func*> FuncVector;
     typedef js::Vector<AsmJSGlobalAccess> GlobalAccessVector;
@@ -1106,10 +1126,18 @@ class MOZ_STACK_CLASS ModuleCompiler
 
     DebugOnly<bool>                finishedFunctionBodies_;
 
-    bool addStandardLibraryMathName(const char *name, AsmJSMathBuiltin builtin) {
+    bool addStandardLibraryMathName(const char *name, AsmJSMathBuiltinFunction func) {
         JSAtom *atom = Atomize(cx_, name, strlen(name));
         if (!atom)
             return false;
+        MathBuiltin builtin(func);
+        return standardLibraryMathNames_.putNew(atom->asPropertyName(), builtin);
+    }
+    bool addStandardLibraryMathName(const char *name, double cst) {
+        JSAtom *atom = Atomize(cx_, name, strlen(name));
+        if (!atom)
+            return false;
+        MathBuiltin builtin(cst);
         return standardLibraryMathNames_.putNew(atom->asPropertyName(), builtin);
     }
 
@@ -1175,7 +1203,17 @@ class MOZ_STACK_CLASS ModuleCompiler
             !addStandardLibraryMathName("abs", AsmJSMathBuiltin_abs) ||
             !addStandardLibraryMathName("atan2", AsmJSMathBuiltin_atan2) ||
             !addStandardLibraryMathName("imul", AsmJSMathBuiltin_imul) ||
-            !addStandardLibraryMathName("fround", AsmJSMathBuiltin_fround))
+            !addStandardLibraryMathName("fround", AsmJSMathBuiltin_fround) ||
+            !addStandardLibraryMathName("min", AsmJSMathBuiltin_min) ||
+            !addStandardLibraryMathName("max", AsmJSMathBuiltin_max) ||
+            !addStandardLibraryMathName("E", M_E) ||
+            !addStandardLibraryMathName("LN10", M_LN10) ||
+            !addStandardLibraryMathName("LN2", M_LN2) ||
+            !addStandardLibraryMathName("LOG2E", M_LOG2E) ||
+            !addStandardLibraryMathName("LOG10E", M_LOG10E) ||
+            !addStandardLibraryMathName("PI", M_PI) ||
+            !addStandardLibraryMathName("SQRT1_2", M_SQRT1_2) ||
+            !addStandardLibraryMathName("SQRT2", M_SQRT2))
         {
             return false;
         }
@@ -1289,7 +1327,7 @@ class MOZ_STACK_CLASS ModuleCompiler
     FuncPtrTable &funcPtrTable(unsigned i) {
         return funcPtrTables_[i];
     }
-    bool lookupStandardLibraryMathName(PropertyName *name, AsmJSMathBuiltin *mathBuiltin) const {
+    bool lookupStandardLibraryMathName(PropertyName *name, MathBuiltin *mathBuiltin) const {
         if (MathNameMap::Ptr p = standardLibraryMathNames_.lookup(name)) {
             *mathBuiltin = p->value();
             return true;
@@ -1390,24 +1428,34 @@ class MOZ_STACK_CLASS ModuleCompiler
         global->u.viewType_ = vt;
         return globals_.putNew(varName, global);
     }
-    bool addMathBuiltin(PropertyName *varName, AsmJSMathBuiltin mathBuiltin, PropertyName *fieldName) {
-        if (!module_->addMathBuiltin(mathBuiltin, fieldName))
+    bool addMathBuiltinFunction(PropertyName *varName, AsmJSMathBuiltinFunction func, PropertyName *fieldName) {
+        if (!module_->addMathBuiltinFunction(func, fieldName))
             return false;
-        Global *global = moduleLifo_.new_<Global>(Global::MathBuiltin);
+        Global *global = moduleLifo_.new_<Global>(Global::MathBuiltinFunction);
         if (!global)
             return false;
-        global->u.mathBuiltin_ = mathBuiltin;
+        global->u.mathBuiltinFunc_ = func;
         return globals_.putNew(varName, global);
     }
-    bool addGlobalConstant(PropertyName *varName, double constant, PropertyName *fieldName) {
-        if (!module_->addGlobalConstant(constant, fieldName))
-            return false;
+  private:
+    bool addGlobalDoubleConstant(PropertyName *varName, double constant) {
         Global *global = moduleLifo_.new_<Global>(Global::ConstantLiteral);
         if (!global)
             return false;
         global->u.varOrConst.literalValue_ = DoubleValue(constant);
         global->u.varOrConst.type_ = VarType::Double;
         return globals_.putNew(varName, global);
+    }
+  public:
+    bool addMathBuiltinConstant(PropertyName *varName, double constant, PropertyName *fieldName) {
+        if (!module_->addMathBuiltinConstant(constant, fieldName))
+            return false;
+        return addGlobalDoubleConstant(varName, constant);
+    }
+    bool addGlobalConstant(PropertyName *varName, double constant, PropertyName *fieldName) {
+        if (!module_->addGlobalConstant(constant, fieldName))
+            return false;
+        return addGlobalDoubleConstant(varName, constant);
     }
     bool addExportedFunction(const Func *func, PropertyName *maybeFieldName) {
         AsmJSModule::ArgCoercionVector argCoercions;
@@ -1804,8 +1852,8 @@ IsFloatCoercion(ModuleCompiler &m, ParseNode *pn, ParseNode **coercedExpr)
 
     const ModuleCompiler::Global *global = m.lookupGlobal(callee->name());
     if (!global ||
-        global->which() != ModuleCompiler::Global::MathBuiltin ||
-        global->mathBuiltin() != AsmJSMathBuiltin_fround)
+        global->which() != ModuleCompiler::Global::MathBuiltinFunction ||
+        global->mathBuiltinFunction() != AsmJSMathBuiltin_fround)
     {
         return false;
     }
@@ -2189,6 +2237,14 @@ class FunctionCompiler
         if (!curBlock_)
             return nullptr;
         T *ins = T::NewAsmJS(alloc(), lhs, rhs, type);
+        curBlock_->add(ins);
+        return ins;
+    }
+
+    MDefinition *minMax(MDefinition *lhs, MDefinition *rhs, MIRType type, bool isMax) {
+        if (!curBlock_)
+            return nullptr;
+        MMinMax *ins = MMinMax::New(alloc(), lhs, rhs, type, isMax);
         curBlock_->add(ins);
         return ins;
     }
@@ -3134,11 +3190,19 @@ CheckGlobalDotImport(ModuleCompiler &m, PropertyName *varName, ParseNode *initNo
         if (!IsUseOfName(global, m.module().globalArgumentName()) || math != m.cx()->names().Math)
             return m.fail(base, "expecting global.Math");
 
-        AsmJSMathBuiltin mathBuiltin;
+        ModuleCompiler::MathBuiltin mathBuiltin;
         if (!m.lookupStandardLibraryMathName(field, &mathBuiltin))
             return m.failName(initNode, "'%s' is not a standard Math builtin", field);
 
-        return m.addMathBuiltin(varName, mathBuiltin, field);
+        switch (mathBuiltin.kind) {
+          case ModuleCompiler::MathBuiltin::Function:
+            return m.addMathBuiltinFunction(varName, mathBuiltin.u.func, field);
+          case ModuleCompiler::MathBuiltin::Constant:
+            return m.addMathBuiltinConstant(varName, mathBuiltin.u.cst, field);
+          default:
+            break;
+        }
+        MOZ_ASSUME_UNREACHABLE("unexpected or uninitialized math builtin type");
     }
 
     if (IsUseOfName(base, m.module().globalArgumentName())) {
@@ -3396,7 +3460,7 @@ CheckVarRef(FunctionCompiler &f, ParseNode *varRef, MDefinition **def, Type *typ
             break;
           case ModuleCompiler::Global::Function:
           case ModuleCompiler::Global::FFI:
-          case ModuleCompiler::Global::MathBuiltin:
+          case ModuleCompiler::Global::MathBuiltinFunction:
           case ModuleCompiler::Global::FuncPtrTable:
           case ModuleCompiler::Global::ArrayView:
             return f.failName(varRef, "'%s' may not be accessed by ordinary expressions", name);
@@ -3768,6 +3832,51 @@ CheckMathSqrt(FunctionCompiler &f, ParseNode *call, RetType retType, MDefinition
     return f.failf(call, "%s is neither a subtype of double? nor float?", argType.toChars());
 }
 
+static bool
+CheckMathMinMax(FunctionCompiler &f, ParseNode *callNode, RetType retType, MDefinition **def, Type *type, bool isMax)
+{
+    if (CallArgListLength(callNode) < 2)
+        return f.fail(callNode, "Math.min/max must be passed at least 2 arguments");
+
+    ParseNode *firstArg = CallArgList(callNode);
+    MDefinition *firstDef;
+    Type firstType;
+    if (!CheckExpr(f, firstArg, &firstDef, &firstType))
+        return false;
+
+    bool opIsDouble = firstType.isMaybeDouble();
+    bool opIsInteger = firstType.isInt();
+    MIRType opType = firstType.toMIRType();
+
+    if (!opIsDouble && !opIsInteger)
+        return f.failf(firstArg, "%s is not a subtype of double? or int", firstType.toChars());
+
+    MDefinition *lastDef = firstDef;
+    ParseNode *nextArg = NextNode(firstArg);
+    for (unsigned i = 1; i < CallArgListLength(callNode); i++, nextArg = NextNode(nextArg)) {
+        MDefinition *nextDef;
+        Type nextType;
+        if (!CheckExpr(f, nextArg, &nextDef, &nextType))
+            return false;
+
+        if (opIsDouble && !nextType.isMaybeDouble())
+            return f.failf(nextArg, "%s is not a subtype of double?", nextType.toChars());
+        if (opIsInteger && !nextType.isInt())
+            return f.failf(nextArg, "%s is not a subtype of int", nextType.toChars());
+
+        lastDef = f.minMax(lastDef, nextDef, opType, isMax);
+    }
+
+    if (opIsDouble && retType != RetType::Double)
+        return f.failf(callNode, "return type is double, used as %s", retType.toType().toChars());
+    if (opIsInteger && retType != RetType::Signed)
+        return f.failf(callNode, "return type is int, used as %s", retType.toType().toChars());
+
+    *type = opIsDouble ? Type::Double : Type::Signed;
+    *def = lastDef;
+    return true;
+}
+
 typedef bool (*CheckArgType)(FunctionCompiler &f, ParseNode *argNode, Type type);
 
 static bool
@@ -4051,16 +4160,18 @@ CheckIsMaybeFloat(FunctionCompiler &f, ParseNode *argNode, Type type)
 }
 
 static bool
-CheckMathBuiltinCall(FunctionCompiler &f, ParseNode *callNode, AsmJSMathBuiltin mathBuiltin,
+CheckMathBuiltinCall(FunctionCompiler &f, ParseNode *callNode, AsmJSMathBuiltinFunction func,
                      RetType retType, MDefinition **def, Type *type)
 {
     unsigned arity = 0;
     AsmJSImmKind doubleCallee, floatCallee;
-    switch (mathBuiltin) {
+    switch (func) {
       case AsmJSMathBuiltin_imul:   return CheckMathIMul(f, callNode, retType, def, type);
       case AsmJSMathBuiltin_abs:    return CheckMathAbs(f, callNode, retType, def, type);
       case AsmJSMathBuiltin_sqrt:   return CheckMathSqrt(f, callNode, retType, def, type);
       case AsmJSMathBuiltin_fround: return CheckMathFRound(f, callNode, retType, def, type);
+      case AsmJSMathBuiltin_min:    return CheckMathMinMax(f, callNode, retType, def, type, /* isMax = */ false);
+      case AsmJSMathBuiltin_max:    return CheckMathMinMax(f, callNode, retType, def, type, /* isMax = */ true);
       case AsmJSMathBuiltin_sin:    arity = 1; doubleCallee = AsmJSImm_SinD; floatCallee = AsmJSImm_SinF;      break;
       case AsmJSMathBuiltin_cos:    arity = 1; doubleCallee = AsmJSImm_CosD; floatCallee = AsmJSImm_CosF;      break;
       case AsmJSMathBuiltin_tan:    arity = 1; doubleCallee = AsmJSImm_TanD; floatCallee = AsmJSImm_TanF;      break;
@@ -4073,7 +4184,7 @@ CheckMathBuiltinCall(FunctionCompiler &f, ParseNode *callNode, AsmJSMathBuiltin 
       case AsmJSMathBuiltin_log:    arity = 1; doubleCallee = AsmJSImm_LogD; floatCallee = AsmJSImm_LogF;      break;
       case AsmJSMathBuiltin_pow:    arity = 2; doubleCallee = AsmJSImm_PowD; floatCallee = AsmJSImm_Invalid;   break;
       case AsmJSMathBuiltin_atan2:  arity = 2; doubleCallee = AsmJSImm_ATan2D; floatCallee = AsmJSImm_Invalid; break;
-      default: MOZ_ASSUME_UNREACHABLE("unexpected mathBuiltin");
+      default: MOZ_ASSUME_UNREACHABLE("unexpected mathBuiltin function");
     }
 
     if (retType == RetType::Float && floatCallee == AsmJSImm_Invalid)
@@ -4118,8 +4229,8 @@ CheckCall(FunctionCompiler &f, ParseNode *call, RetType retType, MDefinition **d
         switch (global->which()) {
           case ModuleCompiler::Global::FFI:
             return CheckFFICall(f, call, global->ffiIndex(), retType, def, type);
-          case ModuleCompiler::Global::MathBuiltin:
-            return CheckMathBuiltinCall(f, call, global->mathBuiltin(), retType, def, type);
+          case ModuleCompiler::Global::MathBuiltinFunction:
+            return CheckMathBuiltinCall(f, call, global->mathBuiltinFunction(), retType, def, type);
           case ModuleCompiler::Global::ConstantLiteral:
           case ModuleCompiler::Global::ConstantImport:
           case ModuleCompiler::Global::Variable:

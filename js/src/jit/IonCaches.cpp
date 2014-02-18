@@ -12,7 +12,7 @@
 #include "jsproxy.h"
 #include "jstypes.h"
 
-#include "builtin/TypeRepresentation.h"
+#include "builtin/TypedObject.h"
 #include "jit/Ion.h"
 #include "jit/IonLinker.h"
 #include "jit/IonSpewer.h"
@@ -1102,7 +1102,7 @@ GenerateTypedArrayLength(JSContext *cx, MacroAssembler &masm, IonCache::StubAtta
     masm.branchPtr(Assembler::Below, tmpReg, ImmPtr(&TypedArrayObject::classes[0]),
                    &failures);
     masm.branchPtr(Assembler::AboveOrEqual, tmpReg,
-                   ImmPtr(&TypedArrayObject::classes[ScalarTypeRepresentation::TYPE_MAX]),
+                   ImmPtr(&TypedArrayObject::classes[ScalarTypeDescr::TYPE_MAX]),
                    &failures);
 
     // Load length.
@@ -1226,7 +1226,7 @@ GetPropertyIC::tryAttachNative(JSContext *cx, IonScript *ion, HandleObject obj,
 
     *emitted = true;
 
-    MacroAssembler masm(cx, ion);
+    MacroAssembler masm(cx, ion, script_, pc_);
     SkipRoot skip(cx, &masm);
 
     RepatchStubAppender attacher(*this);
@@ -1376,14 +1376,16 @@ GetPropertyIC::tryAttachDOMProxyShadowed(JSContext *cx, IonScript *ion,
     JS_ASSERT(canAttachStub());
     JS_ASSERT(!*emitted);
     JS_ASSERT(IsCacheableDOMProxy(obj));
+    JS_ASSERT(monitoredResult());
+    JS_ASSERT(output().hasValue());
 
-    if (idempotent() || !output().hasValue())
+    if (idempotent())
         return true;
 
     *emitted = true;
 
     Label failures;
-    MacroAssembler masm(cx, ion);
+    MacroAssembler masm(cx, ion, script_, pc_);
     RepatchStubAppender attacher(*this);
 
     // Guard on the shape of the object.
@@ -1420,6 +1422,8 @@ GetPropertyIC::tryAttachDOMProxyUnshadowed(JSContext *cx, IonScript *ion, Handle
     JS_ASSERT(canAttachStub());
     JS_ASSERT(!*emitted);
     JS_ASSERT(IsCacheableDOMProxy(obj));
+    JS_ASSERT(monitoredResult());
+    JS_ASSERT(output().hasValue());
 
     RootedObject checkObj(cx, obj->getTaggedProto().toObjectOrNull());
     RootedObject holder(cx);
@@ -1434,7 +1438,7 @@ GetPropertyIC::tryAttachDOMProxyUnshadowed(JSContext *cx, IonScript *ion, Handle
         return true;
 
     // Make sure we observe our invariants if we're gonna deoptimize.
-    if (!holder && (idempotent() || !output().hasValue()))
+    if (!holder && idempotent())
         return true;
 
     *emitted = true;
@@ -1450,7 +1454,7 @@ GetPropertyIC::tryAttachDOMProxyUnshadowed(JSContext *cx, IonScript *ion, Handle
     }
 
     Label failures;
-    MacroAssembler masm(cx, ion);
+    MacroAssembler masm(cx, ion, script_, pc_);
     RepatchStubAppender attacher(*this);
 
     // Guard on the shape of the object.
@@ -1521,6 +1525,11 @@ GetPropertyIC::tryAttachProxy(JSContext *cx, IonScript *ion, HandleObject obj,
     if (!obj->is<ProxyObject>())
         return true;
 
+    // TI can't be sure about our properties, so make sure anything
+    // we return can be monitored directly.
+    if (!monitoredResult())
+        return true;
+
     // Skim off DOM proxies.
     if (IsCacheableDOMProxy(obj)) {
         RootedId id(cx, NameToId(name));
@@ -1555,17 +1564,19 @@ GetPropertyIC::tryAttachGenericProxy(JSContext *cx, IonScript *ion, HandleObject
     JS_ASSERT(canAttachStub());
     JS_ASSERT(!*emitted);
     JS_ASSERT(obj->is<ProxyObject>());
+    JS_ASSERT(monitoredResult());
+    JS_ASSERT(output().hasValue());
 
     if (hasGenericProxyStub())
         return true;
 
-    if (idempotent() || !output().hasValue())
+    if (idempotent())
         return true;
 
     *emitted = true;
 
     Label failures;
-    MacroAssembler masm(cx, ion);
+    MacroAssembler masm(cx, ion, script_, pc_);
     RepatchStubAppender attacher(*this);
 
     Register scratchReg = output().valueReg().scratchReg();
@@ -1857,8 +1868,6 @@ bool
 GetPropertyParIC::update(ForkJoinContext *cx, size_t cacheIndex,
                          HandleObject obj, MutableHandleValue vp)
 {
-    AutoFlushCache afc("GetPropertyParCache", cx->runtime()->jitRuntime());
-
     IonScript *ion = GetTopIonJSScript(cx)->parallelIonScript();
     GetPropertyParIC &cache = ion->getCache(cacheIndex).toGetPropertyPar();
 
@@ -1876,6 +1885,9 @@ GetPropertyParIC::update(ForkJoinContext *cx, size_t cacheIndex,
         // finer-grained locking, with one lock per cache. However, generating
         // new jitcode uses a global ExecutableAllocator tied to the runtime.
         LockedJSContext ncx(cx);
+
+        // The flusher needs to be under lock.
+        AutoFlushCache afc("GetPropertyParCache", cx->runtime()->jitRuntime());
 
         if (cache.canAttachStub()) {
             bool alreadyStubbed;
@@ -2132,7 +2144,7 @@ SetPropertyIC::attachGenericProxy(JSContext *cx, IonScript *ion, void *returnAdd
 {
     JS_ASSERT(!hasGenericProxyStub());
 
-    MacroAssembler masm(cx, ion);
+    MacroAssembler masm(cx, ion, script_, pc_);
     RepatchStubAppender attacher(*this);
 
     Label failures;
@@ -2189,7 +2201,7 @@ SetPropertyIC::attachDOMProxyShadowed(JSContext *cx, IonScript *ion, HandleObjec
     JS_ASSERT(IsCacheableDOMProxy(obj));
 
     Label failures;
-    MacroAssembler masm(cx, ion);
+    MacroAssembler masm(cx, ion, script_, pc_);
     RepatchStubAppender attacher(*this);
 
     // Guard on the shape of the object.
@@ -2419,7 +2431,7 @@ SetPropertyIC::attachDOMProxyUnshadowed(JSContext *cx, IonScript *ion, HandleObj
     JS_ASSERT(IsCacheableDOMProxy(obj));
 
     Label failures;
-    MacroAssembler masm(cx, ion);
+    MacroAssembler masm(cx, ion, script_, pc_);
     RepatchStubAppender attacher(*this);
 
     // Guard on the shape of the object.
@@ -2474,7 +2486,7 @@ SetPropertyIC::attachCallSetter(JSContext *cx, IonScript *ion,
 {
     JS_ASSERT(obj->isNative());
 
-    MacroAssembler masm(cx, ion);
+    MacroAssembler masm(cx, ion, script_, pc_);
     RepatchStubAppender attacher(*this);
 
     Label failure;
@@ -2855,8 +2867,6 @@ SetPropertyParIC::update(ForkJoinContext *cx, size_t cacheIndex, HandleObject ob
 {
     JS_ASSERT(cx->isThreadLocal(obj));
 
-    AutoFlushCache afc("SetPropertyParCache", cx->runtime()->jitRuntime());
-
     IonScript *ion = GetTopIonJSScript(cx)->parallelIonScript();
     SetPropertyParIC &cache = ion->getCache(cacheIndex).toSetPropertyPar();
 
@@ -2873,7 +2883,9 @@ SetPropertyParIC::update(ForkJoinContext *cx, size_t cacheIndex, HandleObject ob
     bool attachedStub = false;
 
     {
+        // See note about locking context in GetPropertyParIC::update.
         LockedJSContext ncx(cx);
+        AutoFlushCache afc("SetPropertyParCache", cx->runtime()->jitRuntime());
 
         if (cache.canAttachStub()) {
             bool alreadyStubbed;
@@ -3173,8 +3185,8 @@ GetElementIC::canAttachTypedArrayElement(JSObject *obj, const Value &idval,
     // The output register is not yet specialized as a float register, the only
     // way to accept float typed arrays for now is to return a Value type.
     uint32_t arrayType = obj->as<TypedArrayObject>().type();
-    if (arrayType == ScalarTypeRepresentation::TYPE_FLOAT32 ||
-        arrayType == ScalarTypeRepresentation::TYPE_FLOAT64)
+    if (arrayType == ScalarTypeDescr::TYPE_FLOAT32 ||
+        arrayType == ScalarTypeDescr::TYPE_FLOAT64)
     {
         return output.hasValue();
     }
@@ -3733,7 +3745,7 @@ GenerateSetTypedArrayElement(JSContext *cx, MacroAssembler &masm, IonCache::Stub
     int width = TypedArrayObject::slotWidth(arrayType);
     BaseIndex target(elements, index, ScaleFromElemWidth(width));
 
-    if (arrayType == ScalarTypeRepresentation::TYPE_FLOAT32) {
+    if (arrayType == ScalarTypeDescr::TYPE_FLOAT32) {
         if (LIRGenerator::allowFloat32Optimizations()) {
             if (!masm.convertConstantOrRegisterToFloat(cx, value, tempFloat, &failures))
                 return false;
@@ -3742,7 +3754,7 @@ GenerateSetTypedArrayElement(JSContext *cx, MacroAssembler &masm, IonCache::Stub
                 return false;
         }
         masm.storeToTypedFloatArray(arrayType, tempFloat, target);
-    } else if (arrayType == ScalarTypeRepresentation::TYPE_FLOAT64) {
+    } else if (arrayType == ScalarTypeDescr::TYPE_FLOAT64) {
         if (!masm.convertConstantOrRegisterToDouble(cx, value, tempFloat, &failures))
             return false;
         masm.storeToTypedFloatArray(arrayType, tempFloat, target);
@@ -3752,7 +3764,7 @@ GenerateSetTypedArrayElement(JSContext *cx, MacroAssembler &masm, IonCache::Stub
         // afterwards.
         masm.push(object);
 
-        if (arrayType == ScalarTypeRepresentation::TYPE_UINT8_CLAMPED) {
+        if (arrayType == ScalarTypeDescr::TYPE_UINT8_CLAMPED) {
             if (!masm.clampConstantOrRegisterToUint8(cx, value, tempFloat, object,
                                                      &popObjectAndFail))
             {
@@ -3953,8 +3965,6 @@ bool
 GetElementParIC::update(ForkJoinContext *cx, size_t cacheIndex, HandleObject obj,
                         HandleValue idval, MutableHandleValue vp)
 {
-    AutoFlushCache afc("GetElementParCache", cx->runtime()->jitRuntime());
-
     IonScript *ion = GetTopIonJSScript(cx)->parallelIonScript();
     GetElementParIC &cache = ion->getCache(cacheIndex).toGetElementPar();
 
@@ -3968,7 +3978,9 @@ GetElementParIC::update(ForkJoinContext *cx, size_t cacheIndex, HandleObject obj
         return true;
 
     {
+        // See note about locking context in GetPropertyParIC::update.
         LockedJSContext ncx(cx);
+        AutoFlushCache afc("GetElementParCache", cx->runtime()->jitRuntime());
 
         if (cache.canAttachStub()) {
             bool alreadyStubbed;
@@ -4255,7 +4267,7 @@ bool
 NameIC::attachCallGetter(JSContext *cx, IonScript *ion, JSObject *obj, JSObject *holder,
                          HandleShape shape, void *returnAddr)
 {
-    MacroAssembler masm(cx, ion);
+    MacroAssembler masm(cx, ion, script_, pc_);
 
     RepatchStubAppender attacher(*this);
     if (!GenerateCallGetter(cx, ion, masm, attacher, obj, name(), holder, shape, liveRegs_,

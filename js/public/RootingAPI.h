@@ -200,6 +200,13 @@ class Heap : public js::HeapBase<T>
         init(js::GCMethods<T>::initial());
     }
     explicit Heap(T p) { init(p); }
+
+    /*
+     * For Heap, move semantics are equivalent to copy semantics. In C++, a
+     * copy constructor taking const-ref is the way to get a single function
+     * that will be used for both lvalue and rvalue copies, so we can simply
+     * omit the rvalue variant.
+     */
     explicit Heap(const Heap<T> &p) { init(p.ptr); }
 
     ~Heap() {
@@ -832,15 +839,27 @@ class MOZ_STACK_CLASS Rooted : public js::RootedBase<T>
     Rooted(const Rooted &) MOZ_DELETE;
 };
 
-#if !(defined(JSGC_ROOT_ANALYSIS) || defined(JSGC_USE_EXACT_ROOTING))
-// Defined in vm/String.h.
-template <>
-class Rooted<JSStableString *>;
-#endif
-
 } /* namespace JS */
 
 namespace js {
+
+/*
+ * Augment the generic Rooted<T> interface when T = JSObject* with
+ * class-querying and downcasting operations.
+ *
+ * Given a Rooted<JSObject*> obj, one can view
+ *   Handle<StringObject*> h = obj.as<StringObject*>();
+ * as an optimization of
+ *   Rooted<StringObject*> rooted(cx, &obj->as<StringObject*>());
+ *   Handle<StringObject*> h = rooted;
+ */
+template <>
+class RootedBase<JSObject*>
+{
+  public:
+    template <class U>
+    JS::Handle<U*> as() const;
+};
 
 /*
  * Mark a stack location as a root for the rooting analysis, without actually

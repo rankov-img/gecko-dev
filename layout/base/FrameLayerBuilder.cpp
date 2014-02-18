@@ -1561,7 +1561,10 @@ SetVisibleRegionForLayer(Layer* aLayer, const nsIntRegion& aLayerVisibleRegion,
   // for the layer, so it doesn't really matter what we do here
   gfxRect itemVisible(aRestrictToRect.x, aRestrictToRect.y,
                       aRestrictToRect.width, aRestrictToRect.height);
-  gfxRect layerVisible = transform.Inverse().ProjectRectBounds(itemVisible);
+  nsIntRect childBounds = aLayerVisibleRegion.GetBounds();
+  gfxRect childGfxBounds(childBounds.x, childBounds.y,
+                         childBounds.width, childBounds.height);
+  gfxRect layerVisible = transform.UntransformBounds(itemVisible, childGfxBounds);
   layerVisible.RoundOut();
 
   nsIntRect visibleRect;
@@ -1663,6 +1666,11 @@ ContainerState::FindFixedPosFrameForLayerData(const nsIFrame* aAnimatedGeometryR
                                               nsIntRegion* aVisibleRegion,
                                               bool* aIsSolidColorInVisibleRegion)
 {
+  if (!mManager->IsWidgetLayerManager()) {
+    // Never attach any fixed-pos metadata to inactive layers, it's pointless!
+    return nullptr;
+  }
+
   nsPresContext* presContext = mContainerFrame->PresContext();
   nsIFrame* viewport = presContext->PresShell()->GetRootFrame();
   const nsIFrame* result = nullptr;
@@ -1681,6 +1689,10 @@ ContainerState::FindFixedPosFrameForLayerData(const nsIFrame* aAnimatedGeometryR
       if (nsLayoutUtils::IsFixedPosFrameInDisplayPort(f, &displayPort)) {
         result = f;
         break;
+      }
+      if (f == mContainerReferenceFrame) {
+        // The metadata will go on an ancestor layer if necessary.
+        return nullptr;
       }
     }
     if (!result) {
@@ -2158,14 +2170,6 @@ ContainerState::FindThebesLayerFor(nsDisplayItem* aItem,
     thebesLayerData->mLayer = layer;
     thebesLayerData->mAnimatedGeometryRoot = aActiveScrolledRoot;
     thebesLayerData->mReferenceFrame = aItem->ReferenceFrame();
-    if (!aActiveScrolledRoot->GetParent() &&
-        nsLayoutUtils::ViewportHasDisplayPort(aActiveScrolledRoot->PresContext())) {
-      // The active scrolled root is the viewport, so this is background-attachment:fixed
-      // or fixed-pos elements or something like that. Async scrolling may
-      // do magic things to move these layers, so don't allow any regular content
-      // to be pushed to layers below them; that might turn out to be incorrect.
-      thebesLayerData->SetAllDrawingAbove();
-    }
 
     NS_ASSERTION(!mNewChildLayers.Contains(layer), "Layer already in list???");
     *mNewChildLayers.AppendElement() = layer.forget();
@@ -2207,7 +2211,7 @@ PaintInactiveLayer(nsDisplayListBuilder* aBuilder,
 
   nsRefPtr<gfxASurface> surf;
   if (gfxUtils::sDumpPainting) {
-    surf = gfxPlatform::GetPlatform()->CreateOffscreenSurface(itemVisibleRect.Size(),
+    surf = gfxPlatform::GetPlatform()->CreateOffscreenSurface(itemVisibleRect.Size().ToIntSize(),
                                                               gfxContentType::COLOR_ALPHA);
     surf->SetDeviceOffset(-itemVisibleRect.TopLeft());
     context = new gfxContext(surf);
@@ -3397,7 +3401,7 @@ static void DebugPaintItem(nsRenderingContext* aDest, nsDisplayItem *aItem, nsDi
   bounds.ScaleInverse(aDest->AppUnitsPerDevPixel());
 
   nsRefPtr<gfxASurface> surf =
-    gfxPlatform::GetPlatform()->CreateOffscreenSurface(gfxIntSize(bounds.width, bounds.height),
+    gfxPlatform::GetPlatform()->CreateOffscreenSurface(IntSize(bounds.width, bounds.height),
                                                        gfxContentType::COLOR_ALPHA);
   surf->SetDeviceOffset(-bounds.TopLeft());
   nsRefPtr<gfxContext> context = new gfxContext(surf);

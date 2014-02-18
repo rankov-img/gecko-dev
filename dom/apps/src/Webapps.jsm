@@ -1575,9 +1575,8 @@ this.DOMApplicationRegistry = {
         },
         manifestURL: aApp.manifestURL
       });
-      let cacheUpdate = aProfileDir
-        ? updateSvc.scheduleCustomProfileUpdate(appcacheURI, docURI, aProfileDir)
-        : updateSvc.scheduleAppUpdate(appcacheURI, docURI, aApp.localId, false);
+      let cacheUpdate = updateSvc.scheduleAppUpdate(
+        appcacheURI, docURI, aApp.localId, false, aProfileDir);
 
       // We save the download details for potential further usage like
       // cancelling it.
@@ -2440,16 +2439,16 @@ onInstallSuccessAck: function onInstallSuccessAck(aManifestURL,
         // respond Webapps:Install:Return:Ack, which calls onInstallSuccessAck.
         this.broadcastMessage("Webapps:Install:Return:OK", aData);
       }
+      if (!aData.isPackage) {
+        this.updateAppHandlers(null, app.manifest, app);
+        if (aInstallSuccessCallback) {
+          aInstallSuccessCallback(app.manifest);
+        }
+      }
       Services.obs.notifyObservers(null, "webapps-installed",
         JSON.stringify({ manifestURL: app.manifestURL }));
     });
 
-    if (!aData.isPackage) {
-      this.updateAppHandlers(null, app.manifest, app);
-      if (aInstallSuccessCallback) {
-        aInstallSuccessCallback(app.manifest);
-      }
-    }
     let dontNeedNetwork = false;
     if (manifest.package_path) {
       // If it is a local app then it must been installed from a local file
@@ -2520,6 +2519,11 @@ onInstallSuccessAck: function onInstallSuccessAck(aManifestURL,
     app.downloadAvailable = false;
     this._saveApps().then(() => {
       this.updateAppHandlers(null, aManifest, aNewApp);
+      // Clear the manifest cache in case it holds the update manifest.
+      if (aId in this._manifestCache) {
+        delete this._manifestCache[aId];
+      }
+
       this.broadcastMessage("Webapps:AddApp", { id: aId, app: aNewApp });
       Services.obs.notifyObservers(null, "webapps-installed",
         JSON.stringify({ manifestURL: aNewApp.manifestURL }));
@@ -3082,8 +3086,8 @@ onInstallSuccessAck: function onInstallSuccessAck(aManifestURL,
   _openSignedPackage: function(aZipFile, aCertDb) {
     let deferred = Promise.defer();
 
-    aCertDb.openSignedJARFileAsync(
-       aZipFile,
+    aCertDb.openSignedAppFileAsync(
+       Ci.nsIX509CertDB.AppMarketplaceProdPublicRoot, aZipFile,
        function(aRv, aZipReader) {
          deferred.resolve([aRv, aZipReader]);
        }

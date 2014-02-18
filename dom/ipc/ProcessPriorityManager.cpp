@@ -971,6 +971,13 @@ ParticularProcessPriorityManager::SetPriorityNow(ProcessPriority aPriority,
     return;
   }
 
+#ifdef MOZ_NUWA_PROCESS
+  // Do not attempt to change the priority of the Nuwa process
+  if (mContentParent->IsNuwaProcess()) {
+    return;
+  }
+#endif
+
   if (aBackgroundLRU > 0 &&
       aPriority == PROCESS_PRIORITY_BACKGROUND &&
       mPriority == PROCESS_PRIORITY_BACKGROUND) {
@@ -1024,10 +1031,8 @@ ParticularProcessPriorityManager::SetPriorityNow(ProcessPriority aPriority,
     unused << mContentParent->SendNotifyProcessPriorityChanged(mPriority);
   }
 
-  if (aPriority >= PROCESS_PRIORITY_FOREGROUND) {
-    unused << mContentParent->SendCancelMinimizeMemoryUsage();
-  } else {
-    unused << mContentParent->SendMinimizeMemoryUsage();
+  if (aPriority < PROCESS_PRIORITY_FOREGROUND) {
+    unused << mContentParent->SendFlushMemory(NS_LITERAL_STRING("low-memory"));
   }
 
   FireTestOnlyObserverNotification("process-priority-set",

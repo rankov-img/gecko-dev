@@ -513,7 +513,7 @@ public:
     , mInput(aInput)
     , mTopDir(aTopDir)
     , mFileListLength(0)
-    , mCanceled(0)
+    , mCanceled(false)
   {}
 
   NS_IMETHOD Run() {
@@ -578,7 +578,7 @@ public:
     // Clear mInput to make sure that it can't lose its last strong ref off the
     // main thread (which may happen if our dtor runs off the main thread)!
     mInput = nullptr;
-    mCanceled = 1; // true
+    mCanceled = true;
   }
 
   uint32_t GetFileListLength() const
@@ -606,8 +606,7 @@ private:
   // this atomic member to make the access thread safe:
   mozilla::Atomic<uint32_t> mFileListLength;
 
-  // We'd prefer this member to be bool, but we don't support Atomic<bool>.
-  mozilla::Atomic<uint32_t> mCanceled;
+  mozilla::Atomic<bool> mCanceled;
 };
 
 
@@ -1024,6 +1023,12 @@ UploadLastDir::FetchDirectoryAndDisplayPicker(nsIDocument* aDoc,
   nsCOMPtr<nsIContentPrefCallback2> prefCallback = 
     new UploadLastDir::ContentPrefCallback(aFilePicker, aFpCallback);
 
+  if (XRE_GetProcessType() == GeckoProcessType_Content) {
+    // FIXME (bug 949666): Run this code in the parent process.
+    prefCallback->HandleCompletion(nsIContentPrefCallback2::COMPLETE_ERROR);
+    return NS_OK;
+  }
+
   // Attempt to get the CPS, if it's not present we'll fallback to use the Desktop folder
   nsCOMPtr<nsIContentPrefService2> contentPrefService =
     do_GetService(NS_CONTENT_PREF_SERVICE_CONTRACTID);
@@ -1045,6 +1050,11 @@ UploadLastDir::StoreLastUsedDirectory(nsIDocument* aDoc, nsIFile* aDir)
 {
   NS_PRECONDITION(aDoc, "aDoc is null");
   if (!aDir) {
+    return NS_OK;
+  }
+
+  if (XRE_GetProcessType() == GeckoProcessType_Content) {
+    // FIXME (bug 949666): Run this code in the parent process.
     return NS_OK;
   }
 
@@ -3761,8 +3771,11 @@ HTMLInputElement::PostHandleEvent(nsEventChainPostVisitor& aVisitor)
     WidgetMouseEvent* mouseEvent = aVisitor.mEvent->AsMouseEvent();
     if (mouseEvent && mouseEvent->IsLeftClickEvent() &&
         !ShouldPreventDOMActivateDispatch(aVisitor.mEvent->originalTarget)) {
+      // XXX Activating actually occurs even if it's caused by untrusted event.
+      //     Therefore, shouldn't this be always trusted event?
       InternalUIEvent actEvent(aVisitor.mEvent->mFlags.mIsTrusted,
-                               NS_UI_ACTIVATE, 1);
+                               NS_UI_ACTIVATE);
+      actEvent.detail = 1;
 
       nsCOMPtr<nsIPresShell> shell = aVisitor.mPresContext->GetPresShell();
       if (shell) {
@@ -3994,8 +4007,7 @@ HTMLInputElement::PostHandleEvent(nsEventChainPostVisitor& aVisitor)
            */
 
           if (aVisitor.mEvent->message == NS_KEY_PRESS &&
-              (keyEvent->keyCode == NS_VK_RETURN ||
-               keyEvent->keyCode == NS_VK_ENTER) &&
+              keyEvent->keyCode == NS_VK_RETURN &&
                (IsSingleLineTextControl(false, mType) ||
                 mType == NS_FORM_INPUT_NUMBER ||
                 IsExperimentalMobileType(mType))) {
@@ -6910,17 +6922,12 @@ HTMLInputElement::IsValidEmailAddress(const nsAString& aValue)
 
   uint32_t atPos;
   nsAutoCString value;
+  // This call also checks whether aValue contains a correctly-placed '@' sign.
   if (!PunycodeEncodeEmailAddress(aValue, value, &atPos)) {
     return false;
   }
 
   uint32_t length = value.Length();
-
-  // Email addresses must contain a '@', but can't begin or end with it.
-  if (atPos == (uint32_t)kNotFound || atPos == 0 || atPos == length - 1) {
-    return false;
-  }
-
   uint32_t i = 0;
 
   // Parsing the username.

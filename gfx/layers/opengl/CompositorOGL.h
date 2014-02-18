@@ -51,7 +51,6 @@ class GLManagerCompositor;
 class TextureSource;
 struct Effect;
 struct EffectChain;
-struct FPSState;
 
 class CompositorOGL : public Compositor
 {
@@ -151,7 +150,9 @@ public:
   virtual const char* Name() const MOZ_OVERRIDE { return "OGL"; }
 #endif // MOZ_DUMP_PAINTING
 
-  virtual void NotifyLayersTransaction() MOZ_OVERRIDE;
+  virtual LayersBackend GetBackendType() const MOZ_OVERRIDE {
+    return LayersBackend::LAYERS_OPENGL;
+  }
 
   virtual void Pause() MOZ_OVERRIDE;
   virtual bool Resume() MOZ_OVERRIDE;
@@ -196,12 +197,6 @@ private:
   nsIntSize mSurfaceSize;
 
   ScreenPoint mRenderOffset;
-
-  /** Helper-class used by Initialize **/
-  class ReadDrawFPSPref MOZ_FINAL : public nsRunnable {
-  public:
-    NS_IMETHOD Run() MOZ_OVERRIDE;
-  };
 
   already_AddRefed<mozilla::gl::GLContext> CreateContext();
 
@@ -326,11 +321,6 @@ private:
   void CopyToTarget(gfx::DrawTarget* aTarget, const gfx::Matrix& aWorldMatrix);
 
   /**
-   * Records the passed frame timestamp and returns the current estimated FPS.
-   */
-  double AddFrameAndGetFps(const TimeStamp& timestamp);
-
-  /**
    * Implements the flipping of the y-axis to convert from layers/compositor
    * coordinates to OpenGL coordinates.
    *
@@ -343,7 +333,6 @@ private:
 
   bool mDestroyed;
 
-  nsAutoPtr<FPSState> mFPS;
   // Textures used for direct texturing of buffers like gralloc.
   // The index of the texture in this array must correspond to the texture unit.
   nsTArray<GLuint> mTextures;
