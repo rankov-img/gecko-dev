@@ -6,8 +6,9 @@
 
 #include "mozilla/MathAlgorithms.h"
 
-#include "jit/mips/Assembler-mips.h"
+
 #include "jit/Lowering.h"
+#include "jit/mips/Assembler-mips.h"
 #include "jit/MIR.h"
 
 #include "jit/shared/Lowering-shared-inl.h"

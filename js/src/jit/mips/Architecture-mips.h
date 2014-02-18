@@ -20,11 +20,12 @@
 namespace js {
 namespace jit {
 
-// Only Win64 requires shadow stack space.
+// Shadow stack space is not required on MIPS.
 static const uint32_t ShadowStackSpace = 0;
 
 // These offsets are specific to nunboxing, and capture offsets into the
 // components of a js::Value.
+// Size of MIPS32 general purpose registers is 32 bits.
 static const int32_t NUNBOX32_TYPE_OFFSET = 4;
 static const int32_t NUNBOX32_PAYLOAD_OFFSET = 0;
 
@@ -190,8 +191,12 @@ class Registers
 };
 
 // Smallest integer type that can hold a register bitmask.
-typedef uint8_t PackedRegisterMask;
+typedef uint32_t PackedRegisterMask;
 
+
+// MIPS32 uses pairs of even and odd float registers as double precision
+// registers. Example: f0 (double) is composed of f0 and f1 (single).
+// This port only uses even registers to avoid allocation problems.
 class FloatRegisters
 {
   public:
@@ -261,8 +266,7 @@ class FloatRegisters
     // f18 and f16 are MIPS scratch float registers.
     static const uint32_t NonAllocatableMask =
         (1 << f16) |
-        (1 << f18) |
-        (1 << invalid_freg);
+        (1 << f18);
 
     // Registers that can be allocated without being saved, generally.
     static const uint32_t TempMask = VolatileMask & ~NonAllocatableMask;

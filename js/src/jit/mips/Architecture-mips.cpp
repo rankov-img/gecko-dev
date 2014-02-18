@@ -11,8 +11,6 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-#include "jit/mips/Assembler-mips.h"
-
 #define HWCAP_MIPS (1 << 31)
 #define HWCAP_FPU (1 << 0)
 
@@ -32,7 +30,7 @@ uint32_t GetMIPSFlags()
 
     char buf[1024];
     memset(buf, 0, sizeof(buf));
-    fread(buf, sizeof(char), sizeof(buf)-1, fp);
+    fread(buf, sizeof(char), sizeof(buf) - 1, fp);
     fclose(fp);
     if (strstr(buf, "FPU"))
         flags |= HWCAP_FPU;

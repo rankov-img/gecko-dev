@@ -11,10 +11,10 @@
 #include "mozilla/Attributes.h"
 #include "mozilla/MathAlgorithms.h"
 
-#include "jit/mips/Architecture-mips.h"
 #include "jit/CompactBuffer.h"
 #include "jit/IonCode.h"
 #include "jit/IonSpewer.h"
+#include "jit/mips/Architecture-mips.h"
 #include "jit/shared/Assembler-shared.h"
 #include "jit/shared/IonAssemblerBuffer.h"
 
@@ -56,7 +56,7 @@ static MOZ_CONSTEXPR_VAR Register ra = { Registers::ra };
 
 static MOZ_CONSTEXPR_VAR Register ScratchRegister = at;
 
-// ARM uses arg reg from EnterJIT function as OsrFrameReg. We do the same.
+// Use arg reg from EnterJIT function as OsrFrameReg.
 static MOZ_CONSTEXPR_VAR Register OsrFrameReg = a3;
 static MOZ_CONSTEXPR_VAR Register ArgumentsRectifierReg = s3;
 static MOZ_CONSTEXPR_VAR Register CallTempReg0 = t0;
@@ -64,7 +64,7 @@ static MOZ_CONSTEXPR_VAR Register CallTempReg1 = t1;
 static MOZ_CONSTEXPR_VAR Register CallTempReg2 = t2;
 static MOZ_CONSTEXPR_VAR Register CallTempReg3 = t3;
 static MOZ_CONSTEXPR_VAR Register CallTempReg4 = t4;
-static MOZ_CONSTEXPR_VAR Register CallTempReg5 = a2;
+static MOZ_CONSTEXPR_VAR Register CallTempReg5 = t5;
 
 static MOZ_CONSTEXPR_VAR Register IntArgReg0 = a0;
 static MOZ_CONSTEXPR_VAR Register IntArgReg1 = a1;
@@ -195,10 +195,6 @@ static const uint32_t FunctionMask = ((1 << FunctionBits) - 1) << FunctionShift;
 static const uint32_t RegMask = Registers::Total - 1;
 static const uint32_t StackAlignmentMask = StackAlignment - 1;
 
-static const int32_t MAX_16_BIT = 32767;
-static const int32_t MIN_16_BIT = -32768;
-static const int32_t MAX_16_BIT_U = 65536;
-
 static const int32_t MAX_BREAK_CODE = 1024 - 1;
 
 class Instruction;
@@ -244,6 +240,7 @@ enum Opcode {
     op_lui      = 15 << OpcodeShift,
 
     op_cop1     = 17 << OpcodeShift,
+    op_cop1x    = 19 << OpcodeShift,
 
     op_beql     = 20 << OpcodeShift,
     op_bnel     = 21 << OpcodeShift,
@@ -270,9 +267,7 @@ enum Opcode {
     op_ldc1     = 53 << OpcodeShift,
 
     op_swc1     = 57 << OpcodeShift,
-    op_sdc1     = 61 << OpcodeShift,
-
-    op_cop1x    = 19 << OpcodeShift
+    op_sdc1     = 61 << OpcodeShift
 };
 
 enum RSField {
@@ -289,7 +284,6 @@ enum RSField {
     rs_s     = 16 << RSShift,
     rs_d     = 17 << RSShift,
     rs_w     = 20 << RSShift,
-    rs_l     = 21 << RSShift,
     rs_ps    = 22 << RSShift
 };
 
@@ -304,129 +298,77 @@ enum RTField {
 
 enum FunctionField {
     // special encoding of function field.
-    ff_sll       = 0,
-    ff_movci     = 1,
-    ff_srl       = 2,
-    ff_sra       = 3,
-    ff_sllv      = 4,
-    ff_srlv      = 6,
-    ff_srav      = 7,
+    ff_sll         = 0,
+    ff_movci       = 1,
+    ff_srl         = 2,
+    ff_sra         = 3,
+    ff_sllv        = 4,
+    ff_srlv        = 6,
+    ff_srav        = 7,
 
-    ff_jr        = 8,
-    ff_jalr      = 9,
-    ff_movz      = 10,
-    ff_movn      = 11,
-    ff_break     = 13,
+    ff_jr          = 8,
+    ff_jalr        = 9,
+    ff_movz        = 10,
+    ff_movn        = 11,
+    ff_break       = 13,
 
-    ff_mfhi      = 16,
-    ff_mflo      = 18,
+    ff_mfhi        = 16,
+    ff_mflo        = 18,
 
-    ff_mult      = 24,
-    ff_multu     = 25,
-    ff_div       = 26,
-    ff_divu      = 27,
+    ff_mult        = 24,
+    ff_multu       = 25,
+    ff_div         = 26,
+    ff_divu        = 27,
 
-    ff_add       = 32,
-    ff_addu      = 33,
-    ff_sub       = 34,
-    ff_subu      = 35,
-    ff_and       = 36,
-    ff_or        = 37,
-    ff_xor       = 38,
-    ff_nor       = 39,
+    ff_add         = 32,
+    ff_addu        = 33,
+    ff_sub         = 34,
+    ff_subu        = 35,
+    ff_and         = 36,
+    ff_or          = 37,
+    ff_xor         = 38,
+    ff_nor         = 39,
 
-    ff_slt       = 42,
-    ff_sltu      = 43,
-
-    ff_tge       = 48,
-    ff_tgeu      = 49,
-    ff_tlt       = 50,
-    ff_tltu      = 51,
-    ff_teq       = 52,
-    ff_tne       = 54,
+    ff_slt         = 42,
+    ff_sltu        = 43,
 
     // special2 encoding of function field.
-    ff_mul       = 2,
-    ff_clz       = 32,
-    ff_clo       = 33,
+    ff_mul         = 2,
+    ff_clz         = 32,
+    ff_clo         = 33,
 
     // special3 encoding of function field.
-    ff_ext       = 0,
-    ff_ins       = 4,
+    ff_ext         = 0,
+    ff_ins         = 4,
 
-    // cop1 encoding of function field when rs=S.
-    ff_add_s     = 0,
-    ff_round_l_s = 8,
-    ff_trunc_l_s = 9,
-    ff_ceil_l_s  = 10,
-    ff_floor_l_s = 11,
-    ff_round_w_s = 12,
-    ff_trunc_w_s = 13,
-    ff_ceil_w_s  = 14,
-    ff_floor_w_s = 15,
-    ff_cvt_d_s   = 33,
-    ff_cvt_w_s   = 36,
-    ff_cvt_l_s   = 37,
-    ff_cvt_ps_s  = 38,
+    // cop1 encoding of function field.
+    ff_add_fmt     = 0,
+    ff_sub_fmt     = 1,
+    ff_mul_fmt     = 2,
+    ff_div_fmt     = 3,
+    ff_sqrt_fmt    = 4,
+    ff_abs_fmt     = 5,
+    ff_mov_fmt     = 6,
+    ff_neg_fmt     = 7,
 
-    // cop1 encoding of function field when rs=d.
-    ff_add_d     = 0,
-    ff_sub_d     = 1,
-    ff_mul_d     = 2,
-    ff_div_d     = 3,
-    ff_sqrt_d    = 4,
-    ff_abs_d     = 5,
-    ff_mov_d     = 6,
-    ff_neg_d     = 7,
-    ff_round_l_d = 8,
-    ff_trunc_l_d = 9,
-    ff_ceil_l_d  = 10,
-    ff_floor_l_d = 11,
-    ff_round_w_d = 12,
-    ff_trunc_w_d = 13,
-    ff_ceil_w_d  = 14,
-    ff_floor_w_d = 15,
-    ff_cvt_s_d   = 32,
-    ff_cvt_w_d   = 36,
-    ff_cvt_l_d   = 37,
-    ff_c_f_d     = 48,
-    ff_c_un_d    = 49,
-    ff_c_eq_d    = 50,
-    ff_c_ueq_d   = 51,
-    ff_c_olt_d   = 52,
-    ff_c_ult_d   = 53,
-    ff_c_ole_d   = 54,
-    ff_c_ule_d   = 55,
+    ff_round_w_fmt = 12,
+    ff_trunc_w_fmt = 13,
+    ff_ceil_w_fmt  = 14,
+    ff_floor_w_fmt = 15,
 
-    // cop1 encoding of function field when rs=w or l.
-    ff_cvt_s_w   = 32,
-    ff_cvt_d_w   = 33,
-    ff_cvt_s_l   = 32,
-    ff_cvt_d_l   = 33,
+    ff_cvt_s_fmt   = 32,
+    ff_cvt_d_fmt   = 33,
+    ff_cvt_w_fmt   = 36,
 
-    // cop1 encoding of function field when rs=ps.
-    // cop1x encoding of function field.
-    ff_madd_d    = 33,
-
-    ff_nullff    = 0
+    ff_c_f_fmt     = 48,
+    ff_c_un_fmt    = 49,
+    ff_c_eq_fmt    = 50,
+    ff_c_ueq_fmt   = 51,
+    ff_c_olt_fmt   = 52,
+    ff_c_ult_fmt   = 53,
+    ff_c_ole_fmt   = 54,
+    ff_c_ule_fmt   = 55,
 };
-
-struct ImmTag : public Imm32
-{
-    ImmTag(JSValueTag mask)
-      : Imm32(int32_t(mask))
-    { }
-};
-
-struct ImmType : public ImmTag
-{
-    ImmType(JSValueType type)
-      : ImmTag(JSVAL_TYPE_TO_TAG(type))
-    { }
-};
-
-static const ValueOperand JSReturnOperand = ValueOperand(JSReturnReg_Type, JSReturnReg_Data);
-static const ValueOperand softfpReturnOperand = ValueOperand(v1, v0);
 
 class MacroAssemblerMIPS;
 class Operand;
@@ -438,10 +380,12 @@ class BOffImm16
 
   public:
     uint32_t encode() {
+        JS_ASSERT(!isInvalid());
         return data;
     }
     int32_t decode() {
-        return ((((int32_t)data) << 18) >> 16) + 4;
+        JS_ASSERT(!isInvalid());
+        return (int32_t(data << 18) >> 16) + 4;
     }
 
     explicit BOffImm16(int offset)
@@ -451,19 +395,19 @@ class BOffImm16
         JS_ASSERT(isInRange(offset));
     }
     static bool isInRange(int offset) {
-        if ((offset - 4) < (MIN_16_BIT << 2))
+        if ((offset - 4) < (INT16_MIN << 2))
             return false;
-        if ((offset - 4) > (MAX_16_BIT << 2))
+        if ((offset - 4) > (INT16_MAX << 2))
             return false;
         return true;
     }
-    static const int INVALID = 0x00020000;
+    static const uint32_t INVALID = 0x00020000;
     BOffImm16()
       : data(INVALID)
     { }
 
     bool isInvalid() {
-        return data == uint32_t(INVALID);
+        return data == INVALID;
     }
     Instruction *getDest(Instruction *src);
 
@@ -477,10 +421,12 @@ class JOffImm26
 
   public:
     uint32_t encode() {
+        JS_ASSERT(!isInvalid());
         return data;
     }
     int32_t decode() {
-        return (((int32_t)data << 8) >> 6) + 4;
+        JS_ASSERT(!isInvalid());
+        return (int32_t(data << 8) >> 6) + 4;
     }
 
     explicit JOffImm26(int offset)
@@ -496,13 +442,13 @@ class JOffImm26
             return false;
         return true;
     }
-    static const int INVALID = 0x20000000;
+    static const uint32_t INVALID = 0x20000000;
     JOffImm26()
       : data(INVALID)
     { }
 
     bool isInvalid() {
-        return data == uint32_t(INVALID);
+        return data == INVALID;
     }
     Instruction *getDest(Instruction *src);
 
@@ -527,10 +473,10 @@ class Imm16
         return value;
     }
     static bool isInSignedRange(int32_t imm) {
-        return imm >= MIN_16_BIT  && imm <= MAX_16_BIT;
+        return imm >= INT16_MIN  && imm <= INT16_MAX;
     }
     static bool isInUnsignedRange(uint32_t imm) {
-        return imm >= 0  && imm <= MAX_16_BIT_U ;
+        return imm <= UINT16_MAX ;
     }
     static Imm16 lower (Imm32 imm) {
         return Imm16(imm.value & 0xffff);
@@ -543,66 +489,72 @@ class Imm16
 class Operand
 {
   public:
-    enum Tag_ {
+    enum Tag {
         REG,
         FREG,
         MEM
     };
 
   private:
-    Tag_ Tag : 3;
+    Tag tag : 3;
     uint32_t reg : 5;
     int32_t offset;
-    uint32_t data;
 
   public:
     Operand (Register reg_)
-      : Tag(REG), reg(reg_.code())
+      : tag(REG), reg(reg_.code())
     { }
 
     Operand (FloatRegister freg)
-      : Tag(FREG), reg(freg.code())
+      : tag(FREG), reg(freg.code())
     { }
 
     Operand (Register base, Imm32 off)
-      : Tag(MEM), reg(base.code()), offset(off.value)
+      : tag(MEM), reg(base.code()), offset(off.value)
     { }
 
     Operand (Register base, int32_t off)
-      : Tag(MEM), reg(base.code()), offset(off)
+      : tag(MEM), reg(base.code()), offset(off)
     { }
 
     Operand (const Address &addr)
-      : Tag(MEM), reg(addr.base.code()), offset(addr.offset)
+      : tag(MEM), reg(addr.base.code()), offset(addr.offset)
     { }
 
-    Tag_ getTag() const {
-        return Tag;
+    Tag getTag() const {
+        return tag;
     }
 
     Register toReg() const {
-        JS_ASSERT(Tag == REG);
+        JS_ASSERT(tag == REG);
         return Register::FromCode(reg);
     }
 
+    FloatRegister toFReg() const {
+        JS_ASSERT(tag == FREG);
+        return FloatRegister::FromCode(reg);
+    }
+
     void toAddr(Register *r, Imm32 *dest) const {
-        JS_ASSERT(Tag == MEM);
+        JS_ASSERT(tag == MEM);
         *r = Register::FromCode(reg);
         *dest = Imm32(offset);
     }
     Address toAddress() const {
+        JS_ASSERT(tag == MEM);
         return Address(Register::FromCode(reg), offset);
     }
     int32_t disp() const {
-        JS_ASSERT(Tag == MEM);
+        JS_ASSERT(tag == MEM);
         return offset;
     }
 
     int32_t base() const {
-        JS_ASSERT(Tag == MEM);
+        JS_ASSERT(tag == MEM);
         return reg;
     }
     Register baseReg() const {
+        JS_ASSERT(tag == MEM);
         return Register::FromCode(reg);
     }
 };
@@ -634,11 +586,6 @@ class Assembler
         NonZero,
         Always,
     };
-
-    // Bit set when a DoubleCondition does not map to a single ARM condition.
-    // The macro assembler has to special-case these conditions, or else
-    // ConditionFromDoubleCondition will complain.
-    static const int DoubleConditionBitSpecial = 0x1;
 
     enum DoubleCondition {
         // These conditions will only evaluate to true if the comparison is ordered - i.e. neither operand is NaN.
@@ -723,8 +670,7 @@ class Assembler
       : enoughMemory_(true),
         m_buffer(),
         isFinished(false)
-    {
-    }
+    { }
 
     static Condition InvertCondition(Condition cond);
     static DoubleCondition InvertCondition(DoubleCondition cond);
@@ -889,14 +835,25 @@ class Assembler
     BufferOffset as_ld(FloatRegister fd, Register base, int32_t off);
     BufferOffset as_sd(FloatRegister fd, Register base, int32_t off);
 
-    BufferOffset as_ls(FloatRegister fd, Register base, int32_t off, bool oddFReg = false);
-    BufferOffset as_ss(FloatRegister fd, Register base, int32_t off, bool oddFReg = false);
+    BufferOffset as_ls(FloatRegister fd, Register base, int32_t off);
+    BufferOffset as_ss(FloatRegister fd, Register base, int32_t off);
 
     BufferOffset as_movs(FloatRegister fd, FloatRegister fs);
     BufferOffset as_movd(FloatRegister fd, FloatRegister fs);
 
-    BufferOffset as_mtc1(Register rt, FloatRegister fs, bool oddFReg = false);
-    BufferOffset as_mfc1(Register rt, FloatRegister fs, bool oddFReg = false);
+    BufferOffset as_mtc1(Register rt, FloatRegister fs);
+    BufferOffset as_mfc1(Register rt, FloatRegister fs);
+
+  protected:
+    // These instructions should only be used to access the odd part of 
+    // 64-bit register pair. Do not use odd registers as 32-bit registers.
+    // :TODO: Bug 972836, Remove _Odd functions once we can use odd regs.
+    BufferOffset as_ls_Odd(FloatRegister fd, Register base, int32_t off);
+    BufferOffset as_ss_Odd(FloatRegister fd, Register base, int32_t off);
+    BufferOffset as_mtc1_Odd(Register rt, FloatRegister fs);
+  public:
+    // Made public because CodeGenerator uses it to check for -0
+    BufferOffset as_mfc1_Odd(Register rt, FloatRegister fs);
 
     // FP convert instructions
     BufferOffset as_ceilws(FloatRegister fd, FloatRegister fs);
@@ -1013,6 +970,8 @@ class Assembler
 
     static uint32_t extractLuiOriValue(Instruction *inst0, Instruction *inst1);
     static void updateLuiOriValue(Instruction *inst0, Instruction *inst1, uint32_t value);
+    static void writeLuiOriInstructions(Instruction *inst, Instruction *inst1,
+                                        Register reg, uint32_t value);
 
     static void patchWrite_NearCall(CodeLocationLabel start, CodeLocationLabel toCall);
     static void patchDataWithValueCheck(CodeLocationLabel label, PatchedImmPtr newValue,
@@ -1021,7 +980,7 @@ class Assembler
                                         ImmPtr expectedValue);
     static void patchWrite_Imm32(CodeLocationLabel label, Imm32 imm);
     static uint32_t alignDoubleArg(uint32_t offset) {
-        return (offset + 1) &~ 1;
+        return (offset + 1U) &~ 1U;
     }
 
     static uint8_t *nextInstruction(uint8_t *instruction, uint32_t *count = nullptr);
@@ -1039,8 +998,8 @@ class Assembler
     }
 }; // Assembler
 
-// An Instruction is a structure for both encoding and decoding any and all ARM instructions.
-// many classes have not been implemented thusfar.
+// An Instruction is a structure for both encoding and decoding any and all
+// MIPS instructions.
 class Instruction
 {
   protected:
@@ -1067,14 +1026,6 @@ class Instruction
     void setData(uint32_t data) {
         this->data = data;
     }
-
-    // Check if this instruction is really a particular case
-    template <class C>
-    bool is() const { return C::isTHIS(*this); }
-
-    // safely get a more specific variant of this pointer
-    template <class C>
-    C *as() const { return C::asTHIS(*this); }
 
     const Instruction & operator=(const Instruction &src) {
         data = src.data;
@@ -1110,7 +1061,7 @@ class Instruction
 }; // Instruction
 
 // make sure that it is the right size
-JS_STATIC_ASSERT(sizeof(Instruction) == 4);
+static_assert(sizeof(Instruction) == 4, "Size of Instruction class has to be 4 bytes.");
 
 class InstNOP : public Instruction
 {
@@ -1119,8 +1070,6 @@ class InstNOP : public Instruction
       : Instruction(NopInst)
     { }
 
-    static bool isTHIS(const Instruction &i);
-    static InstNOP *asTHIS(Instruction &i);
 };
 
 // Class for register type instructions.
@@ -1154,9 +1103,6 @@ class InstReg : public Instruction
     // for float point
     InstReg(Opcode op, RSField rs, Register rt, FloatRegister rd)
       : Instruction(op | rs | RT(rt) | RD(rd))
-    { }
-    InstReg(Opcode op, RSField rs, Register rt, uint32_t rdCode)
-      : Instruction(op | rs | RT(rt) | RD(rdCode))
     { }
     InstReg(Opcode op, RSField rs, Register rt, FloatRegister rd, uint32_t sa, FunctionField ff)
       : Instruction(op | rs | RT(rt) | RD(rd) | SA(sa) | ff)
@@ -1192,8 +1138,6 @@ class InstReg : public Instruction
 class InstImm : public Instruction
 {
   public:
-    static bool isTHIS (const Instruction &i);
-    static InstImm *asTHIS (const Instruction &i);
     void extractImm16(BOffImm16 *dest);
 
     InstImm(Opcode op, Register rs, Register rt, BOffImm16 off)
@@ -1210,15 +1154,11 @@ class InstImm : public Instruction
     { }
     InstImm(uint32_t raw)
       : Instruction(raw)
-    {}
-    // for float point
+    { }
+    // For floating-point loads and stores.
     InstImm(Opcode op, Register rs, FloatRegister rt, Imm16 off)
       : Instruction(op | RS(rs) | RT(rt) | off.encode())
     { }
-    InstImm(Opcode op, Register rs, uint32_t rt, Imm16 off)
-      : Instruction(op | RS(rs) | RT(rt) | off.encode())
-    { }
-
 
     uint32_t extractOpcode() {
         return extractBitField(OpcodeShift + OpcodeBits - 1, OpcodeShift);
@@ -1247,16 +1187,6 @@ class InstImm : public Instruction
         data = (data & ~Imm16Mask) | off.encode();
     }
 };
-class InstBAL : public InstImm
-{
-  public:
-    InstBAL(BOffImm16 off)
-      : InstImm(op_regimm, zero, rt_bgezal, off)
-    { }
-
-    static bool isTHIS (const Instruction &i);
-    static InstBAL *asTHIS (const Instruction &i);
-};
 
 // Class for Jump type instructions.
 class InstJump : public Instruction
@@ -1270,20 +1200,8 @@ class InstJump : public Instruction
         return extractBitField(Imm26Shift + Imm26Bits - 1, Imm26Shift);
     }
 };
-class InstJAL : public InstJump
-{
-  public:
-    InstJAL(JOffImm26 off)
-      : InstJump(op_jal, off)
-    { }
-
-    static bool isTHIS (const Instruction &i);
-    static InstJAL *asTHIS (const Instruction &i);
-};
-
 
 static const uint32_t NumIntArgRegs = 4;
-static const uint32_t NumFloatArgRegs = 8;
 
 static inline bool
 GetIntArgReg(uint32_t usedArgSlots, Register *out)

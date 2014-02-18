@@ -14,14 +14,15 @@
 
 #include "assembler/jit/ExecutableAllocator.h"
 #include "gc/Marking.h"
-#include "jit/mips/MacroAssembler-mips.h"
 #include "jit/JitCompartment.h"
+
+using mozilla::DebugOnly;
 
 using namespace js;
 using namespace js::jit;
 
-ABIArgGenerator::ABIArgGenerator() :
-    usedArgSlots_(0),
+ABIArgGenerator::ABIArgGenerator()
+  : usedArgSlots_(0),
     firstArgFloat(false),
     current_()
 {}
@@ -90,6 +91,8 @@ js::jit::RT(FloatRegister r)
     return (2 * r.code()) << RTShift;
 }
 
+// Use to code odd float registers.
+// :TODO: Bug 972836, It will be removed once we can use odd regs.
 uint32_t
 js::jit::RT(uint32_t regCode)
 {
@@ -111,6 +114,8 @@ js::jit::RD(FloatRegister r)
     return (2 * r.code()) << RDShift;
 }
 
+// Use to code odd float registers.
+// :TODO: Bug 972836, It will be removed once we can use odd regs.
 uint32_t
 js::jit::RD(uint32_t regCode)
 {
@@ -118,11 +123,10 @@ js::jit::RD(uint32_t regCode)
     return regCode << RDShift;
 }
 
-
 uint32_t
 js::jit::SA(uint32_t value)
 {
-    JS_ASSERT(value <= 32);
+    JS_ASSERT(value < 32);
     return value << SAShift;
 }
 
@@ -155,34 +159,6 @@ Register
 js::jit::toR(Instruction &i)
 {
     return Register::FromCode(i.encode() & RegMask);
-}
-
-InstNOP *
-InstNOP::asTHIS(Instruction &i)
-{
-    if (isTHIS(i))
-        return (InstNOP*) (&i);
-    return nullptr;
-}
-
-bool
-InstNOP::isTHIS(const Instruction &i)
-{
-    return (i.encode() & 0xffffffff) == NopInst;
-}
-
-bool
-InstImm::isTHIS(const Instruction &i)
-{
-    return InstImm::isTHIS(i);
-}
-
-InstImm *
-InstImm::asTHIS(const Instruction &i)
-{
-    if (isTHIS(i))
-        return (InstImm*)&i;
-    return nullptr;
 }
 
 void
@@ -227,7 +203,6 @@ Assembler::executableCopy(uint8_t *buffer)
     AutoFlushCache::updateTop((uintptr_t)buffer, m_buffer.size());
 }
 
-// Defined for compatibility with ARM's assembler
 uint32_t
 Assembler::actualOffset(uint32_t off_) const
 {
@@ -370,8 +345,6 @@ Assembler::processCodeLabels(uint8_t *rawCode)
     for (size_t i = 0; i < codeLabels_.length(); i++) {
         CodeLabel label = codeLabels_[i];
         Bind(rawCode, label.dest(), rawCode + actualOffset(label.src()->offset()));
-
-        AutoFlushCache::updateTop(uintptr_t(rawCode + label.dest()->offset()), 8);
     }
 }
 
@@ -545,8 +518,9 @@ BufferOffset
 Assembler::align(int alignment)
 {
     BufferOffset ret;
+    JS_ASSERT(m_buffer.isAligned(4));
     if (alignment == 8) {
-        while (!m_buffer.isAligned(alignment)) {
+        if (!m_buffer.isAligned(alignment)) {
             BufferOffset tmp = as_nop();
             if (!ret.assigned())
                 ret = tmp;
@@ -635,7 +609,7 @@ InstImm
 Assembler::getBranchCode(Register s, Register t, Condition c)
 {
     JS_ASSERT(c == Assembler::Equal || c == Assembler::NotEqual);
-    return InstImm(c == Assembler::Equal ? op_beq : op_bne, s, t, BOffImm16(0)).encode();
+    return InstImm(c == Assembler::Equal ? op_beq : op_bne, s, t, BOffImm16(0));
 }
 
 InstImm
@@ -645,21 +619,21 @@ Assembler::getBranchCode(Register s, Condition c)
       case Assembler::Equal:
       case Assembler::Zero:
       case Assembler::BelowOrEqual:
-        return InstImm(op_beq, s, zero, BOffImm16(0)).encode();
+        return InstImm(op_beq, s, zero, BOffImm16(0));
       case Assembler::NotEqual:
       case Assembler::NonZero:
       case Assembler::Above:
-        return InstImm(op_bne, s, zero, BOffImm16(0)).encode();
+        return InstImm(op_bne, s, zero, BOffImm16(0));
       case Assembler::GreaterThan:
-        return InstImm(op_bgtz, s, zero, BOffImm16(0)).encode();
+        return InstImm(op_bgtz, s, zero, BOffImm16(0));
       case Assembler::GreaterThanOrEqual:
       case Assembler::NotSigned:
-        return InstImm(op_regimm, s, rt_bgez, BOffImm16(0)).encode();
+        return InstImm(op_regimm, s, rt_bgez, BOffImm16(0));
       case Assembler::LessThan:
       case Assembler::Signed:
-        return InstImm(op_regimm, s, rt_bltz, BOffImm16(0)).encode();
+        return InstImm(op_regimm, s, rt_bltz, BOffImm16(0));
       case Assembler::LessThanOrEqual:
-        return InstImm(op_blez, s, zero, BOffImm16(0)).encode();
+        return InstImm(op_blez, s, zero, BOffImm16(0));
       default:
         MOZ_ASSUME_UNREACHABLE("Condition not supported.");
     }
@@ -671,7 +645,7 @@ Assembler::getBranchCode(bool testTrue, FPConditionBit fcc)
     JS_ASSERT(!(fcc && FccMask));
     uint32_t rtField = ((testTrue ? 1 : 0) | (fcc << FccShift)) << RTShift;
 
-    return InstImm(op_cop1, rs_bc1, rtField, BOffImm16(0)).encode();
+    return InstImm(op_cop1, rs_bc1, rtField, BOffImm16(0));
 }
 
 BufferOffset
@@ -762,7 +736,7 @@ Assembler::as_lui(Register rd, int32_t j)
 BufferOffset
 Assembler::as_sll(Register rd, Register rt, uint16_t sa)
 {
-    JS_ASSERT(sa >= 0 && sa < 32);
+    JS_ASSERT(sa < 32);
     return writeInst(InstReg(op_special, rs_zero, rt, rd, sa, ff_sll).encode());
 }
 
@@ -775,7 +749,7 @@ Assembler::as_sllv(Register rd, Register rt, Register rs)
 BufferOffset
 Assembler::as_srl(Register rd, Register rt, uint16_t sa)
 {
-    JS_ASSERT(sa >= 0 && sa < 32);
+    JS_ASSERT(sa < 32);
     return writeInst(InstReg(op_special, rs_zero, rt, rd, sa, ff_srl).encode());
 }
 
@@ -788,6 +762,7 @@ Assembler::as_srlv(Register rd, Register rt, Register rs)
 BufferOffset
 Assembler::as_sra(Register rd, Register rt, uint16_t sa)
 {
+    JS_ASSERT(sa < 32);
     return writeInst(InstReg(op_special, rs_zero, rt, rd, sa, ff_sra).encode());
 }
 
@@ -800,6 +775,7 @@ Assembler::as_srav(Register rd, Register rt, Register rs)
 BufferOffset
 Assembler::as_rotr(Register rd, Register rt, uint16_t sa)
 {
+    JS_ASSERT(sa < 32);
     return writeInst(InstReg(op_special, rs_one, rt, rd, sa, ff_srl).encode());
 }
 
@@ -961,6 +937,7 @@ Assembler::as_clz(Register rd, Register rs, Register rt)
 BufferOffset
 Assembler::as_ins(Register rt, Register rs, uint16_t pos, uint16_t size)
 {
+    JS_ASSERT(pos < 32 && size != 0 && size <= 32 && pos + size != 0 && pos + size >= 32);
     Register rd;
     rd = Register::FromCode(pos + size - 1);
     return writeInst(InstReg(op_special3, rs, rt, rd, pos, ff_ins).encode());
@@ -969,6 +946,7 @@ Assembler::as_ins(Register rt, Register rs, uint16_t pos, uint16_t size)
 BufferOffset
 Assembler::as_ext(Register rt, Register rs, uint16_t pos, uint16_t size)
 {
+    JS_ASSERT(pos < 32 && size != 0 && size <= 32 && pos + size != 0 && pos + size >= 32);
     Register rd;
     rd = Register::FromCode(size - 1);
     return writeInst(InstReg(op_special3, rs, rt, rd, pos, ff_ext).encode());
@@ -990,330 +968,335 @@ Assembler::as_sd(FloatRegister fd, Register base, int32_t off)
 }
 
 BufferOffset
-Assembler::as_ls(FloatRegister fd, Register base, int32_t off, bool oddFReg)
+Assembler::as_ls(FloatRegister fd, Register base, int32_t off)
 {
     JS_ASSERT(Imm16::isInSignedRange(off));
-    uint32_t fRegCode = oddFReg ? fd.code() * 2 + 1 : fd.code() * 2;
-    return writeInst(InstImm(op_lwc1, base, fRegCode, Imm16(off)).encode());
+    return writeInst(InstImm(op_lwc1, base, fd, Imm16(off)).encode());
 }
 
 BufferOffset
-Assembler::as_ss(FloatRegister fd, Register base, int32_t off, bool oddFReg)
+Assembler::as_ss(FloatRegister fd, Register base, int32_t off)
 {
     JS_ASSERT(Imm16::isInSignedRange(off));
-    uint32_t fRegCode = oddFReg ? fd.code() * 2 + 1 : fd.code() * 2;
-    return writeInst(InstImm(op_swc1, base, fRegCode, Imm16(off)).encode());
+    return writeInst(InstImm(op_swc1, base, fd, Imm16(off)).encode());
 }
 
 BufferOffset
 Assembler::as_movs(FloatRegister fd, FloatRegister fs)
 {
-    return writeInst(InstReg(op_cop1, rs_s, zero, fs, fd, ff_mov_d).encode());
+    return writeInst(InstReg(op_cop1, rs_s, zero, fs, fd, ff_mov_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_movd(FloatRegister fd, FloatRegister fs)
 {
-    return writeInst(InstReg(op_cop1, rs_d, zero, fs, fd, ff_mov_d).encode());
+    return writeInst(InstReg(op_cop1, rs_d, zero, fs, fd, ff_mov_fmt).encode());
 }
 
 BufferOffset
-Assembler::as_mtc1(Register rt, FloatRegister fs, bool oddFReg)
+Assembler::as_mtc1(Register rt, FloatRegister fs)
 {
-    uint32_t fRegCode = oddFReg ? fs.code() * 2 + 1 : fs.code() * 2;
-    return writeInst(InstReg(op_cop1, rs_mtc1, rt, fRegCode).encode());
+    return writeInst(InstReg(op_cop1, rs_mtc1, rt, fs).encode());
 }
 
 BufferOffset
-Assembler::as_mfc1(Register rt, FloatRegister fs, bool oddFReg)
+Assembler::as_mfc1(Register rt, FloatRegister fs)
 {
-    uint32_t fRegCode = oddFReg ? fs.code() * 2 + 1 : fs.code() * 2;
-    return writeInst(InstReg(op_cop1, rs_mfc1, rt, fRegCode).encode());
+    return writeInst(InstReg(op_cop1, rs_mfc1, rt, fs).encode());
 }
+
+
+// :TODO: Bug 972836, Remove _Odd functions once we can use odd regs.
+BufferOffset
+Assembler::as_ls_Odd(FloatRegister fd, Register base, int32_t off)
+{
+    JS_ASSERT(Imm16::isInSignedRange(off));
+    // Hardcoded because it will be removed once we can use odd regs.
+    return writeInst(op_lwc1 | RS(base) | RT(fd.code() * 2 + 1) | Imm16(off).encode());
+}
+
+BufferOffset
+Assembler::as_ss_Odd(FloatRegister fd, Register base, int32_t off)
+{
+    JS_ASSERT(Imm16::isInSignedRange(off));
+    // Hardcoded because it will be removed once we can use odd regs.
+    return writeInst(op_swc1 | RS(base) | RT(fd.code() * 2 + 1) | Imm16(off).encode());
+}
+
+BufferOffset
+Assembler::as_mtc1_Odd(Register rt, FloatRegister fs)
+{
+    // Hardcoded because it will be removed once we can use odd regs.
+    return writeInst(op_cop1 | rs_mtc1 | RT(rt) | RD(fs.code() * 2 + 1));
+}
+
+BufferOffset
+Assembler::as_mfc1_Odd(Register rt, FloatRegister fs)
+{
+    // Hardcoded because it will be removed once we can use odd regs.
+    return writeInst(op_cop1 | rs_mfc1 | RT(rt) | RD(fs.code() * 2 + 1));
+}
+
 
 // FP convert instructions
 BufferOffset
 Assembler::as_ceilws(FloatRegister fd, FloatRegister fs)
 {
-    return writeInst(InstReg(op_cop1, rs_s, zero, fs, fd, ff_ceil_w_d).encode());
+    return writeInst(InstReg(op_cop1, rs_s, zero, fs, fd, ff_ceil_w_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_floorws(FloatRegister fd, FloatRegister fs)
 {
-    return writeInst(InstReg(op_cop1, rs_s, zero, fs, fd, ff_floor_w_d).encode());
+    return writeInst(InstReg(op_cop1, rs_s, zero, fs, fd, ff_floor_w_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_roundws(FloatRegister fd, FloatRegister fs)
 {
-    return writeInst(InstReg(op_cop1, rs_s, zero, fs, fd, ff_round_w_d).encode());
+    return writeInst(InstReg(op_cop1, rs_s, zero, fs, fd, ff_round_w_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_truncws(FloatRegister fd, FloatRegister fs)
 {
-    return writeInst(InstReg(op_cop1, rs_s, zero, fs, fd, ff_trunc_w_d).encode());
+    return writeInst(InstReg(op_cop1, rs_s, zero, fs, fd, ff_trunc_w_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_ceilwd(FloatRegister fd, FloatRegister fs)
 {
-    return writeInst(InstReg(op_cop1, rs_d, zero, fs, fd, ff_ceil_w_d).encode());
+    return writeInst(InstReg(op_cop1, rs_d, zero, fs, fd, ff_ceil_w_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_floorwd(FloatRegister fd, FloatRegister fs)
 {
-    return writeInst(InstReg(op_cop1, rs_d, zero, fs, fd, ff_floor_w_d).encode());
+    return writeInst(InstReg(op_cop1, rs_d, zero, fs, fd, ff_floor_w_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_roundwd(FloatRegister fd, FloatRegister fs)
 {
-    return writeInst(InstReg(op_cop1, rs_d, zero, fs, fd, ff_round_w_d).encode());
+    return writeInst(InstReg(op_cop1, rs_d, zero, fs, fd, ff_round_w_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_truncwd(FloatRegister fd, FloatRegister fs)
 {
-    return writeInst(InstReg(op_cop1, rs_d, zero, fs, fd, ff_trunc_w_d).encode());
-}
-
-BufferOffset
-Assembler::as_cvtdl(FloatRegister fd, FloatRegister fs)
-{
-    return writeInst(InstReg(op_cop1, rs_l, zero, fs, fd, ff_cvt_d_l).encode());
+    return writeInst(InstReg(op_cop1, rs_d, zero, fs, fd, ff_trunc_w_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_cvtds(FloatRegister fd, FloatRegister fs)
 {
-    return writeInst(InstReg(op_cop1, rs_s, zero, fs, fd, ff_cvt_d_s).encode());
+    return writeInst(InstReg(op_cop1, rs_s, zero, fs, fd, ff_cvt_d_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_cvtdw(FloatRegister fd, FloatRegister fs)
 {
-    return writeInst(InstReg(op_cop1, rs_w, zero, fs, fd, ff_cvt_d_w).encode());
-}
-
-BufferOffset
-Assembler::as_cvtld(FloatRegister fd, FloatRegister fs)
-{
-    return writeInst(InstReg(op_cop1, rs_d, zero, fs, fd, ff_cvt_l_d).encode());
-}
-
-BufferOffset
-Assembler::as_cvtls(FloatRegister fd, FloatRegister fs)
-{
-    return writeInst(InstReg(op_cop1, rs_s, zero, fs, fd, ff_cvt_l_s).encode());
+    return writeInst(InstReg(op_cop1, rs_w, zero, fs, fd, ff_cvt_d_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_cvtsd(FloatRegister fd, FloatRegister fs)
 {
-    return writeInst(InstReg(op_cop1, rs_d, zero, fs, fd, ff_cvt_s_d).encode());
-}
-
-BufferOffset
-Assembler::as_cvtsl(FloatRegister fd, FloatRegister fs)
-{
-    return writeInst(InstReg(op_cop1, rs_l, zero, fs, fd, ff_cvt_s_l).encode());
+    return writeInst(InstReg(op_cop1, rs_d, zero, fs, fd, ff_cvt_s_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_cvtsw(FloatRegister fd, FloatRegister fs)
 {
-    return writeInst(InstReg(op_cop1, rs_w, zero, fs, fd, ff_cvt_s_w).encode());
+    return writeInst(InstReg(op_cop1, rs_w, zero, fs, fd, ff_cvt_s_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_cvtwd(FloatRegister fd, FloatRegister fs)
 {
-    return writeInst(InstReg(op_cop1, rs_d, zero, fs, fd, ff_cvt_w_d).encode());
+    return writeInst(InstReg(op_cop1, rs_d, zero, fs, fd, ff_cvt_w_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_cvtws(FloatRegister fd, FloatRegister fs)
 {
-    return writeInst(InstReg(op_cop1, rs_s, zero, fs, fd, ff_cvt_w_s).encode());
+    return writeInst(InstReg(op_cop1, rs_s, zero, fs, fd, ff_cvt_w_fmt).encode());
 }
 
 // FP arithmetic instructions
 BufferOffset
 Assembler::as_adds(FloatRegister fd, FloatRegister fs, FloatRegister ft)
 {
-    return writeInst(InstReg(op_cop1, rs_s, ft, fs, fd, ff_add_d).encode());
+    return writeInst(InstReg(op_cop1, rs_s, ft, fs, fd, ff_add_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_addd(FloatRegister fd, FloatRegister fs, FloatRegister ft)
 {
-    return writeInst(InstReg(op_cop1, rs_d, ft, fs, fd, ff_add_d).encode());
+    return writeInst(InstReg(op_cop1, rs_d, ft, fs, fd, ff_add_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_subs(FloatRegister fd, FloatRegister fs, FloatRegister ft)
 {
-    return writeInst(InstReg(op_cop1, rs_s, ft, fs, fd, ff_sub_d).encode());
+    return writeInst(InstReg(op_cop1, rs_s, ft, fs, fd, ff_sub_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_subd(FloatRegister fd, FloatRegister fs, FloatRegister ft)
 {
-    return writeInst(InstReg(op_cop1, rs_d, ft, fs, fd, ff_sub_d).encode());
+    return writeInst(InstReg(op_cop1, rs_d, ft, fs, fd, ff_sub_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_abss(FloatRegister fd, FloatRegister fs)
 {
-    return writeInst(InstReg(op_cop1, rs_s, zero, fs, fd, ff_abs_d).encode());
+    return writeInst(InstReg(op_cop1, rs_s, zero, fs, fd, ff_abs_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_absd(FloatRegister fd, FloatRegister fs)
 {
-    return writeInst(InstReg(op_cop1, rs_d, zero, fs, fd, ff_abs_d).encode());
+    return writeInst(InstReg(op_cop1, rs_d, zero, fs, fd, ff_abs_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_negd(FloatRegister fd, FloatRegister fs)
 {
-    return writeInst(InstReg(op_cop1, rs_d, zero, fs, fd, ff_neg_d).encode());
+    return writeInst(InstReg(op_cop1, rs_d, zero, fs, fd, ff_neg_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_muls(FloatRegister fd, FloatRegister fs, FloatRegister ft)
 {
-    return writeInst(InstReg(op_cop1, rs_s, ft, fs, fd, ff_mul_d).encode());
+    return writeInst(InstReg(op_cop1, rs_s, ft, fs, fd, ff_mul_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_muld(FloatRegister fd, FloatRegister fs, FloatRegister ft)
 {
-    return writeInst(InstReg(op_cop1, rs_d, ft, fs, fd, ff_mul_d).encode());
+    return writeInst(InstReg(op_cop1, rs_d, ft, fs, fd, ff_mul_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_divs(FloatRegister fd, FloatRegister fs, FloatRegister ft)
 {
-    return writeInst(InstReg(op_cop1, rs_s, ft, fs, fd, ff_div_d).encode());
+    return writeInst(InstReg(op_cop1, rs_s, ft, fs, fd, ff_div_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_divd(FloatRegister fd, FloatRegister fs, FloatRegister ft)
 {
-    return writeInst(InstReg(op_cop1, rs_d, ft, fs, fd, ff_div_d).encode());
+    return writeInst(InstReg(op_cop1, rs_d, ft, fs, fd, ff_div_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_sqrts(FloatRegister fd, FloatRegister fs)
 {
-    return writeInst(InstReg(op_cop1, rs_s, zero, fs, fd, ff_sqrt_d).encode());
+    return writeInst(InstReg(op_cop1, rs_s, zero, fs, fd, ff_sqrt_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_sqrtd(FloatRegister fd, FloatRegister fs)
 {
-    return writeInst(InstReg(op_cop1, rs_d, zero, fs, fd, ff_sqrt_d).encode());
+    return writeInst(InstReg(op_cop1, rs_d, zero, fs, fd, ff_sqrt_fmt).encode());
 }
 
 // FP compare instructions
 BufferOffset
 Assembler::as_cfs(FloatRegister fs, FloatRegister ft, FPConditionBit fcc)
 {
-    return writeInst(InstReg(op_cop1, rs_s, ft, fs, fcc << FccShift, ff_c_f_d).encode());
+    return writeInst(InstReg(op_cop1, rs_s, ft, fs, fcc << FccShift, ff_c_f_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_cuns(FloatRegister fs, FloatRegister ft, FPConditionBit fcc)
 {
-    return writeInst(InstReg(op_cop1, rs_s, ft, fs, fcc << FccShift, ff_c_un_d).encode());
+    return writeInst(InstReg(op_cop1, rs_s, ft, fs, fcc << FccShift, ff_c_un_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_ceqs(FloatRegister fs, FloatRegister ft, FPConditionBit fcc)
 {
-    return writeInst(InstReg(op_cop1, rs_s, ft, fs, fcc << FccShift, ff_c_eq_d).encode());
+    return writeInst(InstReg(op_cop1, rs_s, ft, fs, fcc << FccShift, ff_c_eq_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_cueqs(FloatRegister fs, FloatRegister ft, FPConditionBit fcc)
 {
-    return writeInst(InstReg(op_cop1, rs_s, ft, fs, fcc << FccShift, ff_c_ueq_d).encode());
+    return writeInst(InstReg(op_cop1, rs_s, ft, fs, fcc << FccShift, ff_c_ueq_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_colts(FloatRegister fs, FloatRegister ft, FPConditionBit fcc)
 {
-    return writeInst(InstReg(op_cop1, rs_s, ft, fs, fcc << FccShift, ff_c_olt_d).encode());
+    return writeInst(InstReg(op_cop1, rs_s, ft, fs, fcc << FccShift, ff_c_olt_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_cults(FloatRegister fs, FloatRegister ft, FPConditionBit fcc)
 {
-    return writeInst(InstReg(op_cop1, rs_s, ft, fs, fcc << FccShift, ff_c_ult_d).encode());
+    return writeInst(InstReg(op_cop1, rs_s, ft, fs, fcc << FccShift, ff_c_ult_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_coles(FloatRegister fs, FloatRegister ft, FPConditionBit fcc)
 {
-    return writeInst(InstReg(op_cop1, rs_s, ft, fs, fcc << FccShift, ff_c_ole_d).encode());
+    return writeInst(InstReg(op_cop1, rs_s, ft, fs, fcc << FccShift, ff_c_ole_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_cules(FloatRegister fs, FloatRegister ft, FPConditionBit fcc)
 {
-    return writeInst(InstReg(op_cop1, rs_s, ft, fs, fcc << FccShift, ff_c_ule_d).encode());
+    return writeInst(InstReg(op_cop1, rs_s, ft, fs, fcc << FccShift, ff_c_ule_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_cfd(FloatRegister fs, FloatRegister ft, FPConditionBit fcc)
 {
-    return writeInst(InstReg(op_cop1, rs_d, ft, fs, fcc << FccShift, ff_c_f_d).encode());
+    return writeInst(InstReg(op_cop1, rs_d, ft, fs, fcc << FccShift, ff_c_f_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_cund(FloatRegister fs, FloatRegister ft, FPConditionBit fcc)
 {
-    return writeInst(InstReg(op_cop1, rs_d, ft, fs, fcc << FccShift, ff_c_un_d).encode());
+    return writeInst(InstReg(op_cop1, rs_d, ft, fs, fcc << FccShift, ff_c_un_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_ceqd(FloatRegister fs, FloatRegister ft, FPConditionBit fcc)
 {
-    return writeInst(InstReg(op_cop1, rs_d, ft, fs, fcc << FccShift, ff_c_eq_d).encode());
+    return writeInst(InstReg(op_cop1, rs_d, ft, fs, fcc << FccShift, ff_c_eq_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_cueqd(FloatRegister fs, FloatRegister ft, FPConditionBit fcc)
 {
-    return writeInst(InstReg(op_cop1, rs_d, ft, fs, fcc << FccShift, ff_c_ueq_d).encode());
+    return writeInst(InstReg(op_cop1, rs_d, ft, fs, fcc << FccShift, ff_c_ueq_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_coltd(FloatRegister fs, FloatRegister ft, FPConditionBit fcc)
 {
-    return writeInst(InstReg(op_cop1, rs_d, ft, fs, fcc << FccShift, ff_c_olt_d).encode());
+    return writeInst(InstReg(op_cop1, rs_d, ft, fs, fcc << FccShift, ff_c_olt_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_cultd(FloatRegister fs, FloatRegister ft, FPConditionBit fcc)
 {
-    return writeInst(InstReg(op_cop1, rs_d, ft, fs, fcc << FccShift, ff_c_ult_d).encode());
+    return writeInst(InstReg(op_cop1, rs_d, ft, fs, fcc << FccShift, ff_c_ult_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_coled(FloatRegister fs, FloatRegister ft, FPConditionBit fcc)
 {
-    return writeInst(InstReg(op_cop1, rs_d, ft, fs, fcc << FccShift, ff_c_ole_d).encode());
+    return writeInst(InstReg(op_cop1, rs_d, ft, fs, fcc << FccShift, ff_c_ole_fmt).encode());
 }
 
 BufferOffset
 Assembler::as_culed(FloatRegister fs, FloatRegister ft, FPConditionBit fcc)
 {
-    return writeInst(InstReg(op_cop1, rs_d, ft, fs, fcc << FccShift, ff_c_ule_d).encode());
+    return writeInst(InstReg(op_cop1, rs_d, ft, fs, fcc << FccShift, ff_c_ule_fmt).encode());
 }
 
 void
@@ -1372,15 +1355,13 @@ Assembler::bind(InstImm *inst, uint32_t branch, uint32_t target)
     if (inst[0].encode() == inst_bgezal.encode()) {
         // Handle long call.
         addLongJump(BufferOffset(branch));
-        inst[0] = InstImm(op_lui, zero, ScratchRegister, Imm16::upper(Imm32(target)));
-        inst[1] = InstImm(op_ori, ScratchRegister, ScratchRegister, Imm16::lower(Imm32(target)));
+        writeLuiOriInstructions(inst, &inst[1], ScratchRegister, target);
         inst[2] = InstReg(op_special, ScratchRegister, zero, ra, ff_jalr).encode();
         // There is 1 nop after this.
     } else if (inst[0].encode() == inst_beq.encode()) {
         // Handle long unconditional jump.
         addLongJump(BufferOffset(branch));
-        inst[0] = InstImm(op_lui, zero, ScratchRegister, Imm16::upper(Imm32(target)));
-        inst[1] = InstImm(op_ori, ScratchRegister, ScratchRegister, Imm16::lower(Imm32(target)));
+        writeLuiOriInstructions(inst, &inst[1], ScratchRegister, target);
         inst[2] = InstReg(op_special, ScratchRegister, zero, zero, ff_jr).encode();
         // There is 1 nop after this.
     } else {
@@ -1388,8 +1369,7 @@ Assembler::bind(InstImm *inst, uint32_t branch, uint32_t target)
         inst[0] = invertBranch(inst[0], BOffImm16(5 * sizeof(void *)));
         // No need for a "nop" here because we can clobber scratch.
         addLongJump(BufferOffset(branch + sizeof(void *)));
-        inst[1] = InstImm(op_lui, zero, ScratchRegister, Imm16::upper(Imm32(target)));
-        inst[2] = InstImm(op_ori, ScratchRegister, ScratchRegister, Imm16::lower(Imm32(target)));
+        writeLuiOriInstructions(&inst[1], &inst[2], ScratchRegister, target);
         inst[3] = InstReg(op_special, ScratchRegister, zero, zero, ff_jr).encode();
         // There is 1 nop after this.
     }
@@ -1452,7 +1432,7 @@ static int stopBKPT = -1;
 void
 Assembler::as_break(uint32_t code)
 {
-    JS_ASSERT(code >= 0 && code <= MAX_BREAK_CODE);
+    JS_ASSERT(code <= MAX_BREAK_CODE);
     writeInst(op_special | code << RTShift | ff_break);
 }
 
@@ -1473,9 +1453,7 @@ Assembler::patchWrite_NearCall(CodeLocationLabel start, CodeLocationLabel toCall
     // - Jump has to be the same size because of patchWrite_NearCallSize.
     // - Return address has to be at the end of replaced block.
     // Short jump wouldn't be more efficient.
-    inst[0] = InstImm(op_lui, zero, ScratchRegister, Imm16::upper(Imm32((uint32_t) dest)));
-    inst[1] = InstImm(op_ori, ScratchRegister, ScratchRegister,
-                      Imm16::lower(Imm32((uint32_t) dest)));
+    writeLuiOriInstructions(inst, &inst[1], ScratchRegister, (uint32_t)dest);
     inst[2] = InstReg(op_special, ScratchRegister, zero, ra, ff_jalr);
     inst[3] = InstNOP();
 
@@ -1504,6 +1482,14 @@ Assembler::updateLuiOriValue(Instruction *inst0, Instruction *inst1, uint32_t va
 
     ((InstImm *) inst0)->setImm16(Imm16::upper(Imm32(value)));
     ((InstImm *) inst1)->setImm16(Imm16::lower(Imm32(value)));
+}
+
+void
+Assembler::writeLuiOriInstructions(Instruction *inst0, Instruction *inst1,
+                                   Register reg, uint32_t value)
+{
+    *inst0 = InstImm(op_lui, zero, reg, Imm16::upper(Imm32(value)));
+    *inst1 = InstImm(op_ori, reg, reg, Imm16::lower(Imm32(value)));
 }
 
 void
@@ -1690,10 +1676,12 @@ AutoFlushCache::update(uintptr_t newStart, size_t len)
     }
 
     if (newStop < start_ - 4096 || newStart > stop_ + 4096) {
-        // If this would add too many pages to the range, bail and just do the
-        // flush now.
+        // If this would add too many pages to the range. Flush recorded range
+        // and make a new range.
         IonSpewCont(IonSpew_CacheFlush, "*");
-        JSC::ExecutableAllocator::cacheFlush((void*)newStart, len);
+        JSC::ExecutableAllocator::cacheFlush((void*)start_, stop_);
+        start_ = newStart;
+        stop_ = newStop;
         return;
     }
     start_ = Min(start_, newStart);

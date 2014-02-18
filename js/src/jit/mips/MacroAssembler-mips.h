@@ -11,9 +11,9 @@
 
 #include "jsopcode.h"
 
-#include "jit/mips/Assembler-mips.h"
 #include "jit/IonCaches.h"
 #include "jit/IonFrames.h"
+#include "jit/mips/Assembler-mips.h"
 #include "jit/MoveResolver.h"
 
 using mozilla::DebugOnly;
@@ -35,6 +35,23 @@ enum LoadStoreExtension
     lsZero = 0,
     lsSign = 1
 };
+
+struct ImmTag : public Imm32
+{
+    ImmTag(JSValueTag mask)
+      : Imm32(int32_t(mask))
+    { }
+};
+
+struct ImmType : public ImmTag
+{
+    ImmType(JSValueType type)
+      : ImmTag(JSVAL_TYPE_TO_TAG(type))
+    { }
+};
+
+static const ValueOperand JSReturnOperand = ValueOperand(JSReturnReg_Type, JSReturnReg_Data);
+static const ValueOperand softfpReturnOperand = ValueOperand(v1, v0);
 
 static Register CallReg = t9;
 static const int defaultShift = 3;
@@ -965,7 +982,7 @@ class MacroAssemblerMIPSCompat : public MacroAssemblerMIPS
 
     void zeroDouble(FloatRegister reg) {
         as_mtc1(zero, reg);
-        as_mtc1(zero, reg, true);
+        as_mtc1_Odd(zero, reg);
     }
 
     void clampIntToUint8(Register reg) {

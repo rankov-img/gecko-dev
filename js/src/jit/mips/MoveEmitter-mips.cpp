@@ -254,7 +254,7 @@ MoveEmitterMIPS::emitDoubleMove(const MoveOperand &from, const MoveOperand &to)
             if(to.reg() == a2)
                 masm.as_mfc1(a2, from.floatReg());
             else if(to.reg() == a3)
-                masm.as_mfc1(a3, from.floatReg(), true);
+                masm.as_mfc1_Odd(a3, from.floatReg());
             else
                 MOZ_ASSUME_UNREACHABLE("Invalid emitDoubleMove arguments.");
         } else {

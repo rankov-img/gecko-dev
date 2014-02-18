@@ -87,7 +87,6 @@ MacroAssemblerMIPS::convertDoubleToFloat32(const FloatRegister &src, const Float
     as_cvtsd(dest, src);
 }
 
-
 // Convert the floating point value to an integer, if it did not fit, then it
 // was clamped to LONG_MIN/LONG_MAX, and we can test it.
 // NOTE: if the value really was supposed to be LONG_MAX / LONG_MIN then it
@@ -124,7 +123,7 @@ MacroAssemblerMIPS::convertDoubleToInt32(const FloatRegister &src, const Registe
         // Test and bail for -0.0, when integer result is 0
         // Move the top word of the double into the output reg, if it is
         // non-zero, then the original value was -0.0
-        as_mfc1(dest, src, true);
+        as_mfc1_Odd(dest, src);
         ma_b(dest, Imm32(LONG_MIN), fail, Assembler::Equal);
         bind(&notZero);
     }
@@ -151,7 +150,7 @@ MacroAssemblerMIPS::convertFloat32ToInt32(const FloatRegister &src, const Regist
         // Test and bail for -0.0, when integer result is 0
         // Move the top word of the double into the output reg,
         // if it is non-zero, then the original value was -0.0
-        as_mfc1(dest, src, true);
+        as_mfc1_Odd(dest, src);
         ma_b(dest, Imm32(LONG_MIN), fail, Assembler::Equal);
         bind(&notZero);
     }
@@ -1074,7 +1073,7 @@ MacroAssemblerMIPS::branchWithCode(InstImm code, Label *label, bool shortJump)
     }
 
     bool conditional = (code.encode() != inst_bgezal.encode() &&
-                       code.encode() != inst_beq.encode());
+                        code.encode() != inst_beq.encode());
 
     // Make the whole branch continous in the buffer.
     m_buffer.ensureSpace((conditional ? 5 : 4) * sizeof(void *));
@@ -1445,10 +1444,10 @@ MacroAssemblerMIPS::ma_lid(FloatRegister dest, double value)
 
     // put hi part of 64 bit value into the odd register
     if (dpun.u.hi == 0) {
-        as_mtc1(zero, dest, true);
+        as_mtc1_Odd(zero, dest);
     } else {
         ma_li(ScratchRegister, Imm32(dpun.u.hi));
-        as_mtc1(ScratchRegister, dest, true);
+        as_mtc1_Odd(ScratchRegister, dest);
     }
 
     // put low part of 64 bit value into the even register
@@ -1465,7 +1464,7 @@ MacroAssemblerMIPS::ma_liNegZero(FloatRegister dest)
 {
     as_mtc1(zero, dest);
     ma_li(ScratchRegister, Imm32(INT_MIN));
-    as_mtc1(ScratchRegister, dest, true);
+    as_mtc1_Odd(ScratchRegister, dest);
 }
 
 void
@@ -1477,7 +1476,7 @@ MacroAssemblerMIPS::ma_mv(FloatRegister src, Register dest1, Register dest2)
     } else {
         // For 64bit value.
         as_mfc1(dest1, src);
-        as_mfc1(dest2, src, true);
+        as_mfc1_Odd(dest2, src);
     }
 }
 
@@ -1485,7 +1484,7 @@ void
 MacroAssemblerMIPS::ma_mv(Register src1, Register src2, FloatRegister dest)
 {
     as_mtc1(src1, dest);
-    as_mtc1(src2, dest, true);
+    as_mtc1_Odd(src2, dest);
 }
 
 void
@@ -1510,12 +1509,12 @@ MacroAssemblerMIPS::ma_ld(FloatRegister ft, Register base, int32_t off)
     int32_t off2 = off + sizeof(intptr_t);
     if (Imm16::isInSignedRange(off) && Imm16::isInSignedRange(off2)) {
         as_ls(ft, base, Imm16(off).encode());
-        as_ls(ft, base, Imm16(off2).encode(), true);
+        as_ls_Odd(ft, base, Imm16(off2).encode());
     } else {
         ma_li(ScratchRegister, Imm32(off));
         as_addu(ScratchRegister, base, ScratchRegister);
         as_ls(ft, ScratchRegister, 0);
-        as_ls(ft, ScratchRegister, sizeof(intptr_t), true);
+        as_ls_Odd(ft, ScratchRegister, sizeof(intptr_t));
     }
 }
 
@@ -1525,12 +1524,12 @@ MacroAssemblerMIPS::ma_sd(FloatRegister ft, Register base, int32_t off)
     int32_t off2 = off + sizeof(intptr_t);
     if (Imm16::isInSignedRange(off) && Imm16::isInSignedRange(off2)) {
         as_ss(ft, base, Imm16(off).encode());
-        as_ss(ft, base, Imm16(off2).encode(), true);
+        as_ss_Odd(ft, base, Imm16(off2).encode());
     } else {
         ma_li(ScratchRegister, Imm32(off));
         as_addu(ScratchRegister, base, ScratchRegister);
         as_ss(ft, ScratchRegister, 0);
-        as_ss(ft, ScratchRegister, sizeof(intptr_t), true);
+        as_ss_Odd(ft, ScratchRegister, sizeof(intptr_t));
     }
 }
 
@@ -1543,12 +1542,12 @@ MacroAssemblerMIPS::ma_sd(FloatRegister ft, Register base, Register index, int32
     int32_t off2 = off + sizeof(intptr_t);
     if (Imm16::isInSignedRange(off) && Imm16::isInSignedRange(off2)) {
         as_ss(ft, secondScratchReg_, Imm16(off).encode());
-        as_ss(ft, secondScratchReg_, Imm16(off2).encode(), true);
+        as_ss_Odd(ft, secondScratchReg_, Imm16(off2).encode());
     } else {
         ma_li(ScratchRegister, Imm32(off));
         as_addu(ScratchRegister, secondScratchReg_, ScratchRegister);
         as_ss(ft, ScratchRegister, 0);
-        as_ss(ft, ScratchRegister, sizeof(intptr_t), true);
+        as_ss_Odd(ft, ScratchRegister, sizeof(intptr_t));
     }
 }
 
@@ -1649,7 +1648,7 @@ MacroAssemblerMIPS::ma_bc1s(FloatRegister lhs, FloatRegister rhs, Label *label,
 
 BufferOffset
 MacroAssemblerMIPS::ma_bc1d(FloatRegister lhs, FloatRegister rhs, Label *label,
-                           DoubleCondition c, bool shortJump, FPConditionBit fcc)
+                            DoubleCondition c, bool shortJump, FPConditionBit fcc)
 {
     switch (c) {
       case DoubleOrdered:
@@ -2599,7 +2598,7 @@ MacroAssemblerMIPSCompat::unboxDouble(const ValueOperand &operand, const FloatRe
 {
     JS_ASSERT(dest != ScratchFloatReg);
     as_mtc1(operand.payloadReg(), dest);
-    as_mtc1(operand.typeReg(), dest, true);
+    as_mtc1_Odd(operand.typeReg(), dest);
 }
 
 void
@@ -2608,7 +2607,7 @@ MacroAssemblerMIPSCompat::unboxDouble(const Address &src, const FloatRegister &d
     ma_lw(ScratchRegister, src.base, src.offset);
     as_mtc1(ScratchRegister, dest);
     ma_lw(ScratchRegister, src.base, src.offset + PAYLOAD_OFFSET);
-    as_mtc1(ScratchRegister, dest, true);
+    as_mtc1_Odd(ScratchRegister, dest);
 }
 
 void
@@ -2655,7 +2654,7 @@ void
 MacroAssemblerMIPSCompat::boxDouble(const FloatRegister &src, const ValueOperand &dest)
 {
     as_mfc1(dest.payloadReg(), src);
-    as_mfc1(dest.typeReg(), src, true);
+    as_mfc1_Odd(dest.typeReg(), src);
 }
 
 void

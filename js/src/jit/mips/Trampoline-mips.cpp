@@ -6,14 +6,13 @@
 
 #include "jscompartment.h"
 
-#include "assembler/assembler/MacroAssembler.h"
-#include "jit/mips/BaselineHelpers-mips.h"
 #include "jit/Bailouts.h"
 #include "jit/ExecutionModeInlines.h"
 #include "jit/IonFrames.h"
 #include "jit/IonLinker.h"
 #include "jit/IonSpewer.h"
 #include "jit/JitCompartment.h"
+#include "jit/mips/BaselineHelpers-mips.h"
 #ifdef JS_ION_PERF
 # include "jit/PerfSpewer.h"
 #endif
