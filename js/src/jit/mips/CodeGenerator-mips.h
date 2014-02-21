@@ -195,6 +195,7 @@ class CodeGeneratorMIPS : public CodeGeneratorShared
 
     bool visitNegI(LNegI *lir);
     bool visitNegD(LNegD *lir);
+    bool visitNegF(LNegF *lir);
     bool visitLoadTypedArrayElementStatic(LLoadTypedArrayElementStatic *ins);
     bool visitStoreTypedArrayElementStatic(LStoreTypedArrayElementStatic *ins);
     bool visitAsmJSLoadHeap(LAsmJSLoadHeap *ins);

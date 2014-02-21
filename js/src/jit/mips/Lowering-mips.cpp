@@ -407,6 +407,9 @@ LIRGeneratorMIPS::visitAsmJSNeg(MAsmJSNeg *ins)
     if (ins->type() == MIRType_Int32)
         return define(new(alloc()) LNegI(useRegisterAtStart(ins->input())), ins);
 
+    if (ins->type() == MIRType_Float32)
+    return define(new(alloc()) LNegF(useRegisterAtStart(ins->input())), ins);
+
     JS_ASSERT(ins->type() == MIRType_Double);
     return define(new(alloc()) LNegD(useRegisterAtStart(ins->input())), ins);
 }

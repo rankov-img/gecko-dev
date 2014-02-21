@@ -2379,6 +2379,15 @@ CodeGeneratorMIPS::visitNegD(LNegD *ins)
     return true;
 }
 
+bool
+CodeGeneratorMIPS::visitNegF(LNegF *ins)
+{
+    FloatRegister input = ToFloatRegister(ins->input());
+    FloatRegister output = ToFloatRegister(ins->output());
+
+    masm.as_negs(output, input);
+    return true;
+}
 
 // Methods that have been copied from CodeGenerator.cpp because they need
 // special implementation for MIPS.

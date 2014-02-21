@@ -1161,6 +1161,12 @@ Assembler::as_absd(FloatRegister fd, FloatRegister fs)
 }
 
 BufferOffset
+Assembler::as_negs(FloatRegister fd, FloatRegister fs)
+{
+    return writeInst(InstReg(op_cop1, rs_s, zero, fs, fd, ff_neg_fmt).encode());
+}
+
+BufferOffset
 Assembler::as_negd(FloatRegister fd, FloatRegister fs)
 {
     return writeInst(InstReg(op_cop1, rs_d, zero, fs, fd, ff_neg_fmt).encode());

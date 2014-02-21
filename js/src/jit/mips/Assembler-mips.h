@@ -885,6 +885,7 @@ class Assembler
 
     BufferOffset as_abss(FloatRegister fd, FloatRegister fs);
     BufferOffset as_absd(FloatRegister fd, FloatRegister fs);
+    BufferOffset as_negs(FloatRegister fd, FloatRegister fs);
     BufferOffset as_negd(FloatRegister fd, FloatRegister fs);
 
     BufferOffset as_muls(FloatRegister fd, FloatRegister fs, FloatRegister ft);
