@@ -46,7 +46,8 @@ MoveEmitterMIPS::cycleSlot() const
     return Address(StackPointer, offset);
 }
 
-int32_t MoveEmitterMIPS::getAdjustedOffset(const MoveOperand &operand)
+int32_t
+MoveEmitterMIPS::getAdjustedOffset(const MoveOperand &operand)
 {
     JS_ASSERT(operand.isMemoryOrEffectiveAddress());
     if (operand.base() != StackPointer)
@@ -55,6 +56,13 @@ int32_t MoveEmitterMIPS::getAdjustedOffset(const MoveOperand &operand)
     // Adjust offset if stack pointer has been moved.
     return operand.disp() + masm.framePushed() - pushedAtStart_;
 }
+
+Address
+MoveEmitterMIPS::getAdjustedAddress(const MoveOperand &operand)
+{
+    return Address(operand.base(), getAdjustedOffset(operand));
+}
+
 
 Register
 MoveEmitterMIPS::tempReg()
@@ -78,19 +86,19 @@ MoveEmitterMIPS::breakCycle(const MoveOperand &from, const MoveOperand &to, Move
       case MoveOp::FLOAT32:
         if (to.isMemory()) {
             FloatRegister temp = ScratchFloatReg;
-            masm.ma_ls(temp, to.base(), getAdjustedOffset(to));
-            masm.ma_ss(temp, cycleSlot().base, cycleSlot().offset);
+            masm.ma_ls(temp, getAdjustedAddress(to));
+            masm.ma_ss(temp, cycleSlot());
         } else {
-            masm.ma_ss(to.floatReg(), cycleSlot().base, cycleSlot().offset);
+            masm.ma_ss(to.floatReg(), cycleSlot());
         }
         break;
       case MoveOp::DOUBLE:
         if (to.isMemory()) {
             FloatRegister temp = ScratchFloatReg;
-            masm.ma_ld(temp, to.base(), getAdjustedOffset(to));
-            masm.ma_sd(temp, cycleSlot().base, cycleSlot().offset);
+            masm.ma_ld(temp, getAdjustedAddress(to));
+            masm.ma_sd(temp, cycleSlot());
         } else {
-            masm.ma_sd(to.floatReg(), cycleSlot().base, cycleSlot().offset);
+            masm.ma_sd(to.floatReg(), cycleSlot());
         }
         break;
       case MoveOp::INT32:
@@ -98,13 +106,13 @@ MoveEmitterMIPS::breakCycle(const MoveOperand &from, const MoveOperand &to, Move
         // an non-vfp value
         if (to.isMemory()) {
             Register temp = tempReg();
-            masm.ma_lw(temp, to.base(), getAdjustedOffset(to));
-            masm.ma_sw(temp, cycleSlot().base, cycleSlot().offset);
+            masm.ma_lw(temp, getAdjustedAddress(to));
+            masm.ma_sw(temp, cycleSlot());
         } else {
             if (to.reg() == spilledReg_) {
                 MOZ_ASSUME_UNREACHABLE("Register t8 should not be moved by MoveEmitter.");
             }
-            masm.ma_sw(to.reg(), cycleSlot().base, cycleSlot().offset);
+            masm.ma_sw(to.reg(), cycleSlot());
         }
         break;
       default:
@@ -125,32 +133,32 @@ MoveEmitterMIPS::completeCycle(const MoveOperand &from, const MoveOperand &to, M
       case MoveOp::FLOAT32:
         if (to.isMemory()) {
             FloatRegister temp = ScratchFloatReg;
-            masm.ma_ls(temp, cycleSlot().base, cycleSlot().offset);
-            masm.ma_ss(temp, to.base(), getAdjustedOffset(to));
+            masm.ma_ls(temp, cycleSlot());
+            masm.ma_ss(temp, getAdjustedAddress(to));
         } else {
-            masm.ma_ls(to.floatReg(), cycleSlot().base, cycleSlot().offset);
+            masm.ma_ls(to.floatReg(), cycleSlot());
         }
         break;
       case MoveOp::DOUBLE:
         if (to.isMemory()) {
             FloatRegister temp = ScratchFloatReg;
-            masm.ma_ld(temp, cycleSlot().base, cycleSlot().offset);
-            masm.ma_sd(temp, to.base(), getAdjustedOffset(to));
+            masm.ma_ld(temp, cycleSlot());
+            masm.ma_sd(temp, getAdjustedAddress(to));
         } else {
-            masm.ma_ld(to.floatReg(), cycleSlot().base, cycleSlot().offset);
+            masm.ma_ld(to.floatReg(), cycleSlot());
         }
         break;
       case MoveOp::INT32:
       case MoveOp::GENERAL:
         if (to.isMemory()) {
             Register temp = tempReg();
-            masm.ma_lw(temp, cycleSlot().base, cycleSlot().offset);
-            masm.ma_sw(temp, to.base(), getAdjustedOffset(to));
+            masm.ma_lw(temp, cycleSlot());
+            masm.ma_sw(temp, getAdjustedAddress(to));
         } else {
             if (to.reg() == spilledReg_) {
                 MOZ_ASSUME_UNREACHABLE("Register t8 should not be moved by MoveEmitter.");
             }
-            masm.ma_lw(to.reg(), cycleSlot().base, cycleSlot().offset);
+            masm.ma_lw(to.reg(), cycleSlot());
         }
         break;
       default:
@@ -169,24 +177,24 @@ MoveEmitterMIPS::emitMove(const MoveOperand &from, const MoveOperand &to)
         if (to.isGeneralReg())
             masm.ma_move(to.reg(), from.reg());
         else if (to.isMemory())
-            masm.ma_sw(from.reg(), to.base(), getAdjustedOffset(to));
+            masm.ma_sw(from.reg(), getAdjustedAddress(to));
         else
             MOZ_ASSUME_UNREACHABLE("Invalid emitMove arguments.");
     } else if (from.isMemory()) {
         if (to.isGeneralReg()) {
-            masm.ma_lw(to.reg(), from.base(), getAdjustedOffset(from));
+            masm.ma_lw(to.reg(),  getAdjustedAddress(from));
         } else if (to.isMemory()) {
-            masm.ma_lw(tempReg(), from.base(), getAdjustedOffset(from));
-            masm.ma_sw(tempReg(), to.base(), getAdjustedOffset(to));
+            masm.ma_lw(tempReg(),  getAdjustedAddress(from));
+            masm.ma_sw(tempReg(),  getAdjustedAddress(to));
         } else {
             MOZ_ASSUME_UNREACHABLE("Invalid emitMove arguments.");
         }
     } else if (from.isEffectiveAddress()) {
         if (to.isGeneralReg()) {
-            masm.ma_addu(to.reg(), from.base(), Imm32(getAdjustedOffset(from)));
+            masm.ma_addu(to.reg(),  from.base(), Imm32(getAdjustedOffset(from)));
         } else if (to.isMemory()) {
-            masm.ma_addu(tempReg(), from.base(), Imm32(getAdjustedOffset(from)));
-            masm.ma_sw(tempReg(), to.base(), getAdjustedOffset(to));
+            masm.ma_addu(tempReg(),  from.base(), Imm32(getAdjustedOffset(from)));
+            masm.ma_sw(tempReg(),  getAdjustedAddress(to));
         } else {
             MOZ_ASSUME_UNREACHABLE("Invalid emitMove arguments.");
         }
@@ -216,26 +224,26 @@ MoveEmitterMIPS::emitFloat32Move(const MoveOperand &from, const MoveOperand &to)
                 MOZ_ASSUME_UNREACHABLE("Invalid emitFloat32Move arguments.");
         } else {
             JS_ASSERT(to.isMemory());
-            masm.ma_ss(from.floatReg(), to.base(), getAdjustedOffset(to));
+            masm.ma_ss(from.floatReg(), getAdjustedAddress(to));
         }
     } else if (to.isFloatReg()) {
         JS_ASSERT(from.isMemory());
-        masm.ma_ls(to.floatReg(), from.base(), getAdjustedOffset(from));
+        masm.ma_ls(to.floatReg(), getAdjustedAddress(from));
     } else if (to.isGeneralReg()) {
         JS_ASSERT(from.isMemory());
         if(to.reg() == a1)
-            masm.ma_lw(a1, from.base(), getAdjustedOffset(from));
+            masm.ma_lw(a1, getAdjustedAddress(from));
         else if(to.reg() == a2)
-            masm.ma_lw(a2, from.base(), getAdjustedOffset(from));
+            masm.ma_lw(a2, getAdjustedAddress(from));
         else if(to.reg() == a3)
-            masm.ma_lw(a3, from.base(), getAdjustedOffset(from));
+            masm.ma_lw(a3, getAdjustedAddress(from));
         else
             MOZ_ASSUME_UNREACHABLE("Invalid emitFloat32Move arguments.");
     } else {
         JS_ASSERT(from.isMemory());
         JS_ASSERT(to.isMemory());
-        masm.ma_ls(ScratchFloatReg, from.base(), getAdjustedOffset(from));
-        masm.ma_ss(ScratchFloatReg, to.base(), getAdjustedOffset(to));
+        masm.ma_ls(ScratchFloatReg, getAdjustedAddress(from));
+        masm.ma_ss(ScratchFloatReg, getAdjustedAddress(to));
     }
 }
 
@@ -259,25 +267,25 @@ MoveEmitterMIPS::emitDoubleMove(const MoveOperand &from, const MoveOperand &to)
                 MOZ_ASSUME_UNREACHABLE("Invalid emitDoubleMove arguments.");
         } else {
             JS_ASSERT(to.isMemory());
-            masm.ma_sd(from.floatReg(), to.base(), getAdjustedOffset(to));
+            masm.ma_sd(from.floatReg(), getAdjustedAddress(to));
         }
     } else if (to.isFloatReg()) {
         JS_ASSERT(from.isMemory());
-        masm.ma_ld(to.floatReg(), from.base(), getAdjustedOffset(from));
+        masm.ma_ld(to.floatReg(), getAdjustedAddress(from));
     } else if (to.isGeneralReg()) {
         JS_ASSERT(from.isMemory());
         // This should only be used when passing double parameter in a2,a3
         if(to.reg() == a2)
-            masm.ma_lw(a2, from.base(), getAdjustedOffset(from));
+            masm.ma_lw(a2, getAdjustedAddress(from));
         else if(to.reg() == a3)
-            masm.ma_lw(a3, from.base(), getAdjustedOffset(from) + sizeof(intptr_t));
+            masm.ma_lw(a3, Address (from.base(), getAdjustedOffset(from) + sizeof(uint32_t)));
         else
             MOZ_ASSUME_UNREACHABLE("Invalid emitDoubleMove arguments.");
     } else {
         JS_ASSERT(from.isMemory());
         JS_ASSERT(to.isMemory());
-        masm.ma_ld(ScratchFloatReg, from.base(), getAdjustedOffset(from));
-        masm.ma_sd(ScratchFloatReg, to.base(), getAdjustedOffset(to));
+        masm.ma_ld(ScratchFloatReg, getAdjustedAddress(from));
+        masm.ma_sd(ScratchFloatReg, getAdjustedAddress(to));
     }
 }
 

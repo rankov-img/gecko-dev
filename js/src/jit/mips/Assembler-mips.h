@@ -622,6 +622,16 @@ class Assembler
         DoubleFloat
     };
 
+    enum JumpOrCall {
+        BranchIsJump,
+        BranchIsCall
+    };
+
+    enum FloatTestKind {
+        TestForTrue,
+        TestForFalse
+    };
+
     // :( this should be protected, but since CodeGenerator
     // wants to use it, It needs to go out here :(
 
@@ -755,10 +765,10 @@ class Assembler
     // Branch and jump instructions
     BufferOffset as_bal(BOffImm16 off);
 
-    InstImm getBranchCode(bool isCall);
+    InstImm getBranchCode(JumpOrCall jumpOrCall);
     InstImm getBranchCode(Register s, Register t, Condition c);
     InstImm getBranchCode(Register s, Condition c);
-    InstImm getBranchCode(bool testTrue, FPConditionBit fcc);
+    InstImm getBranchCode(FloatTestKind testKind, FPConditionBit fcc);
 
     BufferOffset as_j(JOffImm26 off);
     BufferOffset as_jal(JOffImm26 off);

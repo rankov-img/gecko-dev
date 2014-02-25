@@ -882,7 +882,7 @@ EmitGetterCall(JSContext *cx, MacroAssembler &masm,
         masm.ma_move(scratchReg, StackPointer);
         masm.ma_subu(StackPointer, StackPointer, Imm32(sizeof(intptr_t)));
         masm.ma_and(StackPointer, StackPointer, Imm32(~(StackAlignment - 1)));
-        masm.ma_sw(scratchReg, StackPointer, 0);
+        masm.ma_sw(scratchReg, Address(StackPointer, 0));
 #endif
 
         JS_ASSERT(shape->hasGetterValue() && shape->getterValue().isObject() &&
@@ -934,7 +934,7 @@ EmitGetterCall(JSContext *cx, MacroAssembler &masm,
         masm.adjustStack(IonOOLNativeExitFrameLayout::Size(0));
 
 #ifdef JS_CODEGEN_MIPS
-        masm.ma_lw(StackPointer, StackPointer, 0);
+        masm.ma_lw(StackPointer, Address(StackPointer, 0));
 #endif
     } else {
         Register argObjReg       = argUintNReg;

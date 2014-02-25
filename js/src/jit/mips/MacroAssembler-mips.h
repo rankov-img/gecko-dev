@@ -151,32 +151,27 @@ class MacroAssemblerMIPS : public Assembler
     void ma_xor(Register rd, Register rs, Imm32 imm);
 
     // load
-    void ma_load(const Register &dest, Register base, int32_t offset,
-                 LoadStoreSize size = SizeWord, LoadStoreExtension extension = SignExtend);
-    void ma_load(const Register &dest, const BaseIndex &src,
-                 LoadStoreSize size = SizeWord, LoadStoreExtension extension = SignExtend);
+    void ma_load(const Register &dest, Address address, LoadStoreSize size = SizeWord,
+                 LoadStoreExtension extension = SignExtend);
+    void ma_load(const Register &dest, const BaseIndex &src, LoadStoreSize size = SizeWord,
+                 LoadStoreExtension extension = SignExtend);
 
     // store
-    void ma_store(const Register &data, Register base, int32_t offset,
-                  LoadStoreSize size = SizeWord, LoadStoreExtension extension = SignExtend);
-    void ma_store(const Register &data, const BaseIndex &dest,
-                  LoadStoreSize size = SizeWord, LoadStoreExtension extension = SignExtend);
-    void ma_store(const Imm32 &imm, const BaseIndex &dest,
-                  LoadStoreSize size = SizeWord, LoadStoreExtension extension = SignExtend);
+    void ma_store(const Register &data, Address address, LoadStoreSize size = SizeWord,
+                  LoadStoreExtension extension = SignExtend);
+    void ma_store(const Register &data, const BaseIndex &dest, LoadStoreSize size = SizeWord,
+                  LoadStoreExtension extension = SignExtend);
+    void ma_store(const Imm32 &imm, const BaseIndex &dest, LoadStoreSize size = SizeWord,
+                  LoadStoreExtension extension = SignExtend);
 
-    void computeScaledAddress(Register base, Register index, int32_t shift, Register dest);
-
-    void computeScaledAddress(Register base, Register index, Scale scale, Register dest) {
-        int32_t shift = Imm32::ShiftOf(scale).value;
-        computeScaledAddress(base, index, shift, dest);
-    }
+    void computeScaledAddress(const BaseIndex &address, Register dest);
 
     void computeEffectiveAddress(const Address &address, Register dest) {
         ma_addu(dest, address.base, Imm32(address.offset));
     }
 
     void computeEffectiveAddress(const BaseIndex &address, Register dest) {
-        computeScaledAddress(address.base, address.index, address.scale, dest);
+        computeScaledAddress(address, dest);
         if (address.offset) {
             ma_addu(dest, dest, Imm32(address.offset));
         }
@@ -213,10 +208,10 @@ class MacroAssemblerMIPS : public Assembler
 
     // memory
     // shortcut for when we know we're transferring 32 bits of data
-    void ma_lw(Register data, Register base, int32_t offset);
+    void ma_lw(Register data, Address address);
 
-    void ma_sw(Register data, Register base, int32_t offset);
-    void ma_sw(Imm32 imm, Register base, int32_t offset);
+    void ma_sw(Register data, Address address);
+    void ma_sw(Imm32 imm, Address address);
 
     void ma_pop(Register r);
     void ma_push(Register r);
@@ -234,17 +229,15 @@ class MacroAssemblerMIPS : public Assembler
     void ma_lid(FloatRegister dest, double value);
     void ma_liNegZero(FloatRegister dest);
 
-    void ma_mv(FloatRegister src, Register dest1, Register dest2);
-    void ma_mv(Register src1, Register src2, FloatRegister dest);
+    void ma_mv(FloatRegister src, ValueOperand dest);
+    void ma_mv(ValueOperand src, FloatRegister dest);
 
-    void ma_ls(FloatRegister fd, Register base, int32_t off);
-    void ma_ld(FloatRegister fd, Register base, int32_t off);
-    void ma_sd(FloatRegister fd, Register base, int32_t off);
-    void ma_sd(FloatRegister fd, Register base, Register index, int32_t off,
-               int32_t shift = defaultShift);
-    void ma_ss(FloatRegister fd, Register base, int32_t off);
-    void ma_ss(FloatRegister fd, Register base, Register index, int32_t off,
-               int32_t shift = defaultShift);
+    void ma_ls(FloatRegister fd, Address address);
+    void ma_ld(FloatRegister fd, Address address);
+    void ma_sd(FloatRegister fd, Address address);
+    void ma_sd(FloatRegister fd, BaseIndex address);
+    void ma_ss(FloatRegister fd, Address address);
+    void ma_ss(FloatRegister fd, BaseIndex address);
 
     void ma_pop(FloatRegister fs);
     void ma_push(FloatRegister fs);
@@ -260,7 +253,8 @@ class MacroAssemblerMIPS : public Assembler
     Condition ma_cmp(Register rd, Register lhs, Register rhs, Condition c);
 
     void compareFloatingPoint(FloatFormat fmt, FloatRegister lhs, FloatRegister rhs,
-                              DoubleCondition c, bool &branchCondition, FPConditionBit fcc = FCC0);
+                              DoubleCondition c, FloatTestKind *testKind,
+                              FPConditionBit fcc = FCC0);
 
   public:
     // calls an Ion function, assumes that the stack is untouched (8 byte alinged)
@@ -399,7 +393,7 @@ class MacroAssemblerMIPSCompat : public MacroAssemblerMIPS
     }
     void retn(Imm32 n) {
         // pc <- [sp]; sp += n
-        ma_lw(ra, StackPointer, 0);
+        ma_lw(ra, Address(StackPointer, 0));
         ma_addu(StackPointer, StackPointer, n);
         as_jr(ra);
         as_nop();
@@ -417,7 +411,7 @@ class MacroAssemblerMIPSCompat : public MacroAssemblerMIPS
         ma_push(ScratchRegister);
     }
     void push(const Address &address) {
-        ma_lw(ScratchRegister, address.base, address.offset);
+        ma_lw(ScratchRegister, address);
         ma_push(ScratchRegister);
     }
     void push(const Register &reg) {
@@ -470,7 +464,7 @@ class MacroAssemblerMIPSCompat : public MacroAssemblerMIPS
         as_nop();
     }
     void jump(const Address &address) {
-        ma_lw(ScratchRegister, address.base, address.offset);
+        ma_lw(ScratchRegister, address);
         as_jr(ScratchRegister);
         as_nop();
     }
@@ -578,11 +572,11 @@ class MacroAssemblerMIPSCompat : public MacroAssemblerMIPS
         }
     }
     void branch32(Condition cond, const Address &lhs, Register rhs, Label *label) {
-        ma_lw(ScratchRegister, lhs.base, lhs.offset);
+        ma_lw(ScratchRegister, lhs);
         ma_b(ScratchRegister, rhs, label, cond);
     }
     void branch32(Condition cond, const Address &lhs, Imm32 rhs, Label *label) {
-        ma_lw(secondScratchReg_, lhs.base, lhs.offset);
+        ma_lw(secondScratchReg_, lhs);
         ma_b(secondScratchReg_, rhs, label, cond);
     }
     void branchPtr(Condition cond, const Address &lhs, Register rhs, Label *label) {
@@ -664,7 +658,7 @@ class MacroAssemblerMIPSCompat : public MacroAssemblerMIPS
         branchTest32(cond, lhs, ScratchRegister, label);
     }
     void branchTest32(Condition cond, const Address &address, Imm32 imm, Label *label) {
-        ma_lw(secondScratchReg_, address.base, address.offset);
+        ma_lw(secondScratchReg_, address);
         branchTest32(cond, secondScratchReg_, imm, label);
     }
     void branchTestPtr(Condition cond, const Register &lhs, const Register &rhs, Label *label) {
@@ -727,12 +721,12 @@ public:
         return off;
     }
     void branchPtr(Condition cond, Address addr, ImmGCPtr ptr, Label *label) {
-        ma_lw(secondScratchReg_, addr.base, addr.offset);
+        ma_lw(secondScratchReg_, addr);
         ma_li(ScratchRegister, ptr);
         ma_b(secondScratchReg_, ScratchRegister, label, cond);
     }
     void branchPtr(Condition cond, Address addr, ImmWord ptr, Label *label) {
-        ma_lw(secondScratchReg_, addr.base, addr.offset);
+        ma_lw(secondScratchReg_, addr);
         ma_b(secondScratchReg_, Imm32(ptr.value), label, cond);
     }
     void branchPtr(Condition cond, Address addr, ImmPtr ptr, Label *label) {
@@ -760,7 +754,7 @@ public:
         if (dest.isFloat())
             loadInt32OrDouble(address, dest.fpu());
         else
-            ma_lw(dest.gpr(), address.base, address.offset);
+            ma_lw(dest.gpr(), address);
     }
 
     void loadUnboxedValue(BaseIndex address, MIRType type, AnyRegister dest) {
@@ -990,24 +984,22 @@ public:
     void storePtr(Register src, const Address &address);
     void storePtr(const Register &src, const AbsoluteAddress &dest);
     void storeDouble(FloatRegister src, Address addr) {
-        ma_sd(src, addr.base, addr.offset);
+        ma_sd(src, addr);
     }
     void storeDouble(FloatRegister src, BaseIndex addr) {
         MOZ_ASSERT(addr.offset == 0);
-        uint32_t shift = Imm32::ShiftOf(addr.scale).value;
-        ma_sd(src, addr.base, addr.index, addr.offset, shift);
+        ma_sd(src, addr);
     }
     void moveDouble(FloatRegister src, FloatRegister dest) {
         as_movd(dest, src);
     }
 
     void storeFloat32(FloatRegister src, Address addr) {
-        ma_ss(src, addr.base, addr.offset);
+        ma_ss(src, addr);
     }
     void storeFloat32(FloatRegister src, BaseIndex addr) {
         MOZ_ASSERT(addr.offset == 0);
-        uint32_t shift = Imm32::ShiftOf(addr.scale).value;
-        ma_ss(src, addr.base, addr.index, addr.offset, shift);
+        ma_ss(src, addr);
     }
 
     void zeroDouble(FloatRegister reg) {
@@ -1033,7 +1025,6 @@ public:
             bind(&negative);
             {
                 ma_move(reg, zero);
-                ma_b(&done, ShortJump);
             }
         }
         bind(&done);
@@ -1125,7 +1116,7 @@ public:
     }
 
     void ma_storeImm(Imm32 imm, const Address &addr) {
-        ma_sw(imm, addr.base, addr.offset);
+        ma_sw(imm, addr);
     }
 
     BufferOffset ma_BoundsCheck(Register bounded) {

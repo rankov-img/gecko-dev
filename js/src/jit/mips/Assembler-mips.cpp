@@ -597,9 +597,9 @@ Assembler::as_bal(BOffImm16 off)
 }
 
 InstImm
-Assembler::getBranchCode(bool isCall)
+Assembler::getBranchCode(JumpOrCall jumpOrCall)
 {
-    if (isCall)
+    if (jumpOrCall == BranchIsCall)
         return InstImm(op_regimm, zero, rt_bgezal, BOffImm16(0));
 
     return InstImm(op_beq, zero, zero, BOffImm16(0));
@@ -640,10 +640,10 @@ Assembler::getBranchCode(Register s, Condition c)
 }
 
 InstImm
-Assembler::getBranchCode(bool testTrue, FPConditionBit fcc)
+Assembler::getBranchCode(FloatTestKind testKind, FPConditionBit fcc)
 {
     JS_ASSERT(!(fcc && FccMask));
-    uint32_t rtField = ((testTrue ? 1 : 0) | (fcc << FccShift)) << RTShift;
+    uint32_t rtField = ((testKind == TestForTrue ? 1 : 0) | (fcc << FccShift)) << RTShift;
 
     return InstImm(op_cop1, rs_bc1, rtField, BOffImm16(0));
 }

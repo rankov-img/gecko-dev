@@ -86,26 +86,26 @@ GenerateReturn(MacroAssembler &masm, int returnCode)
 {
     // Restore non-volatile registers
     uint32_t offset = GENERAL_REGS_BUFF_SIZE + FLOAT_REGS_BUFF_SIZE;
-    masm.ma_lw(s0, StackPointer, offset -= sizeof(intptr_t));
-    masm.ma_lw(s1, StackPointer, offset -= sizeof(intptr_t));
-    masm.ma_lw(s2, StackPointer, offset -= sizeof(intptr_t));
-    masm.ma_lw(s3, StackPointer, offset -= sizeof(intptr_t));
-    masm.ma_lw(s4, StackPointer, offset -= sizeof(intptr_t));
-    masm.ma_lw(s5, StackPointer, offset -= sizeof(intptr_t));
-    masm.ma_lw(s6, StackPointer, offset -= sizeof(intptr_t));
-    masm.ma_lw(s7, StackPointer, offset -= sizeof(intptr_t));
-    masm.ma_lw(ra, StackPointer, offset -= sizeof(intptr_t));
+    masm.ma_lw(s0, Address(StackPointer, offset -= sizeof(intptr_t)));
+    masm.ma_lw(s1, Address(StackPointer, offset -= sizeof(intptr_t)));
+    masm.ma_lw(s2, Address(StackPointer, offset -= sizeof(intptr_t)));
+    masm.ma_lw(s3, Address(StackPointer, offset -= sizeof(intptr_t)));
+    masm.ma_lw(s4, Address(StackPointer, offset -= sizeof(intptr_t)));
+    masm.ma_lw(s5, Address(StackPointer, offset -= sizeof(intptr_t)));
+    masm.ma_lw(s6, Address(StackPointer, offset -= sizeof(intptr_t)));
+    masm.ma_lw(s7, Address(StackPointer, offset -= sizeof(intptr_t)));
+    masm.ma_lw(ra, Address(StackPointer, offset -= sizeof(intptr_t)));
 
     // Align the stack for double values.
     offset -= sizeof(intptr_t);
 
     // Restore non-volatile floating point registers
-    masm.ma_ld(f20, StackPointer, offset -= sizeof(double));
-    masm.ma_ld(f22, StackPointer, offset -= sizeof(double));
-    masm.ma_ld(f24, StackPointer, offset -= sizeof(double));
-    masm.ma_ld(f26, StackPointer, offset -= sizeof(double));
-    masm.ma_ld(f28, StackPointer, offset -= sizeof(double));
-    masm.ma_ld(f30, StackPointer, offset -= sizeof(double));
+    masm.ma_ld(f20, Address(StackPointer, offset -= sizeof(double)));
+    masm.ma_ld(f22, Address(StackPointer, offset -= sizeof(double)));
+    masm.ma_ld(f24, Address(StackPointer, offset -= sizeof(double)));
+    masm.ma_ld(f26, Address(StackPointer, offset -= sizeof(double)));
+    masm.ma_ld(f28, Address(StackPointer, offset -= sizeof(double)));
+    masm.ma_ld(f30, Address(StackPointer, offset -= sizeof(double)));
 
     JS_ASSERT(offset == 0);
     masm.ma_addu(StackPointer, StackPointer,
@@ -143,24 +143,24 @@ JitRuntime::generateEnterJIT(JSContext *cx, EnterJitType type)
     // scanner.
     uint32_t offset = GENERAL_REGS_BUFF_SIZE + FLOAT_REGS_BUFF_SIZE;
     masm.ma_subu(StackPointer, StackPointer, Imm32(offset));
-    masm.ma_sw(s0, StackPointer, offset -= sizeof(intptr_t));
-    masm.ma_sw(s1, StackPointer, offset -= sizeof(intptr_t));
-    masm.ma_sw(s2, StackPointer, offset -= sizeof(intptr_t));
-    masm.ma_sw(s3, StackPointer, offset -= sizeof(intptr_t));
-    masm.ma_sw(s4, StackPointer, offset -= sizeof(intptr_t));
-    masm.ma_sw(s5, StackPointer, offset -= sizeof(intptr_t));
-    masm.ma_sw(s6, StackPointer, offset -= sizeof(intptr_t));
-    masm.ma_sw(s7, StackPointer, offset -= sizeof(intptr_t));
-    masm.ma_sw(ra, StackPointer, offset -= sizeof(intptr_t));
+    masm.ma_sw(s0, Address(StackPointer, offset -= sizeof(intptr_t)));
+    masm.ma_sw(s1, Address(StackPointer, offset -= sizeof(intptr_t)));
+    masm.ma_sw(s2, Address(StackPointer, offset -= sizeof(intptr_t)));
+    masm.ma_sw(s3, Address(StackPointer, offset -= sizeof(intptr_t)));
+    masm.ma_sw(s4, Address(StackPointer, offset -= sizeof(intptr_t)));
+    masm.ma_sw(s5, Address(StackPointer, offset -= sizeof(intptr_t)));
+    masm.ma_sw(s6, Address(StackPointer, offset -= sizeof(intptr_t)));
+    masm.ma_sw(s7, Address(StackPointer, offset -= sizeof(intptr_t)));
+    masm.ma_sw(ra, Address(StackPointer, offset -= sizeof(intptr_t)));
 
     // Align the stack for double values.
     offset -= sizeof(intptr_t);
-    masm.ma_sd(f20, StackPointer, offset -= sizeof(double));
-    masm.ma_sd(f22, StackPointer, offset -= sizeof(double));
-    masm.ma_sd(f24, StackPointer, offset -= sizeof(double));
-    masm.ma_sd(f26, StackPointer, offset -= sizeof(double));
-    masm.ma_sd(f28, StackPointer, offset -= sizeof(double));
-    masm.ma_sd(f30, StackPointer, offset -= sizeof(double));
+    masm.ma_sd(f20, Address(StackPointer, offset -= sizeof(double)));
+    masm.ma_sd(f22, Address(StackPointer, offset -= sizeof(double)));
+    masm.ma_sd(f24, Address(StackPointer, offset -= sizeof(double)));
+    masm.ma_sd(f26, Address(StackPointer, offset -= sizeof(double)));
+    masm.ma_sd(f28, Address(StackPointer, offset -= sizeof(double)));
+    masm.ma_sd(f30, Address(StackPointer, offset -= sizeof(double)));
 
     JS_ASSERT(offset == 0);
 
@@ -207,8 +207,8 @@ JitRuntime::generateEnterJIT(JSContext *cx, EnterJitType type)
     masm.bind(&footer);
 
     masm.ma_subu(StackPointer, StackPointer, Imm32(2 * sizeof(intptr_t)));
-    masm.ma_sw(s3, StackPointer, sizeof(intptr_t)); // actual arguments
-    masm.ma_sw(s2, StackPointer, 0); // callee token
+    masm.ma_sw(s3, Address(StackPointer, sizeof(intptr_t))); // actual arguments
+    masm.ma_sw(s2, Address(StackPointer, 0)); // callee token
 
     masm.ma_subu(s4, s4, sp);
     masm.makeFrameDescriptor(s4, IonFrame_Entry);
@@ -236,8 +236,8 @@ JitRuntime::generateEnterJIT(JSContext *cx, EnterJitType type)
         // Push return address, previous frame pointer.
         masm.ma_subu(StackPointer, StackPointer, Imm32(2 * sizeof(intptr_t)));
         masm.ma_li(scratch, returnLabel.dest());
-        masm.ma_sw(scratch, StackPointer, sizeof(intptr_t));
-        masm.ma_sw(BaselineFrameReg, StackPointer, 0);
+        masm.ma_sw(scratch, Address(StackPointer, sizeof(intptr_t)));
+        masm.ma_sw(BaselineFrameReg, Address(StackPointer, 0));
 
         // Reserve frame.
         Register framePtr = BaselineFrameReg;
@@ -255,14 +255,14 @@ JitRuntime::generateEnterJIT(JSContext *cx, EnterJitType type)
 
         // Push frame descriptor and fake return address.
         masm.ma_subu(StackPointer, StackPointer, Imm32(2 * sizeof(intptr_t)));
-        masm.ma_sw(scratch, StackPointer, sizeof(intptr_t)); // Frame descriptor
-        masm.ma_sw(zero, StackPointer, 0); // fake return address
+        masm.ma_sw(scratch, Address(StackPointer, sizeof(intptr_t))); // Frame descriptor
+        masm.ma_sw(zero, Address(StackPointer, 0)); // fake return address
 
         masm.enterFakeExitFrame();
 
         masm.ma_subu(StackPointer, StackPointer, Imm32(2 * sizeof(intptr_t)));
-        masm.ma_sw(framePtr, StackPointer, sizeof(intptr_t)); // BaselineFrame
-        masm.ma_sw(reg_code, StackPointer, 0); // jitcode
+        masm.ma_sw(framePtr, Address(StackPointer, sizeof(intptr_t))); // BaselineFrame
+        masm.ma_sw(reg_code, Address(StackPointer, 0)); // jitcode
 
         masm.setupUnalignedABICall(3, scratch);
         masm.passABIArg(BaselineFrameReg); // BaselineFrame
@@ -271,8 +271,8 @@ JitRuntime::generateEnterJIT(JSContext *cx, EnterJitType type)
         masm.callWithABI(JS_FUNC_TO_DATA_PTR(void *, jit::InitBaselineFrameForOsr));
 
         Register jitcode = regs.takeAny();
-        masm.ma_lw(jitcode, StackPointer, 0);
-        masm.ma_lw(framePtr, StackPointer, sizeof(intptr_t));
+        masm.ma_lw(jitcode, Address(StackPointer, 0));
+        masm.ma_lw(framePtr, Address(StackPointer, sizeof(intptr_t)));
         masm.ma_addu(StackPointer, StackPointer, Imm32(2 * sizeof(intptr_t)));
 
         JS_ASSERT(jitcode != ReturnReg);
@@ -374,8 +374,8 @@ JitRuntime::generateInvalidator(JSContext *cx)
     masm.passABIArg(a2);
     masm.callWithABI(JS_FUNC_TO_DATA_PTR(void *, InvalidationBailout));
 
-    masm.ma_lw(a2, StackPointer, 0);
-    masm.ma_lw(a1, StackPointer, RETVAL_OFFSET);
+    masm.ma_lw(a2, Address(StackPointer, 0));
+    masm.ma_lw(a1, Address(StackPointer, RETVAL_OFFSET));
     // Remove the return address, the IonScript, the register state
     // (InvaliationBailoutStack) and the space that was allocated for the
     // return value.
@@ -413,10 +413,10 @@ JitRuntime::generateArgumentsRectifier(JSContext *cx, ExecutionMode mode, void *
     Register numArgsReg = t5;
 
     // Copy number of actual arguments into numActArgsReg
-    masm.ma_lw(numActArgsReg, sp, IonRectifierFrameLayout::offsetOfNumActualArgs());
+    masm.ma_lw(numActArgsReg, Address(sp, IonRectifierFrameLayout::offsetOfNumActualArgs()));
 
     // Load the number of |undefined|s to push into t1.
-    masm.ma_lw(calleeTokenReg, sp, IonRectifierFrameLayout::offsetOfCalleeToken());
+    masm.ma_lw(calleeTokenReg, Address(sp, IonRectifierFrameLayout::offsetOfCalleeToken()));
     masm.load16ZeroExtend(Address(calleeTokenReg, JSFunction::offsetOfNargs()), numArgsReg);
 
     masm.as_subu(t1, numArgsReg, s3);
@@ -431,8 +431,8 @@ JitRuntime::generateArgumentsRectifier(JSContext *cx, ExecutionMode mode, void *
         masm.bind(&undefLoopTop);
 
         masm.ma_subu(StackPointer, StackPointer, Imm32(2 * sizeof(intptr_t)));
-        masm.ma_sw(t3, StackPointer, sizeof(intptr_t)); // type(undefined);
-        masm.ma_sw(t4, StackPointer, 0); // payload(undefined);
+        masm.ma_sw(t3, Address(StackPointer, sizeof(intptr_t))); // type(undefined);
+        masm.ma_sw(t4, Address(StackPointer, 0)); // payload(undefined);
         masm.ma_subu(t1, t1, Imm32(1));
 
         masm.ma_b(t1, t1, &undefLoopTop, Assembler::NonZero, ShortJump);
@@ -457,10 +457,10 @@ JitRuntime::generateArgumentsRectifier(JSContext *cx, ExecutionMode mode, void *
 
         // Read argument and push to stack.
         masm.ma_subu(StackPointer, StackPointer, Imm32(sizeof(Value)));
-        masm.ma_lw(t0, t2, sizeof(Value) / 2);
-        masm.ma_sw(t0, StackPointer, sizeof(Value) / 2);
-        masm.ma_lw(t0, t2, 0);
-        masm.ma_sw(t0, StackPointer, 0);
+        masm.ma_lw(t0, Address(t2, sizeof(Value) / 2));
+        masm.ma_sw(t0, Address(StackPointer, sizeof(Value) / 2));
+        masm.ma_lw(t0, Address(t2, 0));
+        masm.ma_sw(t0, Address(StackPointer, 0));
 
         masm.ma_b(s3, s3, &copyLoopTop, Assembler::NonZero, ShortJump);
     }
@@ -475,15 +475,15 @@ JitRuntime::generateArgumentsRectifier(JSContext *cx, ExecutionMode mode, void *
     // Construct IonJSFrameLayout.
     masm.ma_subu(StackPointer, StackPointer, Imm32(3 * sizeof(intptr_t)));
     // Push actual arguments.
-    masm.ma_sw(numActArgsReg, StackPointer, 2 * sizeof(intptr_t));
+    masm.ma_sw(numActArgsReg, Address(StackPointer, 2 * sizeof(intptr_t)));
     // Push callee token.
-    masm.ma_sw(calleeTokenReg, StackPointer, sizeof(intptr_t));
+    masm.ma_sw(calleeTokenReg, Address(StackPointer, sizeof(intptr_t)));
     // Push frame descriptor.
-    masm.ma_sw(t0, StackPointer, 0);
+    masm.ma_sw(t0, Address(StackPointer, 0));
 
     // Call the target function.
     // Note that this code assumes the function is JITted.
-    masm.ma_lw(t1, calleeTokenReg, JSFunction::offsetOfNativeOrScript());
+    masm.ma_lw(t1, Address(calleeTokenReg, JSFunction::offsetOfNativeOrScript()));
     masm.loadBaselineOrIonRaw(t1, t1, mode, nullptr);
     masm.ma_callIonHalfPush(t1);
 
@@ -499,7 +499,7 @@ JitRuntime::generateArgumentsRectifier(JSContext *cx, ExecutionMode mode, void *
 
     // Remove the rectifier frame.
     // t0 <- descriptor with FrameType.
-    masm.ma_lw(t0, StackPointer, 0);
+    masm.ma_lw(t0, Address(StackPointer, 0));
     masm.ma_srl(t0, t0, Imm32(FRAMESIZE_SHIFT)); // t0 <- descriptor.
 
     // Discard descriptor, calleeToken and number of actual arguments.
@@ -615,10 +615,10 @@ GenerateBailoutThunk(JSContext *cx, MacroAssembler &masm, uint32_t frameClass)
     // Store the frameSize_ or tableOffset_ stored in ra
     // See: JitRuntime::generateBailoutTable()
     // See: CodeGeneratorMIPS::generateOutOfLineCode()
-    masm.ma_sw(ra, StackPointer, FRAME_SIZE_OFFSET);
+    masm.ma_sw(ra, Address(StackPointer, FRAME_SIZE_OFFSET));
 
     // Put frame class to stack
-    masm.ma_sw(Imm32(frameClass), StackPointer, FRAME_CLASS_OFFSET);
+    masm.ma_sw(Imm32(frameClass), Address(StackPointer, FRAME_CLASS_OFFSET));
 
     // Put pointer to BailoutStack as first argument to the Bailout()
     masm.ma_addu(a0, StackPointer, Imm32(FRAME_CLASS_OFFSET));
@@ -631,12 +631,12 @@ GenerateBailoutThunk(JSContext *cx, MacroAssembler &masm, uint32_t frameClass)
     masm.callWithABI(JS_FUNC_TO_DATA_PTR(void *, Bailout));
 
     // Get BailoutInfo pointer
-    masm.ma_lw(a2, StackPointer, 0);
+    masm.ma_lw(a2, Address(StackPointer, 0));
 
     // Remove both the bailout frame and the topmost Ion frame's stack.
     if (frameClass == NO_FRAME_SIZE_CLASS_ID) {
         // Load frameSize from stack
-        masm.ma_lw(a1, StackPointer, FRAME_SIZE_OFFSET);
+        masm.ma_lw(a1, Address(StackPointer, FRAME_SIZE_OFFSET));
 
         // Remove bailout data from stack and add the size of
         // snapshotOffset and alignment slot
@@ -846,7 +846,7 @@ JitRuntime::generateVMWrapper(JSContext *cx, const VMFunction &f)
         if (cx->runtime()->jitSupportsFloatingPoint) {
             masm.ma_and(masm.secondScratch(), sp, Imm32(~(StackAlignment - 1)));
             masm.ma_subu(masm.secondScratch(), masm.secondScratch(), Imm32(sizeof(double)));
-            masm.ma_ld(ReturnFloatReg, masm.secondScratch(), 0);
+            masm.ma_ld(ReturnFloatReg, Address(masm.secondScratch(), 0));
         } else {
             masm.assumeUnreachable("Unable to load into float reg, with no FP support.");
         }
@@ -947,8 +947,8 @@ JitRuntime::generateDebugTrapHandler(JSContext *cx)
         return nullptr;
 
     masm.ma_subu(StackPointer, StackPointer, Imm32(2 * sizeof(intptr_t)));
-    masm.ma_sw(ra, StackPointer, sizeof(intptr_t));
-    masm.ma_sw(scratch1, StackPointer, 0);
+    masm.ma_sw(ra, Address(StackPointer, sizeof(intptr_t)));
+    masm.ma_sw(scratch1, Address(StackPointer, 0));
 
     EmitCallVM(code, masm);
 

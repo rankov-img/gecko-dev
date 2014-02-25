@@ -6777,10 +6777,10 @@ GenerateOperationCallbackExit(ModuleCompiler &m, Label *throwLabel)
 
     // Pop resumePC into PC. Use a slot in Global Data to save the scratch.
     // Look at globalDataBytes()
-    masm.ma_sw(ScratchRegister, GlobalReg, sizeof(intptr_t));
+    masm.ma_sw(ScratchRegister, Address(GlobalReg, sizeof(intptr_t)));
     masm.ma_pop(ScratchRegister);
     masm.as_jr(ScratchRegister);
-    masm.ma_lw(ScratchRegister, GlobalReg, sizeof(intptr_t));
+    masm.ma_lw(ScratchRegister, Address(GlobalReg, sizeof(intptr_t)));
 #else
     masm.setFramePushed(0);         // set to zero so we can use masm.framePushed() below
     masm.PushRegsInMask(RegisterSet(GeneralRegisterSet(Registers::AllMask & ~(1<<Registers::sp)), FloatRegisterSet(uint32_t(0))));   // save all GP registers,excep sp

@@ -40,6 +40,7 @@ class MoveEmitterMIPS
     FloatRegister tempFloatReg();
     Address cycleSlot() const;
     int32_t getAdjustedOffset(const MoveOperand &operand);
+    Address getAdjustedAddress(const MoveOperand &operand);
 
     void emitMove(const MoveOperand &from, const MoveOperand &to);
     void emitFloat32Move(const MoveOperand &from, const MoveOperand &to);

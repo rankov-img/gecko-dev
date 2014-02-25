@@ -343,7 +343,7 @@ CodeGeneratorMIPS::visitOutOfLineBailout(OutOfLineBailout *ool)
 {
     // Push snapshotOffset and make sure stack is aligned.
     masm.ma_subu(StackPointer, StackPointer, Imm32(2 * sizeof(void *)));
-    masm.ma_sw(Imm32(ool->snapshot()->snapshotOffset()), StackPointer, 0);
+    masm.ma_sw(Imm32(ool->snapshot()->snapshotOffset()), Address(StackPointer, 0));
 
     masm.ma_b(&deoptLabel_);
     return true;
@@ -1473,7 +1473,7 @@ CodeGeneratorMIPS::visitBoxFloatingPoint(LBoxFloatingPoint *box)
         masm.convertFloat32ToDouble(reg, ScratchFloatReg);
         reg = ScratchFloatReg;
     }
-    masm.ma_mv(reg, ToRegister(payload), ToRegister(type));
+    masm.ma_mv(reg, ValueOperand(ToRegister(type), ToRegister(payload)));
     return true;
 }
 
@@ -1821,7 +1821,7 @@ CodeGeneratorMIPS::visitLoadSlotT(LLoadSlotT *load)
     if (load->mir()->type() == MIRType_Double)
         masm.loadInt32OrDouble(Address(base, offset), ToFloatRegister(load->output()));
     else
-        masm.ma_load(ToRegister(load->output()), base, offset + NUNBOX32_PAYLOAD_OFFSET);
+        masm.ma_load(ToRegister(load->output()), Address(base, offset + NUNBOX32_PAYLOAD_OFFSET));
     return true;
 }
 
@@ -1838,7 +1838,7 @@ CodeGeneratorMIPS::visitStoreSlotT(LStoreSlotT *store)
         emitPreBarrier(Address(base, offset), store->mir()->slotType());
 
     if (valueType == MIRType_Double) {
-        masm.ma_sd(ToFloatRegister(value), base, offset);
+        masm.ma_sd(ToFloatRegister(value), Address(base, offset));
         return true;
     }
 
@@ -1895,7 +1895,7 @@ CodeGeneratorMIPS::storeElementTyped(const LAllocation *value, MIRType valueType
     if (index->isConstant()) {
         Address dest = Address(elements, ToInt32(index) * sizeof(Value));
         if (valueType == MIRType_Double) {
-            masm.ma_sd(ToFloatRegister(value), dest.base, dest.offset);
+            masm.ma_sd(ToFloatRegister(value), Address(dest.base, dest.offset));
             return;
         }
 
@@ -1911,7 +1911,7 @@ CodeGeneratorMIPS::storeElementTyped(const LAllocation *value, MIRType valueType
     } else {
         Register indexReg = ToRegister(index);
         if (valueType == MIRType_Double) {
-            masm.ma_sd(ToFloatRegister(value), elements, indexReg, 0);
+            masm.ma_sd(ToFloatRegister(value), BaseIndex(elements, indexReg, TimesEight));
             return;
         }
 
@@ -1935,7 +1935,7 @@ CodeGeneratorMIPS::visitGuardShape(LGuardShape *guard)
 
     // Use second scratch. It is safe.
     masm.ma_li(masm.secondScratch(), ImmGCPtr(guard->mir()->shape()));
-    masm.ma_lw(tmp, obj, JSObject::offsetOfShape());
+    masm.ma_lw(tmp, Address(obj, JSObject::offsetOfShape()));
     return bailoutIf(tmp, masm.secondScratch(), Assembler::NotEqual, guard->snapshot());
 }
 
@@ -1945,7 +1945,7 @@ CodeGeneratorMIPS::visitGuardObjectType(LGuardObjectType *guard)
     Register obj = ToRegister(guard->input());
     Register tmp = ToRegister(guard->tempInt());
 
-    masm.ma_lw(tmp, obj, JSObject::offsetOfType());
+    masm.ma_lw(tmp, Address(obj, JSObject::offsetOfType()));
     masm.ma_li(masm.secondScratch(), ImmGCPtr(guard->mir()->typeObject()));
     Assembler::Condition cond =
         guard->mir()->bailOnEquality() ? Assembler::Equal : Assembler::NotEqual;
@@ -1972,7 +1972,7 @@ CodeGeneratorMIPS::visitImplicitThis(LImplicitThis *lir)
 
     // The implicit |this| is always |undefined| if the function's environment
     // is the current global.
-    masm.ma_lw(out.typeReg(), callee, JSFunction::offsetOfEnvironment());
+    masm.ma_lw(out.typeReg(), Address(callee, JSFunction::offsetOfEnvironment()));
     masm.ma_li(masm.secondScratch(), ImmGCPtr(&gen->info().script()->global()));
 
     // TODO: OOL stub path.
@@ -2076,8 +2076,8 @@ CodeGeneratorMIPS::visitAsmJSLoadHeap(LAsmJSLoadHeap *ins)
                 masm.loadDouble(Address(HeapReg, ptrImm), ToFloatRegister(out));
             }
         }  else {
-            masm.ma_load(ToRegister(out), HeapReg, ptrImm, static_cast<LoadStoreSize>(size),
-                         isSigned ? SignExtend : ZeroExtend);
+            masm.ma_load(ToRegister(out), Address(HeapReg, ptrImm),
+                         static_cast<LoadStoreSize>(size), isSigned ? SignExtend : ZeroExtend);
         }
         return true;
     }
@@ -2163,8 +2163,8 @@ CodeGeneratorMIPS::visitAsmJSStoreHeap(LAsmJSStoreHeap *ins)
                 masm.storeDouble(ToFloatRegister(value), Address(HeapReg, ptrImm));
             }
         }  else {
-            masm.ma_store(ToRegister(value), HeapReg, ptrImm,static_cast<LoadStoreSize>(size),
-                          isSigned ? SignExtend : ZeroExtend);
+            masm.ma_store(ToRegister(value), Address(HeapReg, ptrImm),
+                          static_cast<LoadStoreSize>(size), isSigned ? SignExtend : ZeroExtend);
         }
         return true;
     }
@@ -2213,9 +2213,9 @@ CodeGeneratorMIPS::visitAsmJSPassStackArg(LAsmJSPassStackArg *ins)
         masm.ma_storeImm(Imm32(ToInt32(ins->arg())), Address(StackPointer, mir->spOffset()));
     } else {
         if (ins->arg()->isGeneralReg()) {
-            masm.ma_sw(ToRegister(ins->arg()), StackPointer, mir->spOffset());
+            masm.ma_sw(ToRegister(ins->arg()), Address(StackPointer, mir->spOffset()));
         } else {
-            masm.ma_sd(ToFloatRegister(ins->arg()), StackPointer, mir->spOffset());
+            masm.ma_sd(ToFloatRegister(ins->arg()), Address(StackPointer, mir->spOffset()));
         }
     }
 
@@ -2311,11 +2311,11 @@ CodeGeneratorMIPS::visitAsmJSLoadGlobalVar(LAsmJSLoadGlobalVar *ins)
     const MAsmJSLoadGlobalVar *mir = ins->mir();
     unsigned addr = mir->globalDataOffset();
     if (mir->type() == MIRType_Int32)
-        masm.ma_lw(ToRegister(ins->output()), GlobalReg, addr);
+        masm.ma_lw(ToRegister(ins->output()), Address(GlobalReg, addr));
     else if (mir->type() == MIRType_Float32)
-        masm.ma_ls(ToFloatRegister(ins->output()), GlobalReg, addr);
+        masm.ma_ls(ToFloatRegister(ins->output()), Address(GlobalReg, addr));
     else
-        masm.ma_ld(ToFloatRegister(ins->output()), GlobalReg, addr);
+        masm.ma_ld(ToFloatRegister(ins->output()), Address(GlobalReg, addr));
     return true;
 }
 
@@ -2328,11 +2328,11 @@ CodeGeneratorMIPS::visitAsmJSStoreGlobalVar(LAsmJSStoreGlobalVar *ins)
     JS_ASSERT(IsNumberType(type));
     unsigned addr = mir->globalDataOffset();
     if (mir->value()->type() == MIRType_Int32)
-        masm.ma_sw(ToRegister(ins->value()), GlobalReg, addr);
+        masm.ma_sw(ToRegister(ins->value()), Address(GlobalReg, addr));
     else if (mir->value()->type() == MIRType_Float32)
-        masm.ma_ss(ToFloatRegister(ins->value()), GlobalReg, addr);
+        masm.ma_ss(ToFloatRegister(ins->value()), Address(GlobalReg, addr));
     else
-        masm.ma_sd(ToFloatRegister(ins->value()), GlobalReg, addr);
+        masm.ma_sd(ToFloatRegister(ins->value()), Address(GlobalReg, addr));
     return true;
 }
 
@@ -2357,7 +2357,7 @@ bool
 CodeGeneratorMIPS::visitAsmJSLoadFFIFunc(LAsmJSLoadFFIFunc *ins)
 {
     const MAsmJSLoadFFIFunc *mir = ins->mir();
-    masm.ma_load(ToRegister(ins->output()), GlobalReg, mir->globalDataOffset());
+    masm.ma_load(ToRegister(ins->output()), Address(GlobalReg, mir->globalDataOffset()));
     return true;
 }
 
@@ -2428,7 +2428,7 @@ CodeGenerator::visitBoundsCheck(LBoundsCheck *lir)
                              Assembler::BelowOrEqual, lir->snapshot());
         }
         // Use second scratch. It is safe.
-        masm.ma_lw(masm.secondScratch(), StackPointer, ToStackOffset(lir->length()));
+        masm.ma_lw(masm.secondScratch(), Address(StackPointer, ToStackOffset(lir->length())));
         return bailoutIf(masm.secondScratch(), Imm32(index), Assembler::BelowOrEqual,
                          lir->snapshot());
     }
@@ -2441,7 +2441,7 @@ CodeGenerator::visitBoundsCheck(LBoundsCheck *lir)
                          Assembler::BelowOrEqual, lir->snapshot());
     }
     // Use second scratch. It is safe.
-    masm.ma_lw(masm.secondScratch(), StackPointer, ToStackOffset(lir->length()));
+    masm.ma_lw(masm.secondScratch(), Address(StackPointer, ToStackOffset(lir->length())));
     return bailoutIf(masm.secondScratch(), ToRegister(lir->index()),
                      Assembler::BelowOrEqual, lir->snapshot());
 }
