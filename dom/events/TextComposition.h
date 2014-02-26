@@ -45,6 +45,7 @@ public:
     // WARNING: mPresContext may be destroying, so, be careful if you touch it.
   }
 
+  bool Destroyed() const { return !mPresContext; }
   nsPresContext* GetPresContext() const { return mPresContext; }
   nsINode* GetEventTargetNode() const { return mNode; }
   // The latest CompositionEvent.data value except compositionstart event.
@@ -61,6 +62,11 @@ public:
   bool IsSynthesizedForTests() const { return mIsSynthesizedForTests; }
 
   bool MatchesNativeContext(nsIWidget* aWidget) const;
+
+  /**
+   * This is called when nsIMEStateManager stops managing the instance.
+   */
+  void Destroy();
 
   /**
    * SynthesizeCommit() dispatches compositionupdate, text and compositionend
@@ -219,7 +225,7 @@ private:
   };
 
   /**
-   * DispatchCompsotionEventRunnable() dispatches a composition or text event
+   * DispatchCompositionEventRunnable() dispatches a composition or text event
    * to the content.  Be aware, if you use this method, nsPresShellEventCB
    * isn't used.  That means that nsIFrame::HandleEvent() is never called.
    * WARNING: The instance which is managed by nsIMEStateManager may be
@@ -231,8 +237,8 @@ private:
    *                            Used for theText value if aEventMessage is
    *                            NS_TEXT_TEXT.
    */
-  void DispatchCompsotionEventRunnable(uint32_t aEventMessage,
-                                       const nsAString& aData);
+  void DispatchCompositionEventRunnable(uint32_t aEventMessage,
+                                        const nsAString& aData);
 };
 
 /**

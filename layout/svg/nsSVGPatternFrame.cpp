@@ -69,7 +69,7 @@ NS_IMPL_FRAMEARENA_HELPERS(nsSVGPatternFrame)
 //----------------------------------------------------------------------
 // nsIFrame methods:
 
-NS_IMETHODIMP
+nsresult
 nsSVGPatternFrame::AttributeChanged(int32_t         aNameSpaceID,
                                     nsIAtom*        aAttribute,
                                     int32_t         aModType)
@@ -315,6 +315,9 @@ nsSVGPatternFrame::PaintPattern(gfxASurface** surface,
   // the size of the surface, and will also be used to define the bounding
   // box for the pattern tile.
   gfxRect bbox = GetPatternRect(patternUnits, callerBBox, ToMatrix(aContextMatrix), aSource);
+  if (bbox.Width() <= 0.0 || bbox.Height() <= 0.0) {
+    return NS_ERROR_FAILURE;
+  }
 
   // Get the pattern transform
   gfxMatrix patternTransform = GetPatternTransform();

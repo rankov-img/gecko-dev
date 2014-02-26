@@ -780,19 +780,11 @@ public:
     nsRefPtr<IDBFileHandle> fileHandle = IDBFileHandle::Create(aDatabase,
       aData.name, aData.type, fileInfo.forget());
 
-    JS::Rooted<JS::Value> wrappedFileHandle(aCx);
     JS::Rooted<JSObject*> global(aCx, JS::CurrentGlobalOrNull(aCx));
-    nsresult rv =
-      nsContentUtils::WrapNative(aCx, global,
-                                 static_cast<nsIDOMFileHandle*>(fileHandle),
-                                 &NS_GET_IID(nsIDOMFileHandle),
-                                 &wrappedFileHandle);
-    if (NS_FAILED(rv)) {
-      NS_WARNING("Failed to wrap native!");
+    if (!global) {
       return nullptr;
     }
-
-    return JSVAL_TO_OBJECT(wrappedFileHandle);
+    return fileHandle->WrapObject(aCx, global);
   }
 
   static JSObject* CreateAndWrapBlobOrFile(JSContext* aCx,
@@ -1907,7 +1899,7 @@ IDBObjectStore::GetAddInfo(JSContext* aCx,
 
 already_AddRefed<IDBRequest>
 IDBObjectStore::AddOrPut(JSContext* aCx, JS::Handle<JS::Value> aValue,
-                         const Optional<JS::Handle<JS::Value> >& aKey,
+                         JS::Handle<JS::Value> aKey,
                          bool aOverwrite, ErrorResult& aRv)
 {
   NS_ASSERTION(NS_IsMainThread(), "Wrong thread!");
@@ -1922,15 +1914,12 @@ IDBObjectStore::AddOrPut(JSContext* aCx, JS::Handle<JS::Value> aValue,
     return nullptr;
   }
 
-  JS::Rooted<JS::Value> keyval(aCx, aKey.WasPassed() ? aKey.Value()
-                                                     : JSVAL_VOID);
-
   StructuredCloneWriteInfo cloneWriteInfo;
   Key key;
   nsTArray<IndexUpdateInfo> updateInfo;
 
   JS::Rooted<JS::Value> value(aCx, aValue);
-  aRv = GetAddInfo(aCx, value, keyval, cloneWriteInfo, key, updateInfo);
+  aRv = GetAddInfo(aCx, value, aKey, cloneWriteInfo, key, updateInfo);
   if (aRv.Failed()) {
     return nullptr;
   }
@@ -2700,7 +2689,7 @@ IDBObjectStore::Get(JSContext* aCx, JS::Handle<JS::Value> aKey,
 
 already_AddRefed<IDBRequest>
 IDBObjectStore::GetAll(JSContext* aCx,
-                       const Optional<JS::Handle<JS::Value> >& aKey,
+                       JS::Handle<JS::Value> aKey,
                        const Optional<uint32_t>& aLimit, ErrorResult& aRv)
 {
   NS_ASSERTION(NS_IsMainThread(), "Wrong thread!");
@@ -2711,10 +2700,8 @@ IDBObjectStore::GetAll(JSContext* aCx,
   }
 
   nsRefPtr<IDBKeyRange> keyRange;
-  if (aKey.WasPassed()) {
-    aRv = IDBKeyRange::FromJSVal(aCx, aKey.Value(), getter_AddRefs(keyRange));
-    ENSURE_SUCCESS(aRv, nullptr);
-  }
+  aRv = IDBKeyRange::FromJSVal(aCx, aKey, getter_AddRefs(keyRange));
+  ENSURE_SUCCESS(aRv, nullptr);
 
   uint32_t limit = UINT32_MAX;
   if (aLimit.WasPassed() && aLimit.Value() != 0) {
@@ -2755,7 +2742,7 @@ IDBObjectStore::Delete(JSContext* aCx, JS::Handle<JS::Value> aKey,
 
 already_AddRefed<IDBRequest>
 IDBObjectStore::OpenCursor(JSContext* aCx,
-                           const Optional<JS::Handle<JS::Value> >& aRange,
+                           JS::Handle<JS::Value> aRange,
                            IDBCursorDirection aDirection, ErrorResult& aRv)
 {
   NS_ASSERTION(NS_IsMainThread(), "Wrong thread!");
@@ -2766,10 +2753,8 @@ IDBObjectStore::OpenCursor(JSContext* aCx,
   }
 
   nsRefPtr<IDBKeyRange> keyRange;
-  if (aRange.WasPassed()) {
-    aRv = IDBKeyRange::FromJSVal(aCx, aRange.Value(), getter_AddRefs(keyRange));
-    ENSURE_SUCCESS(aRv, nullptr);
-  }
+  aRv = IDBKeyRange::FromJSVal(aCx, aRange, getter_AddRefs(keyRange));
+  ENSURE_SUCCESS(aRv, nullptr);
 
   IDBCursor::Direction direction = IDBCursor::ConvertDirection(aDirection);
   size_t argDirection = static_cast<size_t>(direction);
@@ -2941,7 +2926,7 @@ IDBObjectStore::DeleteIndex(const nsAString& aName, ErrorResult& aRv)
 
 already_AddRefed<IDBRequest>
 IDBObjectStore::Count(JSContext* aCx,
-                      const Optional<JS::Handle<JS::Value> >& aKey,
+                      JS::Handle<JS::Value> aKey,
                       ErrorResult& aRv)
 {
   if (!mTransaction->IsOpen()) {
@@ -2950,17 +2935,15 @@ IDBObjectStore::Count(JSContext* aCx,
   }
 
   nsRefPtr<IDBKeyRange> keyRange;
-  if (aKey.WasPassed()) {
-    aRv = IDBKeyRange::FromJSVal(aCx, aKey.Value(), getter_AddRefs(keyRange));
-    ENSURE_SUCCESS(aRv, nullptr);
-  }
+  aRv = IDBKeyRange::FromJSVal(aCx, aKey, getter_AddRefs(keyRange));
+  ENSURE_SUCCESS(aRv, nullptr);
 
   return CountInternal(keyRange, aRv);
 }
 
 already_AddRefed<IDBRequest>
 IDBObjectStore::GetAllKeys(JSContext* aCx,
-                           const Optional<JS::Handle<JS::Value>>& aKey,
+                           JS::Handle<JS::Value> aKey,
                            const Optional<uint32_t>& aLimit, ErrorResult& aRv)
 {
   MOZ_ASSERT(NS_IsMainThread());
@@ -2971,10 +2954,8 @@ IDBObjectStore::GetAllKeys(JSContext* aCx,
   }
 
   nsRefPtr<IDBKeyRange> keyRange;
-  if (aKey.WasPassed()) {
-    aRv = IDBKeyRange::FromJSVal(aCx, aKey.Value(), getter_AddRefs(keyRange));
-    ENSURE_SUCCESS(aRv, nullptr);
-  }
+  aRv = IDBKeyRange::FromJSVal(aCx, aKey, getter_AddRefs(keyRange));
+  ENSURE_SUCCESS(aRv, nullptr);
 
   uint32_t limit = UINT32_MAX;
   if (aLimit.WasPassed() && aLimit.Value() != 0) {
@@ -2986,7 +2967,7 @@ IDBObjectStore::GetAllKeys(JSContext* aCx,
 
 already_AddRefed<IDBRequest>
 IDBObjectStore::OpenKeyCursor(JSContext* aCx,
-                              const Optional<JS::Handle<JS::Value>>& aRange,
+                              JS::Handle<JS::Value> aRange,
                               IDBCursorDirection aDirection, ErrorResult& aRv)
 {
   MOZ_ASSERT(NS_IsMainThread());
@@ -2997,10 +2978,8 @@ IDBObjectStore::OpenKeyCursor(JSContext* aCx,
   }
 
   nsRefPtr<IDBKeyRange> keyRange;
-  if (aRange.WasPassed()) {
-    aRv = IDBKeyRange::FromJSVal(aCx, aRange.Value(), getter_AddRefs(keyRange));
-    ENSURE_SUCCESS(aRv, nullptr);
-  }
+  aRv = IDBKeyRange::FromJSVal(aCx, aRange, getter_AddRefs(keyRange));
+  ENSURE_SUCCESS(aRv, nullptr);
 
   IDBCursor::Direction direction = IDBCursor::ConvertDirection(aDirection);
 

@@ -530,6 +530,11 @@ function PCT_createOffer(peer, onSuccess) {
   });
 };
 
+PeerConnectionTest.prototype.setIdentityProvider =
+function(peer, provider, protocol, identity) {
+  peer.setIdentityProvider(provider, protocol, identity);
+};
+
 /**
  * Sets the local description for the specified peer connection instance
  * and automatically handles the failure case.
@@ -765,7 +770,7 @@ DataChannelTest.prototype = Object.create(PeerConnectionTest.prototype, {
           });
         } else {
           check_next_test();
-	}
+        }
       });
     }
   },
@@ -1101,10 +1106,16 @@ function PeerConnectionWrapper(label, configuration) {
    *        Event data which includes the stream to be added
    */
   this._pc.onaddstream = function (event) {
-    info(self + ": 'onaddstream' event fired for " + event.stream);
+    info(self + ": 'onaddstream' event fired for " + JSON.stringify(event.stream));
 
-    // TODO: Bug 834835 - Assume type is video until we get get{Audio,Video}Tracks.
-    self.attachMedia(event.stream, 'video', 'remote');
+    var type = '';
+    if (event.stream.getAudioTracks().length > 0) {
+      type = 'audio';
+    }
+    if (event.stream.getVideoTracks().length > 0) {
+      type += 'video';
+    }
+    self.attachMedia(event.stream, type, 'remote');
    };
 
   /**
@@ -1202,6 +1213,10 @@ PeerConnectionWrapper.prototype = {
    */
   get iceConnectionState() {
     return this._pc.iceConnectionState;
+  },
+
+  setIdentityProvider: function(provider, protocol, identity) {
+      this._pc.setIdentityProvider(provider, protocol, identity);
   },
 
   /**

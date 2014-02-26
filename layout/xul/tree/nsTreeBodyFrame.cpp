@@ -2522,7 +2522,7 @@ nsTreeBodyFrame::CalcHorzWidth(const ScrollParts& aParts)
   return width;
 }
 
-NS_IMETHODIMP
+nsresult
 nsTreeBodyFrame::GetCursor(const nsPoint& aPoint,
                            nsIFrame::Cursor& aCursor)
 {
@@ -2563,7 +2563,7 @@ static uint32_t GetDropEffect(WidgetGUIEvent* aEvent)
   return action;
 }
 
-NS_IMETHODIMP
+nsresult
 nsTreeBodyFrame::HandleEvent(nsPresContext* aPresContext,
                              WidgetGUIEvent* aEvent,
                              nsEventStatus* aEventStatus)
@@ -4654,7 +4654,7 @@ class nsOverflowChecker : public nsRunnable
 {
 public:
   nsOverflowChecker(nsTreeBodyFrame* aFrame) : mFrame(aFrame) {}
-  NS_IMETHOD Run()
+  NS_IMETHOD Run() MOZ_OVERRIDE
   {
     if (mFrame.IsAlive()) {
       nsTreeBodyFrame* tree = static_cast<nsTreeBodyFrame*>(mFrame.GetFrame());

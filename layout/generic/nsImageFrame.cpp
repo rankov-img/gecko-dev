@@ -797,7 +797,7 @@ nsImageFrame::GetIntrinsicRatio()
   return mIntrinsicRatio;
 }
 
-NS_IMETHODIMP
+nsresult
 nsImageFrame::Reflow(nsPresContext*          aPresContext,
                      nsHTMLReflowMetrics&     aMetrics,
                      const nsHTMLReflowState& aReflowState,
@@ -1072,13 +1072,15 @@ public:
   nsDisplayAltFeedback(nsDisplayListBuilder* aBuilder, nsIFrame* aFrame)
     : nsDisplayItem(aBuilder, aFrame) {}
 
-  virtual nsRect GetBounds(nsDisplayListBuilder* aBuilder, bool* aSnap)
+  virtual nsRect GetBounds(nsDisplayListBuilder* aBuilder,
+                           bool* aSnap) MOZ_OVERRIDE
   {
     *aSnap = false;
     return mFrame->GetVisualOverflowRectRelativeToSelf() + ToReferenceFrame();
   }
 
-  virtual void Paint(nsDisplayListBuilder* aBuilder, nsRenderingContext* aCtx)
+  virtual void Paint(nsDisplayListBuilder* aBuilder,
+                     nsRenderingContext* aCtx) MOZ_OVERRIDE
   {
     nsImageFrame* f = static_cast<nsImageFrame*>(mFrame);
     nsEventStates state = f->GetContent()->AsElement()->State();
@@ -1589,7 +1591,7 @@ nsImageFrame::GetAnchorHREFTargetAndNode(nsIURI** aHref, nsString& aTarget,
   return status;
 }
 
-NS_IMETHODIMP  
+nsresult  
 nsImageFrame::GetContentForEvent(WidgetEvent* aEvent,
                                  nsIContent** aContent)
 {
@@ -1630,7 +1632,7 @@ nsImageFrame::GetContentForEvent(WidgetEvent* aEvent,
 }
 
 // XXX what should clicks on transparent pixels do?
-NS_IMETHODIMP
+nsresult
 nsImageFrame::HandleEvent(nsPresContext* aPresContext,
                           WidgetGUIEvent* aEvent,
                           nsEventStatus* aEventStatus)
@@ -1691,7 +1693,7 @@ nsImageFrame::HandleEvent(nsPresContext* aPresContext,
   return nsSplittableFrame::HandleEvent(aPresContext, aEvent, aEventStatus);
 }
 
-NS_IMETHODIMP
+nsresult
 nsImageFrame::GetCursor(const nsPoint& aPoint,
                         nsIFrame::Cursor& aCursor)
 {
@@ -1720,7 +1722,7 @@ nsImageFrame::GetCursor(const nsPoint& aPoint,
   return nsFrame::GetCursor(aPoint, aCursor);
 }
 
-NS_IMETHODIMP
+nsresult
 nsImageFrame::AttributeChanged(int32_t aNameSpaceID,
                                nsIAtom* aAttribute,
                                int32_t aModType)
@@ -1747,7 +1749,7 @@ nsImageFrame::GetType() const
 }
 
 #ifdef DEBUG_FRAME_DUMP
-NS_IMETHODIMP
+nsresult
 nsImageFrame::GetFrameName(nsAString& aResult) const
 {
   return MakeFrameName(NS_LITERAL_STRING("ImageFrame"), aResult);

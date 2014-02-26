@@ -14,6 +14,7 @@
 #include "nsIEventTarget.h"
 #include "nsIUUIDGenerator.h"
 #include "nsIScriptGlobalObject.h"
+#include "nsIPermissionManager.h"
 #include "nsIPopupWindowManager.h"
 #include "nsISupportsArray.h"
 #include "nsIDocShell.h"
@@ -32,8 +33,6 @@
 #include "nsJSUtils.h"
 #include "nsDOMFile.h"
 #include "nsGlobalWindow.h"
-
-#include "mozilla/Preferences.h"
 
 /* Using WebRTC backend on Desktops (Mac, Windows, Linux), otherwise default */
 #include "MediaEngineDefault.h"
@@ -225,12 +224,15 @@ class DeviceSuccessCallbackRunnable: public nsRunnable
 {
 public:
   DeviceSuccessCallbackRunnable(
+    uint64_t aWindowID,
     already_AddRefed<nsIGetUserMediaDevicesSuccessCallback> aSuccess,
     already_AddRefed<nsIDOMGetUserMediaErrorCallback> aError,
     nsTArray<nsCOMPtr<nsIMediaDevice> >* aDevices)
     : mSuccess(aSuccess)
     , mError(aError)
-    , mDevices(aDevices) {}
+    , mDevices(aDevices)
+    , mWindowID(aWindowID)
+    , mManager(MediaManager::GetInstance()) {}
 
   NS_IMETHOD
   Run()
@@ -239,6 +241,11 @@ public:
 
     nsCOMPtr<nsIGetUserMediaDevicesSuccessCallback> success(mSuccess);
     nsCOMPtr<nsIDOMGetUserMediaErrorCallback> error(mError);
+
+    // Only run if window is still on our active list.
+    if (!mManager->IsWindowStillActive(mWindowID)) {
+      return NS_OK;
+    }
 
     nsCOMPtr<nsIWritableVariant> devices =
       do_CreateInstance("@mozilla.org/variant;1");
@@ -273,6 +280,8 @@ private:
   already_AddRefed<nsIGetUserMediaDevicesSuccessCallback> mSuccess;
   already_AddRefed<nsIDOMGetUserMediaErrorCallback> mError;
   nsAutoPtr<nsTArray<nsCOMPtr<nsIMediaDevice> > > mDevices;
+  uint64_t mWindowID;
+  nsRefPtr<MediaManager> mManager;
 };
 
 // Handle removing GetUserMediaCallbackMediaStreamListener from main thread
@@ -898,6 +907,13 @@ public:
   }
 
   nsresult
+  SetContraints(const MediaStreamConstraintsInternal& aConstraints)
+  {
+    mConstraints = aConstraints;
+    return NS_OK;
+  }
+
+  nsresult
   SetAudioDevice(MediaDevice* aAudioDevice)
   {
     mAudioDevice = aAudioDevice;
@@ -1065,7 +1081,11 @@ public:
   {
     NS_ASSERTION(!NS_IsMainThread(), "Don't call on main thread");
 
-    MediaEngine *backend = mManager->GetBackend(mWindowId);
+    nsRefPtr<MediaEngine> backend;
+    if (mConstraints.mFake)
+      backend = new MediaEngineDefault();
+    else
+      backend = mManager->GetBackend(mWindowId);
 
     ScopedDeletePtr<SourceSet> final (GetSources(backend, mConstraints.mVideom,
                                           &MediaEngine::EnumerateVideoDevices,
@@ -1076,7 +1096,8 @@ public:
                                         mLoopbackAudioDevice));
       final->MoveElementsFrom(*s);
     }
-    NS_DispatchToMainThread(new DeviceSuccessCallbackRunnable(mSuccess, mError,
+    NS_DispatchToMainThread(new DeviceSuccessCallbackRunnable(mWindowId,
+                                                              mSuccess, mError,
                                                               final.forget()));
     return NS_OK;
   }
@@ -1087,6 +1108,7 @@ private:
   already_AddRefed<nsIDOMGetUserMediaErrorCallback> mError;
   nsRefPtr<MediaManager> mManager;
   uint64_t mWindowId;
+  const nsString mCallId;
   // Audio & Video loopback devices to be used based on
   // the preference settings. This is currently used for
   // automated media tests only.
@@ -1403,14 +1425,59 @@ MediaManager::GetUserMedia(JSContext* aCx, bool aPrivileged,
   }
 #endif
   // XXX No full support for picture in Desktop yet (needs proper UI)
-  if (aPrivileged || c.mFake) {
+  if (aPrivileged ||
+      (c.mFake && !Preferences::GetBool("media.navigator.permission.fake"))) {
     runnable->Arm();
     mMediaThread->Dispatch(runnable, NS_DISPATCH_NORMAL);
   } else {
+    // Check if this site has persistent permissions.
+    nsresult rv;
+    nsCOMPtr<nsIPermissionManager> permManager =
+      do_GetService(NS_PERMISSIONMANAGER_CONTRACTID, &rv);
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    uint32_t audioPerm = nsIPermissionManager::UNKNOWN_ACTION;
+    if (c.mAudio) {
+      rv = permManager->TestExactPermissionFromPrincipal(
+        aWindow->GetExtantDoc()->NodePrincipal(), "microphone", &audioPerm);
+      NS_ENSURE_SUCCESS(rv, rv);
+      if (audioPerm == nsIPermissionManager::PROMPT_ACTION) {
+        audioPerm = nsIPermissionManager::UNKNOWN_ACTION;
+      }
+    }
+
+    uint32_t videoPerm = nsIPermissionManager::UNKNOWN_ACTION;
+    if (c.mVideo) {
+      rv = permManager->TestExactPermissionFromPrincipal(
+        aWindow->GetExtantDoc()->NodePrincipal(), "camera", &videoPerm);
+      NS_ENSURE_SUCCESS(rv, rv);
+      if (videoPerm == nsIPermissionManager::PROMPT_ACTION) {
+        videoPerm = nsIPermissionManager::UNKNOWN_ACTION;
+      }
+    }
+
+    if ((!c.mAudio || audioPerm) && (!c.mVideo || videoPerm)) {
+      // All permissions we were about to request already have a saved value.
+      if (c.mAudio && audioPerm == nsIPermissionManager::DENY_ACTION) {
+        c.mAudio = false;
+        runnable->SetContraints(c);
+      }
+      if (c.mVideo && videoPerm == nsIPermissionManager::DENY_ACTION) {
+        c.mVideo = false;
+        runnable->SetContraints(c);
+      }
+
+      runnable->Arm();
+      if (!c.mAudio && !c.mVideo) {
+        return runnable->Denied(NS_LITERAL_STRING("PERMISSION_DENIED"));
+      }
+
+      return mMediaThread->Dispatch(runnable, NS_DISPATCH_NORMAL);
+    }
+
     // Ask for user permission, and dispatch runnable (or not) when a response
     // is received via an observer notification. Each call is paired with its
     // runnable by a GUID.
-    nsresult rv;
     nsCOMPtr<nsIUUIDGenerator> uuidgen =
       do_GetService("@mozilla.org/uuid-generator;1", &rv);
     NS_ENSURE_SUCCESS(rv, rv);
@@ -1449,7 +1516,8 @@ nsresult
 MediaManager::GetUserMediaDevices(nsPIDOMWindow* aWindow,
   const MediaStreamConstraintsInternal& aConstraints,
   nsIGetUserMediaDevicesSuccessCallback* aOnSuccess,
-  nsIDOMGetUserMediaErrorCallback* aOnError)
+  nsIDOMGetUserMediaErrorCallback* aOnError,
+  uint64_t aInnerWindowID)
 {
   NS_ASSERTION(NS_IsMainThread(), "Only call on main thread");
 
@@ -1474,9 +1542,9 @@ MediaManager::GetUserMediaDevices(nsPIDOMWindow* aWindow,
 #endif
 
   nsCOMPtr<nsIRunnable> gUMDRunnable = new GetUserMediaDevicesRunnable(
-    aConstraints, onSuccess.forget(), onError.forget(), aWindow->WindowID(),
-    loopbackAudioDevice, loopbackVideoDevice
-  );
+    aConstraints, onSuccess.forget(), onError.forget(),
+    (aInnerWindowID ? aInnerWindowID : aWindow->WindowID()),
+    loopbackAudioDevice, loopbackVideoDevice);
 
   nsCOMPtr<nsIThread> deviceThread;
   rv = NS_NewThread(getter_AddRefs(deviceThread));
@@ -1757,17 +1825,33 @@ WindowsHashToArrayFunc (const uint64_t& aId,
                         StreamListeners* aData,
                         void *userArg)
 {
-    nsISupportsArray *array =
-        static_cast<nsISupportsArray *>(userArg);
-    nsPIDOMWindow *window = static_cast<nsPIDOMWindow*>
-      (nsGlobalWindow::GetInnerWindowWithId(aId));
-    (void) aData;
+  nsISupportsArray *array =
+    static_cast<nsISupportsArray *>(userArg);
+  nsPIDOMWindow *window = static_cast<nsPIDOMWindow*>
+    (nsGlobalWindow::GetInnerWindowWithId(aId));
 
-    MOZ_ASSERT(window);
-    if (window) {
-      array->AppendElement(window);
+  MOZ_ASSERT(window);
+  if (window) {
+    // mActiveWindows contains both windows that have requested device
+    // access and windows that are currently capturing media. We want
+    // to return only the latter. See bug 975177.
+    bool capturing = false;
+    if (aData) {
+      uint32_t length = aData->Length();
+      for (uint32_t i = 0; i < length; ++i) {
+        nsRefPtr<GetUserMediaCallbackMediaStreamListener> listener =
+          aData->ElementAt(i);
+        if (listener->CapturingVideo() || listener->CapturingAudio()) {
+          capturing = true;
+          break;
+        }
+      }
     }
-    return PL_DHASH_NEXT;
+
+    if (capturing)
+      array->AppendElement(window);
+  }
+  return PL_DHASH_NEXT;
 }
 
 

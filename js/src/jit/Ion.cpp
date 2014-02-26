@@ -1683,7 +1683,7 @@ IonCompile(JSContext *cx, JSScript *script,
 
     BaselineFrameInspector *baselineFrameInspector = nullptr;
     if (baselineFrame) {
-        baselineFrameInspector = NewBaselineFrameInspector(temp, baselineFrame);
+        baselineFrameInspector = NewBaselineFrameInspector(temp, baselineFrame, info);
         if (!baselineFrameInspector)
             return AbortReason_Alloc;
     }
@@ -2879,7 +2879,9 @@ AutoDebugModeInvalidation::~AutoDebugModeInvalidation()
     if (comp_) {
         FinishDiscardJitCode(fop, comp_);
     } else {
-        for (CompartmentsInZoneIter comp(zone_); !comp.done(); comp.next())
-            FinishDiscardJitCode(fop, comp);
+        for (CompartmentsInZoneIter comp(zone_); !comp.done(); comp.next()) {
+            if (comp->principals)
+                FinishDiscardJitCode(fop, comp);
+        }
     }
 }

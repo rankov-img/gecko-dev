@@ -468,7 +468,6 @@ pref("browser.tabs.closeButtons", 1);
 pref("browser.tabs.selectOwnerOnClose", true);
 
 pref("browser.ctrlTab.previews", false);
-pref("browser.ctrlTab.recentlyUsedLimit", 7);
 
 // By default, do not export HTML at shutdown.
 // If true, at shutdown the bookmarks in your menu and toolbar will
@@ -657,6 +656,8 @@ pref("plugins.update.url", "https://www.mozilla.org/%LOCALE%/plugincheck/");
 pref("plugins.update.notifyUser", false);
 
 pref("plugins.click_to_play", true);
+
+pref("plugins.hideMissingPluginsNotification", false);
 
 #ifdef RELEASE_BUILD
 // For now, plugins other than Java and Flash are enabled in beta/release
@@ -953,6 +954,9 @@ pref("toolkit.crashreporter.infoURL",
 // base URL for web-based support pages
 pref("app.support.baseURL", "https://support.mozilla.org/1/firefox/%VERSION%/%OS%/%LOCALE%/");
 
+// base url for web-based feedback pages
+pref("app.feedback.baseURL", "https://input.mozilla.org/%LOCALE%/feedback/%APP%/%VERSION%/");
+
 // Name of alternate about: page for certificate errors (when undefined, defaults to about:neterror)
 pref("security.alternate_certificate_error_page", "certerror");
 
@@ -978,11 +982,11 @@ pref("dom.ipc.plugins.enabled.x86_64", true);
 pref("dom.ipc.plugins.enabled", true);
 #endif
 
-#if defined(NIGHTLY_BUILD) && defined(XP_MACOSX)
-// In Nightly, browser.tabs.remote is enabled on platforms that
-// support OMTC. However, users won't actually get remote tabs unless
-// they enable browser.tabs.remote.autostart or they use the "New OOP
-// Window" menu option.
+#if defined(NIGHTLY_BUILD)
+// browser.tabs.remote is enabled on nightly. However, users won't
+// actually get remote tabs unless they enable
+// browser.tabs.remote.autostart or they use the "New OOP Window" menu
+// option.
 pref("browser.tabs.remote", true);
 #else
 pref("browser.tabs.remote", false);
@@ -1371,6 +1375,9 @@ pref("identity.fxaccounts.remote.uri", "https://accounts.firefox.com/?service=sy
 // should be fetched.  Must use HTTPS.
 pref("identity.fxaccounts.remote.force_auth.uri", "https://accounts.firefox.com/force_auth?service=sync&context=fx_desktop_v1");
 
+// The remote content URL shown for signin in. Must use HTTPS.
+pref("identity.fxaccounts.remote.signin.uri", "https://accounts.firefox.com/signin?service=sync&context=fx_desktop_v1");
+
 // The URL we take the user to when they opt to "manage" their Firefox Account.
 // Note that this will always need to be in the same TLD as the
 // "identity.fxaccounts.remote.uri" pref.
@@ -1378,3 +1385,12 @@ pref("identity.fxaccounts.settings.uri", "https://accounts.firefox.com/settings"
 
 // The URL of the Firefox Accounts auth server backend
 pref("identity.fxaccounts.auth.uri", "https://api.accounts.firefox.com/v1");
+
+// On GTK, we now default to showing the menubar only when alt is pressed:
+#ifdef MOZ_WIDGET_GTK
+pref("ui.key.menuAccessKeyFocuses", true);
+#endif
+
+
+// Delete HTTP cache v2 data of users that didn't opt-in manually
+pref("browser.cache.auto_delete_cache_version", 1);

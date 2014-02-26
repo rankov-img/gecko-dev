@@ -15,7 +15,6 @@
 #include "GLReadTexImageHelper.h"
 
 #include "gfxCrashReporterUtils.h"
-#include "gfxPlatform.h"
 #include "gfxUtils.h"
 #include "GLContextProvider.h"
 #include "GLTextureImage.h"
@@ -28,11 +27,11 @@
 #include "GfxTexturesReporter.h"
 #include "TextureGarbageBin.h"
 #include "gfx2DGlue.h"
+#include "gfxPrefs.h"
 
 #include "OGLShaderProgram.h" // for ShaderProgramType
 
 #include "mozilla/DebugOnly.h"
-#include "mozilla/Preferences.h"
 
 #ifdef XP_MACOSX
 #include <CoreServices/CoreServices.h>
@@ -308,7 +307,7 @@ GLContext::InitWithPrefix(const char *prefix, bool trygl)
         return true;
     }
 
-    mWorkAroundDriverBugs = gfxPlatform::GetPlatform()->WorkAroundDriverBugs();
+    mWorkAroundDriverBugs = gfxPrefs::WorkAroundDriverBugs();
 
     SymLoadStruct symbols[] = {
         { (PRFuncPtr*) &mSymbols.fActiveTexture, { "ActiveTexture", "ActiveTextureARB", nullptr } },
@@ -499,6 +498,19 @@ GLContext::InitWithPrefix(const char *prefix, bool trygl)
                 { (PRFuncPtr*) &mSymbols.fUnmapBuffer, { "UnmapBuffer", nullptr } },
                 { (PRFuncPtr*) &mSymbols.fPointParameterf, { "PointParameterf", nullptr } },
                 { (PRFuncPtr*) &mSymbols.fDrawBuffer, { "DrawBuffer", nullptr } },
+                    // These functions are only used by Skia/GL in desktop mode.
+                    // Other parts of Gecko should avoid using these
+                    { (PRFuncPtr*) &mSymbols.fDrawBuffers, { "DrawBuffers", nullptr } },
+                    { (PRFuncPtr*) &mSymbols.fClientActiveTexture, { "ClientActiveTexture", nullptr } },
+                    { (PRFuncPtr*) &mSymbols.fDisableClientState, { "DisableClientState", nullptr } },
+                    { (PRFuncPtr*) &mSymbols.fEnableClientState, { "EnableClientState", nullptr } },
+                    { (PRFuncPtr*) &mSymbols.fLoadIdentity, { "LoadIdentity", nullptr } },
+                    { (PRFuncPtr*) &mSymbols.fLoadMatrixf, { "LoadMatrixf", nullptr } },
+                    { (PRFuncPtr*) &mSymbols.fMatrixMode, { "MatrixMode", nullptr } },
+                    { (PRFuncPtr*) &mSymbols.fTexGeni, { "TexGeni", nullptr } },
+                    { (PRFuncPtr*) &mSymbols.fTexGenf, { "TexGenf", nullptr } },
+                    { (PRFuncPtr*) &mSymbols.fTexGenfv, { "TexGenfv", nullptr } },
+                    { (PRFuncPtr*) &mSymbols.fVertexPointer, { "VertexPointer", nullptr } },
                 { nullptr, { nullptr } },
             };
 
@@ -1320,7 +1332,7 @@ GLContext::ChooseGLFormats(const SurfaceCaps& caps) const
         }
     }
 
-    uint32_t msaaLevel = Preferences::GetUint("gl.msaa-level", 2);
+    uint32_t msaaLevel = gfxPrefs::MSAALevel();
     GLsizei samples = msaaLevel * msaaLevel;
     samples = std::min(samples, mMaxSamples);
 

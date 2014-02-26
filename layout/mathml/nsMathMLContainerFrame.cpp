@@ -80,7 +80,7 @@ public:
 #endif
 
   virtual void Paint(nsDisplayListBuilder* aBuilder,
-                     nsRenderingContext* aCtx);
+                     nsRenderingContext* aCtx) MOZ_OVERRIDE;
   NS_DISPLAY_DECL_NAME("MathMLError", TYPE_MATHML_ERROR)
 };
 
@@ -735,7 +735,7 @@ nsMathMLContainerFrame::ChildListChanged(int32_t aModType)
   return ReLayoutChildren(frame);
 }
 
-NS_IMETHODIMP
+nsresult
 nsMathMLContainerFrame::AppendFrames(ChildListID     aListID,
                                      nsFrameList&    aFrameList)
 {
@@ -746,7 +746,7 @@ nsMathMLContainerFrame::AppendFrames(ChildListID     aListID,
   return ChildListChanged(nsIDOMMutationEvent::ADDITION);
 }
 
-NS_IMETHODIMP
+nsresult
 nsMathMLContainerFrame::InsertFrames(ChildListID     aListID,
                                      nsIFrame*       aPrevFrame,
                                      nsFrameList&    aFrameList)
@@ -759,7 +759,7 @@ nsMathMLContainerFrame::InsertFrames(ChildListID     aListID,
   return ChildListChanged(nsIDOMMutationEvent::ADDITION);
 }
 
-NS_IMETHODIMP
+nsresult
 nsMathMLContainerFrame::RemoveFrame(ChildListID     aListID,
                                     nsIFrame*       aOldFrame)
 {
@@ -771,7 +771,7 @@ nsMathMLContainerFrame::RemoveFrame(ChildListID     aListID,
   return ChildListChanged(nsIDOMMutationEvent::REMOVAL);
 }
 
-NS_IMETHODIMP
+nsresult
 nsMathMLContainerFrame::AttributeChanged(int32_t         aNameSpaceID,
                                          nsIAtom*        aAttribute,
                                          int32_t         aModType)
@@ -881,7 +881,7 @@ nsMathMLContainerFrame::ReflowChild(nsIFrame*                aChildFrame,
   return rv;
 }
 
-NS_IMETHODIMP
+nsresult
 nsMathMLContainerFrame::Reflow(nsPresContext*           aPresContext,
                                nsHTMLReflowMetrics&     aDesiredSize,
                                const nsHTMLReflowState& aReflowState,
@@ -1319,10 +1319,10 @@ nsMathMLContainerFrame::PositionRowChildFrames(nscoord aOffsetX,
 
 class ForceReflow : public nsIReflowCallback {
 public:
-  virtual bool ReflowFinished() {
+  virtual bool ReflowFinished() MOZ_OVERRIDE {
     return true;
   }
-  virtual void ReflowCallbackCanceled() {}
+  virtual void ReflowCallbackCanceled() MOZ_OVERRIDE {}
 };
 
 // We only need one of these so we just make it a static global, no need

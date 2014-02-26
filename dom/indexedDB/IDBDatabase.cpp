@@ -394,7 +394,7 @@ IDBDatabase::OnUnlink()
 
   // No reason for the QuotaManager to track us any longer.
   QuotaManager* quotaManager = QuotaManager::Get();
-  if (quotaManager) {
+  if (mRegistered && quotaManager) {
     quotaManager->UnregisterStorage(this);
 
     // Don't try to unregister again in the destructor.
@@ -953,6 +953,5 @@ CreateFileHelper::GetSuccessResult(JSContext* aCx,
     IDBFileHandle::Create(mDatabase, mName, mType, mFileInfo.forget());
   IDB_ENSURE_TRUE(fileHandle, NS_ERROR_DOM_INDEXEDDB_UNKNOWN_ERR);
 
-  return WrapNative(aCx, NS_ISUPPORTS_CAST(nsIDOMFileHandle*, fileHandle),
-                    aVal);
+  return WrapNative(aCx, NS_ISUPPORTS_CAST(EventTarget*, fileHandle), aVal);
 }

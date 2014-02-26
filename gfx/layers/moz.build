@@ -34,7 +34,6 @@ EXPORTS += [
     'LayerTreeInvalidation.h',
     'opengl/Composer2D.h',
     'opengl/OGLShaderProgram.h',
-    'opengl/OGLShaders.h',
     'opengl/TexturePoolOGL.h',
     'ReadbackLayer.h',
     'SharedTextureImage.h',
@@ -130,6 +129,7 @@ EXPORTS.mozilla.layers += [
     'ipc/CompositableTransactionParent.h',
     'ipc/CompositorChild.h',
     'ipc/CompositorParent.h',
+    'ipc/FenceUtils.h',
     'ipc/GeckoContentController.h',
     'ipc/GestureEventListener.h',
     'ipc/ImageBridgeChild.h',
@@ -202,6 +202,14 @@ if CONFIG['MOZ_WIDGET_TOOLKIT'] == 'gonk':
     SOURCES += [
         'ipc/ShadowLayerUtilsGralloc.cpp',
     ]
+
+    if CONFIG['ANDROID_VERSION'] in ('18'):
+        EXPORTS.mozilla.layers += [
+            'ipc/FenceUtilsGonk.h',
+        ]
+        SOURCES += [
+            'ipc/FenceUtilsGonk.cpp',
+        ]
 
 UNIFIED_SOURCES += [
     'basic/BasicCanvasLayer.cpp',

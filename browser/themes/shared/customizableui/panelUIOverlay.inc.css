@@ -194,8 +194,8 @@ toolbaritem[cui-areatype="menu-panel"][sdkstylewidget="true"]:not(.panel-wide-it
 }
 
 /* Help SDK buttons fit in. */
-toolbarpaletteitem[place="palette"] > #personal-bookmarks > #bookmarks-toolbar-placeholder,
-#personal-bookmarks[cui-areatype="menu-panel"] > #bookmarks-toolbar-placeholder {
+toolbarpaletteitem[place="palette"] > toolbarbutton[sdk-button="true"] > .toolbarbutton-icon,
+toolbarbutton[sdk-button="true"][cui-areatype="menu-panel"] > .toolbarbutton-icon {
   height: 32px;
   width: 32px;
 }
@@ -250,18 +250,30 @@ toolbaritem[cui-areatype="menu-panel"][sdkstylewidget="true"]:not(.panel-wide-it
   opacity: .5;
 }
 
-toolbaritem[cui-areatype="menu-panel"][sdkstylewidget="true"] {
+toolbaritem[cui-areatype="menu-panel"][sdkstylewidget="true"]:not(.panel-wide-item) {
   width: calc(@menuPanelButtonWidth@);
   margin: 0 !important;
 }
 
-toolbaritem[cui-areatype="menu-panel"][sdkstylewidget="true"]:not(.panel-wide-widget) {
+toolbaritem[cui-areatype="menu-panel"][sdkstylewidget="true"]:not(.panel-wide-item) {
   -moz-box-align: center;
   -moz-box-pack: center;
 }
 
 toolbaritem[cui-areatype="menu-panel"][sdkstylewidget="true"] > iframe {
   margin: 4px auto;
+}
+
+/*
+ * XXXgijs: this is a workaround for a layout issue that was caused by these iframes,
+ * which was affecting subview display. Because of this, we're hiding the iframe *only*
+ * when displaying a subview. The discerning user might notice this, but it's not nearly
+ * as bad as the brokenness.
+ * This hack should be removed once https://bugzilla.mozilla.org/show_bug.cgi?id=975375
+ * is addressed.
+ */
+#PanelUI-multiView[viewtype="subview"] toolbaritem[cui-areatype="menu-panel"][sdkstylewidget="true"]:not(.panel-wide-item) > iframe {
+  visibility: hidden;
 }
 
 toolbaritem[cui-areatype="menu-panel"][sdkstylewidget="true"]:not(.panel-wide-item) > .toolbarbutton-text {
@@ -358,10 +370,6 @@ toolbarpaletteitem[place="palette"] > toolbaritem > toolbarbutton {
 
 #PanelUI-fxa-status > .toolbarbutton-text {
   width: 0; /* Fancy cropping solution for flexbox. */
-}
-
-#PanelUI-fxa-status[signedin] {
-  font-weight: bold;
 }
 
 #PanelUI-help,

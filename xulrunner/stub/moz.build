@@ -27,3 +27,9 @@ LOCAL_INCLUDES += [
 
 # Statically link against the RTL on windows
 USE_STATIC_LIBS = True
+
+if CONFIG['OS_ARCH'] == 'WINNT':
+    LOCAL_INCLUDES += ['/toolkit/xre']
+
+if CONFIG['_MSC_VER']:
+    WIN32_EXE_LDFLAGS += ['-ENTRY:wmainCRTStartup']

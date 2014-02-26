@@ -324,14 +324,6 @@ NS_GetDebug(nsIDebug** result)
 }
 
 EXPORT_XPCOM_API(nsresult)
-NS_GetTraceRefcnt(nsITraceRefcnt** result)
-{
-    return nsTraceRefcntImpl::Create(nullptr,
-                                     NS_GET_IID(nsITraceRefcnt),
-                                     (void**) result);
-}
-
-EXPORT_XPCOM_API(nsresult)
 NS_InitXPCOM(nsIServiceManager* *result,
                              nsIFile* binDirectory)
 {
@@ -831,6 +823,20 @@ ShutdownXPCOM(nsIServiceManager* servMgr)
     } else {
         NS_WARNING("Component Manager was never created ...");
     }
+
+#ifdef MOZ_ENABLE_PROFILER_SPS
+    // In optimized builds we don't do shutdown collections by default, so
+    // uncollected (garbage) objects may keep the nsXPConnect singleton alive,
+    // and its XPCJSRuntime along with it. However, we still destroy various
+    // bits of state in JS_ShutDown(), so we need to make sure the profiler
+    // can't access them when it shuts down. This call nulls out the
+    // JS pseudo-stack's internal reference to the main thread JSRuntime,
+    // duplicating the call in XPCJSRuntime::~XPCJSRuntime() in case that
+    // never fired.
+    if (PseudoStack *stack = mozilla_get_pseudo_stack()) {
+        stack->sampleRuntime(nullptr);
+    }
+#endif
 
     // Shut down the JS engine.
     JS_ShutDown();

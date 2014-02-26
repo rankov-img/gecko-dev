@@ -1732,7 +1732,7 @@ var gCSSProperties = {
 		type: CSS_TYPE_LONGHAND,
 		initial_values: [ "none" ],
 		other_values: [ "1000px", "500.2px" ],
-		invalid_values: [ "pants", "200", "0", "-100px", "-27.2em" ]
+		invalid_values: [ "pants", "200", "0", "-100px", "-27.2em", "0px" ]
 	},
 	"backface-visibility": {
 		domProp: "backfaceVisibility",
@@ -4900,7 +4900,7 @@ if (SpecialPowers.getBoolPref("layout.css.background-blend-mode.enabled")) {
 		initial_values: [ "normal" ],
 		other_values: [ "multiply", "screen", "overlay", "darken", "lighten", "color-dodge", "color-burn",
 			"hard-light", "soft-light", "difference", "exclusion", "hue", "saturation", "color", "luminosity" ],
-		invalid_values: []
+		invalid_values: ["none", "10px", "multiply multiply"]
 	};
 }
 
@@ -4912,6 +4912,17 @@ if (SpecialPowers.getBoolPref("layout.css.will-change.enabled")) {
 		initial_values: [ "auto" ],
 		other_values: [ "scroll-position", "contents", "transform", "opacity", "scroll-position, transform", "transform, opacity", "contents, transform", "property-that-doesnt-exist-yet" ],
 		invalid_values: [ "none", "all", "default", "auto, scroll-position", "scroll-position, auto", "transform scroll-position", ",", "trailing," ]
+	};
+}
+
+if (SpecialPowers.getBoolPref("layout.css.overflow-clip-box.enabled")) {
+	gCSSProperties["overflow-clip-box"] = {
+		domProp: "overflowClipBox",
+		inherited: false,
+		type: CSS_TYPE_LONGHAND,
+		initial_values: [ "padding-box" ],
+		other_values: [ "content-box" ],
+		invalid_values: [ "none", "auto", "border-box", "0" ]
 	};
 }
 

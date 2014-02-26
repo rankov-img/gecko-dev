@@ -3197,7 +3197,12 @@ function OpenBrowserWindow(options)
   }
 
   if (options && options.remote) {
-    extraFeatures += ",remote";
+    let omtcEnabled = gPrefService.getBoolPref("layers.offmainthreadcomposition.enabled");
+    if (!omtcEnabled) {
+      alert("To use out-of-process tabs, you must set the layers.offmainthreadcomposition.enabled preference and restart. Opening a normal window instead.");
+    } else {
+      extraFeatures += ",remote";
+    }
   } else if (options && options.remote === false) {
     extraFeatures += ",non-remote";
   }
@@ -3610,8 +3615,7 @@ var XULBrowserWindow = {
       if (gURLBar) {
         URLBarSetURI(aLocationURI);
 
-        // Update starring UI
-        BookmarkingUI.updateStarState();
+        BookmarkingUI.onLocationChange();
         SocialUI.updateState();
       }
 
@@ -4239,7 +4243,7 @@ function onViewToolbarsPopupShowing(aEvent, aInsertPoint) {
 
   if (toolbarItem && toolbarItem.localName == "toolbarpaletteitem") {
     toolbarItem = toolbarItem.firstChild;
-  } else {
+  } else if (toolbarItem && toolbarItem.localName != "toolbar") {
     while (toolbarItem && toolbarItem.parentNode) {
       let parent = toolbarItem.parentNode;
       if ((parent.classList && parent.classList.contains("customization-target")) ||
@@ -4249,6 +4253,8 @@ function onViewToolbarsPopupShowing(aEvent, aInsertPoint) {
         break;
       toolbarItem = parent;
     }
+  } else {
+    toolbarItem = null;
   }
 
   // Right-clicking on an empty part of the tabstrip will exit
@@ -4274,8 +4280,15 @@ function onViewToolbarCommand(aEvent) {
 }
 
 function setToolbarVisibility(toolbar, isVisible) {
-  var hidingAttribute = toolbar.getAttribute("type") == "menubar" ?
-                        "autohide" : "collapsed";
+  let hidingAttribute;
+  if (toolbar.getAttribute("type") == "menubar") {
+    hidingAttribute = "autohide";
+#ifdef MOZ_WIDGET_GTK
+    Services.prefs.setBoolPref("ui.key.menuAccessKeyFocuses", !isVisible);
+#endif
+  } else {
+    hidingAttribute = "collapsed";
+  }
 
   toolbar.setAttribute(hidingAttribute, !isVisible);
   document.persist(toolbar.id, hidingAttribute);
@@ -5135,55 +5148,15 @@ function handleDroppedLink(event, url, name)
   event.preventDefault();
 };
 
-function MultiplexHandler(event)
-{ try {
-    var node = event.target;
-    var name = node.getAttribute('name');
-
-    if (name == 'detectorGroup') {
-        BrowserCharsetReload();
-        SelectDetector(event, false);
-    } else if (name == 'charsetGroup') {
-        var charset = node.getAttribute('id');
-        charset = charset.substring(charset.indexOf('charset.') + 'charset.'.length);
-        BrowserSetForcedCharacterSet(charset);
-    } else if (name == 'charsetCustomize') {
-        //do nothing - please remove this else statement, once the charset prefs moves to the pref window
-    } else {
-        BrowserSetForcedCharacterSet(node.getAttribute('id'));
-    }
-    } catch(ex) { alert(ex); }
-}
-
-function SelectDetector(event, doReload)
-{
-    var uri =  event.target.getAttribute("id");
-    var prefvalue = uri.substring(uri.indexOf('chardet.') + 'chardet.'.length);
-    if ("off" == prefvalue) { // "off" is special value to turn off the detectors
-        prefvalue = "";
-    }
-
-    try {
-        var str =  Cc["@mozilla.org/supports-string;1"].
-                   createInstance(Ci.nsISupportsString);
-
-        str.data = prefvalue;
-        gPrefService.setComplexValue("intl.charset.detector", Ci.nsISupportsString, str);
-        if (doReload)
-          window.content.location.reload();
-    }
-    catch (ex) {
-        dump("Failed to set the intl.charset.detector preference.\n");
-    }
-}
-
 function BrowserSetForcedCharacterSet(aCharset)
 {
-  gBrowser.docShell.gatherCharsetMenuTelemetry();
-  gBrowser.docShell.charset = aCharset;
-  // Save the forced character-set
-  if (!PrivateBrowsingUtils.isWindowPrivate(window))
-    PlacesUtils.setCharsetForURI(getWebNavigation().currentURI, aCharset);
+  if (aCharset) {
+    gBrowser.docShell.gatherCharsetMenuTelemetry();
+    gBrowser.docShell.charset = aCharset;
+    // Save the forced character-set
+    if (!PrivateBrowsingUtils.isWindowPrivate(window))
+      PlacesUtils.setCharsetForURI(getWebNavigation().currentURI, aCharset);
+  }
   BrowserCharsetReload();
 }
 
@@ -5192,8 +5165,8 @@ function BrowserCharsetReload()
   BrowserReloadWithFlags(nsIWebNavigation.LOAD_FLAGS_CHARSET_CHANGE);
 }
 
-function charsetMenuGetElement(parent, id) {
-  return parent.getElementsByAttribute("id", id)[0];
+function charsetMenuGetElement(parent, charset) {
+  return parent.getElementsByAttribute("charset", charset)[0];
 }
 
 function UpdateCurrentCharset(target) {
@@ -5203,54 +5176,19 @@ function UpdateCurrentCharset(target) {
 
     // Uncheck previous item
     if (gPrevCharset) {
-        var pref_item = charsetMenuGetElement(target, "charset." + gPrevCharset);
+        var pref_item = charsetMenuGetElement(target, gPrevCharset);
         if (pref_item)
           pref_item.setAttribute('checked', 'false');
     }
 
-    var menuitem = charsetMenuGetElement(target, "charset." + FoldCharset(wnd.document.characterSet));
+    var menuitem = charsetMenuGetElement(target, CharsetMenu.foldCharset(wnd.document.characterSet));
     if (menuitem) {
         menuitem.setAttribute('checked', 'true');
     }
 }
 
-function FoldCharset(charset) {
-  // For substantially similar encodings, treat two encodings as the same
-  // for the purpose of the check mark.
-  if (charset == "ISO-8859-8-I") {
-    return "windows-1255";
-  }
-
-  if (charset == "gb18030") {
-    return "gbk";
-  }
-
-  return charset;
-}
-
-function UpdateCharsetDetector(target) {
-  var prefvalue;
-
-  try {
-    prefvalue = gPrefService.getComplexValue("intl.charset.detector", Ci.nsIPrefLocalizedString).data;
-  }
-  catch (ex) {}
-
-  if (!prefvalue)
-    prefvalue = "off";
-
-  var menuitem = charsetMenuGetElement(target, "chardet." + prefvalue);
-  if (menuitem)
-    menuitem.setAttribute("checked", "true");
-}
-
-function UpdateMenus(event) {
-  UpdateCurrentCharset(event.target);
-  UpdateCharsetDetector(event.target);
-}
-
 function charsetLoadListener() {
-  var charset = FoldCharset(window.content.document.characterSet);
+  var charset = CharsetMenu.foldCharset(window.content.document.characterSet);
 
   if (charset.length > 0 && (charset != gLastBrowserCharset)) {
     gPrevCharset = gLastBrowserCharset;
@@ -6504,6 +6442,7 @@ var gIdentityHandler = {
     ];
     let options = {
       dismissed: true,
+      learnMoreURL: Services.urlFormatter.formatURLPref("app.support.baseURL") + "mixed-content",
     };
     PopupNotifications.show(gBrowser.selectedBrowser, "mixed-content-blocked",
                             messageString, "mixed-content-blocked-notification-icon",

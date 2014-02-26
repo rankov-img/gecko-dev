@@ -614,15 +614,10 @@ nsCSSRendering::PaintOutline(nsPresContext* aPresContext,
       false
 #endif
      ) {
-    // FIXME: This behavior doesn't make sense; we should switch back to
-    // using aBorderArea.  But since this has been broken since bug
-    // 133165 in August of 2004, that switch should be made in its own
-    // patch changing only that behavior.
-    innerRect = aForFrame->GetVisualOverflowRect();
+    innerRect = aBorderArea;
   } else {
-    innerRect = GetOutlineInnerRect(aForFrame);
+    innerRect = GetOutlineInnerRect(aForFrame) + aBorderArea.TopLeft();
   }
-  innerRect += aBorderArea.TopLeft();
   nscoord offset = ourOutline->mOutlineOffset;
   innerRect.Inflate(offset, offset);
   // If the dirty rect is completely inside the border area (e.g., only the
@@ -3115,7 +3110,10 @@ DrawBorderImage(nsPresContext*       aPresContext,
         value = 0;
         break;
     }
-    border.Side(s) = NS_lround(value);
+    // NSToCoordRoundWithClamp rounds towards infinity, but that's OK
+    // because we expect value to be non-negative.
+    MOZ_ASSERT(value >= 0);
+    border.Side(s) = NSToCoordRoundWithClamp(value);
     MOZ_ASSERT(border.Side(s) >= 0);
   }
 

@@ -35,6 +35,15 @@ TextComposition::TextComposition(nsPresContext* aPresContext,
 {
 }
 
+void
+TextComposition::Destroy()
+{
+  mPresContext = nullptr;
+  mNode = nullptr;
+  // TODO: If the editor is still alive and this is held by it, we should tell
+  //       this being destroyed for cleaning up the stuff.
+}
+
 bool
 TextComposition::MatchesNativeContext(nsIWidget* aWidget) const
 {
@@ -52,6 +61,10 @@ TextComposition::DispatchEvent(WidgetGUIEvent* aEvent,
 
   nsEventDispatcher::Dispatch(mNode, mPresContext,
                               aEvent, nullptr, aStatus, aCallBack);
+
+  if (!mPresContext) {
+    return;
+  }
 
   // Emulate editor behavior of text event handler if no editor handles
   // composition/text events.
@@ -114,8 +127,8 @@ TextComposition::NotityUpdateComposition(WidgetGUIEvent* aEvent)
 }
 
 void
-TextComposition::DispatchCompsotionEventRunnable(uint32_t aEventMessage,
-                                                 const nsAString& aData)
+TextComposition::DispatchCompositionEventRunnable(uint32_t aEventMessage,
+                                                  const nsAString& aData)
 {
   nsContentUtils::AddScriptRunner(
     new CompositionEventDispatcher(mPresContext, mNode,
@@ -128,10 +141,10 @@ TextComposition::SynthesizeCommit(bool aDiscard)
   nsRefPtr<TextComposition> kungFuDeathGrip(this);
   nsAutoString data(aDiscard ? EmptyString() : mLastData);
   if (mLastData != data) {
-    DispatchCompsotionEventRunnable(NS_COMPOSITION_UPDATE, data);
-    DispatchCompsotionEventRunnable(NS_TEXT_TEXT, data);
+    DispatchCompositionEventRunnable(NS_COMPOSITION_UPDATE, data);
+    DispatchCompositionEventRunnable(NS_TEXT_TEXT, data);
   }
-  DispatchCompsotionEventRunnable(NS_COMPOSITION_END, data);
+  DispatchCompositionEventRunnable(NS_COMPOSITION_END, data);
 }
 
 nsresult

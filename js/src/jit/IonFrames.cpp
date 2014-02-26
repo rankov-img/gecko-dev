@@ -1165,7 +1165,7 @@ MarkJitActivation(JSTracer *trc, const JitActivationIterator &activations)
             MarkJitExitFrame(trc, frames);
             break;
           case IonFrame_BaselineJS:
-            frames.baselineFrame()->trace(trc);
+            frames.baselineFrame()->trace(trc, frames);
             break;
           case IonFrame_BaselineStub:
             MarkBaselineStubFrame(trc, frames);

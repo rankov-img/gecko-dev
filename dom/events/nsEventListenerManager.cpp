@@ -833,10 +833,6 @@ nsEventListenerManager::CompileEventHandlerInternal(nsListenerStruct *aListenerS
         attrName = nsGkAtoms::onload;
       else if (aListenerStruct->mTypeAtom == nsGkAtoms::onSVGUnload)
         attrName = nsGkAtoms::onunload;
-      else if (aListenerStruct->mTypeAtom == nsGkAtoms::onSVGAbort)
-        attrName = nsGkAtoms::onabort;
-      else if (aListenerStruct->mTypeAtom == nsGkAtoms::onSVGError)
-        attrName = nsGkAtoms::onerror;
       else if (aListenerStruct->mTypeAtom == nsGkAtoms::onSVGResize)
         attrName = nsGkAtoms::onresize;
       else if (aListenerStruct->mTypeAtom == nsGkAtoms::onSVGScroll)
@@ -873,7 +869,8 @@ nsEventListenerManager::CompileEventHandlerInternal(nsListenerStruct *aListenerS
 
     JSAutoCompartment ac(cx, context->GetWindowProxy());
     JS::CompileOptions options(cx);
-    options.setFileAndLine(url.get(), lineNo)
+    options.setIntroductionType("eventHandler")
+           .setFileAndLine(url.get(), lineNo)
            .setVersion(SCRIPTVERSION_DEFAULT);
 
     JS::Rooted<JS::Value> targetVal(cx);

@@ -73,6 +73,8 @@
 #include "nsXULTooltipListener.h"
 
 #include "inDOMView.h"
+
+#include "nsMenuBarListener.h"
 #endif
 
 #include "nsHTMLEditor.h"
@@ -130,7 +132,6 @@ using namespace mozilla;
 using namespace mozilla::net;
 using namespace mozilla::dom;
 using namespace mozilla::dom::ipc;
-using namespace mozilla::dom::time;
 
 nsrefcnt nsLayoutStatics::sLayoutStaticRefcnt = 0;
 
@@ -280,9 +281,11 @@ nsLayoutStatics::Initialize()
   nsCookieService::AppClearDataObserverInit();
   nsApplicationCacheService::AppClearDataObserverInit();
 
-  InitializeDateCacheCleaner();
-
   HTMLVideoElement::Init();
+
+#ifdef MOZ_XUL
+  nsMenuBarListener::InitializeStatics();
+#endif
 
   CacheObserver::Init();
 

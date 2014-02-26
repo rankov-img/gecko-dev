@@ -501,9 +501,7 @@ HandleException(PEXCEPTION_POINTERS exception)
     if (module.containsPC(faultingAddress)) {
         activation->setResumePC(pc);
         *ppc = module.operationCallbackExit();
-        DWORD oldProtect;
-        if (!VirtualProtect(module.codeBase(), module.functionBytes(), PAGE_EXECUTE, &oldProtect))
-            MOZ_CRASH();
+        module.unprotectCode(rt);
         return true;
     }
 
@@ -688,7 +686,7 @@ HandleMachException(JSRuntime *rt, const ExceptionRequest &request)
 
     const AsmJSModule &module = activation->module();
     if (HandleSimulatorInterrupt(rt, activation, faultingAddress)) {
-        mprotect(module.codeBase(), module.functionBytes(), PROT_EXEC);
+        module.unprotectCode(rt);
         return true;
     }
 
@@ -703,7 +701,7 @@ HandleMachException(JSRuntime *rt, const ExceptionRequest &request)
     if (module.containsPC(faultingAddress)) {
         activation->setResumePC(pc);
         *ppc = module.operationCallbackExit();
-        mprotect(module.codeBase(), module.functionBytes(), PROT_EXEC);
+        module.unprotectCode(rt);
 
         // Update the thread state with the new pc.
         kret = thread_set_state(rtThread, x86_THREAD_STATE, (thread_state_t)&state, x86_THREAD_STATE_COUNT);
@@ -935,7 +933,7 @@ HandleSignal(int signum, siginfo_t *info, void *ctx)
 
     const AsmJSModule &module = activation->module();
     if (HandleSimulatorInterrupt(rt, activation, faultingAddress)) {
-        mprotect(module.codeBase(), module.functionBytes(), PROT_EXEC);
+        module.unprotectCode(rt);
         return true;
     }
 
@@ -950,7 +948,7 @@ HandleSignal(int signum, siginfo_t *info, void *ctx)
     if (module.containsPC(faultingAddress)) {
         activation->setResumePC(pc);
         *ppc = module.operationCallbackExit();
-        mprotect(module.codeBase(), module.functionBytes(), PROT_EXEC);
+        module.unprotectCode(rt);
         return true;
     }
 
@@ -1070,16 +1068,7 @@ js::TriggerOperationCallbackForAsmJSCode(JSRuntime *rt)
     if (!activation)
         return;
 
-    const AsmJSModule &module = activation->module();
-
-#if defined(XP_WIN)
-    DWORD oldProtect;
-    if (!VirtualProtect(module.codeBase(), module.functionBytes(), PAGE_NOACCESS, &oldProtect))
-        MOZ_CRASH();
-#else  // assume Unix
-    if (mprotect(module.codeBase(), module.functionBytes(), PROT_NONE))
-        MOZ_CRASH();
-#endif
+    activation->module().protectCode(rt);
 }
 
 #if defined(MOZ_ASAN) && defined(JS_STANDALONE)

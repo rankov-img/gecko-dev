@@ -1080,8 +1080,8 @@ class ICStubCompiler
     }
 
 #ifdef JSGC_GENERATIONAL
-    inline bool emitPostWriteBarrierSlot(MacroAssembler &masm, Register obj, Register scratch,
-                                         GeneralRegisterSet saveRegs);
+    inline bool emitPostWriteBarrierSlot(MacroAssembler &masm, Register obj, ValueOperand val,
+                                         Register scratch, GeneralRegisterSet saveRegs);
 #endif
 
   public:

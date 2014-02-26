@@ -25,12 +25,15 @@
 # include "vm/Monitor.h"
 #endif
 
-#if defined(DEBUG) && defined(JS_THREADSAFE) && defined(JS_ION)
-# include "jit/Ion.h"
-# include "jit/JitCompartment.h"
-# include "jit/MIR.h"
-# include "jit/MIRGraph.h"
-#endif // DEBUG && THREADSAFE && ION
+#if defined(JS_THREADSAFE) && defined(JS_ION)
+# include "jit/JitCommon.h"
+# ifdef DEBUG
+#  include "jit/Ion.h"
+#  include "jit/JitCompartment.h"
+#  include "jit/MIR.h"
+#  include "jit/MIRGraph.h"
+# endif
+#endif // THREADSAFE && ION
 
 #include "vm/Interpreter-inl.h"
 
@@ -170,11 +173,12 @@ ExecuteSequentially(JSContext *cx, HandleValue funVal)
 {
     FastInvokeGuard fig(cx, funVal);
     InvokeArgs &args = fig.args();
-    if (!args.init(1))
+    if (!args.init(2))
         return false;
     args.setCallee(funVal);
     args.setThis(UndefinedValue());
-    args[0].setBoolean(!!cx->runtime()->forkJoinWarmup);
+    args[0].setInt32(0); // always worker 0 in seq
+    args[1].setBoolean(!!cx->runtime()->forkJoinWarmup);
     return fig.invoke(cx);
 }
 
@@ -1517,9 +1521,10 @@ ForkJoinShared::executePortion(PerThreadData *perThread, uint32_t workerId)
         cx.bailoutRecord->setCause(ParallelBailoutMainScriptNotPresent);
         setAbortFlagAndTriggerOperationCallback(false);
     } else {
-        ParallelIonInvoke<2> fii(cx_->runtime(), fun_, 1);
+        ParallelIonInvoke<2> fii(cx_->runtime(), fun_, 2);
 
-        fii.args[0] = BooleanValue(false);
+        fii.args[0] = Int32Value(workerId);
+        fii.args[1] = BooleanValue(false);
 
         bool ok = fii.invoke(perThread);
         JS_ASSERT(ok == !cx.bailoutRecord->topScript);
@@ -2168,11 +2173,11 @@ intrinsic_SetForkJoinTargetRegionPar(ForkJoinContext *cx, unsigned argc, Value *
 
     CallArgs args = CallArgsFromVp(argc, vp);
     JS_ASSERT(argc == 3);
-    JS_ASSERT(args[0].isObject() && args[0].toObject().is<TypedDatum>());
+    JS_ASSERT(args[0].isObject() && args[0].toObject().is<TypedObject>());
     JS_ASSERT(args[1].isInt32());
     JS_ASSERT(args[2].isInt32());
 
-    uint8_t *mem = args[0].toObject().as<TypedDatum>().typedMem();
+    uint8_t *mem = args[0].toObject().as<TypedObject>().typedMem();
     int32_t start = args[1].toInt32();
     int32_t end = args[2].toInt32();
 

@@ -5304,6 +5304,12 @@ nsRuleNode::ComputeDisplayData(void* aStartStruct,
       display->mOverflowY = NS_STYLE_OVERFLOW_AUTO;
   }
 
+  SetDiscrete(*aRuleData->ValueForOverflowClipBox(), display->mOverflowClipBox,
+              canStoreInRuleTree,
+              SETDSC_ENUMERATED | SETDSC_UNSET_INITIAL,
+              parentDisplay->mOverflowClipBox,
+              NS_STYLE_OVERFLOW_CLIP_BOX_PADDING_BOX, 0, 0, 0, 0);
+
   SetDiscrete(*aRuleData->ValueForResize(), display->mResize, canStoreInRuleTree,
               SETDSC_ENUMERATED | SETDSC_UNSET_INITIAL,
               parentDisplay->mResize,
@@ -5477,6 +5483,8 @@ nsRuleNode::ComputeDisplayData(void* aStartStruct,
       if (item->mValue.UnitHasStringValue()) {
         nsAutoString buffer;
         item->mValue.GetStringValue(buffer);
+        display->mWillChange.AppendElement(buffer);
+
         if (buffer.EqualsLiteral("transform")) {
           display->mWillChangeBitField |= NS_STYLE_WILL_CHANGE_TRANSFORM;
         }
@@ -5486,7 +5494,13 @@ nsRuleNode::ComputeDisplayData(void* aStartStruct,
         if (buffer.EqualsLiteral("scroll-position")) {
           display->mWillChangeBitField |= NS_STYLE_WILL_CHANGE_SCROLL;
         }
-        display->mWillChange.AppendElement(buffer);
+
+        nsCSSProperty prop =
+          nsCSSProps::LookupProperty(buffer, nsCSSProps::eEnabled);
+        if (nsCSSProps::PropHasFlags(prop,
+                                     CSS_PROPERTY_CREATES_STACKING_CONTEXT)) {
+          display->mWillChangeBitField |= NS_STYLE_WILL_CHANGE_STACKING_CONTEXT;
+        }
       }
     }
     break;
@@ -5575,7 +5589,7 @@ nsRuleNode::ComputeDisplayData(void* aStartStruct,
 
   SetCoord(*aRuleData->ValueForPerspective(), 
            display->mChildPerspective, parentDisplay->mChildPerspective,
-           SETCOORD_LAH | SETCOORD_INITIAL_ZERO | SETCOORD_NONE |
+           SETCOORD_LAH | SETCOORD_INITIAL_NONE | SETCOORD_NONE |
              SETCOORD_UNSET_INITIAL,
            aContext, mPresContext, canStoreInRuleTree);
 

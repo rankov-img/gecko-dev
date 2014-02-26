@@ -23,7 +23,6 @@ XPIDL_SOURCES += [
     'nsIProgrammingLanguage.idl',
     'nsISecurityConsoleMessage.idl',
     'nsISupports.idl',
-    'nsITraceRefcnt.idl',
     'nsIUUIDGenerator.idl',
     'nsIVersionComparator.idl',
     'nsIVisualEventTracer.idl',
@@ -157,7 +156,6 @@ LOCAL_INCLUDES += [
     '../build',
     '/xpcom/ds',
 ]
-
 
 if CONFIG['MOZ_OPTIMIZE']:
     DEFINES['MOZ_OPTIMIZE'] = True
