@@ -4141,9 +4141,14 @@ CodeGenerator::visitNeuterCheck(LNeuterCheck *lir)
     Register obj = ToRegister(lir->object());
     Register temp = ToRegister(lir->temp());
     masm.loadPtr(Address(obj, TypedObject::dataOffset()), temp);
+#ifndef JS_CODEGEN_MIPS
     masm.testPtr(temp, temp);
     if (!bailoutIf(Assembler::Zero, lir->snapshot()))
         return false;
+#else
+    if (!bailoutIf(temp, temp, Assembler::Zero, lir->snapshot()))
+        return false;
+#endif
     return true;
 }
 
