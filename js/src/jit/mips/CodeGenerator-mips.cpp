@@ -105,7 +105,7 @@ CodeGeneratorMIPS::branchToBlock(Register lhs, T rhs, MBasicBlock *mir, Assemble
 
         CodeOffsetJump backedge;
         Label skip;
-        masm.ma_b(lhs, rhs, &skip, Assembler::InvertCondition(cond), true);
+        masm.ma_b(lhs, rhs, &skip, Assembler::InvertCondition(cond), ShortJump);
 
         backedge = masm.jumpWithPatch(&rejoin);
         masm.bind(&rejoin);
@@ -131,9 +131,9 @@ CodeGeneratorMIPS::branchToBlock(FloatRegister lhs, FloatRegister rhs, MBasicBlo
         CodeOffsetJump backedge;
         Label skip;
         if (isDouble)
-            masm.ma_bc1d(lhs, rhs, &skip, Assembler::InvertCondition(cond), true);
+            masm.ma_bc1d(lhs, rhs, &skip, Assembler::InvertCondition(cond), ShortJump);
         else
-            masm.ma_bc1s(lhs, rhs, &skip, Assembler::InvertCondition(cond), true);
+            masm.ma_bc1s(lhs, rhs, &skip, Assembler::InvertCondition(cond), ShortJump);
 
         backedge = masm.jumpWithPatch(&rejoin);
         masm.bind(&rejoin);
@@ -266,7 +266,7 @@ CodeGeneratorMIPS::bailoutIf(T1 lhs, T2 rhs, Assembler::Condition c, LSnapshot *
     if (assignBailoutId(snapshot)) {
         uint8_t *code = deoptTable_->raw() + snapshot->bailoutId() * BAILOUT_TABLE_ENTRY_SIZE;
         Label noBail;
-        masm.ma_b(lhs, rhs, &noBail, Assembler::InvertCondition(c), true);
+        masm.ma_b(lhs, rhs, &noBail, Assembler::InvertCondition(c), ShortJump);
 
         masm.ma_jump(ImmPtr(reinterpret_cast<void *>(code)));
 
@@ -364,17 +364,17 @@ CodeGeneratorMIPS::visitMinMaxD(LMinMaxD *ins)
     Label nan, equal, returnSecond, done;
 
     // First or second is NaN, result is NaN.
-    masm.ma_bc1d(first, second, &nan, Assembler::DoubleUnordered, true);
+    masm.ma_bc1d(first, second, &nan, Assembler::DoubleUnordered, ShortJump);
     // Make sure we handle -0 and 0 right.
-    masm.ma_bc1d(first, second, &equal, Assembler::DoubleEqual, true);
-    masm.ma_bc1d(first, second, &returnSecond, cond, true);
-    masm.ma_b(&done, true);
+    masm.ma_bc1d(first, second, &equal, Assembler::DoubleEqual, ShortJump);
+    masm.ma_bc1d(first, second, &returnSecond, cond, ShortJump);
+    masm.ma_b(&done, ShortJump);
 
     // Check for zero.
     masm.bind(&equal);
     masm.ma_lid(ScratchFloatReg, 0.0);
     // First wasn't 0 or -0, so just return it.
-    masm.ma_bc1d(first, ScratchFloatReg, &done, Assembler::DoubleNotEqualOrUnordered, true);
+    masm.ma_bc1d(first, ScratchFloatReg, &done, Assembler::DoubleNotEqualOrUnordered, ShortJump);
 
     // So now both operands are either -0 or 0.
     if (ins->mir()->isMax()) {
@@ -385,11 +385,11 @@ CodeGeneratorMIPS::visitMinMaxD(LMinMaxD *ins)
         masm.subDouble(second, first);
         masm.negateDouble(first);
     }
-    masm.ma_b(&done, true);
+    masm.ma_b(&done, ShortJump);
 
     masm.bind(&nan);
     masm.loadConstantDouble(GenericNaN(), output);
-    masm.ma_b(&done, true);
+    masm.ma_b(&done, ShortJump);
 
     masm.bind(&returnSecond);
     masm.as_movd(output, second);
@@ -613,7 +613,7 @@ CodeGeneratorMIPS::visitMulI(LMulI *ins)
 
         if (mul->canBeNegativeZero()) {
             Label done;
-            masm.ma_b(dest, dest, &done, Assembler::NonZero, true);
+            masm.ma_b(dest, dest, &done, Assembler::NonZero, ShortJump);
 
             // Result is -0 if lhs or rhs is negative.
             // In that case result must be double value so bailout
@@ -649,9 +649,9 @@ CodeGeneratorMIPS::visitDivI(LDivI *ins)
         if (mir->isTruncated()) {
             // Truncated division by zero is zero (Infinity|0 == 0)
             Label notzero;
-            masm.ma_b(rhs, rhs, &notzero, Assembler::NonZero, true);
+            masm.ma_b(rhs, rhs, &notzero, Assembler::NonZero, ShortJump);
             masm.ma_li(dest, Imm32(0));
-            masm.ma_b(&done, true);
+            masm.ma_b(&done, ShortJump);
             masm.bind(&notzero);
         } else {
             JS_ASSERT(mir->fallible());
@@ -666,15 +666,15 @@ CodeGeneratorMIPS::visitDivI(LDivI *ins)
     if (mir->canBeNegativeOverflow()) {
         Label notMinInt;
         masm.ma_li(temp, Imm32(INT32_MIN));
-        masm.ma_b(lhs, temp, &notMinInt, Assembler::NotEqual, true);
+        masm.ma_b(lhs, temp, &notMinInt, Assembler::NotEqual, ShortJump);
 
         masm.ma_li(temp, Imm32(-1));
         if (mir->isTruncated()) {
             // (-INT32_MIN)|0 == INT32_MIN
             Label skip;
-            masm.ma_b(rhs, temp, &skip, Assembler::NotEqual, true);
+            masm.ma_b(rhs, temp, &skip, Assembler::NotEqual, ShortJump);
             masm.ma_li(dest, Imm32(INT32_MIN));
-            masm.ma_b(&done, true);
+            masm.ma_b(&done, ShortJump);
             masm.bind(&skip);
         } else {
             JS_ASSERT(mir->fallible());
@@ -689,7 +689,7 @@ CodeGeneratorMIPS::visitDivI(LDivI *ins)
     // Handle negative 0. (0/-Y)
     if (!mir->isTruncated() && mir->canBeNegativeZero()) {
         Label nonzero;
-        masm.ma_b(lhs, lhs, &nonzero, Assembler::NonZero, true);
+        masm.ma_b(lhs, lhs, &nonzero, Assembler::NonZero, ShortJump);
 
         Label negativeZero;
         masm.ma_b(rhs, Imm32(0), &negativeZero, Assembler::LessThan);
@@ -783,13 +783,13 @@ CodeGeneratorMIPS::visitModI(LModI *ins)
     // Prevent INT_MIN % -1;
     // The integer division will give INT_MIN, but we want -(double)INT_MIN.
     if (mir->canBeNegativeDividend()) {
-        masm.ma_b(lhs, Imm32(INT_MIN), &prevent, Assembler::NotEqual, true);
+        masm.ma_b(lhs, Imm32(INT_MIN), &prevent, Assembler::NotEqual, ShortJump);
         if (mir->isTruncated()) {
             // (INT_MIN % -1)|0 == 0
             Label skip;
-            masm.ma_b(rhs, Imm32(-1), &skip, Assembler::NotEqual, true);
+            masm.ma_b(rhs, Imm32(-1), &skip, Assembler::NotEqual, ShortJump);
             masm.ma_li(dest, Imm32(0));
-            masm.ma_b(&done, true);
+            masm.ma_b(&done, ShortJump);
             masm.bind(&skip);
         } else {
             JS_ASSERT(mir->fallible());
@@ -814,9 +814,9 @@ CodeGeneratorMIPS::visitModI(LModI *ins)
     if (mir->canBeDivideByZero()) {
         if (mir->isTruncated()) {
             Label skip;
-            masm.ma_b(rhs, Imm32(0), &skip, Assembler::NotEqual, true);
+            masm.ma_b(rhs, Imm32(0), &skip, Assembler::NotEqual, ShortJump);
             masm.ma_li(dest, Imm32(0));
-            masm.ma_b(&done, true);
+            masm.ma_b(&done, ShortJump);
             masm.bind(&skip);
         } else {
             JS_ASSERT(mir->fallible());
@@ -827,13 +827,13 @@ CodeGeneratorMIPS::visitModI(LModI *ins)
 
     if (mir->canBeNegativeDividend()) {
         Label notNegative;
-        masm.ma_b(rhs, Imm32(0), &notNegative, Assembler::GreaterThan, true);
+        masm.ma_b(rhs, Imm32(0), &notNegative, Assembler::GreaterThan, ShortJump);
         if (mir->isTruncated()) {
             // NaN|0 == 0 and (0 % -X)|0 == 0
             Label skip;
-            masm.ma_b(lhs, Imm32(0), &skip, Assembler::NotEqual, true);
+            masm.ma_b(lhs, Imm32(0), &skip, Assembler::NotEqual, ShortJump);
             masm.ma_li(dest, Imm32(0));
-            masm.ma_b(&done, true);
+            masm.ma_b(&done, ShortJump);
             masm.bind(&skip);
         } else {
             JS_ASSERT(mir->fallible());
@@ -853,7 +853,7 @@ CodeGeneratorMIPS::visitModI(LModI *ins)
         } else {
             JS_ASSERT(mir->fallible());
             // See if X < 0
-            masm.ma_b(dest, Imm32(0), &done, Assembler::NotEqual, true);
+            masm.ma_b(dest, Imm32(0), &done, Assembler::NotEqual, ShortJump);
             if (!bailoutIf(callTemp, Imm32(0), Assembler::Signed, ins->snapshot()))
                 return false;
         }
@@ -871,13 +871,13 @@ CodeGeneratorMIPS::visitModPowTwoI(LModPowTwoI *ins)
     Label negative, done;
 
     masm.ma_move(out, in);
-    masm.ma_b(in, in, &done, Assembler::Zero, true);
+    masm.ma_b(in, in, &done, Assembler::Zero, ShortJump);
     // Switch based on sign of the lhs.
     // Positive numbers are just a bitmask
-    masm.ma_b(in, in, &negative, Assembler::Signed, true);
+    masm.ma_b(in, in, &negative, Assembler::Signed, ShortJump);
     {
         masm.ma_and(out, Imm32((1 << ins->shift()) - 1));
-        masm.ma_b(&done, true);
+        masm.ma_b(&done, ShortJump);
     }
 
     // Negative numbers need a negate, bitmask, negate
@@ -1061,9 +1061,9 @@ CodeGeneratorMIPS::visitPowHalfD(LPowHalfD *ins)
 
     // Masm.pow(-Infinity, 0.5) == Infinity.
     masm.ma_lid(ScratchFloatReg, NegativeInfinity());
-    masm.ma_bc1d(input, ScratchFloatReg, &skip, Assembler::DoubleNotEqualOrUnordered, true);
+    masm.ma_bc1d(input, ScratchFloatReg, &skip, Assembler::DoubleNotEqualOrUnordered, ShortJump);
     masm.as_negd(output, ScratchFloatReg);
-    masm.ma_b(&done, true);
+    masm.ma_b(&done, ShortJump);
 
     masm.bind(&skip);
     // Math.pow(-0, 0.5) == 0 == Math.pow(0, 0.5).
@@ -1242,17 +1242,17 @@ CodeGeneratorMIPS::visitFloor(LFloor *lir)
 
     // If Nan, 0 or -0 check for bailout
     masm.ma_lid(scratch, 0.0);
-    masm.ma_bc1d(input, scratch, &skipCheck, Assembler::DoubleNotEqual, true);
+    masm.ma_bc1d(input, scratch, &skipCheck, Assembler::DoubleNotEqual, ShortJump);
 
     // If high part is not zero, it is NaN or -0, so we bail.
     masm.as_mfc1_Odd(masm.secondScratch(), input);
-    masm.ma_b(masm.secondScratch(), Imm32(0), &bail, Assembler::NotEqual, true);
+    masm.ma_b(masm.secondScratch(), Imm32(0), &bail, Assembler::NotEqual, ShortJump);
     if (!bailoutFrom(&bail, lir->snapshot()))
         return false;
 
     // Input was zero, so return zero.
     masm.ma_li(output, Imm32(0));
-    masm.ma_b(&done, true);
+    masm.ma_b(&done, ShortJump);
 
     masm.bind(&skipCheck);
     masm.as_floorwd(scratch, input);
@@ -1280,17 +1280,17 @@ CodeGeneratorMIPS::visitFloorF(LFloorF *lir)
 
     // If Nan, 0 or -0 check for bailout
     masm.ma_lis(scratch, 0.0);
-    masm.ma_bc1s(input, scratch, &skipCheck, Assembler::DoubleNotEqual, true);
+    masm.ma_bc1s(input, scratch, &skipCheck, Assembler::DoubleNotEqual, ShortJump);
 
     // If binary value is not zero, it is NaN or -0, so we bail.
     masm.as_mfc1(masm.secondScratch(), input);
-    masm.ma_b(masm.secondScratch(), Imm32(0), &bail, Assembler::NotEqual, true);
+    masm.ma_b(masm.secondScratch(), Imm32(0), &bail, Assembler::NotEqual, ShortJump);
     if (!bailoutFrom(&bail, lir->snapshot()))
         return false;
 
     // Input was zero, so return zero.
     masm.ma_li(output, Imm32(0));
-    masm.ma_b(&done, true);
+    masm.ma_b(&done, ShortJump);
 
     masm.bind(&skipCheck);
     masm.as_floorws(scratch, input);
@@ -1322,20 +1322,20 @@ CodeGeneratorMIPS::visitRound(LRound *lir)
 
     // Branch to a slow path for negative inputs. Doesn't catch NaN or -0.
     masm.ma_lid(scratch, 0.0);
-    masm.ma_bc1d(input, scratch, &negative, Assembler::DoubleLessThan, true);
+    masm.ma_bc1d(input, scratch, &negative, Assembler::DoubleLessThan, ShortJump);
 
     // If Nan, 0 or -0 check for bailout
-    masm.ma_bc1d(input, scratch, &skipCheck, Assembler::DoubleNotEqual, true);
+    masm.ma_bc1d(input, scratch, &skipCheck, Assembler::DoubleNotEqual, ShortJump);
 
     // If high part is not zero, it is NaN or -0, so we bail.
     masm.as_mfc1_Odd(masm.secondScratch(), input);
-    masm.ma_b(masm.secondScratch(), Imm32(0), &bail1, Assembler::NotEqual, true);
+    masm.ma_b(masm.secondScratch(), Imm32(0), &bail1, Assembler::NotEqual, ShortJump);
     if (!bailoutFrom(&bail1, lir->snapshot()))
         return false;
 
     // Input was zero, so return zero.
     masm.ma_li(output, Imm32(0));
-    masm.ma_b(&end, true);
+    masm.ma_b(&end, ShortJump);
 
     masm.bind(&skipCheck);
     masm.ma_lid(scratch, 0.5);
@@ -1529,9 +1529,9 @@ CodeGeneratorMIPS::visitTestDAndBranch(LTestDAndBranch *test)
 
 
     if (isNextBlock(ifFalse->lir())) {
-        branchToBlock(input, ScratchFloatReg, ifTrue, Assembler::DoubleNotEqual, true);
+        branchToBlock(input, ScratchFloatReg, ifTrue, Assembler::DoubleNotEqual, ShortJump);
     } else {
-        branchToBlock(input, ScratchFloatReg, ifFalse, Assembler::DoubleEqualOrUnordered, true);
+        branchToBlock(input, ScratchFloatReg, ifFalse, Assembler::DoubleEqualOrUnordered, ShortJump);
         jumpToBlock(ifTrue);
     }
 
@@ -1596,9 +1596,9 @@ CodeGeneratorMIPS::visitCompareDAndBranch(LCompareDAndBranch *comp)
     MBasicBlock *ifFalse = comp->ifFalse();
 
     if (isNextBlock(ifFalse->lir())) {
-        branchToBlock(lhs, rhs, ifTrue, cond, true);
+        branchToBlock(lhs, rhs, ifTrue, cond, ShortJump);
     } else {
-        branchToBlock(lhs, rhs, ifFalse, Assembler::InvertCondition(cond), true);
+        branchToBlock(lhs, rhs, ifFalse, Assembler::InvertCondition(cond), ShortJump);
         jumpToBlock(ifTrue);
     }
 
@@ -1690,10 +1690,10 @@ CodeGeneratorMIPS::visitCompareV(LCompareV *lir)
     JS_ASSERT(IsEqualityOp(mir->jsop()));
 
     Label notEqual, done;
-    masm.ma_b(lhs.typeReg(), rhs.typeReg(), &notEqual, Assembler::NotEqual, true);
+    masm.ma_b(lhs.typeReg(), rhs.typeReg(), &notEqual, Assembler::NotEqual, ShortJump);
     {
         masm.ma_cmp_set(output, lhs.payloadReg(), rhs.payloadReg(), cond);
-        masm.ma_b(&done, true);
+        masm.ma_b(&done, ShortJump);
     }
     masm.bind(&notEqual);
     {
@@ -1767,10 +1767,10 @@ CodeGeneratorMIPS::visitNotD(LNotD *ins)
 
     Label falsey, done;
     masm.ma_lid(ScratchFloatReg, 0.0);
-    masm.ma_bc1d(in, ScratchFloatReg, &falsey, Assembler::DoubleEqualOrUnordered, true);
+    masm.ma_bc1d(in, ScratchFloatReg, &falsey, Assembler::DoubleEqualOrUnordered, ShortJump);
 
     masm.ma_li(dest, Imm32(0));
-    masm.ma_b(&done, true);
+    masm.ma_b(&done, ShortJump);
 
     masm.bind(&falsey);
     masm.ma_li(dest, Imm32(1));
@@ -1789,10 +1789,10 @@ CodeGeneratorMIPS::visitNotF(LNotF *ins)
 
     Label falsey, done;
     masm.ma_lis(ScratchFloatReg, 0.0);
-    masm.ma_bc1s(in, ScratchFloatReg, &falsey, Assembler::DoubleEqualOrUnordered, true);
+    masm.ma_bc1s(in, ScratchFloatReg, &falsey, Assembler::DoubleEqualOrUnordered, ShortJump);
 
     masm.ma_li(dest, Imm32(0));
-    masm.ma_b(&done, true);
+    masm.ma_b(&done, ShortJump);
 
     masm.bind(&falsey);
     masm.ma_li(dest, Imm32(1));
@@ -2077,7 +2077,7 @@ CodeGeneratorMIPS::visitAsmJSLoadHeap(LAsmJSLoadHeap *ins)
             }
         }  else {
             masm.ma_load(ToRegister(out), HeapReg, ptrImm, static_cast<LoadStoreSize>(size),
-                         isSigned ? lsSign : lsZero);
+                         isSigned ? SignExtend : ZeroExtend);
         }
         return true;
     }
@@ -2093,7 +2093,7 @@ CodeGeneratorMIPS::visitAsmJSLoadHeap(LAsmJSLoadHeap *ins)
             }
         } else {
             masm.ma_load(ToRegister(out), BaseIndex(HeapReg, ptrReg, TimesOne),
-                         static_cast<LoadStoreSize>(size), isSigned ? lsSign : lsZero);
+                         static_cast<LoadStoreSize>(size), isSigned ? SignExtend : ZeroExtend);
         }
         return true;
     }
@@ -2102,7 +2102,7 @@ CodeGeneratorMIPS::visitAsmJSLoadHeap(LAsmJSLoadHeap *ins)
 
     Label outOfRange;
     Label done;
-    masm.ma_b(ptrReg, ScratchRegister, &outOfRange, Assembler::AboveOrEqual, true);
+    masm.ma_b(ptrReg, ScratchRegister, &outOfRange, Assembler::AboveOrEqual, ShortJump);
     // Offset is ok, let's load value.
     if (isFloat) {
         if (size == 32)
@@ -2111,9 +2111,9 @@ CodeGeneratorMIPS::visitAsmJSLoadHeap(LAsmJSLoadHeap *ins)
             masm.loadDouble(BaseIndex(HeapReg, ptrReg, TimesOne), ToFloatRegister(out));
     } else {
         masm.ma_load(ToRegister(out), BaseIndex(HeapReg, ptrReg, TimesOne),
-                     static_cast<LoadStoreSize>(size), isSigned ? lsSign : lsZero);
+                     static_cast<LoadStoreSize>(size), isSigned ? SignExtend : ZeroExtend);
     }
-    masm.ma_b(&done, true);
+    masm.ma_b(&done, ShortJump);
     masm.bind(&outOfRange);
     // Offset is out of range. Load default values.
     if (isFloat) {
@@ -2164,7 +2164,7 @@ CodeGeneratorMIPS::visitAsmJSStoreHeap(LAsmJSStoreHeap *ins)
             }
         }  else {
             masm.ma_store(ToRegister(value), HeapReg, ptrImm,static_cast<LoadStoreSize>(size),
-                          isSigned ? lsSign : lsZero);
+                          isSigned ? SignExtend : ZeroExtend);
         }
         return true;
     }
@@ -2180,7 +2180,7 @@ CodeGeneratorMIPS::visitAsmJSStoreHeap(LAsmJSStoreHeap *ins)
                 masm.storeDouble(ToFloatRegister(value), BaseIndex(HeapReg, ptrReg, TimesOne));
         } else {
             masm.ma_store(ToRegister(value), BaseIndex(HeapReg, ptrReg, TimesOne),
-                          static_cast<LoadStoreSize>(size), isSigned ? lsSign : lsZero);
+                          static_cast<LoadStoreSize>(size), isSigned ? SignExtend : ZeroExtend);
         }
         return true;
     }
@@ -2188,7 +2188,7 @@ CodeGeneratorMIPS::visitAsmJSStoreHeap(LAsmJSStoreHeap *ins)
     BufferOffset bo = masm.ma_BoundsCheck(ScratchRegister);
 
     Label rejoin;
-    masm.ma_b(ptrReg, ScratchRegister, &rejoin, Assembler::AboveOrEqual, true);
+    masm.ma_b(ptrReg, ScratchRegister, &rejoin, Assembler::AboveOrEqual, ShortJump);
 
     // Offset is ok, let's store value.
     if (isFloat) {
@@ -2198,7 +2198,7 @@ CodeGeneratorMIPS::visitAsmJSStoreHeap(LAsmJSStoreHeap *ins)
             masm.storeDouble(ToFloatRegister(value), BaseIndex(HeapReg, ptrReg, TimesOne));
     } else {
         masm.ma_store(ToRegister(value), BaseIndex(HeapReg, ptrReg, TimesOne),
-                      static_cast<LoadStoreSize>(size), isSigned ? lsSign : lsZero);
+                      static_cast<LoadStoreSize>(size), isSigned ? SignExtend : ZeroExtend);
     }
     masm.bind(&rejoin);
 
@@ -2233,9 +2233,9 @@ CodeGeneratorMIPS::visitUDiv(LUDiv *ins)
     if (ins->mir()->canBeDivideByZero()) {
         if (ins->mir()->isTruncated()) {
             Label notzero;
-            masm.ma_b(rhs, rhs, &notzero, Assembler::NonZero, true);
+            masm.ma_b(rhs, rhs, &notzero, Assembler::NonZero, ShortJump);
             masm.ma_li(output, Imm32(0));
-            masm.ma_b(&done, true);
+            masm.ma_b(&done, ShortJump);
             masm.bind(&notzero);
         } else {
             JS_ASSERT(ins->mir()->fallible());
@@ -2268,9 +2268,9 @@ CodeGeneratorMIPS::visitUMod(LUMod *ins)
         if (ins->mir()->isTruncated()) {
             // Infinity|0 == 0
             Label notzero;
-            masm.ma_b(rhs, rhs, &notzero, Assembler::NonZero, true);
+            masm.ma_b(rhs, rhs, &notzero, Assembler::NonZero, ShortJump);
             masm.ma_li(output, Imm32(0));
-            masm.ma_b(&done, true);
+            masm.ma_b(&done, ShortJump);
             masm.bind(&notzero);
         } else {
             JS_ASSERT(ins->mir()->fallible());
@@ -2399,7 +2399,7 @@ CodeGenerator::visitAbsI(LAbsI *ins)
     Label positive;
 
     JS_ASSERT(input == ToRegister(ins->output()));
-    masm.ma_b(input, input, &positive, Assembler::NotSigned, true);
+    masm.ma_b(input, input, &positive, Assembler::NotSigned, ShortJump);
 
     if (ins->snapshot() && !bailoutIf(input, Imm32(INT32_MIN), Assembler::Equal, ins->snapshot()))
         return false;
@@ -2548,14 +2548,14 @@ CodeGenerator::visitMinMaxI(LMinMaxI *ins)
     Label done;
     if (ins->mir()->isMax()) {
         if (ins->second()->isConstant())
-            masm.ma_b(first, Imm32(ToInt32(ins->second())), &done, Assembler::GreaterThan, true);
+            masm.ma_b(first, Imm32(ToInt32(ins->second())), &done, Assembler::GreaterThan, ShortJump);
         else
-            masm.ma_b(first, ToRegister(ins->second()), &done, Assembler::GreaterThan, true);
+            masm.ma_b(first, ToRegister(ins->second()), &done, Assembler::GreaterThan, ShortJump);
     } else {
         if (ins->second()->isConstant())
-            masm.ma_b(first, Imm32(ToInt32(ins->second())), &done, Assembler::LessThan, true);
+            masm.ma_b(first, Imm32(ToInt32(ins->second())), &done, Assembler::LessThan, ShortJump);
         else
-            masm.ma_b(first, ToRegister(ins->second()), &done, Assembler::LessThan, true);
+            masm.ma_b(first, ToRegister(ins->second()), &done, Assembler::LessThan, ShortJump);
     }
 
     if (ins->second()->isConstant())

@@ -529,7 +529,7 @@ MacroAssembler::loadFromTypedArray(int arrayType, const T &src, const ValueOpera
 #ifndef JS_CODEGEN_MIPS
             j(Assembler::Signed, &isDouble);
 #else
-            ma_b(temp, temp, &isDouble, Assembler::Signed, true);
+            ma_b(temp, temp, &isDouble, Assembler::Signed, ShortJump);
 #endif
             {
                 tagValue(JSVAL_TYPE_INT32, temp, dest);

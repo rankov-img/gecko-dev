@@ -4913,7 +4913,7 @@ CopyStringChars(MacroAssembler &masm, Register to, Register from, Register len, 
     masm.addPtr(Imm32(2), to);
     masm.sub32(Imm32(1), len);
 #if defined(JS_CODEGEN_MIPS)
-    masm.ma_b(len, len, &start, Assembler::NonZero, true);
+    masm.ma_b(len, len, &start, Assembler::NonZero, ShortJump);
 #else
     masm.j(Assembler::NonZero, &start);
 #endif

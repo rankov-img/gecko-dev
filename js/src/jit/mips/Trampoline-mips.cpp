@@ -189,7 +189,7 @@ JitRuntime::generateEnterJIT(JSContext *cx, EnterJitType type)
     // stack so they can be accessed from JIT'ed code.
     Label header, footer;
     // If there aren't any arguments, don't do anything
-    masm.ma_b(s0, reg_argv, &footer, Assembler::BelowOrEqual, true);
+    masm.ma_b(s0, reg_argv, &footer, Assembler::BelowOrEqual, ShortJump);
     {
         masm.bind(&header);
 
@@ -202,7 +202,7 @@ JitRuntime::generateEnterJIT(JSContext *cx, EnterJitType type)
         masm.as_lw(s1, s0, 0);
         masm.as_sw(s1, StackPointer, 0);
 
-        masm.ma_b(s0, reg_argv, &header, Assembler::Above, true);
+        masm.ma_b(s0, reg_argv, &header, Assembler::Above, ShortJump);
     }
     masm.bind(&footer);
 
@@ -226,7 +226,7 @@ JitRuntime::generateEnterJIT(JSContext *cx, EnterJitType type)
         const Address slot_numStackValues(BaselineFrameReg, NUM_STACK_VALUES_OFFSET);
 
         Label notOsr;
-        masm.ma_b(OsrFrameReg, OsrFrameReg, &notOsr, Assembler::Zero, true);
+        masm.ma_b(OsrFrameReg, OsrFrameReg, &notOsr, Assembler::Zero, ShortJump);
 
         Register scratch = regs.takeAny();
 
@@ -320,7 +320,7 @@ JitRuntime::generateEnterJIT(JSContext *cx, EnterJitType type)
     masm.storeValue(JSReturnOperand, Address(s1, 0));
 
     // Restore non-volatile registers and return.
-    GenerateReturn(masm, true);
+    GenerateReturn(masm, ShortJump);
 
     Linker linker(masm);
     JitCode *code = linker.newCode<NoGC>(cx, JSC::OTHER_CODE);
@@ -435,7 +435,7 @@ JitRuntime::generateArgumentsRectifier(JSContext *cx, ExecutionMode mode, void *
         masm.ma_sw(t4, StackPointer, 0); // payload(undefined);
         masm.ma_subu(t1, t1, Imm32(1));
 
-        masm.ma_b(t1, t1, &undefLoopTop, Assembler::NonZero, true);
+        masm.ma_b(t1, t1, &undefLoopTop, Assembler::NonZero, ShortJump);
     }
 
     // Get the topmost argument.
@@ -447,7 +447,7 @@ JitRuntime::generateArgumentsRectifier(JSContext *cx, ExecutionMode mode, void *
     {
         Label copyLoopTop, initialSkip;
 
-        masm.ma_b(&initialSkip, true);
+        masm.ma_b(&initialSkip, ShortJump);
 
         masm.bind(&copyLoopTop);
         masm.ma_subu(t2, t2, Imm32(sizeof(Value)));
@@ -462,7 +462,7 @@ JitRuntime::generateArgumentsRectifier(JSContext *cx, ExecutionMode mode, void *
         masm.ma_lw(t0, t2, 0);
         masm.ma_sw(t0, StackPointer, 0);
 
-        masm.ma_b(s3, s3, &copyLoopTop, Assembler::NonZero, true);
+        masm.ma_b(s3, s3, &copyLoopTop, Assembler::NonZero, ShortJump);
     }
 
     // translate the framesize from values into bytes

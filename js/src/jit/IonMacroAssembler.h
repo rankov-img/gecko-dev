@@ -354,6 +354,26 @@ class MacroAssembler : public MacroAssemblerSpecific
         cond = testMIRType(cond, val, type);
         j(cond, label);
     }
+#else
+    template <typename Value>
+    void branchTestMIRType(Condition cond, const Value &val, MIRType type, Label *label) {
+        JS_ASSERT(type == MIRType_Null    || type == MIRType_Undefined  ||
+                  type == MIRType_Boolean || type == MIRType_Int32      ||
+                  type == MIRType_String  || type == MIRType_Object     ||
+                  type == MIRType_Double  || type == MIRType_Magic);
+        switch (type) {
+          case MIRType_Null:        return branchTestNull(cond, val, label);
+          case MIRType_Undefined:   return branchTestUndefined(cond, val, label);
+          case MIRType_Boolean:     return branchTestBoolean(cond, val, label);
+          case MIRType_Int32:       return branchTestInt32(cond, val, label);
+          case MIRType_String:      return branchTestString(cond, val, label);
+          case MIRType_Object:      return branchTestObject(cond, val, label);
+          case MIRType_Double:      return branchTestDouble(cond, val, label);
+          case MIRType_Magic:       return branchTestMagic(cond, val, label);
+          default:
+            MOZ_ASSUME_UNREACHABLE("Bad MIRType");
+        }
+    }
 #endif
 
     // Branches to |label| if |reg| is false. |reg| should be a C++ bool.

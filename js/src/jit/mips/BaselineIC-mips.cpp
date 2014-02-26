@@ -98,11 +98,11 @@ ICBinaryArith_Int32::Compiler::generateStubCode(MacroAssembler &masm)
       case JSOP_MUL: {
         masm.ma_mul_branch_overflow(scratchReg, R0.payloadReg(), R1.payloadReg(), &failure);
 
-        masm.ma_b(scratchReg, Imm32(0), &goodMul, Assembler::NotEqual, true);
+        masm.ma_b(scratchReg, Imm32(0), &goodMul, Assembler::NotEqual, ShortJump);
 
         // Result is -0 if operands have differnet signs.
         masm.as_xor(t8, R0.payloadReg(), R1.payloadReg());
-        masm.ma_b(t8, Imm32(0), &failure, Assembler::LessThan, true);
+        masm.ma_b(t8, Imm32(0), &failure, Assembler::LessThan, ShortJump);
 
         masm.bind(&goodMul);
         masm.ma_move(R0.payloadReg(), scratchReg);
@@ -111,16 +111,16 @@ ICBinaryArith_Int32::Compiler::generateStubCode(MacroAssembler &masm)
       case JSOP_DIV:
       case JSOP_MOD: {
         // Check for INT_MIN / -1, it results in a double.
-        masm.ma_b(R0.payloadReg(), Imm32(INT_MIN), &divTest1, Assembler::NotEqual, true);
-        masm.ma_b(R1.payloadReg(), Imm32(-1), &failure, Assembler::Equal, true);
+        masm.ma_b(R0.payloadReg(), Imm32(INT_MIN), &divTest1, Assembler::NotEqual, ShortJump);
+        masm.ma_b(R1.payloadReg(), Imm32(-1), &failure, Assembler::Equal, ShortJump);
         masm.bind(&divTest1);
 
         // Check for division by zero
-        masm.ma_b(R1.payloadReg(), Imm32(0), &failure, Assembler::Equal, true);
+        masm.ma_b(R1.payloadReg(), Imm32(0), &failure, Assembler::Equal, ShortJump);
 
         // Check for 0 / X with X < 0 (results in -0).
-        masm.ma_b(R0.payloadReg(), Imm32(0), &divTest2, Assembler::NotEqual, true);
-        masm.ma_b(R1.payloadReg(), Imm32(0), &failure, Assembler::LessThan, true);
+        masm.ma_b(R0.payloadReg(), Imm32(0), &divTest2, Assembler::NotEqual, ShortJump);
+        masm.ma_b(R1.payloadReg(), Imm32(0), &failure, Assembler::LessThan, ShortJump);
         masm.bind(&divTest2);
 
         masm.as_div(R0.payloadReg(), R1.payloadReg());
@@ -162,7 +162,7 @@ ICBinaryArith_Int32::Compiler::generateStubCode(MacroAssembler &masm)
         masm.ma_srl(scratchReg, R0.payloadReg(), R1.payloadReg());
         if (allowDouble_) {
             Label toUint;
-            masm.ma_b(scratchReg, Imm32(0), &toUint, Assembler::LessThan, true);
+            masm.ma_b(scratchReg, Imm32(0), &toUint, Assembler::LessThan, ShortJump);
 
             // Move result and box for return.
             masm.ma_move(R0.payloadReg(), scratchReg);
@@ -174,7 +174,7 @@ ICBinaryArith_Int32::Compiler::generateStubCode(MacroAssembler &masm)
             masm.convertUInt32ToDouble(scratchReg, FloatReg1);
             masm.boxDouble(FloatReg1, R0);
         } else {
-            masm.ma_b(scratchReg, Imm32(0), &failure, Assembler::LessThan, true);
+            masm.ma_b(scratchReg, Imm32(0), &failure, Assembler::LessThan, ShortJump);
             // Move result for return.
             masm.ma_move(R0.payloadReg(), scratchReg);
         }

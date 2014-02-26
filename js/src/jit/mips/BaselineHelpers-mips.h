@@ -262,7 +262,7 @@ EmitCallTypeUpdateIC(MacroAssembler &masm, JitCode *code, uint32_t objectOffset)
     // The update IC will store 0 or 1 in R1.scratchReg() reflecting if the
     // value in R0 type-checked properly or not.
     Label success;
-    masm.ma_b(R1.scratchReg(), Imm32(1), &success, Assembler::Equal, true);
+    masm.ma_b(R1.scratchReg(), Imm32(1), &success, Assembler::Equal, ShortJump);
 
     // If the IC failed, then call the update fallback function.
     EmitEnterStubFrame(masm, R1.scratchReg());

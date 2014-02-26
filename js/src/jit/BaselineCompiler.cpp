@@ -342,7 +342,7 @@ BaselineCompiler::emitPrologue()
 #ifndef JS_CODEGEN_MIPS
             masm.j(Assembler::NonZero, &pushLoop);
 #else
-            masm.ma_b(R1.scratchReg(), R1.scratchReg(), &pushLoop, Assembler::NonZero, true);
+            masm.ma_b(R1.scratchReg(), R1.scratchReg(), &pushLoop, Assembler::NonZero, ShortJump);
 #endif
         }
     }
