@@ -109,9 +109,8 @@ MoveEmitterMIPS::breakCycle(const MoveOperand &from, const MoveOperand &to, Move
             masm.ma_lw(temp, getAdjustedAddress(to));
             masm.ma_sw(temp, cycleSlot());
         } else {
-            if (to.reg() == spilledReg_) {
-                MOZ_ASSUME_UNREACHABLE("Register t8 should not be moved by MoveEmitter.");
-            }
+            // Register t8 should not be moved by MoveEmitter.
+            MOZ_ASSERT(to.reg() != spilledReg_);
             masm.ma_sw(to.reg(), cycleSlot());
         }
         break;
@@ -155,9 +154,8 @@ MoveEmitterMIPS::completeCycle(const MoveOperand &from, const MoveOperand &to, M
             masm.ma_lw(temp, cycleSlot());
             masm.ma_sw(temp, getAdjustedAddress(to));
         } else {
-            if (to.reg() == spilledReg_) {
-                MOZ_ASSUME_UNREACHABLE("Register t8 should not be moved by MoveEmitter.");
-            }
+            // Register t8 should not be moved by MoveEmitter.
+            MOZ_ASSERT(to.reg() != spilledReg_);
             masm.ma_lw(to.reg(), cycleSlot());
         }
         break;
@@ -170,9 +168,8 @@ void
 MoveEmitterMIPS::emitMove(const MoveOperand &from, const MoveOperand &to)
 {
     if (from.isGeneralReg()) {
-        if (from.reg() == spilledReg_) {
-            MOZ_ASSUME_UNREACHABLE("Register t8 should not be moved by MoveEmitter.");
-        }
+        // Register t8 should not be moved by MoveEmitter.
+        MOZ_ASSERT(from.reg() != spilledReg_);
 
         if (to.isGeneralReg())
             masm.ma_move(to.reg(), from.reg());
@@ -214,14 +211,9 @@ MoveEmitterMIPS::emitFloat32Move(const MoveOperand &from, const MoveOperand &to)
         if (to.isFloatReg()) {
             masm.as_movs(to.floatReg(), from.floatReg());
         } else if (to.isGeneralReg()) {
-            if(to.reg() == a1)
-                masm.as_mfc1(a1, from.floatReg());
-            else if(to.reg() == a2)
-                masm.as_mfc1(a2, from.floatReg());
-            else if(to.reg() == a3)
-                masm.as_mfc1(a3, from.floatReg());
-            else
-                MOZ_ASSUME_UNREACHABLE("Invalid emitFloat32Move arguments.");
+            // This should only be used when passing float parameter in a1,a2,a3
+            MOZ_ASSERT(to.reg() == a1 || to.reg() == a2 || to.reg() == a3);
+            masm.as_mfc1(to.reg(), from.floatReg());
         } else {
             MOZ_ASSERT(to.isMemory());
             masm.ma_ss(from.floatReg(), getAdjustedAddress(to));
@@ -231,14 +223,9 @@ MoveEmitterMIPS::emitFloat32Move(const MoveOperand &from, const MoveOperand &to)
         masm.ma_ls(to.floatReg(), getAdjustedAddress(from));
     } else if (to.isGeneralReg()) {
         MOZ_ASSERT(from.isMemory());
-        if(to.reg() == a1)
-            masm.ma_lw(a1, getAdjustedAddress(from));
-        else if(to.reg() == a2)
-            masm.ma_lw(a2, getAdjustedAddress(from));
-        else if(to.reg() == a3)
-            masm.ma_lw(a3, getAdjustedAddress(from));
-        else
-            MOZ_ASSUME_UNREACHABLE("Invalid emitFloat32Move arguments.");
+        // This should only be used when passing float parameter in a1,a2,a3
+        MOZ_ASSERT(to.reg() == a1 || to.reg() == a2 || to.reg() == a3);
+        masm.ma_lw(to.reg(), getAdjustedAddress(from));
     } else {
         MOZ_ASSERT(from.isMemory());
         MOZ_ASSERT(to.isMemory());
