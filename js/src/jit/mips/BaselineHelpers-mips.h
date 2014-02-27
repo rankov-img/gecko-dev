@@ -84,7 +84,7 @@ EmitTailCallVM(JitCode *target, MacroAssembler &masm, uint32_t argSize)
 {
     // We assume during this that R0 and R1 have been pushed, and that R2 is
     // unused.
-    JS_ASSERT(R2 == ValueOperand(t7, t6));
+    MOZ_ASSERT(R2 == ValueOperand(t7, t6));
 
     // Compute frame size.
     masm.ma_move(t6, BaselineFrameReg);
@@ -99,7 +99,7 @@ EmitTailCallVM(JitCode *target, MacroAssembler &masm, uint32_t argSize)
     // BaselineTailCallReg (ra) already contains the return address (as we keep it there through
     // the stub calls), but the VMWrapper code being called expects the return address to also
     // be pushed on the stack.
-    JS_ASSERT(BaselineTailCallReg == ra);
+    MOZ_ASSERT(BaselineTailCallReg == ra);
     masm.makeFrameDescriptor(t6, IonFrame_BaselineJS);
     masm.ma_subu(StackPointer, StackPointer, Imm32(2 * sizeof(intptr_t)));
     masm.as_sw(t6, StackPointer, sizeof(intptr_t));
@@ -135,7 +135,7 @@ static const uint32_t STUB_FRAME_SAVED_STUB_OFFSET = sizeof(void *);
 inline void
 EmitEnterStubFrame(MacroAssembler &masm, Register scratch)
 {
-    JS_ASSERT(scratch != BaselineTailCallReg);
+    MOZ_ASSERT(scratch != BaselineTailCallReg);
 
     // Compute frame size.
     masm.ma_move(scratch, BaselineFrameReg);
@@ -191,7 +191,7 @@ EmitLeaveStubFrame(MacroAssembler &masm, bool calledIntoIon = false)
 inline void
 EmitStowICValues(MacroAssembler &masm, int values)
 {
-    JS_ASSERT(values >= 0 && values <= 2);
+    MOZ_ASSERT(values >= 0 && values <= 2);
     switch(values) {
       case 1:
         // Stow R0
@@ -208,7 +208,7 @@ EmitStowICValues(MacroAssembler &masm, int values)
 inline void
 EmitUnstowICValues(MacroAssembler &masm, int values, bool discard = false)
 {
-    JS_ASSERT(values >= 0 && values <= 2);
+    MOZ_ASSERT(values >= 0 && values <= 2);
     switch(values) {
       case 1:
         // Unstow R0
@@ -309,7 +309,7 @@ EmitStubGuardFailure(MacroAssembler &masm)
     masm.loadPtr(Address(BaselineStubReg, ICStub::offsetOfStubCode()), R2.scratchReg());
 
     // Return address is already loaded, just jump to the next stubcode.
-    JS_ASSERT(BaselineTailCallReg == ra);
+    MOZ_ASSERT(BaselineTailCallReg == ra);
     masm.branch(R2.scratchReg());
 }
 

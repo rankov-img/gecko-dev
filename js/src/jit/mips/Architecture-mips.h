@@ -229,7 +229,7 @@ class FloatRegisters
         return Names[code];
     }
     static const char *GetName(uint32_t i) {
-        JS_ASSERT(i < Total);
+        MOZ_ASSERT(i < Total);
         return GetName(Code(i));
     }
 

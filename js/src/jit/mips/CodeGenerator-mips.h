@@ -35,7 +35,7 @@ class CodeGeneratorMIPS : public CodeGeneratorShared
     NonAssertingLabel deoptLabel_;
 
     inline Address ToAddress(const LAllocation &a) {
-        JS_ASSERT(a.isMemory());
+        MOZ_ASSERT(a.isMemory());
         int32_t offset = ToStackOffset(&a);
 
         // The way the stack slots work, we assume that everything from
@@ -57,7 +57,7 @@ class CodeGeneratorMIPS : public CodeGeneratorShared
         if (a.isFloatReg())
             return Operand(a.toFloatReg()->reg());
 
-        JS_ASSERT(a.isMemory());
+        MOZ_ASSERT(a.isMemory());
         int32_t offset = ToStackOffset(&a);
 
         // The way the stack slots work, we assume that everything from

@@ -244,7 +244,7 @@ ICBinaryArith_BooleanWithInt32::Compiler::generateStubCode(MacroAssembler &masm)
     Register rhsReg = rhsIsBool_ ? masm.extractBoolean(R1, ExtractTemp1)
                       : masm.extractInt32(R1, ExtractTemp1);
 
-    JS_ASSERT(op_ == JSOP_ADD || op_ == JSOP_SUB ||
+    MOZ_ASSERT(op_ == JSOP_ADD || op_ == JSOP_SUB ||
               op_ == JSOP_BITOR || op_ == JSOP_BITXOR || op_ == JSOP_BITAND);
 
     switch(op_) {

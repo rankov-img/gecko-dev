@@ -65,11 +65,11 @@ CodeGeneratorMIPS::generateEpilogue()
         masm.Pop(ra);
         masm.as_jr(ra);
         masm.as_nop();
-        JS_ASSERT(masm.framePushed() == 0);
+        MOZ_ASSERT(masm.framePushed() == 0);
     } else {
         // Pop the stack we allocated at the start of the function.
         masm.freeStack(frameSize());
-        JS_ASSERT(masm.framePushed() == 0);
+        MOZ_ASSERT(masm.framePushed() == 0);
         masm.ret();
     }
     return true;
@@ -260,7 +260,7 @@ CodeGeneratorMIPS::bailoutIf(T1 lhs, T2 rhs, Assembler::Condition c, LSnapshot *
     // Though the assembler doesn't track all frame pushes, at least make sure
     // the known value makes sense. We can't use bailout tables if the stack
     // isn't properly aligned to the static frame size.
-    JS_ASSERT_IF(frameClass_ != FrameSizeClass::None(),
+    MOZ_ASSERT_IF(frameClass_ != FrameSizeClass::None(),
                  frameClass_.frameSize() == masm.framePushed());
 
     if (assignBailoutId(snapshot)) {
@@ -291,8 +291,8 @@ CodeGeneratorMIPS::bailoutFrom(Label *label, LSnapshot *snapshot)
 {
     if (masm.bailed())
         return false;
-    JS_ASSERT(label->used());
-    JS_ASSERT(!label->bound());
+    MOZ_ASSERT(label->used());
+    MOZ_ASSERT(!label->bound());
 
     CompileInfo &info = snapshot->mir()->block()->info();
     switch (info.executionMode()) {
@@ -316,7 +316,7 @@ CodeGeneratorMIPS::bailoutFrom(Label *label, LSnapshot *snapshot)
     // Though the assembler doesn't track all frame pushes, at least make sure
     // the known value makes sense. We can't use bailout tables if the stack
     // isn't properly aligned to the static frame size.
-    JS_ASSERT_IF(frameClass_ != FrameSizeClass::None(),
+    MOZ_ASSERT_IF(frameClass_ != FrameSizeClass::None(),
                  frameClass_.frameSize() == masm.framePushed());
 
     // We don't use table bailouts because retargeting is easier this way.
@@ -356,7 +356,7 @@ CodeGeneratorMIPS::visitMinMaxD(LMinMaxD *ins)
     FloatRegister second = ToFloatRegister(ins->second());
     FloatRegister output = ToFloatRegister(ins->output());
 
-    JS_ASSERT(first == output);
+    MOZ_ASSERT(first == output);
 
     Assembler::DoubleCondition cond = ins->mir()->isMax()
                                       ? Assembler::DoubleLessThanOrEqual
@@ -402,7 +402,7 @@ bool
 CodeGeneratorMIPS::visitAbsD(LAbsD *ins)
 {
     FloatRegister input = ToFloatRegister(ins->input());
-    JS_ASSERT(input == ToFloatRegister(ins->output()));
+    MOZ_ASSERT(input == ToFloatRegister(ins->output()));
     masm.as_absd(input, input);
     return true;
 }
@@ -411,7 +411,7 @@ bool
 CodeGeneratorMIPS::visitAbsF(LAbsF *ins)
 {
     FloatRegister input = ToFloatRegister(ins->input());
-    JS_ASSERT(input == ToFloatRegister(ins->output()));
+    MOZ_ASSERT(input == ToFloatRegister(ins->output()));
     masm.as_abss(input, input);
     return true;
 }
@@ -441,7 +441,7 @@ CodeGeneratorMIPS::visitAddI(LAddI *ins)
     const LAllocation *rhs = ins->getOperand(1);
     const LDefinition *dest = ins->getDef(0);
 
-    JS_ASSERT(rhs->isConstant() || rhs->isGeneralReg());
+    MOZ_ASSERT(rhs->isConstant() || rhs->isGeneralReg());
 
     // If there is no snapshot, we don't need to check for overflow
     if (!ins->snapshot()) {
@@ -471,7 +471,7 @@ CodeGeneratorMIPS::visitSubI(LSubI *ins)
     const LAllocation *rhs = ins->getOperand(1);
     const LDefinition *dest = ins->getDef(0);
 
-    JS_ASSERT(rhs->isConstant() || rhs->isGeneralReg());
+    MOZ_ASSERT(rhs->isConstant() || rhs->isGeneralReg());
 
     // If there is no snapshot, we don't need to check for overflow
     if (!ins->snapshot()) {
@@ -502,7 +502,7 @@ CodeGeneratorMIPS::visitMulI(LMulI *ins)
     Register dest = ToRegister(ins->output());
     MMul *mul = ins->mir();
 
-    JS_ASSERT_IF(mul->mode() == MMul::Integer, !mul->canBeNegativeZero() && !mul->canOverflow());
+    MOZ_ASSERT_IF(mul->mode() == MMul::Integer, !mul->canBeNegativeZero() && !mul->canOverflow());
 
     if (rhs->isConstant()) {
         int32_t constant = ToInt32(rhs);
@@ -654,7 +654,7 @@ CodeGeneratorMIPS::visitDivI(LDivI *ins)
             masm.ma_b(&done, ShortJump);
             masm.bind(&notzero);
         } else {
-            JS_ASSERT(mir->fallible());
+            MOZ_ASSERT(mir->fallible());
             Label divideByZero;
             masm.ma_b(rhs, rhs, &divideByZero, Assembler::Zero);
             if (!bailoutFrom(&divideByZero, ins->snapshot()))
@@ -677,7 +677,7 @@ CodeGeneratorMIPS::visitDivI(LDivI *ins)
             masm.ma_b(&done, ShortJump);
             masm.bind(&skip);
         } else {
-            JS_ASSERT(mir->fallible());
+            MOZ_ASSERT(mir->fallible());
             Label negativeOverflow;
             masm.ma_b(rhs, temp, &negativeOverflow, Assembler::Equal);
             if (!bailoutFrom(&negativeOverflow, ins->snapshot()))
@@ -705,7 +705,7 @@ CodeGeneratorMIPS::visitDivI(LDivI *ins)
         masm.as_div(lhs, rhs);
         masm.as_mflo(dest);
     } else {
-        JS_ASSERT(mir->fallible());
+        MOZ_ASSERT(mir->fallible());
 
         Label remainderNonZero;
         masm.ma_div_branch_overflow(dest, lhs, rhs, &remainderNonZero);
@@ -792,7 +792,7 @@ CodeGeneratorMIPS::visitModI(LModI *ins)
             masm.ma_b(&done, ShortJump);
             masm.bind(&skip);
         } else {
-            JS_ASSERT(mir->fallible());
+            MOZ_ASSERT(mir->fallible());
             if (!bailoutIf(rhs, Imm32(-1), Assembler::Equal, ins->snapshot()))
                 return false;
         }
@@ -819,7 +819,7 @@ CodeGeneratorMIPS::visitModI(LModI *ins)
             masm.ma_b(&done, ShortJump);
             masm.bind(&skip);
         } else {
-            JS_ASSERT(mir->fallible());
+            MOZ_ASSERT(mir->fallible());
             if (!bailoutIf(rhs, Imm32(0), Assembler::Equal, ins->snapshot()))
                 return false;
         }
@@ -836,7 +836,7 @@ CodeGeneratorMIPS::visitModI(LModI *ins)
             masm.ma_b(&done, ShortJump);
             masm.bind(&skip);
         } else {
-            JS_ASSERT(mir->fallible());
+            MOZ_ASSERT(mir->fallible());
             if (!bailoutIf(lhs, Imm32(0), Assembler::Equal, ins->snapshot()))
                 return false;
         }
@@ -851,7 +851,7 @@ CodeGeneratorMIPS::visitModI(LModI *ins)
         if (mir->isTruncated()) {
             // -0.0|0 == 0
         } else {
-            JS_ASSERT(mir->fallible());
+            MOZ_ASSERT(mir->fallible());
             // See if X < 0
             masm.ma_b(dest, Imm32(0), &done, Assembler::NotEqual, ShortJump);
             if (!bailoutIf(callTemp, Imm32(0), Assembler::Signed, ins->snapshot()))
@@ -889,7 +889,7 @@ CodeGeneratorMIPS::visitModPowTwoI(LModPowTwoI *ins)
     }
     if (mir->canBeNegativeDividend()) {
         if (!mir->isTruncated()) {
-            JS_ASSERT(mir->fallible());
+            MOZ_ASSERT(mir->fallible());
             if (!bailoutIf(out, zero, Assembler::Equal, ins->snapshot()))
                 return false;
         } else {
@@ -909,7 +909,7 @@ CodeGeneratorMIPS::visitModMaskI(LModMaskI *ins)
     MMod *mir = ins->mir();
 
     if (!mir->isTruncated() && mir->canBeNegativeDividend()) {
-        JS_ASSERT(mir->fallible());
+        MOZ_ASSERT(mir->fallible());
 
         Label bail;
         masm.ma_mod_mask(src, dest, tmp, ins->shift(), &bail);
@@ -925,7 +925,7 @@ CodeGeneratorMIPS::visitBitNotI(LBitNotI *ins)
 {
     const LAllocation *input = ins->getOperand(0);
     const LDefinition *dest = ins->getDef(0);
-    JS_ASSERT(!input->isConstant());
+    MOZ_ASSERT(!input->isConstant());
 
     masm.ma_not(ToRegister(dest), ToRegister(input));
     return true;
@@ -1084,7 +1084,7 @@ CodeGeneratorMIPS::toMoveOperand(const LAllocation *a) const
     if (a->isFloatReg()) {
         return MoveOperand(ToFloatRegister(a));
     }
-    JS_ASSERT((ToStackOffset(a) & 3) == 0);
+    MOZ_ASSERT((ToStackOffset(a) & 3) == 0);
     int32_t offset = ToStackOffset(a);
 
     // The way the stack slots work, we assume that everything from
@@ -1408,8 +1408,8 @@ FrameSizeClass::ClassLimit()
 uint32_t
 FrameSizeClass::frameSize() const
 {
-    JS_ASSERT(class_ != NO_FRAME_SIZE_CLASS_ID);
-    JS_ASSERT(class_ < JS_ARRAY_LENGTH(FrameSizes));
+    MOZ_ASSERT(class_ != NO_FRAME_SIZE_CLASS_ID);
+    MOZ_ASSERT(class_ < JS_ARRAY_LENGTH(FrameSizes));
 
     return FrameSizes[class_];
 }
@@ -1452,7 +1452,7 @@ CodeGeneratorMIPS::visitBox(LBox *box)
 {
     const LDefinition *type = box->getDef(TYPE_INDEX);
 
-    JS_ASSERT(!box->getOperand(0)->isConstant());
+    MOZ_ASSERT(!box->getOperand(0)->isConstant());
 
     // On x86, the input operand and the output payload have the same
     // virtual register. All that needs to be written is the type tag for
@@ -1634,7 +1634,7 @@ CodeGeneratorMIPS::visitCompareB(LCompareB *lir)
     const LAllocation *rhs = lir->rhs();
     const Register output = ToRegister(lir->output());
 
-    JS_ASSERT(mir->jsop() == JSOP_STRICTEQ || mir->jsop() == JSOP_STRICTNE);
+    MOZ_ASSERT(mir->jsop() == JSOP_STRICTEQ || mir->jsop() == JSOP_STRICTNE);
     Assembler::Condition cond = JSOpToCondition(mir->compareType(), mir->jsop());
 
     Label notBoolean, done;
@@ -1663,7 +1663,7 @@ CodeGeneratorMIPS::visitCompareBAndBranch(LCompareBAndBranch *lir)
     const ValueOperand lhs = ToValue(lir, LCompareBAndBranch::Lhs);
     const LAllocation *rhs = lir->rhs();
 
-    JS_ASSERT(mir->jsop() == JSOP_STRICTEQ || mir->jsop() == JSOP_STRICTNE);
+    MOZ_ASSERT(mir->jsop() == JSOP_STRICTEQ || mir->jsop() == JSOP_STRICTNE);
 
     MBasicBlock *mirNotBoolean = (mir->jsop() == JSOP_STRICTEQ) ? lir->ifFalse() : lir->ifTrue();
     branchToBlock(lhs.typeReg(), ImmType(JSVAL_TYPE_BOOLEAN), mirNotBoolean, Assembler::NotEqual);
@@ -1687,7 +1687,7 @@ CodeGeneratorMIPS::visitCompareV(LCompareV *lir)
     const ValueOperand rhs = ToValue(lir, LCompareV::RhsInput);
     const Register output = ToRegister(lir->output());
 
-    JS_ASSERT(IsEqualityOp(mir->jsop()));
+    MOZ_ASSERT(IsEqualityOp(mir->jsop()));
 
     Label notEqual, done;
     masm.ma_b(lhs.typeReg(), rhs.typeReg(), &notEqual, Assembler::NotEqual, ShortJump);
@@ -1712,7 +1712,7 @@ CodeGeneratorMIPS::visitCompareVAndBranch(LCompareVAndBranch *lir)
     const ValueOperand lhs = ToValue(lir, LCompareVAndBranch::LhsInput);
     const ValueOperand rhs = ToValue(lir, LCompareVAndBranch::RhsInput);
 
-    JS_ASSERT(mir->jsop() == JSOP_EQ || mir->jsop() == JSOP_STRICTEQ ||
+    MOZ_ASSERT(mir->jsop() == JSOP_EQ || mir->jsop() == JSOP_STRICTEQ ||
               mir->jsop() == JSOP_NE || mir->jsop() == JSOP_STRICTNE);
 
     MBasicBlock *notEqual = (cond == Assembler::Equal) ? lir->ifFalse() : lir->ifTrue();
@@ -1883,7 +1883,7 @@ CodeGeneratorMIPS::visitLoadElementT(LLoadElementT *load)
             masm.load32(source, ToRegister(load->output()));
         }
     }
-    JS_ASSERT(!load->mir()->needsHoleCheck());
+    MOZ_ASSERT(!load->mir()->needsHoleCheck());
     return true;
 }
 
@@ -2066,9 +2066,9 @@ CodeGeneratorMIPS::visitAsmJSLoadHeap(LAsmJSLoadHeap *ins)
     }
 
     if (ptr->isConstant()) {
-        JS_ASSERT(mir->skipBoundsCheck());
+        MOZ_ASSERT(mir->skipBoundsCheck());
         int32_t ptrImm = ptr->toConstant()->toInt32();
-        JS_ASSERT(ptrImm >= 0);
+        MOZ_ASSERT(ptrImm >= 0);
         if (isFloat) {
             if (size == 32) {
                 masm.loadFloat32(Address(HeapReg, ptrImm), ToFloatRegister(out));
@@ -2152,9 +2152,9 @@ CodeGeneratorMIPS::visitAsmJSStoreHeap(LAsmJSStoreHeap *ins)
     }
 
     if (ptr->isConstant()) {
-        JS_ASSERT(mir->skipBoundsCheck());
+        MOZ_ASSERT(mir->skipBoundsCheck());
         int32_t ptrImm = ptr->toConstant()->toInt32();
-        JS_ASSERT(ptrImm >= 0);
+        MOZ_ASSERT(ptrImm >= 0);
 
         if (isFloat) {
             if (size == 32) {
@@ -2238,7 +2238,7 @@ CodeGeneratorMIPS::visitUDiv(LUDiv *ins)
             masm.ma_b(&done, ShortJump);
             masm.bind(&notzero);
         } else {
-            JS_ASSERT(ins->mir()->fallible());
+            MOZ_ASSERT(ins->mir()->fallible());
             if (!bailoutIf(rhs, Imm32(0), Assembler::Equal, ins->snapshot()))
                 return false;
         }
@@ -2273,7 +2273,7 @@ CodeGeneratorMIPS::visitUMod(LUMod *ins)
             masm.ma_b(&done, ShortJump);
             masm.bind(&notzero);
         } else {
-            JS_ASSERT(ins->mir()->fallible());
+            MOZ_ASSERT(ins->mir()->fallible());
             if (!bailoutIf(rhs, Imm32(0), Assembler::Equal, ins->snapshot()))
                 return false;
         }
@@ -2325,7 +2325,7 @@ CodeGeneratorMIPS::visitAsmJSStoreGlobalVar(LAsmJSStoreGlobalVar *ins)
     const MAsmJSStoreGlobalVar *mir = ins->mir();
 
     MIRType type = mir->value()->type();
-    JS_ASSERT(IsNumberType(type));
+    MOZ_ASSERT(IsNumberType(type));
     unsigned addr = mir->globalDataOffset();
     if (mir->value()->type() == MIRType_Int32)
         masm.ma_sw(ToRegister(ins->value()), Address(GlobalReg, addr));
@@ -2398,7 +2398,7 @@ CodeGenerator::visitAbsI(LAbsI *ins)
     Register input = ToRegister(ins->input());
     Label positive;
 
-    JS_ASSERT(input == ToRegister(ins->output()));
+    MOZ_ASSERT(input == ToRegister(ins->output()));
     masm.ma_b(input, input, &positive, Assembler::NotSigned, ShortJump);
 
     if (ins->snapshot() && !bailoutIf(input, Imm32(INT32_MIN), Assembler::Equal, ins->snapshot()))
@@ -2451,7 +2451,7 @@ CodeGenerator::visitBoundsCheckRange(LBoundsCheckRange *lir)
 {
     int32_t min = lir->mir()->minimum();
     int32_t max = lir->mir()->maximum();
-    JS_ASSERT(max >= min);
+    MOZ_ASSERT(max >= min);
 
     Register temp = ToRegister(lir->getTemp(0));
     if (lir->index()->isConstant()) {
@@ -2543,7 +2543,7 @@ CodeGenerator::visitMinMaxI(LMinMaxI *ins)
     Register first = ToRegister(ins->first());
     Register output = ToRegister(ins->output());
 
-    JS_ASSERT(first == output);
+    MOZ_ASSERT(first == output);
 
     Label done;
     if (ins->mir()->isMax()) {

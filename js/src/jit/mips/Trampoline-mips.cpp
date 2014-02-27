@@ -107,7 +107,7 @@ GenerateReturn(MacroAssembler &masm, int returnCode)
     masm.ma_ld(f28, Address(StackPointer, offset -= sizeof(double)));
     masm.ma_ld(f30, Address(StackPointer, offset -= sizeof(double)));
 
-    JS_ASSERT(offset == 0);
+    MOZ_ASSERT(offset == 0);
     masm.ma_addu(StackPointer, StackPointer,
                  Imm32(GENERAL_REGS_BUFF_SIZE + FLOAT_REGS_BUFF_SIZE));
 
@@ -133,7 +133,7 @@ JitRuntime::generateEnterJIT(JSContext *cx, EnterJitType type)
     const Address slot_token(sp, CALLEE_TOKEN_OFFSET);
     const Address slot_vp(sp, VP_OFFSET);
 
-    JS_ASSERT(OsrFrameReg == reg_frame);
+    MOZ_ASSERT(OsrFrameReg == reg_frame);
 
     MacroAssembler masm(cx);
     AutoFlushCache afc("GenerateEnterJIT", cx->runtime()->jitRuntime());
@@ -162,7 +162,7 @@ JitRuntime::generateEnterJIT(JSContext *cx, EnterJitType type)
     masm.ma_sd(f28, Address(StackPointer, offset -= sizeof(double)));
     masm.ma_sd(f30, Address(StackPointer, offset -= sizeof(double)));
 
-    JS_ASSERT(offset == 0);
+    MOZ_ASSERT(offset == 0);
 
     // Save stack pointer into s4
     masm.movePtr(sp, s4);
@@ -275,7 +275,7 @@ JitRuntime::generateEnterJIT(JSContext *cx, EnterJitType type)
         masm.ma_lw(framePtr, Address(StackPointer, sizeof(intptr_t)));
         masm.ma_addu(StackPointer, StackPointer, Imm32(2 * sizeof(intptr_t)));
 
-        JS_ASSERT(jitcode != ReturnReg);
+        MOZ_ASSERT(jitcode != ReturnReg);
 
         Label error;
         masm.addPtr(Imm32(IonExitFrameLayout::SizeWithFooter()), sp);
@@ -295,7 +295,7 @@ JitRuntime::generateEnterJIT(JSContext *cx, EnterJitType type)
 
         masm.bind(&notOsr);
         // Load the scope chain in R1.
-        JS_ASSERT(R1.scratchReg() != reg_code);
+        MOZ_ASSERT(R1.scratchReg() != reg_code);
         masm.loadPtr(Address(BaselineFrameReg, SCOPE_CHAIN_OFFSET), R1.scratchReg());
     }
 
@@ -406,7 +406,7 @@ JitRuntime::generateArgumentsRectifier(JSContext *cx, ExecutionMode mode, void *
 
     // ArgumentsRectifierReg contains the |nargs| pushed onto the current
     // frame. Including |this|, there are (|nargs| + 1) arguments to copy.
-    JS_ASSERT(ArgumentsRectifierReg == s3);
+    MOZ_ASSERT(ArgumentsRectifierReg == s3);
 
     Register numActArgsReg = t6;
     Register calleeTokenReg = t7;
@@ -700,8 +700,8 @@ JitRuntime::generateBailoutHandler(JSContext *cx)
 JitCode *
 JitRuntime::generateVMWrapper(JSContext *cx, const VMFunction &f)
 {
-    JS_ASSERT(functionWrappers_);
-    JS_ASSERT(functionWrappers_->initialized());
+    MOZ_ASSERT(functionWrappers_);
+    MOZ_ASSERT(functionWrappers_->initialized());
     VMWrapperMap::AddPtr p = functionWrappers_->lookupForAdd(&f);
     if (p)
         return p->value();
@@ -765,7 +765,7 @@ JitRuntime::generateVMWrapper(JSContext *cx, const VMFunction &f)
         break;
 
       default:
-        JS_ASSERT(f.outParam == Type_Void);
+        MOZ_ASSERT(f.outParam == Type_Void);
         break;
     }
 
@@ -785,7 +785,7 @@ JitRuntime::generateVMWrapper(JSContext *cx, const VMFunction &f)
           case VMFunction::DoubleByValue:
             // Values should be passed by reference, not by value, so we
             // assert that the argument is a double-precision float.
-            JS_ASSERT(f.argPassedInFloatReg(explicitArg));
+            MOZ_ASSERT(f.argPassedInFloatReg(explicitArg));
             masm.passABIArg(MoveOperand(argsBase, argDisp), MoveOp::DOUBLE);
             argDisp += sizeof(double);
             break;
@@ -854,7 +854,7 @@ JitRuntime::generateVMWrapper(JSContext *cx, const VMFunction &f)
 
 
       default:
-        JS_ASSERT(f.outParam == Type_Void);
+        MOZ_ASSERT(f.outParam == Type_Void);
         break;
     }
     masm.leaveExitFrame();
@@ -894,7 +894,7 @@ JitRuntime::generatePreBarrier(JSContext *cx, MIRType type)
     }
     masm.PushRegsInMask(save);
 
-    JS_ASSERT(PreBarrierReg == a1);
+    MOZ_ASSERT(PreBarrierReg == a1);
     masm.movePtr(ImmPtr(cx->runtime()), a0);
 
     masm.setupUnalignedABICall(2, a2);
@@ -904,7 +904,7 @@ JitRuntime::generatePreBarrier(JSContext *cx, MIRType type)
     if (type == MIRType_Value) {
         masm.callWithABI(JS_FUNC_TO_DATA_PTR(void *, MarkValueFromIon));
     } else {
-        JS_ASSERT(type == MIRType_Shape);
+        MOZ_ASSERT(type == MIRType_Shape);
         masm.callWithABI(JS_FUNC_TO_DATA_PTR(void *, MarkShapeFromIon));
     }
 
