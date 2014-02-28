@@ -1245,8 +1245,8 @@ CodeGeneratorMIPS::visitFloor(LFloor *lir)
     masm.ma_bc1d(input, scratch, &skipCheck, Assembler::DoubleNotEqual, ShortJump);
 
     // If high part is not zero, it is NaN or -0, so we bail.
-    masm.as_mfc1_Odd(masm.secondScratch(), input);
-    masm.ma_b(masm.secondScratch(), Imm32(0), &bail, Assembler::NotEqual, ShortJump);
+    masm.as_mfc1_Odd(SecondScratchReg, input);
+    masm.ma_b(SecondScratchReg, Imm32(0), &bail, Assembler::NotEqual, ShortJump);
     if (!bailoutFrom(&bail, lir->snapshot()))
         return false;
 
@@ -1283,8 +1283,8 @@ CodeGeneratorMIPS::visitFloorF(LFloorF *lir)
     masm.ma_bc1s(input, scratch, &skipCheck, Assembler::DoubleNotEqual, ShortJump);
 
     // If binary value is not zero, it is NaN or -0, so we bail.
-    masm.as_mfc1(masm.secondScratch(), input);
-    masm.ma_b(masm.secondScratch(), Imm32(0), &bail, Assembler::NotEqual, ShortJump);
+    masm.as_mfc1(SecondScratchReg, input);
+    masm.ma_b(SecondScratchReg, Imm32(0), &bail, Assembler::NotEqual, ShortJump);
     if (!bailoutFrom(&bail, lir->snapshot()))
         return false;
 
@@ -1328,8 +1328,8 @@ CodeGeneratorMIPS::visitRound(LRound *lir)
     masm.ma_bc1d(input, scratch, &skipCheck, Assembler::DoubleNotEqual, ShortJump);
 
     // If high part is not zero, it is NaN or -0, so we bail.
-    masm.as_mfc1_Odd(masm.secondScratch(), input);
-    masm.ma_b(masm.secondScratch(), Imm32(0), &bail1, Assembler::NotEqual, ShortJump);
+    masm.as_mfc1_Odd(SecondScratchReg, input);
+    masm.ma_b(SecondScratchReg, Imm32(0), &bail1, Assembler::NotEqual, ShortJump);
     if (!bailoutFrom(&bail1, lir->snapshot()))
         return false;
 
@@ -1934,9 +1934,9 @@ CodeGeneratorMIPS::visitGuardShape(LGuardShape *guard)
     Register tmp = ToRegister(guard->tempInt());
 
     // Use second scratch. It is safe.
-    masm.ma_li(masm.secondScratch(), ImmGCPtr(guard->mir()->shape()));
+    masm.ma_li(SecondScratchReg, ImmGCPtr(guard->mir()->shape()));
     masm.ma_lw(tmp, Address(obj, JSObject::offsetOfShape()));
-    return bailoutIf(tmp, masm.secondScratch(), Assembler::NotEqual, guard->snapshot());
+    return bailoutIf(tmp, SecondScratchReg, Assembler::NotEqual, guard->snapshot());
 }
 
 bool
@@ -1946,10 +1946,10 @@ CodeGeneratorMIPS::visitGuardObjectType(LGuardObjectType *guard)
     Register tmp = ToRegister(guard->tempInt());
 
     masm.ma_lw(tmp, Address(obj, JSObject::offsetOfType()));
-    masm.ma_li(masm.secondScratch(), ImmGCPtr(guard->mir()->typeObject()));
+    masm.ma_li(SecondScratchReg, ImmGCPtr(guard->mir()->typeObject()));
     Assembler::Condition cond =
         guard->mir()->bailOnEquality() ? Assembler::Equal : Assembler::NotEqual;
-    return bailoutIf(tmp, masm.secondScratch(), cond, guard->snapshot());
+    return bailoutIf(tmp, SecondScratchReg, cond, guard->snapshot());
 }
 
 bool
@@ -1973,10 +1973,10 @@ CodeGeneratorMIPS::visitImplicitThis(LImplicitThis *lir)
     // The implicit |this| is always |undefined| if the function's environment
     // is the current global.
     masm.ma_lw(out.typeReg(), Address(callee, JSFunction::offsetOfEnvironment()));
-    masm.ma_li(masm.secondScratch(), ImmGCPtr(&gen->info().script()->global()));
+    masm.ma_li(SecondScratchReg, ImmGCPtr(&gen->info().script()->global()));
 
     // TODO: OOL stub path.
-    if (!bailoutIf(out.typeReg(), masm.secondScratch(), Assembler::NotEqual, lir->snapshot()))
+    if (!bailoutIf(out.typeReg(), SecondScratchReg, Assembler::NotEqual, lir->snapshot()))
         return false;
 
     masm.moveValue(UndefinedValue(), out);
@@ -2428,8 +2428,8 @@ CodeGenerator::visitBoundsCheck(LBoundsCheck *lir)
                              Assembler::BelowOrEqual, lir->snapshot());
         }
         // Use second scratch. It is safe.
-        masm.ma_lw(masm.secondScratch(), Address(StackPointer, ToStackOffset(lir->length())));
-        return bailoutIf(masm.secondScratch(), Imm32(index), Assembler::BelowOrEqual,
+        masm.ma_lw(SecondScratchReg, Address(StackPointer, ToStackOffset(lir->length())));
+        return bailoutIf(SecondScratchReg, Imm32(index), Assembler::BelowOrEqual,
                          lir->snapshot());
     }
     if (lir->length()->isConstant()) {
@@ -2441,8 +2441,8 @@ CodeGenerator::visitBoundsCheck(LBoundsCheck *lir)
                          Assembler::BelowOrEqual, lir->snapshot());
     }
     // Use second scratch. It is safe.
-    masm.ma_lw(masm.secondScratch(), Address(StackPointer, ToStackOffset(lir->length())));
-    return bailoutIf(masm.secondScratch(), ToRegister(lir->index()),
+    masm.ma_lw(SecondScratchReg, Address(StackPointer, ToStackOffset(lir->length())));
+    return bailoutIf(SecondScratchReg, ToRegister(lir->index()),
                      Assembler::BelowOrEqual, lir->snapshot());
 }
 

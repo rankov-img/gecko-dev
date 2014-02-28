@@ -1692,7 +1692,7 @@ CodeGenerator::visitGuardObjectIdentity(LGuardObjectIdentity *guard)
         guard->mir()->bailOnEquality() ? Assembler::Equal : Assembler::NotEqual;
     return bailoutIf(cond, guard->snapshot());
 #else
-    masm.ma_li(masm.secondScratch(), ImmGCPtr(guard->mir()->singleObject()));
+    masm.ma_li(SecondScratchReg, ImmGCPtr(guard->mir()->singleObject()));
 
     Assembler::Condition cond =
         guard->mir()->bailOnEquality() ? Assembler::Equal : Assembler::NotEqual;

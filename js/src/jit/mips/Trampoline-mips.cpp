@@ -843,9 +843,9 @@ JitRuntime::generateVMWrapper(JSContext *cx, const VMFunction &f)
       case Type_Double:
         masm.freeStack(3 * sizeof(uint32_t));
         if (cx->runtime()->jitSupportsFloatingPoint) {
-            masm.ma_and(masm.secondScratch(), sp, Imm32(~(StackAlignment - 1)));
-            masm.ma_subu(masm.secondScratch(), masm.secondScratch(), Imm32(sizeof(double)));
-            masm.ma_ld(ReturnFloatReg, Address(masm.secondScratch(), 0));
+            masm.ma_and(SecondScratchReg, sp, Imm32(~(StackAlignment - 1)));
+            masm.ma_subu(SecondScratchReg, SecondScratchReg, Imm32(sizeof(double)));
+            masm.ma_ld(ReturnFloatReg, Address(SecondScratchReg, 0));
         } else {
             masm.assumeUnreachable("Unable to load into float reg, with no FP support.");
         }

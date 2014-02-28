@@ -284,12 +284,12 @@ MacroAssembler::PushRegsInMask(RegisterSet set)
     // Double values have to be aligned. We reserve extra space so that we can
     // start writing from the first aligned location.
     // We reserve a whole extra double so that the buffer has even size.
-    ma_and(secondScratchReg_, sp, Imm32(~(StackAlignment - 1)));
+    ma_and(SecondScratchReg, sp, Imm32(~(StackAlignment - 1)));
     reserveStack(diffF + sizeof(double));
 
     for (FloatRegisterForwardIterator iter(set.fpus()); iter.more(); iter++) {
         // Use assembly s.d because we have alligned the stack.
-        as_sd(*iter, secondScratchReg_, -diffF);
+        as_sd(*iter, SecondScratchReg, -diffF);
         diffF -= sizeof(double);
     }
 #else
@@ -321,13 +321,13 @@ MacroAssembler::PopRegsInMaskIgnore(RegisterSet set, RegisterSet ignore)
     {
 #ifdef JS_CODEGEN_MIPS
         // Read the buffer form the first aligned location.
-        ma_addu(secondScratchReg_, sp, Imm32(reservedF + sizeof(double)));
-        ma_and(secondScratchReg_, secondScratchReg_, Imm32(~(StackAlignment - 1)));
+        ma_addu(SecondScratchReg, sp, Imm32(reservedF + sizeof(double)));
+        ma_and(SecondScratchReg, SecondScratchReg, Imm32(~(StackAlignment - 1)));
 
         for (FloatRegisterForwardIterator iter(set.fpus()); iter.more(); iter++) {
             if (!ignore.has(*iter))
                 // Use assembly l.d because we have alligned the stack.
-                as_ld(*iter, secondScratchReg_, -diffF);
+                as_ld(*iter, SecondScratchReg, -diffF);
             diffF -= sizeof(double);
         }
         freeStack(reservedF + sizeof(double));

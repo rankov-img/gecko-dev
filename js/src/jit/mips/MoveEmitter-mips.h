@@ -62,5 +62,3 @@ typedef MoveEmitterMIPS MoveEmitter;
 } // namespace js
 
 #endif /* jit_mips_MoveEmitter_mips_h */
-
-
