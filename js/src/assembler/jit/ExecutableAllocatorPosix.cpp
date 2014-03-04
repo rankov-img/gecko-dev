@@ -108,7 +108,11 @@ ExecutablePool::toggleAllCodeAsAccessible(bool accessible)
     if (size) {
         int flags = accessible
                     ? PROT_READ | PROT_WRITE | PROT_EXEC
+#ifdef JS_CPU_MIPS
+                    : PROT_NONE;
+#else
                     : PROT_READ | PROT_WRITE;
+#endif
         if (mprotect(begin, size, flags))
             MOZ_CRASH();
     }
