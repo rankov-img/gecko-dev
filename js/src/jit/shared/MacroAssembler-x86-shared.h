@@ -315,6 +315,10 @@ class MacroAssemblerX86Shared : public Assembler
         ucomisd(ScratchFloatReg, reg);
         return truthy ? NonZero : Zero;
     }
+    void branchTestDoubleTruthy(bool truthy, const FloatRegister &reg, Label *label) {
+        Condition cond = testDoubleTruthy(truthy, reg);
+        j(cond, label);
+    }
     void load8ZeroExtend(const Address &src, const Register &dest) {
         movzbl(Operand(src), dest);
     }

@@ -954,23 +954,6 @@ class MacroAssembler : public MacroAssemblerSpecific
         return ret;
     }
 
-// Implemented for MIPS in MacroAssembler-mips.h
-#ifndef JS_CODEGEN_MIPS
-    Condition branchTestObjectTruthy(bool truthy, Register objReg, Register scratch,
-                                     Label *slowCheck)
-    {
-        // The branches to out-of-line code here implement a conservative version
-        // of the JSObject::isWrapper test performed in EmulatesUndefined.  If none
-        // of the branches are taken, we can check class flags directly.
-        loadObjClass(objReg, scratch);
-        Address flags(scratch, Class::offsetOfFlags());
-
-        branchTest32(Assembler::NonZero, flags, Imm32(JSCLASS_IS_PROXY), slowCheck);
-
-        test32(flags, Imm32(JSCLASS_EMULATES_UNDEFINED));
-        return truthy ? Assembler::Zero : Assembler::NonZero;
-    }
-#else
     void branchTestObjectTruthy(bool truthy, Register objReg, Register scratch,
                                 Label *slowCheck, Label *checked)
     {
@@ -985,7 +968,6 @@ class MacroAssembler : public MacroAssemblerSpecific
         Condition cond = truthy ? Assembler::Zero : Assembler::NonZero;
         branchTest32(cond, flags, Imm32(JSCLASS_EMULATES_UNDEFINED), checked);
     }
-#endif
 
   private:
     // These two functions are helpers used around call sites throughout the

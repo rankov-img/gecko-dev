@@ -475,12 +475,7 @@ CodeGenerator::testObjectEmulatesUndefinedKernel(Register objreg,
     // Perform a fast-path check of the object's class flags if the object's
     // not a proxy.  Let out-of-line code handle the slow cases that require
     // saving registers, making a function call, and restoring registers.
-#ifndef JS_CODEGEN_MIPS
-    Assembler::Condition cond = masm.branchTestObjectTruthy(false, objreg, scratch, ool->entry());
-    masm.j(cond, ifEmulatesUndefined);
-#else
     masm.branchTestObjectTruthy(false, objreg, scratch, ool->entry(), ifEmulatesUndefined);
-#endif
 }
 
 void
@@ -558,23 +553,13 @@ CodeGenerator::testValueTruthyKernel(const ValueOperand &value,
     // Test if a string is non-empty.
     Label notString;
     masm.branchTestString(Assembler::NotEqual, tag, &notString);
-#ifndef JS_CODEGEN_MIPS
-    cond = masm.testStringTruthy(false, value);
-    masm.j(cond, ifFalsy);
-#else
     masm.branchTestStringTruthy(false, value, ifFalsy);
-#endif
     masm.jump(ifTruthy);
     masm.bind(&notString);
 
     // If we reach here the value is a double.
     masm.unboxDouble(value, fr);
-#ifndef JS_CODEGEN_MIPS
-    cond = masm.testDoubleTruthy(false, fr);
-    masm.j(cond, ifFalsy);
-#else
     masm.branchTestDoubleTruthy(false, fr, ifFalsy);
-#endif
 
     // Fall through for truthy.
 }
@@ -2147,12 +2132,7 @@ CodeGenerator::visitCallGeneric(LCallGeneric *call)
 
     // Check whether the provided arguments satisfy target argc.
     masm.load16ZeroExtend(Address(calleereg, JSFunction::offsetOfNargs()), nargsreg);
-#ifndef JS_CODEGEN_MIPS
-    masm.cmp32(nargsreg, Imm32(call->numStackArgs()));
-    masm.j(Assembler::Above, &thunk);
-#else
     masm.branch32(Assembler::Above, nargsreg, Imm32(call->numStackArgs()), &thunk);
-#endif
     masm.jump(&makeCall);
 
     // Argument fixed needed. Load the ArgumentsRectifier.
@@ -2488,20 +2468,10 @@ CodeGenerator::visitApplyArgsGeneric(LApplyArgsGeneric *apply)
         // Check whether the provided arguments satisfy target argc.
         if (!apply->hasSingleTarget()) {
             masm.load16ZeroExtend(Address(calleereg, JSFunction::offsetOfNargs()), copyreg);
-#ifndef JS_CODEGEN_MIPS
-            masm.cmp32(argcreg, copyreg);
-            masm.j(Assembler::Below, &underflow);
-#else
             masm.branch32(Assembler::Below, argcreg, copyreg, &underflow);
-#endif
         } else {
-#ifndef JS_CODEGEN_MIPS
-            masm.cmp32(argcreg, Imm32(apply->getSingleTarget()->nargs()));
-            masm.j(Assembler::Below, &underflow);
-#else
             masm.branch32(Assembler::Below, argcreg, Imm32(apply->getSingleTarget()->nargs()),
                           &underflow);
-#endif
         }
 
         // Skip the construction of the rectifier frame because we have no

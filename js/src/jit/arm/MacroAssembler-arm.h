@@ -913,9 +913,20 @@ class MacroAssemblerARMCompat : public MacroAssemblerARM
         branch32(cond, val.payloadReg(), Imm32(static_cast<int32_t>(why)), label);
         bind(&notmagic);
     }
-    template<typename T>
-    void branchTestBooleanTruthy(bool b, const T & t, Label *label) {
-        Condition c = testBooleanTruthy(b, t);
+    void branchTestInt32Truthy(bool truthy, const ValueOperand &operand, Label *label) {
+        Condition c = testInt32Truthy(truthy, operand);
+        ma_b(label, c);
+    }
+    void branchTestBooleanTruthy(bool truthy, const ValueOperand &operand, Label *label) {
+        Condition c = testBooleanTruthy(truthy, operand);
+        ma_b(label, c);
+    }
+    void branchTestDoubleTruthy(bool truthy, const FloatRegister &reg, Label *label) {
+        Condition c = testDoubleTruthy(truthy, reg);
+        ma_b(label, c);
+    }
+    void branchTestStringTruthy(bool truthy, const ValueOperand &value, Label *label) {
+        Condition c = testStringTruthy(truthy, value);
         ma_b(label, c);
     }
     void branchTest32(Condition cond, const Register &lhs, const Register &rhs, Label *label) {
