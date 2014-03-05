@@ -1060,7 +1060,7 @@ CodeGeneratorMIPS::visitPowHalfD(LPowHalfD *ins)
     Label done, skip;
 
     // Masm.pow(-Infinity, 0.5) == Infinity.
-    masm.ma_lid(ScratchFloatReg, NegativeInfinity());
+    masm.ma_lid(ScratchFloatReg, NegativeInfinity<double>());
     masm.ma_bc1d(input, ScratchFloatReg, &skip, Assembler::DoubleNotEqualOrUnordered, ShortJump);
     masm.as_negd(output, ScratchFloatReg);
     masm.ma_b(&done, ShortJump);
@@ -1365,6 +1365,73 @@ CodeGeneratorMIPS::visitRound(LRound *lir)
     // Truncate and round toward zero.
     // This is off-by-one for everything but integer-valued inputs.
     masm.as_floorwd(scratch, temp);
+    masm.as_mfc1(output, scratch);
+
+    if (!bailoutIf(output, Imm32(INT_MIN), Assembler::Equal, lir->snapshot()))
+        return false;
+
+    masm.bind(&end);
+    return true;
+}
+
+bool
+CodeGeneratorMIPS::visitRoundF(LRoundF *lir)
+{
+    FloatRegister input = ToFloatRegister(lir->input());
+    FloatRegister temp = ToFloatRegister(lir->temp());
+    FloatRegister scratch = ScratchFloatReg;
+    Register output = ToRegister(lir->output());
+
+    Label bail1, bail2, negative, end, skipCheck;
+
+    // Load 0.5 in the temp register.
+    masm.loadConstantFloat32(0.5, temp);
+
+    // Branch to a slow path for negative inputs. Doesn't catch NaN or -0.
+    masm.loadConstantFloat32(0.0, scratch);
+    masm.ma_bc1s(input, scratch, &negative, Assembler::DoubleLessThan, ShortJump);
+
+    // If Nan, 0 or -0 check for bailout
+    masm.ma_bc1s(input, scratch, &skipCheck, Assembler::DoubleNotEqual, ShortJump);
+
+    // If binary value is not zero, it is NaN or -0, so we bail.
+    masm.as_mfc1(SecondScratchReg, input);
+    masm.ma_b(SecondScratchReg, Imm32(0), &bail1, Assembler::NotEqual, ShortJump);
+    if (!bailoutFrom(&bail1, lir->snapshot()))
+        return false;
+
+    // Input was zero, so return zero.
+    masm.ma_li(output, Imm32(0));
+    masm.ma_b(&end, ShortJump);
+
+    masm.bind(&skipCheck);
+    masm.ma_lis(scratch, 0.5);
+    masm.as_adds(scratch, input, scratch);
+    masm.as_floorws(scratch, scratch);
+
+    masm.as_mfc1(output, scratch);
+
+    if (!bailoutIf(output, Imm32(INT_MIN), Assembler::Equal, lir->snapshot()))
+        return false;
+
+    if (!bailoutIf(output, Imm32(INT_MAX), Assembler::Equal, lir->snapshot()))
+        return false;
+
+    masm.jump(&end);
+
+    // Input is negative, but isn't -0.
+    masm.bind(&negative);
+    masm.as_adds(temp, input, temp);
+
+    // If input + 0.5 >= 0, input is a negative number >= -0.5 and the
+    // result is -0.
+    masm.ma_bc1s(temp, scratch, &bail2, Assembler::DoubleGreaterThanOrEqual);
+    if (!bailoutFrom(&bail2, lir->snapshot()))
+        return false;
+
+    // Truncate and round toward zero.
+    // This is off-by-one for everything but integer-valued inputs.
+    masm.as_floorws(scratch, temp);
     masm.as_mfc1(output, scratch);
 
     if (!bailoutIf(output, Imm32(INT_MIN), Assembler::Equal, lir->snapshot()))
@@ -2388,6 +2455,19 @@ CodeGeneratorMIPS::visitNegF(LNegF *ins)
     masm.as_negs(output, input);
     return true;
 }
+
+bool
+CodeGeneratorMIPS::visitForkJoinGetSlice(LForkJoinGetSlice *ins)
+{
+    MOZ_ASSUME_UNREACHABLE("NYI");
+}
+
+JitCode *
+JitRuntime::generateForkJoinGetSliceStub(JSContext *cx)
+{
+    MOZ_ASSUME_UNREACHABLE("NYI");
+}
+
 
 // Methods that have been copied from CodeGenerator.cpp because they need
 // special implementation for MIPS.

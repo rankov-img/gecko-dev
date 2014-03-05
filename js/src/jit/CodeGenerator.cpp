@@ -8131,8 +8131,12 @@ CodeGenerator::visitHasClass(LHasClass *ins)
     Register output = ToRegister(ins->output());
 
     masm.loadObjClass(lhs, output);
+#ifndef JS_CODEGEN_MIPS
     masm.cmpPtr(output, ImmPtr(ins->mir()->getClass()));
     masm.emitSet(Assembler::Equal, output);
+#else
+    masm.ma_cmp_set(output, output, ImmPtr(ins->mir()->getClass()), Assembler::Equal);
+#endif
 
     return true;
 }

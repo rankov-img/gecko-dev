@@ -261,6 +261,9 @@ class MacroAssemblerMIPS : public Assembler
 
     void ma_cmp_set(Register dst, Register lhs, Register rhs, Condition c);
     void ma_cmp_set(Register dst, Register lhs, Imm32 imm, Condition c);
+    void ma_cmp_set(Register dst, Register lhs, ImmPtr imm, Condition c) {
+        ma_cmp_set(dst, lhs, Imm32(uint32_t(imm.value)), c);
+    }
     void ma_cmp_set(Register rd, Register rs, Address addr, Condition c);
     void ma_cmp_set(Register dst, Address lhs, Register imm, Condition c);
     void ma_cmp_set_double(Register dst, FloatRegister lhs, FloatRegister rhs, DoubleCondition c);

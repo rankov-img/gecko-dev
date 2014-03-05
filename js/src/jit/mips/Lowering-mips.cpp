@@ -525,3 +525,8 @@ LIRGeneratorMIPS::visitStoreTypedArrayElementStatic(MStoreTypedArrayElementStati
     MOZ_ASSUME_UNREACHABLE("NYI");
 }
 
+bool
+LIRGeneratorMIPS::visitForkJoinGetSlice(MForkJoinGetSlice *ins)
+{
+    MOZ_ASSUME_UNREACHABLE("NYI");
+}
