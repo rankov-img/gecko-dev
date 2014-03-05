@@ -577,7 +577,7 @@ HandleExceptionBaseline(JSContext *cx, const IonFrameIterator &frame, ResumeFrom
 void
 HandleException(ResumeFromException *rfe)
 {
-    JSContext *cx = GetIonContext()->cx;
+    JSContext *cx = GetJSContextFromJitCode();
 
     rfe->kind = ResumeFromException::RESUME_ENTRY_FRAME;
 
@@ -1657,7 +1657,7 @@ InlineFrameIteratorMaybeGC<allowGC>::isConstructing() const
 {
     // Skip the current frame and look at the caller's.
     if (more()) {
-        InlineFrameIteratorMaybeGC<allowGC> parent(GetIonContext()->cx, this);
+        InlineFrameIteratorMaybeGC<allowGC> parent(GetJSContextFromJitCode(), this);
         ++parent;
 
         // Inlined Getters and Setters are never constructing.
@@ -1687,7 +1687,7 @@ IonFrameIterator::isConstructing() const
 
     if (parent.isOptimizedJS()) {
         // In the case of a JS frame, look up the pc from the snapshot.
-        InlineFrameIterator inlinedParent(GetIonContext()->cx, &parent);
+        InlineFrameIterator inlinedParent(GetJSContextFromJitCode(), &parent);
 
         //Inlined Getters and Setters are never constructing.
         if (IsGetPropPC(inlinedParent.pc()) || IsSetPropPC(inlinedParent.pc()))
@@ -1767,7 +1767,7 @@ IonFrameIterator::dumpBaseline() const
     fprintf(stderr, "  file %s line %u\n",
             script()->filename(), (unsigned) script()->lineno());
 
-    JSContext *cx = GetIonContext()->cx;
+    JSContext *cx = GetJSContextFromJitCode();
     RootedScript script(cx);
     jsbytecode *pc;
     baselineScriptAndPc(script.address(), &pc);
@@ -1835,7 +1835,7 @@ InlineFrameIteratorMaybeGC<allowGC>::dump() const
             else {
                 if (i - 2 == callee()->nargs() && numActualArgs() > callee()->nargs()) {
                     DumpOp d(callee()->nargs());
-                    forEachCanonicalActualArg(GetIonContext()->cx, d, d.i_, numActualArgs() - d.i_);
+                    forEachCanonicalActualArg(GetJSContextFromJitCode(), d, ReadFrame_Overflown);
                 }
 
                 fprintf(stderr, "  slot %d: ", int(i - 2 - callee()->nargs()));
@@ -1872,7 +1872,7 @@ IonFrameIterator::dump() const
         break;
       case IonFrame_OptimizedJS:
       {
-        InlineFrameIterator frames(GetIonContext()->cx, this);
+        InlineFrameIterator frames(GetJSContextFromJitCode(), this);
         for (;;) {
             frames.dump();
             if (!frames.more())

@@ -604,12 +604,11 @@ class JS_PUBLIC_API(CustomAutoRooter) : private AutoGCRooter
 class HandleValueArray
 {
     const size_t length_;
-    const Value *elements_;
+    const Value * const elements_;
 
     HandleValueArray(size_t len, const Value *elements) : length_(len), elements_(elements) {}
 
   public:
-    HandleValueArray() : length_(0), elements_(nullptr) {}
     HandleValueArray(const RootedValue& value) : length_(1), elements_(value.address()) {}
 
     HandleValueArray(const AutoValueVector& values)
@@ -631,6 +630,10 @@ class HandleValueArray
         return HandleValueArray(len, values.begin() + startIndex);
     }
 
+    static HandleValueArray empty() {
+        return HandleValueArray(0, nullptr);
+    }
+
     size_t length() const { return length_; }
     const Value *begin() const { return elements_; }
 
@@ -639,8 +642,6 @@ class HandleValueArray
         return HandleValue::fromMarkedLocation(&elements_[i]);
     }
 };
-
-extern JS_PUBLIC_DATA(const HandleValueArray) EmptyValueArray;
 
 }  /* namespace JS */
 
@@ -852,7 +853,7 @@ JS_NumberValue(double d)
 {
     int32_t i;
     d = JS::CanonicalizeNaN(d);
-    if (mozilla::DoubleIsInt32(d, &i))
+    if (mozilla::NumberIsInt32(d, &i))
         return INT_TO_JSVAL(i);
     return DOUBLE_TO_JSVAL(d);
 }
@@ -3511,6 +3512,7 @@ class JS_FRIEND_API(ReadOnlyCompileOptions)
     const jschar *sourceMapURL() const { return sourceMapURL_; }
     virtual JSObject *element() const = 0;
     virtual JSString *elementAttributeName() const = 0;
+    virtual JSScript *introductionScript() const = 0;
 
     // POD options.
     JSVersion version;
@@ -3568,6 +3570,7 @@ class JS_FRIEND_API(OwningCompileOptions) : public ReadOnlyCompileOptions
     JSRuntime *runtime;
     PersistentRootedObject elementRoot;
     PersistentRootedString elementAttributeNameRoot;
+    PersistentRootedScript introductionScriptRoot;
 
   public:
     // A minimal constructor, for use with OwningCompileOptions::copy. This
@@ -3579,6 +3582,7 @@ class JS_FRIEND_API(OwningCompileOptions) : public ReadOnlyCompileOptions
 
     JSObject *element() const MOZ_OVERRIDE { return elementRoot; }
     JSString *elementAttributeName() const MOZ_OVERRIDE { return elementAttributeNameRoot; }
+    JSScript *introductionScript() const MOZ_OVERRIDE { return introductionScriptRoot; }
 
     // Set this to a copy of |rhs|. Return false on OOM.
     bool copy(JSContext *cx, const ReadOnlyCompileOptions &rhs);
@@ -3597,6 +3601,10 @@ class JS_FRIEND_API(OwningCompileOptions) : public ReadOnlyCompileOptions
     }
     OwningCompileOptions &setElementAttributeName(JSString *p) {
         elementAttributeNameRoot = p;
+        return *this;
+    }
+    OwningCompileOptions &setIntroductionScript(JSScript *s) {
+        introductionScriptRoot = s;
         return *this;
     }
     OwningCompileOptions &setPrincipals(JSPrincipals *p) {
@@ -3626,12 +3634,13 @@ class JS_FRIEND_API(OwningCompileOptions) : public ReadOnlyCompileOptions
     OwningCompileOptions &setSourcePolicy(SourcePolicy sp) { sourcePolicy = sp; return *this; }
     OwningCompileOptions &setIntroductionType(const char *t) { introductionType = t; return *this; }
     bool setIntroductionInfo(JSContext *cx, const char *introducerFn, const char *intro,
-                             unsigned line, uint32_t offset)
+                             unsigned line, JSScript *script, uint32_t offset)
     {
         if (!setIntroducerFilename(cx, introducerFn))
             return false;
         introductionType = intro;
         introductionLineno = line;
+        introductionScriptRoot = script;
         introductionOffset = offset;
         hasIntroductionInfo = true;
         return true;
@@ -3651,11 +3660,13 @@ class MOZ_STACK_CLASS JS_FRIEND_API(CompileOptions) : public ReadOnlyCompileOpti
 {
     RootedObject elementRoot;
     RootedString elementAttributeNameRoot;
+    RootedScript introductionScriptRoot;
 
   public:
     explicit CompileOptions(JSContext *cx, JSVersion version = JSVERSION_UNKNOWN);
     CompileOptions(js::ContextFriendFields *cx, const ReadOnlyCompileOptions &rhs)
-      : ReadOnlyCompileOptions(), elementRoot(cx), elementAttributeNameRoot(cx)
+      : ReadOnlyCompileOptions(), elementRoot(cx), elementAttributeNameRoot(cx),
+        introductionScriptRoot(cx)
     {
         copyPODOptions(rhs);
 
@@ -3665,10 +3676,12 @@ class MOZ_STACK_CLASS JS_FRIEND_API(CompileOptions) : public ReadOnlyCompileOpti
         sourceMapURL_ = rhs.sourceMapURL();
         elementRoot = rhs.element();
         elementAttributeNameRoot = rhs.elementAttributeName();
+        introductionScriptRoot = rhs.introductionScript();
     }
 
     JSObject *element() const MOZ_OVERRIDE { return elementRoot; }
     JSString *elementAttributeName() const MOZ_OVERRIDE { return elementAttributeNameRoot; }
+    JSScript *introductionScript() const MOZ_OVERRIDE { return introductionScriptRoot; }
 
     CompileOptions &setFile(const char *f) { filename_ = f; return *this; }
     CompileOptions &setLine(unsigned l) { lineno = l; return *this; }
@@ -3679,6 +3692,10 @@ class MOZ_STACK_CLASS JS_FRIEND_API(CompileOptions) : public ReadOnlyCompileOpti
     CompileOptions &setElement(JSObject *e)          { elementRoot = e;         return *this; }
     CompileOptions &setElementAttributeName(JSString *p) {
         elementAttributeNameRoot = p;
+        return *this;
+    }
+    CompileOptions &setIntroductionScript(JSScript *s) {
+        introductionScriptRoot = s;
         return *this;
     }
     CompileOptions &setPrincipals(JSPrincipals *p) {
@@ -3704,11 +3721,12 @@ class MOZ_STACK_CLASS JS_FRIEND_API(CompileOptions) : public ReadOnlyCompileOpti
     CompileOptions &setSourcePolicy(SourcePolicy sp) { sourcePolicy = sp; return *this; }
     CompileOptions &setIntroductionType(const char *t) { introductionType = t; return *this; }
     CompileOptions &setIntroductionInfo(const char *introducerFn, const char *intro,
-                                        unsigned line, uint32_t offset)
+                                        unsigned line, JSScript *script, uint32_t offset)
     {
         introducerFilename_ = introducerFn;
         introductionType = intro;
         introductionLineno = line;
+        introductionScriptRoot = script;
         introductionOffset = offset;
         hasIntroductionInfo = true;
         return *this;
@@ -4580,17 +4598,60 @@ JS_ClearPendingException(JSContext *cx);
 extern JS_PUBLIC_API(bool)
 JS_ReportPendingException(JSContext *cx);
 
+namespace JS {
+
 /*
- * Save the current exception state.  This takes a snapshot of cx's current
- * exception state without making any change to that state.
+ * Save and later restore the current exception state of a given JSContext.
+ * This is useful for implementing behavior in C++ that's like try/catch
+ * or try/finally in JS.
  *
- * The returned state pointer MUST be passed later to JS_RestoreExceptionState
- * (to restore that saved state, overriding any more recent state) or else to
- * JS_DropExceptionState (to free the state struct in case it is not correct
- * or desirable to restore it).  Both Restore and Drop free the state struct,
- * so callers must stop using the pointer returned from Save after calling the
- * Release or Drop API.
+ * Typical usage:
+ *
+ *     bool ok = JS_EvaluateScript(cx, ...);
+ *     AutoSaveExceptionState savedExc(cx);
+ *     ... cleanup that might re-enter JS ...
+ *     return ok;
  */
+class JS_PUBLIC_API(AutoSaveExceptionState)
+{
+  private:
+    JSContext *context;
+    bool wasThrowing;
+    RootedValue exceptionValue;
+
+  public:
+    /*
+     * Take a snapshot of cx's current exception state. Then clear any current
+     * pending exception in cx.
+     */
+    explicit AutoSaveExceptionState(JSContext *cx);
+
+    /*
+     * If neither drop() nor restore() was called, restore the exception
+     * state only if no exception is currently pending on cx.
+     */
+    ~AutoSaveExceptionState();
+
+    /*
+     * Discard any stored exception state.
+     * If this is called, the destructor is a no-op.
+     */
+    void drop() {
+        wasThrowing = false;
+        exceptionValue.setUndefined();
+    }
+
+    /*
+     * Replace cx's exception state with the stored exception state. Then
+     * discard the stored exception state. If this is called, the
+     * destructor is a no-op.
+     */
+    void restore();
+};
+
+} /* namespace JS */
+
+/* Deprecated API. Use AutoSaveExceptionState instead. */
 extern JS_PUBLIC_API(JSExceptionState *)
 JS_SaveExceptionState(JSContext *cx);
 
@@ -4744,8 +4805,8 @@ GetScriptedCallerGlobal(JSContext *cx);
  * Informs the JS engine that the scripted caller should be hidden. This can be
  * used by the embedding to maintain an override of the scripted caller in its
  * calculations, by hiding the scripted caller in the JS engine and pushing data
- * onto a separate stack, which it inspects when JS_DescribeScriptedCaller
- * returns null.
+ * onto a separate stack, which it inspects when DescribeScriptedCaller returns
+ * null.
  *
  * We maintain a counter on each activation record. Add() increments the counter
  * of the topmost activation, and Remove() decrements it. The count may never

@@ -3596,11 +3596,11 @@ DebuggerServer.ObjectActorPreviewers.Object = [
 
   function ArrayLike({obj, threadActor}, aGrip, aRawObj) {
     if (!aRawObj ||
+        obj.class != "DOMStringList" &&
         obj.class != "DOMTokenList" &&
         !(aRawObj instanceof Ci.nsIDOMMozNamedAttrMap ||
           aRawObj instanceof Ci.nsIDOMCSSRuleList ||
           aRawObj instanceof Ci.nsIDOMCSSValueList ||
-          aRawObj instanceof Ci.nsIDOMDOMStringList ||
           aRawObj instanceof Ci.nsIDOMFileList ||
           aRawObj instanceof Ci.nsIDOMFontFaceList ||
           aRawObj instanceof Ci.nsIDOMMediaList ||
@@ -4709,7 +4709,7 @@ ThreadSources.prototype = {
         })
         .then(null, error => {
           if (!DevToolsUtils.reportingDisabled) {
-            DevToolsUtils.reportException(error);
+            DevToolsUtils.reportException("ThreadSources.prototype.getOriginalLocation", error);
           }
           return { url: null, line: null, column: null };
         });

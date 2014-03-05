@@ -9,7 +9,7 @@
 %define tabCurveHalfWidth 15px
 
 /* image preloading hack */
-#TabsToolbar::before {
+#tabbrowser-tabs::before {
   /* Because of bug 853415, we need to ordinal this to the first position: */
   -moz-box-ordinal-group: 0;
   content: '';
@@ -18,6 +18,10 @@
     url(chrome://browser/skin/tabbrowser/tab-background-end.png),
     url(chrome://browser/skin/tabbrowser/tab-background-middle.png),
     url(chrome://browser/skin/tabbrowser/tab-background-start.png);
+}
+
+#tabbrowser-tabs {
+  min-height: @tabHeight@;
 }
 
 .tabbrowser-tab,

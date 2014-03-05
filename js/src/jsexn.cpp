@@ -32,6 +32,8 @@
 
 #include "jsobjinlines.h"
 
+#include "vm/ErrorObject-inl.h"
+
 using namespace js;
 using namespace js::gc;
 using namespace js::types;
@@ -188,23 +190,22 @@ struct SuppressErrorsGuard
 {
     JSContext *cx;
     JSErrorReporter prevReporter;
-    JSExceptionState *prevState;
+    JS::AutoSaveExceptionState prevState;
 
     SuppressErrorsGuard(JSContext *cx)
       : cx(cx),
         prevReporter(JS_SetErrorReporter(cx, nullptr)),
-        prevState(JS_SaveExceptionState(cx))
+        prevState(cx)
     {}
 
     ~SuppressErrorsGuard()
     {
-        JS_RestoreExceptionState(cx, prevState);
         JS_SetErrorReporter(cx, prevReporter);
     }
 };
 
-static JSString *
-ComputeStackString(JSContext *cx)
+JSString *
+js::ComputeStackString(JSContext *cx)
 {
     StringBuffer sb(cx);
 
@@ -896,10 +897,10 @@ js_CopyErrorObject(JSContext *cx, Handle<ErrorObject*> err, HandleObject scope)
     RootedString message(cx, err->getMessage());
     if (message && !cx->compartment()->wrap(cx, message.address()))
         return nullptr;
-    RootedString fileName(cx, err->fileName());
+    RootedString fileName(cx, err->fileName(cx));
     if (!cx->compartment()->wrap(cx, fileName.address()))
         return nullptr;
-    RootedString stack(cx, err->stack());
+    RootedString stack(cx, err->stack(cx));
     if (!cx->compartment()->wrap(cx, stack.address()))
         return nullptr;
     uint32_t lineNumber = err->lineNumber();

@@ -22,7 +22,7 @@
 #include "nsCOMPtr.h"
 #include "nsIServiceManager.h"
 #include "nsIDOMNode.h"
-#include "nsINameSpaceManager.h"
+#include "nsNameSpaceManager.h"
 #include "nsDisplayList.h"
 #include "nsLayoutUtils.h"
 #include "nsTextFrame.h"
@@ -85,6 +85,16 @@ nsTableCellFrame::Init(nsIContent*      aContent,
     cellFrame->GetColIndex(colIndex);
     SetColIndex(colIndex);
   }
+}
+
+void
+nsTableCellFrame::DestroyFrom(nsIFrame* aDestructRoot)
+{
+  if (GetStateBits() & NS_FRAME_CAN_HAVE_ABSPOS_CHILDREN) {
+    nsTableFrame::UnregisterPositionedTablePart(this, aDestructRoot);
+  }
+
+  nsContainerFrame::DestroyFrom(aDestructRoot);
 }
 
 // nsIPercentHeightObserver methods

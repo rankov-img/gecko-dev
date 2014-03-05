@@ -39,10 +39,11 @@
 #include "mozilla/dom/HTMLTemplateElement.h"
 #include "mozilla/dom/HTMLContentElement.h"
 #include "mozilla/dom/TextDecoder.h"
+#include "mozilla/dom/TouchEvent.h"
 #include "mozilla/dom/ShadowRoot.h"
+#include "mozilla/InternalMutationEvent.h"
 #include "mozilla/Likely.h"
 #include "mozilla/MouseEvents.h"
-#include "mozilla/MutationEvent.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/Selection.h"
 #include "mozilla/TextEvents.h"
@@ -67,10 +68,9 @@
 #include "nsDocShellCID.h"
 #include "nsDocument.h"
 #include "nsDOMCID.h"
-#include "nsDOMDataTransfer.h"
+#include "mozilla/dom/DataTransfer.h"
 #include "nsDOMJSUtils.h"
 #include "nsDOMMutationObserver.h"
-#include "nsDOMTouchEvent.h"
 #include "nsError.h"
 #include "nsEventDispatcher.h"
 #include "nsEventListenerManager.h"
@@ -196,7 +196,7 @@ const char kLoadAsData[] = "loadAsData";
 nsIXPConnect *nsContentUtils::sXPConnect;
 nsIScriptSecurityManager *nsContentUtils::sSecurityManager;
 nsIParserService *nsContentUtils::sParserService = nullptr;
-nsINameSpaceManager *nsContentUtils::sNameSpaceManager;
+nsNameSpaceManager *nsContentUtils::sNameSpaceManager;
 nsIIOService *nsContentUtils::sIOService;
 imgLoader *nsContentUtils::sImgLoader;
 imgLoader *nsContentUtils::sPrivateImgLoader;
@@ -371,8 +371,8 @@ nsContentUtils::Init()
     return NS_OK;
   }
 
-  nsresult rv = NS_GetNameSpaceManager(&sNameSpaceManager);
-  NS_ENSURE_SUCCESS(rv, rv);
+  sNameSpaceManager = nsNameSpaceManager::GetInstance();
+  NS_ENSURE_TRUE(sNameSpaceManager, NS_ERROR_OUT_OF_MEMORY);
 
   sXPConnect = nsXPConnect::XPConnect();
 
@@ -384,7 +384,7 @@ nsContentUtils::Init()
   // Getting the first context can trigger GC, so do this non-lazily.
   sXPConnect->InitSafeJSContext();
 
-  rv = CallGetService(NS_IOSERVICE_CONTRACTID, &sIOService);
+  nsresult rv = CallGetService(NS_IOSERVICE_CONTRACTID, &sIOService);
   if (NS_FAILED(rv)) {
     // This makes life easier, but we can live without it.
 
@@ -413,12 +413,8 @@ nsContentUtils::Init()
       EventListenerManagerHashInitEntry
     };
 
-    if (!PL_DHashTableInit(&sEventListenerManagersHash, &hash_table_ops,
-                           nullptr, sizeof(EventListenerManagerMapEntry), 16)) {
-      sEventListenerManagersHash.ops = nullptr;
-
-      return NS_ERROR_OUT_OF_MEMORY;
-    }
+    PL_DHashTableInit(&sEventListenerManagersHash, &hash_table_ops,
+                      nullptr, sizeof(EventListenerManagerMapEntry), 16);
 
     RegisterStrongMemoryReporter(new DOMEventListenerManagersHashReporter());
   }
@@ -1462,7 +1458,6 @@ nsContentUtils::Shutdown()
   NS_IF_RELEASE(sConsoleService);
   sXPConnect = nullptr;
   NS_IF_RELEASE(sSecurityManager);
-  NS_IF_RELEASE(sNameSpaceManager);
   NS_IF_RELEASE(sParserService);
   NS_IF_RELEASE(sIOService);
   NS_IF_RELEASE(sLineBreaker);
@@ -4974,16 +4969,20 @@ nsContentUtils::SetDataTransferInEvent(WidgetDragEvent* aDragEvent)
   nsCOMPtr<nsIDragSession> dragSession = GetDragSession();
   NS_ENSURE_TRUE(dragSession, NS_OK); // no drag in progress
 
-  nsCOMPtr<nsIDOMDataTransfer> initialDataTransfer;
-  dragSession->GetDataTransfer(getter_AddRefs(initialDataTransfer));
-  if (!initialDataTransfer) {
+  nsCOMPtr<nsIDOMDataTransfer> dataTransfer;
+  nsCOMPtr<DataTransfer> initialDataTransfer;
+  dragSession->GetDataTransfer(getter_AddRefs(dataTransfer));
+  if (dataTransfer) {
+    initialDataTransfer = do_QueryInterface(dataTransfer);
+    if (!initialDataTransfer) {
+      return NS_ERROR_FAILURE;
+    }
+  } else {
     // A dataTransfer won't exist when a drag was started by some other
     // means, for instance calling the drag service directly, or a drag
     // from another application. In either case, a new dataTransfer should
     // be created that reflects the data.
-    initialDataTransfer = new nsDOMDataTransfer(aDragEvent->message, true, -1);
-
-    NS_ENSURE_TRUE(initialDataTransfer, NS_ERROR_OUT_OF_MEMORY);
+    initialDataTransfer = new DataTransfer(aDragEvent->target, aDragEvent->message, true, -1);
 
     // now set it in the drag session so we don't need to create it again
     dragSession->SetDataTransfer(initialDataTransfer);
@@ -4996,7 +4995,7 @@ nsContentUtils::SetDataTransferInEvent(WidgetDragEvent* aDragEvent)
   }
 
   // each event should use a clone of the original dataTransfer.
-  initialDataTransfer->Clone(aDragEvent->message, aDragEvent->userCancelled,
+  initialDataTransfer->Clone(aDragEvent->target, aDragEvent->message, aDragEvent->userCancelled,
                              isCrossDomainSubFrameDrop,
                              getter_AddRefs(aDragEvent->dataTransfer));
   NS_ENSURE_TRUE(aDragEvent->dataTransfer, NS_ERROR_OUT_OF_MEMORY);

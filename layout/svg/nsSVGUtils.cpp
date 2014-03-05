@@ -26,7 +26,6 @@
 #include "nsIContent.h"
 #include "nsIDocument.h"
 #include "nsIFrame.h"
-#include "nsINameSpaceManager.h"
 #include "nsIPresShell.h"
 #include "nsISVGChildFrame.h"
 #include "nsPresContext.h"
@@ -679,10 +678,14 @@ nsSVGUtils::HitTestClip(nsIFrame *aFrame, const nsPoint &aPoint)
 
   bool isOK = true;
   nsSVGClipPathFrame *clipPathFrame = props.GetClipPathFrame(&isOK);
-  if (!clipPathFrame || !isOK) {
+  if (!isOK) {
     // clipPath is not a valid resource, so nothing gets painted, so
     // hit-testing must fail.
     return false;
+  }
+  if (!clipPathFrame) {
+    // clipPath doesn't exist, ignore it.
+    return true;
   }
 
   return clipPathFrame->ClipHitTest(aFrame, GetCanvasTM(aFrame,

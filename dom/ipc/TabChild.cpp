@@ -2303,6 +2303,16 @@ TabChild::RecvSetUpdateHitRegion(const bool& aEnabled)
     return true;
 }
 
+bool
+TabChild::RecvSetIsDocShellActive(const bool& aIsActive)
+{
+    nsCOMPtr<nsIDocShell> docShell = do_GetInterface(mWebNav);
+    if (docShell) {
+      docShell->SetIsActive(aIsActive);
+    }
+    return true;
+}
+
 PRenderFrameChild*
 TabChild::AllocPRenderFrameChild()
 {
@@ -2470,11 +2480,7 @@ TabChild::GetDefaultScale(double* aScale)
 void
 TabChild::NotifyPainted()
 {
-    // Normally we only need to notify the content process once, but with BasicCompositor
-    // we need to notify content every change so that it can compute an invalidation
-    // region and send that to the widget.
-    if (UseDirectCompositor() &&
-        (!mNotified || mTextureFactoryIdentifier.mParentBackend == LayersBackend::LAYERS_BASIC)) {
+    if (UseDirectCompositor() && !mNotified) {
         mRemoteFrame->SendNotifyCompositorTransaction();
         mNotified = true;
     }

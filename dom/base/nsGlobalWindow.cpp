@@ -207,6 +207,7 @@
 #include "TimeChangeObserver.h"
 #include "mozilla/dom/AudioContext.h"
 #include "mozilla/dom/BrowserElementDictionariesBinding.h"
+#include "mozilla/dom/Console.h"
 #include "mozilla/dom/FunctionBinding.h"
 #include "mozilla/dom/WindowBinding.h"
 #include "nsITabChild.h"
@@ -1439,6 +1440,8 @@ nsGlobalWindow::CleanUp()
   mApplicationCache = nullptr;
   mIndexedDB = nullptr;
 
+  mConsole = nullptr;
+
   mPerformance = nullptr;
 
 #ifdef MOZ_WEBSPEECH
@@ -1568,8 +1571,11 @@ nsGlobalWindow::FreeInnerObjects()
     mDocBaseURI = mDoc->GetDocBaseURI();
 
     while (mDoc->EventHandlingSuppressed()) {
-      mDoc->UnsuppressEventHandlingAndFireEvents(false);
+      mDoc->UnsuppressEventHandlingAndFireEvents(nsIDocument::eEvents, false);
     }
+
+    // Note: we don't have to worry about eAnimationsOnly suppressions because
+    // they won't leak.
   }
 
   // Remove our reference to the document and the document principal.
@@ -1750,6 +1756,7 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INTERNAL(nsGlobalWindow)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mStatusbar)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mScrollbars)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mCrypto)
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mConsole)
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsGlobalWindow)
@@ -1807,6 +1814,7 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsGlobalWindow)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mStatusbar)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mScrollbars)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mCrypto)
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mConsole)
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 
 #ifdef DEBUG
@@ -8282,7 +8290,7 @@ nsGlobalWindow::EnterModalState()
 
     mSuspendedDoc = topDoc;
     if (mSuspendedDoc) {
-      mSuspendedDoc->SuppressEventHandling();
+      mSuspendedDoc->SuppressEventHandling(nsIDocument::eAnimationsOnly);
     }
   }
   topWin->mModalStateDepth++;
@@ -8379,7 +8387,8 @@ nsGlobalWindow::LeaveModalState()
 
     if (mSuspendedDoc) {
       nsCOMPtr<nsIDocument> currentDoc = topWin->GetExtantDoc();
-      mSuspendedDoc->UnsuppressEventHandlingAndFireEvents(currentDoc == mSuspendedDoc);
+      mSuspendedDoc->UnsuppressEventHandlingAndFireEvents(nsIDocument::eAnimationsOnly,
+                                                          currentDoc == mSuspendedDoc);
       mSuspendedDoc = nullptr;
     }
   }
@@ -13354,6 +13363,59 @@ nsGlobalWindow::SetHasAudioAvailableEventListeners()
   if (mDoc) {
     mDoc->NotifyAudioAvailableListener();
   }
+}
+
+NS_IMETHODIMP
+nsGlobalWindow::GetConsole(JSContext* aCx,
+                           JS::MutableHandle<JS::Value> aConsole)
+{
+  ErrorResult rv;
+  nsRefPtr<Console> console = GetConsole(rv);
+  if (rv.Failed()) {
+    return rv.ErrorCode();
+  }
+
+  JS::Rooted<JSObject*> thisObj(aCx, mJSObject);
+  if (!mJSObject) {
+    return NS_ERROR_UNEXPECTED;
+  }
+
+  if (!JS_WrapObject(aCx, &thisObj) ||
+      !WrapNewBindingObject(aCx, thisObj, console, aConsole)) {
+    return NS_ERROR_FAILURE;
+  }
+
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsGlobalWindow::SetConsole(JSContext* aCx, JS::Handle<JS::Value> aValue)
+{
+  JS::Rooted<JSObject*> thisObj(aCx, mJSObject);
+  if (!mJSObject) {
+    return NS_ERROR_UNEXPECTED;
+  }
+
+  if (!JS_WrapObject(aCx, &thisObj) ||
+      !JS_DefineProperty(aCx, thisObj, "console", aValue,
+                         JS_PropertyStub, JS_StrictPropertyStub,
+                         JSPROP_ENUMERATE)) {
+    return NS_ERROR_FAILURE;
+  }
+
+  return NS_OK;
+}
+
+Console*
+nsGlobalWindow::GetConsole(ErrorResult& aRv)
+{
+  FORWARD_TO_INNER_OR_THROW(GetConsole, (aRv), aRv, nullptr);
+
+  if (!mConsole) {
+    mConsole = new Console(this);
+  }
+
+  return mConsole;
 }
 
 #ifdef MOZ_B2G

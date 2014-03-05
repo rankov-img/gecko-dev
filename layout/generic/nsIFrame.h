@@ -1136,8 +1136,25 @@ public:
    * an SVG viewBox attribute).
    */
   bool IsTransformed() const;
-  
-  bool HasOpacity() const;
+
+  /**
+   * Returns true if the frame is translucent for the purposes of creating a
+   * stacking context.
+   */
+  bool HasOpacity() const
+  {
+    return HasOpacityInternal(1.0f);
+  }
+  /**
+   * Returns true if the frame is translucent for display purposes.
+   */
+  bool HasVisualOpacity() const
+  {
+    // Treat an opacity value of 0.99 and above as opaque.  This is an
+    // optimization aimed at Web content which use opacity:0.99 as a hint for
+    // creating a stacking context only.
+    return HasOpacityInternal(0.99f);
+  }
 
    /**
    * Return true if this frame might be using a transform getter.
@@ -1158,13 +1175,15 @@ public:
 
   /**
    * Returns whether this frame will attempt to preserve the 3d transforms of its
-   * children. This is a direct indicator of -moz-transform-style: preserve-3d.
+   * children. This requires transform-style: preserve-3d, as well as no clipping
+   * or svg effects.
    */
   bool Preserves3DChildren() const;
 
   /**
-   * Returns whether this frame has a parent that Preserves3DChildren() and
-   * can respect this. Returns false if the frame is clipped.
+   * Returns whether this frame has a parent that Preserves3DChildren() and has
+   * its own transform (or hidden backface) to be combined with the parent's
+   * transform.
    */
   bool Preserves3D() const;
 
@@ -2217,6 +2236,15 @@ public:
   nsOverflowAreas GetOverflowAreas() const;
 
   /**
+   * Same as GetOverflowAreas, except in this frame's coordinate
+   * system (before transforms are applied).
+   *
+   * @return the overflow areas relative to this frame, before any CSS transforms have
+   * been applied, i.e. in this frame's coordinate system
+   */
+  nsOverflowAreas GetOverflowAreasRelativeToSelf() const;
+
+  /**
    * Same as GetScrollableOverflowRect, except relative to the parent
    * frame.
    *
@@ -2224,6 +2252,15 @@ public:
    * coordinate system
    */
   nsRect GetScrollableOverflowRectRelativeToParent() const;
+
+  /**
+   * Same as GetScrollableOverflowRect, except in this frame's coordinate
+   * system (before transforms are applied).
+   *
+   * @return the rect relative to this frame, before any CSS transforms have
+   * been applied, i.e. in this frame's coordinate system
+   */
+  nsRect GetScrollableOverflowRectRelativeToSelf() const;
 
   /**
    * Like GetVisualOverflowRect, except in this frame's
@@ -3047,6 +3084,8 @@ private:
 
   template<bool IsLessThanOrEqual(nsIFrame*, nsIFrame*)>
   static nsIFrame* MergeSort(nsIFrame *aSource);
+
+  bool HasOpacityInternal(float aThreshold) const;
 
 #ifdef DEBUG_FRAME_DUMP
 public:

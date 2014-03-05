@@ -20,6 +20,7 @@
 #include "base/tracked.h"               // for FROM_HERE
 #include "gfxContext.h"                 // for gfxContext
 #include "gfxPlatform.h"                // for gfxPlatform
+#include "gfxPrefs.h"                   // for gfxPrefs
 #include "ipc/ShadowLayersManager.h"    // for ShadowLayersManager
 #include "mozilla/AutoRestore.h"        // for AutoRestore
 #include "mozilla/DebugOnly.h"          // for DebugOnly
@@ -38,11 +39,11 @@
 #include "mozilla/mozalloc.h"           // for operator new, etc
 #include "nsCOMPtr.h"                   // for already_AddRefed
 #include "nsDebug.h"                    // for NS_ABORT_IF_FALSE, etc
+#include "nsISupportsImpl.h"            // for MOZ_COUNT_CTOR, etc
 #include "nsIWidget.h"                  // for nsIWidget
 #include "nsRect.h"                     // for nsIntRect
 #include "nsTArray.h"                   // for nsTArray
 #include "nsThreadUtils.h"              // for NS_IsMainThread
-#include "nsTraceRefcnt.h"              // for MOZ_COUNT_CTOR, etc
 #include "nsXULAppAPI.h"                // for XRE_GetIOMessageLoop
 #ifdef XP_WIN
 #include "mozilla/layers/CompositorD3D11.h"
@@ -337,13 +338,6 @@ CompositorParent::RecvFlushRendering()
 }
 
 bool
-CompositorParent::RecvForceComposite()
-{
-  ScheduleComposition();
-  return true;
-}
-
-bool
 CompositorParent::RecvNotifyRegionInvalidated(const nsIntRegion& aRegion)
 {
   if (mLayerManager) {
@@ -552,10 +546,10 @@ static const int32_t kDefaultFrameRate = 60;
 static int32_t
 CalculateCompositionFrameRate()
 {
-  int32_t compositionFrameRatePref = gfxPlatform::GetPrefLayersCompositionFrameRate();
+  int32_t compositionFrameRatePref = gfxPrefs::LayersCompositionFrameRate();
   if (compositionFrameRatePref < 0) {
     // Use the same frame rate for composition as for layout.
-    int32_t layoutFrameRatePref = gfxPlatform::GetPrefLayoutFrameRate();
+    int32_t layoutFrameRatePref = gfxPrefs::LayoutFrameRate();
     if (layoutFrameRatePref < 0) {
       // TODO: The main thread frame scheduling code consults the actual
       // monitor refresh rate in this case. We should do the same.
@@ -671,7 +665,7 @@ CompositorParent::CompositeToTarget(DrawTarget* aTarget)
 #endif
 
   // 0 -> Full-tilt composite
-  if (gfxPlatform::GetPrefLayersCompositionFrameRate() == 0) {
+  if (gfxPrefs::LayersCompositionFrameRate() == 0) {
     // Special full-tilt composite mode for performance testing
     ScheduleComposition();
   }
@@ -728,7 +722,7 @@ CompositorParent::ShadowLayersUpdated(LayerTransactionParent* aLayerTree,
       mForceCompositionTask->Cancel();
     }
     mForceCompositionTask = NewRunnableMethod(this, &CompositorParent::ForceComposition);
-    ScheduleTask(mForceCompositionTask, gfxPlatform::GetPlatform()->GetOrientationSyncMillis());
+    ScheduleTask(mForceCompositionTask, gfxPrefs::OrientationSyncMillis());
   }
 
   // Instruct the LayerManager to update its render bounds now. Since all the orientation
@@ -755,6 +749,12 @@ CompositorParent::ShadowLayersUpdated(LayerTransactionParent* aLayerTree,
     ScheduleComposition();
   }
   mLayerManager->NotifyShadowTreeTransaction();
+}
+
+void
+CompositorParent::ForceComposite(LayerTransactionParent* aLayerTree)
+{
+  ScheduleComposition();
 }
 
 void
@@ -1016,7 +1016,6 @@ public:
                                 SurfaceDescriptor* aOutSnapshot)
   { return true; }
   virtual bool RecvFlushRendering() MOZ_OVERRIDE { return true; }
-  virtual bool RecvForceComposite() MOZ_OVERRIDE { return true; }
   virtual bool RecvNotifyRegionInvalidated(const nsIntRegion& aRegion) { return true; }
   virtual bool RecvStartFrameTimeRecording(const int32_t& aBufferSize, uint32_t* aOutStartIndex) MOZ_OVERRIDE { return true; }
   virtual bool RecvStopFrameTimeRecording(const uint32_t& aStartIndex, InfallibleTArray<float>* intervals) MOZ_OVERRIDE  { return true; }
@@ -1035,6 +1034,9 @@ public:
                                    const TargetConfig& aTargetConfig,
                                    bool aIsFirstPaint,
                                    bool aScheduleComposite) MOZ_OVERRIDE;
+  virtual void ForceComposite(LayerTransactionParent* aLayerTree) MOZ_OVERRIDE;
+
+  virtual AsyncCompositionManager* GetCompositionManager(LayerTransactionParent* aParent) MOZ_OVERRIDE;
 
 private:
   void DeferredDestroy();
@@ -1183,6 +1185,21 @@ CrossProcessCompositorParent::ShadowLayersUpdated(
   UpdateIndirectTree(id, shadowRoot, aTargetConfig);
 
   sIndirectLayerTrees[id].mParent->NotifyShadowTreeTransaction(id, aIsFirstPaint, aScheduleComposite);
+}
+
+void
+CrossProcessCompositorParent::ForceComposite(LayerTransactionParent* aLayerTree)
+{
+  uint64_t id = aLayerTree->GetId();
+  MOZ_ASSERT(id != 0);
+  sIndirectLayerTrees[id].mParent->ForceComposite(aLayerTree);
+}
+
+AsyncCompositionManager*
+CrossProcessCompositorParent::GetCompositionManager(LayerTransactionParent* aLayerTree)
+{
+  uint64_t id = aLayerTree->GetId();
+  return sIndirectLayerTrees[id].mParent->GetCompositionManager(aLayerTree);
 }
 
 void

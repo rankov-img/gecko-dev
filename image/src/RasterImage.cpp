@@ -387,6 +387,7 @@ RasterImage::RasterImage(imgStatusTracker* aStatusTracker,
   mAnim(nullptr),
   mLockCount(0),
   mDecodeCount(0),
+  mRequestedSampleSize(0),
 #ifdef DEBUG
   mFramesNotified(0),
 #endif
@@ -3358,6 +3359,11 @@ RasterImage::DecodePool::DecodeSomeOfImage(RasterImage* aImg,
   // If an error is flagged, it probably happened while we were waiting
   // in the event queue.
   if (aImg->mError)
+    return NS_OK;
+
+  // If there is an error worker pending (say because the main thread has enqueued
+  // another decode request for us before processing the error worker) then bail out.
+  if (aImg->mPendingError)
     return NS_OK;
 
   // If mDecoded or we don't have a decoder, we must have finished already (for

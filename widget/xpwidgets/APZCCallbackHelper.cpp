@@ -4,7 +4,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "APZCCallbackHelper.h"
-#include "gfxPlatform.h" // For gfxPlatform::GetPrefLayersEnableTiles
+#include "gfxPrefs.h" // For gfxPrefs::LayersTilesEnabled
 #include "mozilla/Preferences.h"
 #include "nsIScrollableFrame.h"
 #include "nsLayoutUtils.h"
@@ -72,7 +72,7 @@ MaybeAlignAndClampDisplayPort(mozilla::layers::FrameMetrics& aFrameMetrics,
 
   // Expand the display port to the next tile boundaries, if tiled thebes layers
   // are enabled.
-  if (gfxPlatform::GetPrefLayersEnableTiles()) {
+  if (gfxPrefs::LayersTilesEnabled()) {
     displayPort =
       ExpandDisplayPortToTileBoundaries(displayPort + aActualScrollOffset,
                                         aFrameMetrics.LayersPixelsPerCSSPixel())
@@ -99,7 +99,7 @@ ScrollFrameTo(nsIScrollableFrame* aFrame, const CSSPoint& aPoint, bool& aSuccess
   aSuccessOut = false;
 
   if (!aFrame) {
-    return CSSPoint();
+    return aPoint;
   }
 
   // If the scrollable frame is currently in the middle of an async or smooth

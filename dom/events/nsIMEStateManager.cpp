@@ -35,6 +35,10 @@
 #include "TextComposition.h"
 #include "mozilla/Preferences.h"
 #include "nsAsyncDOMEvent.h"
+#include "nsIDocShell.h"
+#include "nsIReflowObserver.h"
+#include "nsIScrollObserver.h"
+#include "nsWeakReference.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;
@@ -46,13 +50,15 @@ using namespace mozilla::widget;
 // sTextStateObserver is null if there is no focused editor
 
 class nsTextStateManager MOZ_FINAL : public nsISelectionListener,
-                                     public nsStubMutationObserver
+                                     public nsStubMutationObserver,
+                                     public nsIReflowObserver,
+                                     public nsIScrollObserver,
+                                     public nsSupportsWeakReference
 {
 public:
   nsTextStateManager()
-    : mObserving(nsIMEUpdatePreference::NOTIFY_NOTHING)
-    {
-    }
+  {
+  }
 
   NS_DECL_ISUPPORTS
   NS_DECL_NSISELECTIONLISTENER
@@ -62,15 +68,20 @@ public:
   NS_DECL_NSIMUTATIONOBSERVER_CONTENTREMOVED
   NS_DECL_NSIMUTATIONOBSERVER_ATTRIBUTEWILLCHANGE
   NS_DECL_NSIMUTATIONOBSERVER_ATTRIBUTECHANGED
+  NS_DECL_NSIREFLOWOBSERVER
+
+  // nsIScrollObserver
+  virtual void ScrollPositionChanged() MOZ_OVERRIDE;
 
   void     Init(nsIWidget* aWidget,
                 nsPresContext* aPresContext,
                 nsIContent* aContent);
   void     Destroy(void);
   bool     IsManaging(nsPresContext* aPresContext, nsIContent* aContent);
+  bool     IsEditorHandlingEventForComposition() const;
   bool     KeepAliveDuringDeactive() const
   {
-    return !!(mObserving & nsIMEUpdatePreference::NOTIFY_DURING_DEACTIVE);
+    return mUpdatePreference.WantDuringDeactive();
   }
 
   nsCOMPtr<nsIWidget>            mWidget;
@@ -82,7 +93,8 @@ private:
   void NotifyContentAdded(nsINode* aContainer, int32_t aStart, int32_t aEnd);
   void ObserveEditableNode();
 
-  nsIMEUpdatePreference::Notifications mObserving;
+  nsCOMPtr<nsIDocShell>          mDocShell;
+  nsIMEUpdatePreference mUpdatePreference;
   uint32_t mPreAttrChangeLength;
 };
 
@@ -752,6 +764,8 @@ nsTextStateManager::Init(nsIWidget* aWidget,
     return;
   }
 
+  mDocShell = aPresContext->GetDocShell();
+
   ObserveEditableNode();
 }
 
@@ -761,8 +775,8 @@ nsTextStateManager::ObserveEditableNode()
   MOZ_ASSERT(mSel);
   MOZ_ASSERT(mRootContent);
 
-  mObserving = mWidget->GetIMEUpdatePreference().mWantUpdates;
-  if (mObserving & nsIMEUpdatePreference::NOTIFY_SELECTION_CHANGE) {
+  mUpdatePreference = mWidget->GetIMEUpdatePreference();
+  if (mUpdatePreference.WantSelectionChange()) {
     // add selection change listener
     nsCOMPtr<nsISelectionPrivate> selPrivate(do_QueryInterface(mSel));
     NS_ENSURE_TRUE_VOID(selPrivate);
@@ -770,9 +784,16 @@ nsTextStateManager::ObserveEditableNode()
     NS_ENSURE_SUCCESS_VOID(rv);
   }
 
-  if (mObserving & nsIMEUpdatePreference::NOTIFY_TEXT_CHANGE) {
+  if (mUpdatePreference.WantTextChange()) {
     // add text change observer
     mRootContent->AddMutationObserver(this);
+  }
+
+  if (mUpdatePreference.WantPositionChanged() && mDocShell) {
+    // Add scroll position listener and reflow observer to detect position and
+    // size changes
+    mDocShell->AddWeakScrollObserver(this);
+    mDocShell->AddWeakReflowObserver(this);
   }
 }
 
@@ -791,18 +812,23 @@ nsTextStateManager::Destroy(void)
   }
   // Even if there are some pending notification, it'll never notify the widget.
   mWidget = nullptr;
-  if ((mObserving & nsIMEUpdatePreference::NOTIFY_SELECTION_CHANGE) && mSel) {
+  if (mUpdatePreference.WantSelectionChange() && mSel) {
     nsCOMPtr<nsISelectionPrivate> selPrivate(do_QueryInterface(mSel));
     if (selPrivate)
       selPrivate->RemoveSelectionListener(this);
   }
   mSel = nullptr;
-  if ((mObserving & nsIMEUpdatePreference::NOTIFY_TEXT_CHANGE) && mRootContent) {
+  if (mUpdatePreference.WantTextChange() && mRootContent) {
     mRootContent->RemoveMutationObserver(this);
+  }
+  if (mUpdatePreference.WantPositionChanged() && mDocShell) {
+    mDocShell->RemoveWeakScrollObserver(this);
+    mDocShell->RemoveWeakReflowObserver(this);
   }
   mRootContent = nullptr;
   mEditableNode = nullptr;
-  mObserving = false;
+  mDocShell = nullptr;
+  mUpdatePreference.mWantUpdates = nsIMEUpdatePreference::NOTIFY_NOTHING;
 }
 
 bool
@@ -819,29 +845,51 @@ nsTextStateManager::IsManaging(nsPresContext* aPresContext,
                                                                  aContent);
 }
 
-NS_IMPL_ISUPPORTS2(nsTextStateManager,
+bool
+nsTextStateManager::IsEditorHandlingEventForComposition() const
+{
+  if (!mWidget) {
+    return false;
+  }
+  nsRefPtr<TextComposition> composition =
+    nsIMEStateManager::GetTextCompositionFor(mWidget);
+  if (!composition) {
+    return false;
+  }
+  return composition->IsEditorHandlingEvent();
+}
+
+NS_IMPL_ISUPPORTS5(nsTextStateManager,
                    nsIMutationObserver,
-                   nsISelectionListener)
+                   nsISelectionListener,
+                   nsIReflowObserver,
+                   nsIScrollObserver,
+                   nsISupportsWeakReference)
 
 // Helper class, used for selection change notification
 class SelectionChangeEvent : public nsRunnable {
 public:
-  SelectionChangeEvent(nsTextStateManager *aDispatcher)
+  SelectionChangeEvent(nsTextStateManager *aDispatcher,
+                       bool aCausedByComposition)
     : mDispatcher(aDispatcher)
+    , mCausedByComposition(aCausedByComposition)
   {
     MOZ_ASSERT(mDispatcher);
   }
 
   NS_IMETHOD Run() {
     if (mDispatcher->mWidget) {
-      mDispatcher->mWidget->NotifyIME(
-        IMENotification(NOTIFY_IME_OF_SELECTION_CHANGE));
+      IMENotification notification(NOTIFY_IME_OF_SELECTION_CHANGE);
+      notification.mSelectionChangeData.mCausedByComposition =
+         mCausedByComposition;
+      mDispatcher->mWidget->NotifyIME(notification);
     }
     return NS_OK;
   }
 
 private:
   nsRefPtr<nsTextStateManager> mDispatcher;
+  bool mCausedByComposition;
 };
 
 nsresult
@@ -849,11 +897,18 @@ nsTextStateManager::NotifySelectionChanged(nsIDOMDocument* aDoc,
                                            nsISelection* aSel,
                                            int16_t aReason)
 {
+  bool causedByComposition = IsEditorHandlingEventForComposition();
+  if (causedByComposition &&
+      !mUpdatePreference.WantChangesCausedByComposition()) {
+    return NS_OK;
+  }
+
   int32_t count = 0;
   nsresult rv = aSel->GetRangeCount(&count);
   NS_ENSURE_SUCCESS(rv, rv);
   if (count > 0 && mWidget) {
-    nsContentUtils::AddScriptRunner(new SelectionChangeEvent(this));
+    nsContentUtils::AddScriptRunner(
+      new SelectionChangeEvent(this, causedByComposition));
   }
   return NS_OK;
 }
@@ -862,11 +917,13 @@ nsTextStateManager::NotifySelectionChanged(nsIDOMDocument* aDoc,
 class TextChangeEvent : public nsRunnable {
 public:
   TextChangeEvent(nsTextStateManager* aDispatcher,
-                  uint32_t start, uint32_t oldEnd, uint32_t newEnd)
+                  uint32_t aStart, uint32_t aOldEnd, uint32_t aNewEnd,
+                  bool aCausedByComposition)
     : mDispatcher(aDispatcher)
-    , mStart(start)
-    , mOldEnd(oldEnd)
-    , mNewEnd(newEnd)
+    , mStart(aStart)
+    , mOldEnd(aOldEnd)
+    , mNewEnd(aNewEnd)
+    , mCausedByComposition(aCausedByComposition)
   {
     MOZ_ASSERT(mDispatcher);
   }
@@ -877,6 +934,7 @@ public:
       notification.mTextChangeData.mStartOffset = mStart;
       notification.mTextChangeData.mOldEndOffset = mOldEnd;
       notification.mTextChangeData.mNewEndOffset = mNewEnd;
+      notification.mTextChangeData.mCausedByComposition = mCausedByComposition;
       mDispatcher->mWidget->NotifyIME(notification);
     }
     return NS_OK;
@@ -885,7 +943,56 @@ public:
 private:
   nsRefPtr<nsTextStateManager> mDispatcher;
   uint32_t mStart, mOldEnd, mNewEnd;
+  bool mCausedByComposition;
 };
+
+class PositionChangeEvent MOZ_FINAL : public nsRunnable
+{
+public:
+  PositionChangeEvent(nsTextStateManager* aDispatcher)
+    : mDispatcher(aDispatcher) {
+    MOZ_ASSERT(mDispatcher);
+  }
+
+  NS_IMETHOD Run() {
+    if (mDispatcher->mWidget) {
+      mDispatcher->mWidget->NotifyIME(
+        IMENotification(NOTIFY_IME_OF_POSITION_CHANGE));
+    }
+    return NS_OK;
+  }
+
+private:
+  nsRefPtr<nsTextStateManager> mDispatcher;
+};
+
+void
+nsTextStateManager::ScrollPositionChanged()
+{
+  if (mWidget) {
+    nsContentUtils::AddScriptRunner(new PositionChangeEvent(this));
+  }
+}
+
+NS_IMETHODIMP
+nsTextStateManager::Reflow(DOMHighResTimeStamp aStart,
+                           DOMHighResTimeStamp aEnd)
+{
+  if (mWidget) {
+    nsContentUtils::AddScriptRunner(new PositionChangeEvent(this));
+  }
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsTextStateManager::ReflowInterruptible(DOMHighResTimeStamp aStart,
+                                        DOMHighResTimeStamp aEnd)
+{
+  if (mWidget) {
+    nsContentUtils::AddScriptRunner(new PositionChangeEvent(this));
+  }
+  return NS_OK;
+}
 
 void
 nsTextStateManager::CharacterDataChanged(nsIDocument* aDocument,
@@ -894,6 +1001,12 @@ nsTextStateManager::CharacterDataChanged(nsIDocument* aDocument,
 {
   NS_ASSERTION(aContent->IsNodeOfType(nsINode::eTEXT),
                "character data changed for non-text node");
+
+  bool causedByComposition = IsEditorHandlingEventForComposition();
+  if (causedByComposition &&
+      !mUpdatePreference.WantChangesCausedByComposition()) {
+    return;
+  }
 
   uint32_t offset = 0;
   // get offsets of change and fire notification
@@ -905,7 +1018,7 @@ nsTextStateManager::CharacterDataChanged(nsIDocument* aDocument,
   uint32_t newEnd = offset + aInfo->mReplaceLength;
 
   nsContentUtils::AddScriptRunner(
-      new TextChangeEvent(this, offset, oldEnd, newEnd));
+    new TextChangeEvent(this, offset, oldEnd, newEnd, causedByComposition));
 }
 
 void
@@ -913,6 +1026,12 @@ nsTextStateManager::NotifyContentAdded(nsINode* aContainer,
                                        int32_t aStartIndex,
                                        int32_t aEndIndex)
 {
+  bool causedByComposition = IsEditorHandlingEventForComposition();
+  if (causedByComposition &&
+      !mUpdatePreference.WantChangesCausedByComposition()) {
+    return;
+  }
+
   uint32_t offset = 0, newOffset = 0;
   if (NS_FAILED(nsContentEventHandler::GetFlatTextOffsetOfRange(
                     mRootContent, aContainer, aStartIndex, &offset)))
@@ -925,9 +1044,11 @@ nsTextStateManager::NotifyContentAdded(nsINode* aContainer,
     return;
 
   // fire notification
-  if (newOffset)
+  if (newOffset) {
     nsContentUtils::AddScriptRunner(
-        new TextChangeEvent(this, offset, offset, offset + newOffset));
+      new TextChangeEvent(this, offset, offset, offset + newOffset,
+                          causedByComposition));
+  }
 }
 
 void
@@ -957,6 +1078,12 @@ nsTextStateManager::ContentRemoved(nsIDocument* aDocument,
                                    int32_t aIndexInContainer,
                                    nsIContent* aPreviousSibling)
 {
+  bool causedByComposition = IsEditorHandlingEventForComposition();
+  if (causedByComposition &&
+      !mUpdatePreference.WantChangesCausedByComposition()) {
+    return;
+  }
+
   uint32_t offset = 0, childOffset = 1;
   if (NS_FAILED(nsContentEventHandler::GetFlatTextOffsetOfRange(
                     mRootContent, NODE_FROM(aContainer, aDocument),
@@ -974,9 +1101,11 @@ nsTextStateManager::ContentRemoved(nsIDocument* aDocument,
     return;
 
   // fire notification
-  if (childOffset)
+  if (childOffset) {
     nsContentUtils::AddScriptRunner(
-        new TextChangeEvent(this, offset, offset + childOffset, offset));
+      new TextChangeEvent(this, offset, offset + childOffset, offset,
+                          causedByComposition));
+  }
 }
 
 static nsIContent*
@@ -1007,6 +1136,12 @@ nsTextStateManager::AttributeChanged(nsIDocument* aDocument,
                                      nsIAtom* aAttribute,
                                      int32_t aModType)
 {
+  bool causedByComposition = IsEditorHandlingEventForComposition();
+  if (causedByComposition &&
+      !mUpdatePreference.WantChangesCausedByComposition()) {
+    return;
+  }
+
   nsIContent *content = GetContentBR(aElement);
   if (!content) {
     return;
@@ -1018,7 +1153,8 @@ nsTextStateManager::AttributeChanged(nsIDocument* aDocument,
     if (NS_SUCCEEDED(nsContentEventHandler::GetFlatTextOffsetOfRange(
         mRootContent, content, 0, &start))) {
       nsContentUtils::AddScriptRunner(new TextChangeEvent(this, start,
-        start + mPreAttrChangeLength, start + postAttrChangeLength));
+        start + mPreAttrChangeLength, start + postAttrChangeLength,
+        causedByComposition));
     }
   }
 }

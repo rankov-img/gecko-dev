@@ -317,9 +317,11 @@ static inline mozilla::css::Side operator++(mozilla::css::Side& side, int) {
 #define NS_STYLE_CLEAR_NONE                     0
 #define NS_STYLE_CLEAR_LEFT                     1
 #define NS_STYLE_CLEAR_RIGHT                    2
-#define NS_STYLE_CLEAR_LEFT_AND_RIGHT           3
+#define NS_STYLE_CLEAR_BOTH                     3
 #define NS_STYLE_CLEAR_LINE                     4
-#define NS_STYLE_CLEAR_LAST_VALUE NS_STYLE_CLEAR_LINE
+// @note NS_STYLE_CLEAR_LINE can be added to one of the other values in layout
+// so it needs to use a bit value that none of the other values can have.
+#define NS_STYLE_CLEAR_MAX (NS_STYLE_CLEAR_LINE | NS_STYLE_CLEAR_BOTH)
 
 // See nsStyleContent
 #define NS_STYLE_CONTENT_OPEN_QUOTE             0
@@ -395,10 +397,10 @@ static inline mozilla::css::Side operator++(mozilla::css::Side& side, int) {
 #define NS_STYLE_DISPLAY_BOX                    18
 #define NS_STYLE_DISPLAY_INLINE_BOX             19
 #ifdef MOZ_XUL
-#define NS_STYLE_DISPLAY_GRID                   20
-#define NS_STYLE_DISPLAY_INLINE_GRID            21
-#define NS_STYLE_DISPLAY_GRID_GROUP             22
-#define NS_STYLE_DISPLAY_GRID_LINE              23
+#define NS_STYLE_DISPLAY_XUL_GRID               20
+#define NS_STYLE_DISPLAY_INLINE_XUL_GRID        21
+#define NS_STYLE_DISPLAY_XUL_GRID_GROUP         22
+#define NS_STYLE_DISPLAY_XUL_GRID_LINE          23
 #define NS_STYLE_DISPLAY_STACK                  24
 #define NS_STYLE_DISPLAY_INLINE_STACK           25
 #define NS_STYLE_DISPLAY_DECK                   26
@@ -407,6 +409,8 @@ static inline mozilla::css::Side operator++(mozilla::css::Side& side, int) {
 #endif
 #define NS_STYLE_DISPLAY_FLEX                   29
 #define NS_STYLE_DISPLAY_INLINE_FLEX            30
+#define NS_STYLE_DISPLAY_GRID                   31
+#define NS_STYLE_DISPLAY_INLINE_GRID            32
 
 // See nsStylePosition
 #define NS_STYLE_ALIGN_CONTENT_FLEX_START       0

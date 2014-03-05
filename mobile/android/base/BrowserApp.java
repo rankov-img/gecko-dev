@@ -14,6 +14,7 @@ import java.util.Vector;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
+import org.mozilla.gecko.GeckoProfileDirectories.NoMozillaDirectoryException;
 import org.mozilla.gecko.animation.PropertyAnimator;
 import org.mozilla.gecko.animation.ViewHelper;
 import org.mozilla.gecko.db.BrowserContract.Combined;
@@ -443,6 +444,10 @@ abstract public class BrowserApp extends GeckoApp
             GeckoProfile.maybeCleanupGuestProfile(this);
         }
 
+        // This has to be prepared prior to calling GeckoApp.onCreate, because
+        // widget code and BrowserToolbar need it, and they're created by the
+        // layout, which GeckoApp takes care of.
+        ((GeckoApplication) getApplication()).prepareLightweightTheme();
         super.onCreate(savedInstanceState);
 
         mViewFlipper = (ViewFlipper) findViewById(R.id.browser_actionbar);
@@ -450,7 +455,7 @@ abstract public class BrowserApp extends GeckoApp
 
         mBrowserToolbar = (BrowserToolbar) findViewById(R.id.browser_toolbar);
         if (Intent.ACTION_VIEW.equals(intent.getAction())) {
-            // Show the target URL immediately in the toolbar
+            // Show the target URL immediately in the toolbar.
             mBrowserToolbar.setTitle(intent.getDataString());
         }
 
@@ -2103,7 +2108,7 @@ abstract public class BrowserApp extends GeckoApp
         MenuItem desktopMode = aMenu.findItem(R.id.desktop_mode);
         MenuItem enterGuestMode = aMenu.findItem(R.id.new_guest_session);
         MenuItem exitGuestMode = aMenu.findItem(R.id.exit_guest_session);
-        MenuItem subscribe = aMenu.findItem(R.id.subscribe);
+        MenuItem subscribe = aMenu.findItem(R.id.save_subscribe);
         MenuItem addToReadingList = aMenu.findItem(R.id.reading_list_add);
         MenuItem save = aMenu.findItem(R.id.save);
 
@@ -2379,7 +2384,7 @@ abstract public class BrowserApp extends GeckoApp
             return true;
         }
 
-        if (itemId == R.id.subscribe) {
+        if (itemId == R.id.subscribe || itemId == R.id.save_subscribe) {
             subscribeToFeeds(tab);
             return true;
         }
@@ -2401,7 +2406,7 @@ abstract public class BrowserApp extends GeckoApp
                             GeckoProfile.leaveGuestSession(BrowserApp.this);
                         }
                         doRestart(args);
-                        System.exit(0);
+                        GeckoAppShell.systemExit();
                     }
                 } catch(JSONException ex) {
                     Log.e(LOGTAG, "Exception reading guest mode prompt result", ex);
@@ -2611,9 +2616,8 @@ abstract public class BrowserApp extends GeckoApp
     public int getLayout() { return R.layout.gecko_app; }
 
     @Override
-    protected String getDefaultProfileName() {
-        String profile = GeckoProfile.findDefaultProfile(this);
-        return (profile != null ? profile : GeckoProfile.DEFAULT_PROFILE);
+    protected String getDefaultProfileName() throws NoMozillaDirectoryException {
+        return GeckoProfile.getDefaultProfileName(this);
     }
 
     /**

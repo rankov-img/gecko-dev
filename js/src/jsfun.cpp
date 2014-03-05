@@ -568,6 +568,7 @@ JSFunction::trace(JSTracer *trc)
             // - their compartment isn't currently executing scripts or being
             //   debugged
             // - they are not in the self-hosting compartment
+            // - their 'arguments' object can't escape
             // - they aren't generators
             // - they don't have JIT code attached
             // - they don't have child functions
@@ -965,7 +966,7 @@ PushBaselineFunApplyArguments(JSContext *cx, jit::IonFrameIterator &frame, Invok
     args.setThis(vp[2]);
 
     /* Steps 7-8. */
-    frame.forEachCanonicalActualArg(CopyTo(args.array()), 0, -1);
+    frame.forEachCanonicalActualArg(CopyTo(args.array()), jit::ReadFrame_Actuals);
     return true;
 }
 #endif
@@ -1023,7 +1024,8 @@ js_fun_apply(JSContext *cx, unsigned argc, Value *vp)
                     args.setThis(vp[2]);
 
                     /* Steps 7-8. */
-                    iter.forEachCanonicalActualArg(cx, CopyTo(args.array()), 0, -1);
+                    iter.forEachCanonicalActualArg(cx, CopyTo(args.array()),
+                                                   jit::ReadFrame_Actuals);
                 } else {
                     JS_ASSERT(frame.isBaselineStub());
 
@@ -1532,7 +1534,7 @@ FunctionConstructor(JSContext *cx, unsigned argc, Value *vp, GeneratorKind gener
            .setFileAndLine(filename, 1)
            .setNoScriptRval(false)
            .setCompileAndGo(true)
-           .setIntroductionInfo(introducerFilename, introductionType, lineno, pcOffset);
+           .setIntroductionInfo(introducerFilename, introductionType, lineno, script, pcOffset);
 
     unsigned n = args.length() ? args.length() - 1 : 0;
     if (n > 0) {

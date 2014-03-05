@@ -185,7 +185,7 @@ nsXPConnect::IsISupportsDescendant(nsIInterfaceInfo* info)
 void
 xpc::SystemErrorReporter(JSContext *cx, const char *message, JSErrorReport *rep)
 {
-    // It would be nice to assert !JS_DescribeScriptedCaller here, to be sure
+    // It would be nice to assert !DescribeScriptedCaller here, to be sure
     // that there isn't any script running that could catch the exception. But
     // the JS engine invokes the error reporter directly if someone reports an
     // ErrorReport that it doesn't know how to turn into an exception. Arguably
@@ -231,13 +231,6 @@ xpc::SystemErrorReporter(JSContext *cx, const char *message, JSErrorReport *rep)
                 message ? message : "<no message>");
     }
 
-}
-
-NS_EXPORT_(void)
-xpc::SystemErrorReporterExternal(JSContext *cx, const char *message,
-                                 JSErrorReport *rep)
-{
-    return SystemErrorReporter(cx, message, rep);
 }
 
 
@@ -1221,7 +1214,7 @@ nsXPConnect::CheckForDebugMode(JSRuntime *rt)
 #endif //#ifdef MOZ_JSDEBUGGER
 
 
-NS_EXPORT_(void)
+void
 xpc_ActivateDebugMode()
 {
     XPCJSRuntime* rt = nsXPConnect::GetRuntimeInstance();
@@ -1310,7 +1303,7 @@ nsXPConnect::HoldObject(JSContext *aJSContext, JSObject *aObjectArg,
 
 namespace xpc {
 
-NS_EXPORT_(bool)
+bool
 Base64Encode(JSContext *cx, HandleValue val, MutableHandleValue out)
 {
     MOZ_ASSERT(cx);
@@ -1336,7 +1329,7 @@ Base64Encode(JSContext *cx, HandleValue val, MutableHandleValue out)
     return true;
 }
 
-NS_EXPORT_(bool)
+bool
 Base64Decode(JSContext *cx, HandleValue val, MutableHandleValue out)
 {
     MOZ_ASSERT(cx);

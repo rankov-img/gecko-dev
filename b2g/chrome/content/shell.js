@@ -126,6 +126,21 @@ var shell = {
     // purge the queue.
     this.CrashSubmit.pruneSavedDumps();
 
+    // check for environment affecting crash reporting
+    let env = Cc["@mozilla.org/process/environment;1"]
+                .getService(Ci.nsIEnvironment);
+    let shutdown = env.get("MOZ_CRASHREPORTER_SHUTDOWN");
+    if (shutdown) {
+      let appStartup = Cc["@mozilla.org/toolkit/app-startup;1"]
+                         .getService(Ci.nsIAppStartup);
+      appStartup.quit(Ci.nsIAppStartup.eForceQuit);
+    }
+
+    let noReport = env.get("MOZ_CRASHREPORTER_NO_REPORT");
+    if (noReport) {
+      return;
+    }
+
     try {
       // Check if we should automatically submit this crash.
       if (Services.prefs.getBoolPref('app.reportCrashes')) {
@@ -545,18 +560,18 @@ var shell = {
     }
   },
 
-  sendEvent: function shell_sendEvent(content, type, details) {
-    let event = content.document.createEvent('CustomEvent');
+  // Send an event to a specific window, document or element.
+  sendEvent: function shell_sendEvent(target, type, details) {
+    let doc = target.document || target.ownerDocument || target;
+    let event = doc.createEvent('CustomEvent');
     event.initCustomEvent(type, true, true, details ? details : {});
-    content.dispatchEvent(event);
+    target.dispatchEvent(event);
   },
 
   sendCustomEvent: function shell_sendCustomEvent(type, details) {
-    let content = getContentWindow();
-    let event = content.document.createEvent('CustomEvent');
-    let payload = details ? Cu.cloneInto(details, content) : {};
-    event.initCustomEvent(type, true, true, payload);
-    content.dispatchEvent(event);
+    let target = getContentWindow();
+    let payload = details ? Cu.cloneInto(details, target) : {};
+    this.sendEvent(target, type, payload);
   },
 
   sendChromeEvent: function shell_sendChromeEvent(details) {

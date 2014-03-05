@@ -23,6 +23,7 @@ class ArrayBufferViewObject;
 //
 // - JSObject
 //   - ArrayBufferObject
+//     - SharedArrayBufferObject
 //   - ArrayBufferViewObject
 //     - DataViewObject
 //     - TypedArrayObject (declared in vm/TypedArrayObject.h)
@@ -66,7 +67,8 @@ class ArrayBufferObject : public JSObject
 
     static bool class_constructor(JSContext *cx, unsigned argc, Value *vp);
 
-    static ArrayBufferObject *create(JSContext *cx, uint32_t nbytes, bool clear = true);
+    static ArrayBufferObject *create(JSContext *cx, uint32_t nbytes, bool clear = true,
+                                     NewObjectKind newKind = GenericObject);
 
     static JSObject *createSlice(JSContext *cx, Handle<ArrayBufferObject*> arrayBuffer,
                                  uint32_t begin, uint32_t end);
@@ -185,9 +187,7 @@ class ArrayBufferObject : public JSObject
      */
     static bool neuterViews(JSContext *cx, Handle<ArrayBufferObject*> buffer);
 
-    inline uint8_t * dataPointer() const {
-        return (uint8_t *) elements;
-    }
+    uint8_t * dataPointer() const;
 
     /*
      * Discard the ArrayBuffer contents. For asm.js buffers, at least, should
@@ -201,6 +201,10 @@ class ArrayBufferObject : public JSObject
      */
     bool hasData() const {
         return getClass() == &class_;
+    }
+
+    bool isSharedArrayBuffer() const {
+        return getElementsHeader()->isSharedArrayBuffer();
     }
 
     bool isAsmJSArrayBuffer() const {
@@ -292,11 +296,15 @@ InitArrayBufferViewDataPointer(ArrayBufferViewObject *obj, ArrayBufferObject *bu
     PostBarrierTypedArrayObject(obj);
 }
 
-MOZ_ALWAYS_INLINE bool
-IsArrayBuffer(HandleValue v)
-{
-    return v.isObject() && v.toObject().is<ArrayBufferObject>();
-}
+/*
+ * Tests for either ArrayBufferObject or SharedArrayBufferObject.
+ * For specific class testing, use e.g., obj->is<ArrayBufferObject>().
+ */
+bool IsArrayBuffer(HandleValue v);
+bool IsArrayBuffer(HandleObject obj);
+bool IsArrayBuffer(JSObject *obj);
+ArrayBufferObject &AsArrayBuffer(HandleObject obj);
+ArrayBufferObject &AsArrayBuffer(JSObject *obj);
 
 inline void
 ArrayBufferViewObject::setBufferLink(ArrayBufferObject *buffer)

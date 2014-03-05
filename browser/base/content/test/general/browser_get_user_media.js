@@ -77,13 +77,20 @@ function promiseMessage(aMessage, aAction) {
   return deferred.promise;
 }
 
-function promisePopupNotification(aName) {
+
+function promisePopupNotification(aName, aShown) {
   let deferred = Promise.defer();
 
-  waitForCondition(() => PopupNotifications.getNotification(aName),
+  // If aShown is true, the notification is expected to be opened by
+  // default and we wait for the panel to be populated; for dismissed
+  // notifications, we are happy as soon as we find the icon.
+  waitForCondition(() => PopupNotifications.getNotification(aName) &&
+                         (!aShown || PopupNotifications.panel.firstChild),
                    () => {
     ok(!!PopupNotifications.getNotification(aName),
        aName + " notification appeared");
+    if (aShown)
+      ok(PopupNotifications.panel.firstChild, "notification panel populated");
     deferred.resolve();
   }, "timeout waiting for popup notification " + aName);
 
@@ -205,8 +212,12 @@ let gTests = [
       content.wrappedJSObject.requestDevice(true, true);
     });
 
-    yield promisePopupNotification("webRTC-shareDevices");
+    yield promisePopupNotification("webRTC-shareDevices", true);
+    is(PopupNotifications.getNotification("webRTC-shareDevices").anchorID,
+       "webRTC-shareDevices-notification-icon", "anchored to device icon");
     checkDeviceSelectors(true, true);
+    is(PopupNotifications.panel.firstChild.getAttribute("popupid"),
+       "webRTC-shareDevices", "panel using devices icon");
 
     yield promiseMessage("ok", () => {
       PopupNotifications.panel.firstChild.button.click();
@@ -229,8 +240,12 @@ let gTests = [
       content.wrappedJSObject.requestDevice(true);
     });
 
-    yield promisePopupNotification("webRTC-shareDevices");
+    yield promisePopupNotification("webRTC-shareDevices", true);
+    is(PopupNotifications.getNotification("webRTC-shareDevices").anchorID,
+       "webRTC-shareMicrophone-notification-icon", "anchored to mic icon");
     checkDeviceSelectors(true);
+    is(PopupNotifications.panel.firstChild.getAttribute("popupid"),
+       "webRTC-shareMicrophone", "panel using microphone icon");
 
     yield promiseMessage("ok", () => {
       PopupNotifications.panel.firstChild.button.click();
@@ -252,8 +267,12 @@ let gTests = [
       content.wrappedJSObject.requestDevice(false, true);
     });
 
-    yield promisePopupNotification("webRTC-shareDevices");
+    yield promisePopupNotification("webRTC-shareDevices", true);
+    is(PopupNotifications.getNotification("webRTC-shareDevices").anchorID,
+       "webRTC-shareDevices-notification-icon", "anchored to device icon");
     checkDeviceSelectors(false, true);
+    is(PopupNotifications.panel.firstChild.getAttribute("popupid"),
+       "webRTC-shareDevices", "panel using devices icon");
 
     yield promiseMessage("ok", () => {
       PopupNotifications.panel.firstChild.button.click();
@@ -275,7 +294,7 @@ let gTests = [
       content.wrappedJSObject.requestDevice(true, true);
     });
 
-    yield promisePopupNotification("webRTC-shareDevices");
+    yield promisePopupNotification("webRTC-shareDevices", true);
     checkDeviceSelectors(true, true);
 
     // disable the camera
@@ -306,7 +325,7 @@ let gTests = [
       content.wrappedJSObject.requestDevice(true, true);
     });
 
-    yield promisePopupNotification("webRTC-shareDevices");
+    yield promisePopupNotification("webRTC-shareDevices", true);
     checkDeviceSelectors(true, true);
 
     // disable the microphone
@@ -337,7 +356,7 @@ let gTests = [
       content.wrappedJSObject.requestDevice(true, true);
     });
 
-    yield promisePopupNotification("webRTC-shareDevices");
+    yield promisePopupNotification("webRTC-shareDevices", true);
     checkDeviceSelectors(true, true);
 
     // disable the camera and microphone
@@ -366,7 +385,7 @@ let gTests = [
       content.wrappedJSObject.requestDevice(true, true);
     });
 
-    yield promisePopupNotification("webRTC-shareDevices");
+    yield promisePopupNotification("webRTC-shareDevices", true);
     checkDeviceSelectors(true, true);
 
     yield promiseMessage("error: PERMISSION_DENIED", () => {
@@ -387,7 +406,7 @@ let gTests = [
       content.wrappedJSObject.requestDevice(true, true);
     });
 
-    yield promisePopupNotification("webRTC-shareDevices");
+    yield promisePopupNotification("webRTC-shareDevices", true);
     checkDeviceSelectors(true, true);
 
     yield promiseMessage("ok", () => {
@@ -424,15 +443,15 @@ let gTests = [
 {
   desc: "getUserMedia prompt: Always/Never Share",
   run: function checkRememberCheckbox() {
+    let elt = id => document.getElementById(id);
+
     function checkPerm(aRequestAudio, aRequestVideo, aAllowAudio, aAllowVideo,
                        aExpectedAudioPerm, aExpectedVideoPerm, aNever) {
       yield promiseNotification("getUserMedia:request", () => {
         content.wrappedJSObject.requestDevice(aRequestAudio, aRequestVideo);
       });
 
-      yield promisePopupNotification("webRTC-shareDevices");
-
-      let elt = id => document.getElementById(id);
+      yield promisePopupNotification("webRTC-shareDevices", true);
 
       let noAudio = aAllowAudio === undefined;
       is(elt("webRTC-selectMicrophone").hidden, noAudio,
@@ -519,6 +538,10 @@ let gTests = [
     info("audio+video, user denies audio, grants video, " +
          "expect video perm set to allow, audio perm set to deny.");
     yield checkPerm(true, true, false, true, false, true);
+
+    // reset the menuitems to have no impact on the following tests.
+    elt("webRTC-selectMicrophone-menulist").value = 0;
+    elt("webRTC-selectCamera-menulist").value = 0;
   }
 },
 
@@ -545,7 +568,7 @@ let gTests = [
       if (aExpectStream === undefined) {
         // Check that we get a prompt.
         yield promiseNotification("getUserMedia:request", gum);
-        yield promisePopupNotification("webRTC-shareDevices");
+        yield promisePopupNotification("webRTC-shareDevices", true);
 
         // Deny the request to cleanup...
         yield promiseMessage("error: PERMISSION_DENIED", () => {
@@ -657,8 +680,16 @@ let gTests = [
       expectNotification("recording-device-events");
       yield checkSharingUI();
 
-      // Stop sharing.
       PopupNotifications.getNotification("webRTC-sharingDevices").reshow();
+      let expectedIcon = "webRTC-sharingDevices";
+      if (aRequestAudio && !aRequestVideo)
+        expectedIcon = "webRTC-sharingMicrophone";
+      is(PopupNotifications.getNotification("webRTC-sharingDevices").anchorID,
+         expectedIcon + "-notification-icon", "anchored to correct icon");
+      is(PopupNotifications.panel.firstChild.getAttribute("popupid"), expectedIcon,
+         "panel using correct icon");
+
+      // Stop sharing.
       activateSecondaryAction(kActionDeny);
 
       yield promiseNotification("recording-device-events");

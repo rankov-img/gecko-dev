@@ -759,10 +759,11 @@ class ObjectElements
         CONVERT_DOUBLE_ELEMENTS     = 0x1,
         ASMJS_ARRAY_BUFFER          = 0x2,
         NEUTERED_BUFFER             = 0x4,
+        SHARED_ARRAY_BUFFER         = 0x8,
 
         // Present only if these elements correspond to an array with
         // non-writable length; never present for non-arrays.
-        NONWRITABLE_ARRAY_LENGTH    = 0x8
+        NONWRITABLE_ARRAY_LENGTH    = 0x10
     };
 
   private:
@@ -771,6 +772,7 @@ class ObjectElements
     friend class ArrayObject;
     friend class ArrayBufferObject;
     friend class ArrayBufferViewObject;
+    friend class SharedArrayBufferObject;
     friend class TypedArrayObject;
     friend class Nursery;
 
@@ -829,6 +831,12 @@ class ObjectElements
     }
     void setIsNeuteredBuffer() {
         flags |= NEUTERED_BUFFER;
+    }
+    bool isSharedArrayBuffer() const {
+        return flags & SHARED_ARRAY_BUFFER;
+    }
+    void setIsSharedArrayBuffer() {
+        flags |= SHARED_ARRAY_BUFFER;
     }
     bool hasNonwritableArrayLength() const {
         return flags & NONWRITABLE_ARRAY_LENGTH;
@@ -1317,11 +1325,16 @@ class ObjectImpl : public gc::BarrieredCell<ObjectImpl>
         return slots[slot - fixed];
     }
 
-    HeapSlot *getSlotAddressUnchecked(uint32_t slot) {
+    const HeapSlot *getSlotAddressUnchecked(uint32_t slot) const {
         uint32_t fixed = numFixedSlots();
         if (slot < fixed)
             return fixedSlots() + slot;
         return slots + (slot - fixed);
+    }
+
+    HeapSlot *getSlotAddressUnchecked(uint32_t slot) {
+        const ObjectImpl *obj = static_cast<const ObjectImpl*>(this);
+        return const_cast<HeapSlot*>(obj->getSlotAddressUnchecked(slot));
     }
 
     HeapSlot *getSlotAddress(uint32_t slot) {
@@ -1334,7 +1347,22 @@ class ObjectImpl : public gc::BarrieredCell<ObjectImpl>
         return getSlotAddressUnchecked(slot);
     }
 
+    const HeapSlot *getSlotAddress(uint32_t slot) const {
+        /*
+         * This can be used to get the address of the end of the slots for the
+         * object, which may be necessary when fetching zero-length arrays of
+         * slots (e.g. for callObjVarArray).
+         */
+        MOZ_ASSERT(slotInRange(slot, SENTINEL_ALLOWED));
+        return getSlotAddressUnchecked(slot);
+    }
+
     HeapSlot &getSlotRef(uint32_t slot) {
+        MOZ_ASSERT(slotInRange(slot));
+        return *getSlotAddress(slot);
+    }
+
+    const HeapSlot &getSlotRef(uint32_t slot) const {
         MOZ_ASSERT(slotInRange(slot));
         return *getSlotAddress(slot);
     }

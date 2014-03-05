@@ -195,7 +195,7 @@ endif
 ifeq ($(CPU_ARCH),x86)
     ASFILES  = mpi_x86.s
     DEFINES += -DMP_ASSEMBLY_MULTIPLY -DMP_ASSEMBLY_SQUARE 
-    DEFINES += -DMP_ASSEMBLY_DIV_2DX1D
+    DEFINES += -DMP_ASSEMBLY_DIV_2DX1D -DMP_USE_UINT_DIGIT
     DEFINES += -DMP_CHAR_STORE_SLOW -DMP_IS_LITTLE_ENDIAN
     # The floating point ECC code doesn't work on Linux x86 (bug 311432).
     #ECL_USE_FP = 1
@@ -449,14 +449,14 @@ else
 endif # Solaris for non-sparc family CPUs
 endif # target == SunOS
 
-ifdef NSS_ENABLE_ECC
+ifndef NSS_DISABLE_ECC
     ifdef ECL_USE_FP
 	#enable floating point ECC code	
 	DEFINES  += -DECL_USE_FP
 	ECL_SRCS += ecp_fp160.c ecp_fp192.c ecp_fp224.c ecp_fp.c
 	ECL_HDRS += ecp_fp.h
     endif
-endif # NSS_ENABLE_ECC
+endif
 
 #######################################################################
 # (5) Execute "global" rules. (OPTIONAL)                              #

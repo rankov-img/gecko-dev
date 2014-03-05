@@ -24,10 +24,10 @@
 #include "nsAutoPtr.h"                  // for nsRefPtr, nsAutoPtr
 #include "nsCOMPtr.h"                   // for already_AddRefed
 #include "nsDebug.h"                    // for NS_ASSERTION, NS_WARNING
+#include "nsISupportsImpl.h"            // for MOZ_COUNT_CTOR, etc
 #include "nsSize.h"                     // for nsIntSize
 #include "nsTArray.h"                   // for nsAutoTArray, nsTArray, etc
 #include "nsThreadUtils.h"              // for nsRunnable
-#include "nsTraceRefcnt.h"              // for MOZ_COUNT_CTOR, etc
 #include "nsXULAppAPI.h"                // for XRE_GetProcessType
 #include "nscore.h"                     // for NS_IMETHOD
 #include "VBOArena.h"                   // for gl::VBOArena
@@ -307,7 +307,6 @@ private:
   // Textures used for direct texturing of buffers like gralloc.
   // The index of the texture in this array must correspond to the texture unit.
   nsTArray<GLuint> mTextures;
-  static bool sDrawFPS;
 
   /**
    * Height of the OpenGL context's primary framebuffer in pixels. Used by

@@ -56,7 +56,8 @@ public:                                                                       \
 static Type Name() { MOZ_ASSERT(Exists()); return One().mPref##Name.mValue; } \
 private:                                                                      \
 static const char* Get##Name##PrefName() { return Pref; }                     \
-PrefTemplate<UpdatePolicy::Update, Type, Default, Get##Name##PrefName> mPref##Name
+static Type Get##Name##PrefDefault() { return Default; }                      \
+PrefTemplate<UpdatePolicy::Update, Type, Get##Name##PrefDefault, Get##Name##PrefName> mPref##Name
 
 class gfxPrefs;
 class gfxPrefs MOZ_FINAL
@@ -70,12 +71,12 @@ private:
   MOZ_END_NESTED_ENUM_CLASS(UpdatePolicy)
 
   // Since we cannot use const char*, use a function that returns it.
-    template <MOZ_ENUM_CLASS_ENUM_TYPE(UpdatePolicy) Update, class T, T Default, const char* Pref(void)>
+  template <MOZ_ENUM_CLASS_ENUM_TYPE(UpdatePolicy) Update, class T, T Default(void), const char* Pref(void)>
   class PrefTemplate
   {
   public:
     PrefTemplate()
-    : mValue(Default)
+    : mValue(Default())
     {
       Register(Update, Pref());
     }
@@ -98,14 +99,76 @@ private:
     T mValue;
   };
 
-public:
   // This is where DECL_GFX_PREF for each of the preferences should go.
   // We will keep these in an alphabetical order to make it easier to see if
   // a method accessing a pref already exists. Just add yours in the list.
 
+  DECL_GFX_PREF(Once, "apz.fling_friction",                    APZFlingFriction, float, 0.002f);
+  DECL_GFX_PREF(Once, "apz.fling_stopped_threshold",           APZFlingStoppedThreshold, float, 0.01f);
+  DECL_GFX_PREF(Once, "apz.max_event_acceleration",            APZMaxEventAcceleration, float, 999.0f);
+  DECL_GFX_PREF(Once, "apz.max_velocity_pixels_per_ms",        APZMaxVelocity, float, -1.0f);
+  DECL_GFX_PREF(Once, "apz.max_velocity_queue_size",           APZMaxVelocityQueueSize, uint32_t, 5);
+
+  DECL_GFX_PREF(Once, "gfx.android.rgb16.force",               AndroidRGB16Force, bool, false);
+#if defined(ANDROID)
+  DECL_GFX_PREF(Once, "gfx.apitrace.enabled",                  UseApitrace, bool, false);
+#endif
+  DECL_GFX_PREF(Live, "gfx.canvas.azure.accelerated",          CanvasAzureAccelerated, bool, false);
+  DECL_GFX_PREF(Once, "gfx.canvas.skiagl.dynamic-cache",       CanvasSkiaGLDynamicCache, bool, false);
+  DECL_GFX_PREF(Once, "gfx.canvas.skiagl.cache-size",          CanvasSkiaGLCacheSize, int32_t, 96);
+  DECL_GFX_PREF(Once, "gfx.canvas.skiagl.cache-items",         CanvasSkiaGLCacheItems, int32_t, 256);
+
+  DECL_GFX_PREF(Once, "gfx.direct2d.disabled",                 Direct2DDisabled, bool, false);
+  DECL_GFX_PREF(Once, "gfx.direct2d.force-enabled",            Direct2DForceEnabled, bool, false);
+  DECL_GFX_PREF(Live, "gfx.gralloc.fence-with-readpixels",     GrallocFenceWithReadPixels, bool, false);
+  DECL_GFX_PREF(Live, "gfx.layerscope.enabled",                LayerScopeEnabled, bool, false);
+  DECL_GFX_PREF(Live, "gfx.layerscope.port",                   LayerScopePort, int32_t, 23456);
   DECL_GFX_PREF(Once, "gfx.work-around-driver-bugs",           WorkAroundDriverBugs, bool, true);
 
   DECL_GFX_PREF(Live, "gl.msaa-level",                         MSAALevel, uint32_t, 2);
+
+  DECL_GFX_PREF(Once, "layers.acceleration.disabled",          LayersAccelerationDisabled, bool, false);
+  DECL_GFX_PREF(Live, "layers.acceleration.draw-fps",          LayersDrawFPS, bool, true);
+  DECL_GFX_PREF(Once, "layers.acceleration.force-enabled",     LayersAccelerationForceEnabled, bool, false);
+#ifdef XP_WIN
+  // On windows, ignore the preference value, forcing async video to false.
+  DECL_GFX_PREF(Skip, "layers.async-video.enabled",            AsyncVideoEnabled, bool, false);
+#else
+  DECL_GFX_PREF(Once, "layers.async-video.enabled",            AsyncVideoEnabled, bool, false);
+#endif
+  DECL_GFX_PREF(Once, "layers.bufferrotation.enabled",         BufferRotationEnabled, bool, true);
+#ifdef MOZ_GFX_OPTIMIZE_MOBILE
+  // If MOZ_GFX_OPTIMIZE_MOBILE is defined, we force component alpha off
+  // and ignore the preference.
+  DECL_GFX_PREF(Skip, "layers.componentalpha.enabled",         ComponentAlphaEnabled, bool, false);
+#else
+  // If MOZ_GFX_OPTIMIZE_MOBILE is not defined, we actually take the
+  // preference value, defaulting to true.
+  DECL_GFX_PREF(Once, "layers.componentalpha.enabled",         ComponentAlphaEnabled, bool, true);
+#endif
+  DECL_GFX_PREF(Live, "layers.draw-bigimage-borders",          DrawBigImageBorders, bool, false);
+  DECL_GFX_PREF(Live, "layers.draw-borders",                   DrawLayerBorders, bool, false);
+  DECL_GFX_PREF(Live, "layers.draw-tile-borders",              DrawTileBorders, bool, false);
+  DECL_GFX_PREF(Once, "layers.dump",                           LayersDump, bool, false);
+  DECL_GFX_PREF(Once, "layers.enable-tiles",                   LayersTilesEnabled, bool, false);
+  DECL_GFX_PREF(Live, "layers.frame-counter",                  DrawFrameCounter, bool, false);
+  DECL_GFX_PREF(Live, "layers.low-precision-buffer",           UseLowPrecisionBuffer, bool, false);
+  DECL_GFX_PREF(Live, "layers.low-precision-resolution",       LowPrecisionResolution, int32_t, 250);
+  DECL_GFX_PREF(Once, "layers.offmainthreadcomposition.enabled", LayersOffMainThreadCompositionEnabled, bool, false);
+  DECL_GFX_PREF(Live, "layers.offmainthreadcomposition.frame-rate", LayersCompositionFrameRate, int32_t,-1);
+  DECL_GFX_PREF(Once, "layers.offmainthreadcomposition.force-enabled", LayersOffMainThreadCompositionForceEnabled, bool, false);
+  DECL_GFX_PREF(Once, "layers.offmainthreadcomposition.testing.enabled", LayersOffMainThreadCompositionTestingEnabled, bool, false);
+  DECL_GFX_PREF(Live, "layers.orientation.sync.timeout",       OrientationSyncMillis, uint32_t, (uint32_t)0);
+  DECL_GFX_PREF(Once, "layers.prefer-d3d9",                    LayersPreferD3D9, bool, false);
+  DECL_GFX_PREF(Once, "layers.prefer-opengl",                  LayersPreferOpenGL, bool, false);
+  DECL_GFX_PREF(Once, "layers.progressive-paint",              UseProgressiveTilePainting, bool, false);
+  DECL_GFX_PREF(Once, "layers.scroll-graph",                   LayersScrollGraph, bool, false);
+
+  DECL_GFX_PREF(Once, "layout.frame_rate",                     LayoutFrameRate, int32_t, -1);
+
+  DECL_GFX_PREF(Live, "nglayout.debug.widget_update_flashing", WidgetUpdateFlashing, bool, false);
+
+  DECL_GFX_PREF(Once, "webgl.force-layers-readback",           WebGLForceLayersReadback, bool, false);
 
 public:
   // Manage the singleton:
@@ -127,9 +190,11 @@ private:
   static void PrefAddVarCache(bool*, const char*, bool);
   static void PrefAddVarCache(int32_t*, const char*, int32_t);
   static void PrefAddVarCache(uint32_t*, const char*, uint32_t);
+  static void PrefAddVarCache(float*, const char*, float);
   static bool PrefGet(const char*, bool);
   static int32_t PrefGet(const char*, int32_t);
   static uint32_t PrefGet(const char*, uint32_t);
+  static float PrefGet(const char*, float);
 
   gfxPrefs();
   ~gfxPrefs();
