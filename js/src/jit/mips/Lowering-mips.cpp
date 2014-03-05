@@ -467,7 +467,8 @@ LIRGeneratorMIPS::visitAsmJSLoadHeap(MAsmJSLoadHeap *ins)
     MOZ_ASSERT(ptr->type() == MIRType_Int32);
     LAllocation ptrAlloc;
 
-    // For the ARM it is best to keep the 'ptr' in a register if a bounds check is needed.
+    // For MIPS it is best to keep the 'ptr' in a register if a bounds check
+    // is needed.
     if (ptr->isConstant() && ins->skipBoundsCheck()) {
         int32_t ptrValue = ptr->toConstant()->value().toInt32();
         // A bounds check is only skipped for a positive index.

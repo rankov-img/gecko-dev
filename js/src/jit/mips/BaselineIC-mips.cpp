@@ -77,7 +77,7 @@ ICBinaryArith_Int32::Compiler::generateStubCode(MacroAssembler &masm)
     masm.branchTestInt32(Assembler::NotEqual, R0, &failure);
     masm.branchTestInt32(Assembler::NotEqual, R1, &failure);
 
-    // Add R0 and R1.  Don't need to explicitly unbox, just use R2's payloadReg.
+    // Add R0 and R1. Don't need to explicitly unbox, just use R2's payloadReg.
     Register scratchReg = R2.payloadReg();
 
     // DIV and MOD need an extra non-volatile ValueOperand to hold R0.
@@ -105,7 +105,7 @@ ICBinaryArith_Int32::Compiler::generateStubCode(MacroAssembler &masm)
         masm.ma_b(t8, Imm32(0), &failure, Assembler::LessThan, ShortJump);
 
         masm.bind(&goodMul);
-        masm.ma_move(R0.payloadReg(), scratchReg);
+        masm.move32(scratchReg, R0.payloadReg());
         break;
       }
       case JSOP_DIV:
@@ -128,15 +128,15 @@ ICBinaryArith_Int32::Compiler::generateStubCode(MacroAssembler &masm)
         if (op_ == JSOP_DIV) {
             // Result is a double if the remainder != 0.
             masm.as_mfhi(scratchReg);
-            masm.branch32(Assembler::NotEqual, scratchReg, Imm32(0), &failure);
+            masm.ma_b(scratchReg, Imm32(0), &failure, Assembler::NotEqual, ShortJump);
             masm.as_mflo(scratchReg);
             masm.tagValue(JSVAL_TYPE_INT32, scratchReg, R0);
         } else {
             Label done;
             // If X % Y == 0 and X < 0, the result is -0.
             masm.as_mfhi(scratchReg);
-            masm.branch32(Assembler::NotEqual, scratchReg, Imm32(0), &done);
-            masm.branch32(Assembler::LessThan, R0.payloadReg(), Imm32(0), &failure);
+            masm.ma_b(scratchReg, Imm32(0), &done, Assembler::NotEqual, ShortJump);
+            masm.ma_b(R0.payloadReg(), Imm32(0), &failure, Assembler::LessThan, ShortJump);
             masm.bind(&done);
             masm.tagValue(JSVAL_TYPE_INT32, scratchReg, R0);
         }
@@ -165,18 +165,16 @@ ICBinaryArith_Int32::Compiler::generateStubCode(MacroAssembler &masm)
             masm.ma_b(scratchReg, Imm32(0), &toUint, Assembler::LessThan, ShortJump);
 
             // Move result and box for return.
-            masm.ma_move(R0.payloadReg(), scratchReg);
+            masm.move32(scratchReg, R0.payloadReg());
             EmitReturnFromIC(masm);
 
             masm.bind(&toUint);
-            // NOTE: I'm not sure if we can use FloatReg0, but we can't use
-            // ScratchFloatReg like ARM and X86 do.
             masm.convertUInt32ToDouble(scratchReg, FloatReg1);
             masm.boxDouble(FloatReg1, R0);
         } else {
             masm.ma_b(scratchReg, Imm32(0), &failure, Assembler::LessThan, ShortJump);
             // Move result for return.
-            masm.ma_move(R0.payloadReg(), scratchReg);
+            masm.move32(scratchReg, R0.payloadReg());
         }
         break;
       default:
@@ -200,14 +198,13 @@ ICUnaryArith_Int32::Compiler::generateStubCode(MacroAssembler &masm)
 
     switch (op) {
       case JSOP_BITNOT:
-        masm.ma_not(R0.payloadReg(), R0.payloadReg());
+        masm.not32(R0.payloadReg());
         break;
       case JSOP_NEG:
         // Guard against 0 and MIN_INT, both result in a double.
-        masm.branchTest32(Assembler::Zero, R0.payloadReg(), Imm32(0x7fffffff), &failure);
+        masm.branchTest32(Assembler::Zero, R0.payloadReg(), Imm32(INT32_MAX), &failure);
 
-        // Compile -x as 0 - x.
-        masm.ma_negu(R0.payloadReg(), R0.payloadReg());
+        masm.neg32(R0.payloadReg());
         break;
       default:
         MOZ_ASSUME_UNREACHABLE("Unexpected op");
