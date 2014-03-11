@@ -55,6 +55,13 @@
   color: InactiveCaptionText;
 }
 
+#main-window[customize-entered][tabsintitlebar]:not([inFullscreen]) #toolbar-menubar[customizing-dragovertarget].customization-target::before,
+#main-window[customize-entered][tabsintitlebar]:not([inFullscreen]) #TabsToolbar[customizing-dragovertarget].customization-target::before,
+#main-window[customize-entered][tabsintitlebar]:not([inFullscreen]) #toolbar-menubar.customization-target:hover::before,
+#main-window[customize-entered][tabsintitlebar]:not([inFullscreen]) #TabsToolbar.customization-target:hover::before {
+  outline-color: CaptionText;
+}
+
 #navigator-toolbox {
   -moz-appearance: none;
   background-color: transparent;
@@ -280,7 +287,7 @@
 /* ::::: bookmark buttons ::::: */
 
 toolbarbutton.bookmark-item,
-#personal-bookmarks[cui-areatype="toolbar"] > #bookmarks-toolbar-placeholder {
+#personal-bookmarks[cui-areatype="toolbar"]:not([overflowedItem=true]) > #bookmarks-toolbar-placeholder {
   margin: 0;
   padding: 2px 3px;
 }
@@ -355,6 +362,10 @@ toolbarpaletteitem[place="palette"] > #personal-bookmarks > #bookmarks-toolbar-p
   background-image: url("chrome://browser/skin/places/bookmarks-notification-finish.png");
   animation: animation-bookmarkAdded 800ms;
   animation-timing-function: ease, ease, ease;
+}
+
+#bookmarks-menu-button[notification="finish"] {
+  pointer-events: none;
 }
 
 #bookmarks-menu-button[notification="finish"] > .toolbarbutton-menubutton-dropmarker > .dropmarker-icon {
@@ -471,8 +482,8 @@ menuitem.bookmark-item {
   list-style-image: url("chrome://browser/skin/toolbarbutton-dropdown-arrow.png");
 }
 
-.toolbarbutton-1 > .toolbarbutton-menu-dropmarker:-moz-lwtheme-brighttext,
-.toolbarbutton-1 > .toolbarbutton-menubutton-dropmarker:-moz-lwtheme-brighttext {
+toolbar .toolbarbutton-1 > .toolbarbutton-menu-dropmarker:-moz-lwtheme-brighttext,
+toolbar .toolbarbutton-1 > .toolbarbutton-menubutton-dropmarker:-moz-lwtheme-brighttext {
   list-style-image: url("chrome://browser/skin/toolbarbutton-dropdown-arrow-inverted.png");
 }
 
@@ -794,6 +805,12 @@ toolbarbutton[sdk-button="true"][cui-areatype="toolbar"] > .toolbarbutton-icon {
 }
 %endif
 
+#main-window[tabsintitlebar]:not([inFullscreen]) :-moz-any(#TabsToolbar, #toolbar-menubar) > #bookmarks-menu-button > .toolbarbutton-menubutton-dropmarker > .dropmarker-icon:-moz-system-metric(windows-classic):not(:-moz-lwtheme),
+#main-window[tabsintitlebar]:not([inFullscreen]) :-moz-any(#TabsToolbar, #toolbar-menubar) > toolbarpaletteitem > #bookmarks-menu-button > .toolbarbutton-menubutton-dropmarker > .dropmarker-icon:-moz-system-metric(windows-classic):not(:-moz-lwtheme),
+#main-window[tabsintitlebar]:not([inFullscreen]) :-moz-any(#TabsToolbar, #toolbar-menubar) > toolbarpaletteitem > toolbaritem > :-moz-any(@nestedButtons@):-moz-system-metric(windows-classic):not(:-moz-lwtheme),
+#main-window[tabsintitlebar]:not([inFullscreen]) :-moz-any(#TabsToolbar, #toolbar-menubar) > toolbaritem > :-moz-any(@nestedButtons@):-moz-system-metric(windows-classic):not(:-moz-lwtheme),
+#main-window[tabsintitlebar]:not([inFullscreen]) :-moz-any(#TabsToolbar, #toolbar-menubar) > toolbarpaletteitem > :-moz-any(@primaryToolbarButtons@):-moz-system-metric(windows-classic):not(:-moz-lwtheme),
+#main-window[tabsintitlebar]:not([inFullscreen]) :-moz-any(#TabsToolbar, #toolbar-menubar) > :-moz-any(@primaryToolbarButtons@):-moz-system-metric(windows-classic):not(:-moz-lwtheme),
 #home-button.bookmark-item:-moz-lwtheme-brighttext {
   list-style-image: url("chrome://browser/skin/Toolbar-inverted.png");
 }
@@ -1449,7 +1466,7 @@ toolbarbutton[type="socialmark"] > .toolbarbutton-icon {
   -moz-margin-start: 5px;
 }
 
-#bookmarks-menu-button[cui-areatype="toolbar"]:not(.bookmark-item):not(.overflowedItem) > .toolbarbutton-menubutton-dropmarker > .dropmarker-icon {
+#bookmarks-menu-button[cui-areatype="toolbar"]:not(.bookmark-item):not([overflowedItem=true]) > .toolbarbutton-menubutton-dropmarker > .dropmarker-icon {
   padding-top: 2px;
   padding-bottom: 2px;
 }
@@ -1633,6 +1650,8 @@ toolbarbutton[type="socialmark"] > .toolbarbutton-icon {
   background-origin: border-box;
 }
 
+#main-window[tabsintitlebar]:not([inFullscreen]) .tabbrowser-arrowscrollbox > .scrollbutton-up:-moz-system-metric(windows-classic):not(:-moz-lwtheme),
+#main-window[tabsintitlebar]:not([inFullscreen]) .tabbrowser-arrowscrollbox > .scrollbutton-down:-moz-system-metric(windows-classic):not(:-moz-lwtheme),
 .tabbrowser-arrowscrollbox > .scrollbutton-up:-moz-lwtheme-brighttext,
 .tabbrowser-arrowscrollbox > .scrollbutton-down:-moz-lwtheme-brighttext {
   list-style-image: url(chrome://browser/skin/tabbrowser/tab-arrow-left-inverted.png);
@@ -1676,6 +1695,9 @@ toolbarbutton[type="socialmark"] > .toolbarbutton-icon {
   -moz-image-region: auto;
 }
 
+#main-window[tabsintitlebar]:not([inFullscreen]) .tabs-newtab-button:-moz-system-metric(windows-classic):not(:-moz-lwtheme),
+#main-window[tabsintitlebar]:not([inFullscreen]) #TabsToolbar > #new-tab-button:-moz-system-metric(windows-classic):not(:-moz-lwtheme),
+#main-window[tabsintitlebar]:not([inFullscreen]) #TabsToolbar > toolbarpaletteitem > #new-tab-button:-moz-system-metric(windows-classic):not(:-moz-lwtheme),
 .tabs-newtab-button:-moz-lwtheme-brighttext,
 #TabsToolbar > #new-tab-button:-moz-lwtheme-brighttext,
 #TabsToolbar > toolbarpaletteitem > #new-tab-button:-moz-lwtheme-brighttext {
@@ -1690,6 +1712,7 @@ toolbarbutton[type="socialmark"] > .toolbarbutton-icon {
   list-style-image: url("chrome://browser/skin/toolbarbutton-dropdown-arrow.png");
 }
 
+#main-window[tabsintitlebar]:not([inFullscreen]) #alltabs-button:-moz-system-metric(windows-classic):not(:-moz-lwtheme),
 #alltabs-button:-moz-lwtheme-brighttext {
   list-style-image: url("chrome://browser/skin/toolbarbutton-dropdown-arrow-inverted.png");
 }
@@ -2534,6 +2557,14 @@ chatbox {
   border-left: 1px solid @toolbarShadowColor@;
   border-right: 1px solid @toolbarShadowColor@;
   background-clip: padding-box;
+}
+
+#customization-tipPanel > .panel-arrowcontainer > .panel-arrowbox > .panel-arrow[side="left"] {
+  margin-right: -2px;
+}
+
+#customization-tipPanel > .panel-arrowcontainer > .panel-arrowbox > .panel-arrow[side="right"] {
+  margin-left: -2px;
 }
 
 /* End customization mode */

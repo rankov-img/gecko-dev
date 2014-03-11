@@ -25,7 +25,7 @@
 #include "vm/Xdr.h"
 
 namespace JS {
-struct ClassInfo;
+struct ObjectsExtraSizes;
 }
 
 namespace js {
@@ -354,7 +354,7 @@ class JSObject : public js::ObjectImpl
         return lastProperty()->hasTable();
     }
 
-    void addSizeOfExcludingThis(mozilla::MallocSizeOf mallocSizeOf, JS::ClassInfo *info);
+    void addSizeOfExcludingThis(mozilla::MallocSizeOf mallocSizeOf, JS::ObjectsExtraSizes *sizes);
 
     bool hasIdempotentProtoChain() const;
 
@@ -671,6 +671,12 @@ class JSObject : public js::ObjectImpl
     inline void setDenseElementHole(js::ExclusiveContext *cx, uint32_t index);
     static inline void removeDenseElementForSparseIndex(js::ExclusiveContext *cx,
                                                         js::HandleObject obj, uint32_t index);
+
+    inline js::Value getDenseOrTypedArrayElement(uint32_t idx);
+    inline bool setDenseOrTypedArrayElementIfHasType(js::ThreadSafeContext *cx, uint32_t index,
+                                                     const js::Value &val);
+    inline bool setDenseOrTypedArrayElementWithType(js::ExclusiveContext *cx, uint32_t index,
+                                                    const js::Value &val);
 
     void copyDenseElements(uint32_t dstStart, const js::Value *src, uint32_t count) {
         JS_ASSERT(dstStart + count <= getDenseCapacity());

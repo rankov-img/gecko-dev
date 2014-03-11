@@ -968,10 +968,9 @@ XrayResolveAttribute(JSContext* cx, JS::Handle<JSObject*> wrapper,
           // way to do this is wrap them up as functions ourselves.
           desc.setAttributes(attrSpec.flags & ~JSPROP_NATIVE_ACCESSORS);
           // They all have getters, so we can just make it.
-          JS::Rooted<JSObject*> global(cx, JS_GetGlobalForObject(cx, wrapper));
           JS::Rooted<JSFunction*> fun(cx,
                                       JS_NewFunctionById(cx, (JSNative)attrSpec.getter.propertyOp.op,
-                                                         0, 0, global, id));
+                                                         0, 0, wrapper, id));
           if (!fun)
             return false;
           SET_JITINFO(fun, attrSpec.getter.propertyOp.info);
@@ -981,7 +980,7 @@ XrayResolveAttribute(JSContext* cx, JS::Handle<JSObject*> wrapper,
           if (attrSpec.setter.propertyOp.op) {
             // We have a setter! Make it.
             fun = JS_NewFunctionById(cx, (JSNative)attrSpec.setter.propertyOp.op, 1, 0,
-                                     global, id);
+                                     wrapper, id);
             if (!fun)
               return false;
             SET_JITINFO(fun, attrSpec.setter.propertyOp.info);
@@ -1632,7 +1631,10 @@ private:
 nsresult
 ReparentWrapper(JSContext* aCx, JS::Handle<JSObject*> aObjArg)
 {
-  // aObj is assigned to below, so needs to be re-rooted.
+  // Check if we're near the stack limit before we get anywhere near the
+  // transplanting code.
+  JS_CHECK_RECURSION(aCx, return NS_ERROR_FAILURE);
+
   JS::Rooted<JSObject*> aObj(aCx, aObjArg);
   const DOMClass* domClass = GetDOMClass(aObj);
 
@@ -1828,7 +1830,8 @@ GlobalObject::GetAsSupports() const
   }
 
   if (!NS_IsMainThread()) {
-    return UnwrapDOMObjectToISupports(mGlobalJSObject);
+    mGlobalObject = UnwrapDOMObjectToISupports(mGlobalJSObject);
+    return mGlobalObject;
   }
 
   JS::Rooted<JS::Value> val(mCx, JS::ObjectValue(*mGlobalJSObject));

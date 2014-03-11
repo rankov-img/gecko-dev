@@ -23,6 +23,7 @@
 #include "nsIXULRuntime.h"
 #include "nsIScriptError.h"
 #include "nsIConsoleService.h"
+#include "nsIMemoryReporter.h"
 #include "nsIProtocolHandler.h"
 #include "nsIScriptSecurityManager.h"
 #include "nsIJSRuntimeService.h"
@@ -1493,8 +1494,7 @@ nsFrameScriptExecutor::TryCacheLoadAndCompileScript(const nsAString& aURL,
     if (global) {
       JSAutoCompartment ac(cx, global);
       JS::CompileOptions options(cx);
-      options.setFileAndLine(url.get(), 1)
-             .setPrincipals(nsJSPrincipals::get(mPrincipal));
+      options.setFileAndLine(url.get(), 1);
       JS::Rooted<JSScript*> script(cx);
       JS::Rooted<JSObject*> funobj(cx);
       if (aRunInGlobalScope) {

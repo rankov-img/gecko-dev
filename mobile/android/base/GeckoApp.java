@@ -44,11 +44,13 @@ import org.mozilla.gecko.health.StubbedHealthRecorder;
 import org.mozilla.gecko.menu.GeckoMenu;
 import org.mozilla.gecko.menu.GeckoMenuInflater;
 import org.mozilla.gecko.menu.MenuPanel;
+import org.mozilla.gecko.mozglue.GeckoLoader;
 import org.mozilla.gecko.preferences.GeckoPreferences;
 import org.mozilla.gecko.prompts.PromptService;
 import org.mozilla.gecko.updater.UpdateService;
 import org.mozilla.gecko.updater.UpdateServiceHelper;
 import org.mozilla.gecko.util.ActivityResultHandler;
+import org.mozilla.gecko.util.FileUtils;
 import org.mozilla.gecko.util.GeckoEventListener;
 import org.mozilla.gecko.util.HardwareUtils;
 import org.mozilla.gecko.util.ThreadUtils;
@@ -133,6 +135,7 @@ public abstract class GeckoApp
     Tabs.OnTabsChangedListener
 {
     private static final String LOGTAG = "GeckoApp";
+    private static final int ONE_DAY_MS = 1000*60*60*24;
 
     private static enum StartupAction {
         NORMAL,     /* normal application start */
@@ -156,6 +159,7 @@ public abstract class GeckoApp
     public static final String PREFS_OOM_EXCEPTION         = "OOMException";
     public static final String PREFS_VERSION_CODE          = "versionCode";
     public static final String PREFS_WAS_STOPPED           = "wasStopped";
+    public static final String PREFS_CLEANUP_TEMP_FILES    = "cleanupTempFiles";
 
     public static final String SAVED_STATE_IN_BACKGROUND   = "inBackground";
     public static final String SAVED_STATE_PRIVATE_SESSION = "privateSession";
@@ -568,6 +572,8 @@ public abstract class GeckoApp
             } else if (event.equals("Reader:FaviconRequest")) {
                 final String url = message.getString("url");
                 handleFaviconRequest(url);
+            } else if (event.equals("Gecko:DelayedStartup")) {
+                ThreadUtils.postToBackgroundThread(new UninstallListener.DelayedStartupTask(this));
             } else if (event.equals("Gecko:Ready")) {
                 mGeckoReadyStartupTimer.stop();
                 geckoConnected();
@@ -1303,6 +1309,11 @@ public abstract class GeckoApp
         mGeckoLayout = (RelativeLayout) findViewById(R.id.gecko_layout);
         mMainLayout = (RelativeLayout) findViewById(R.id.main_layout);
 
+        // Removing the view clipping causes layout issues on < 3.0 (bug 978796).
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.HONEYCOMB) {
+            mMainLayout.setClipChildren(true);
+        }
+
         // Determine whether we should restore tabs.
         mShouldRestore = getSessionRestoreState(savedInstanceState);
         if (mShouldRestore && savedInstanceState != null) {
@@ -1372,11 +1383,6 @@ public abstract class GeckoApp
                         GeckoApp.this.onLocaleReady(uiLocale);
                     }
                 });
-
-                // Perform webapp uninstalls as appropiate.
-                if (AppConstants.MOZ_ANDROID_SYNTHAPKS) {
-                    UninstallListener.initUninstallPackageScan(getApplicationContext());
-                }
             }
         });
 
@@ -1572,6 +1578,7 @@ public abstract class GeckoApp
         registerEventListener("Reader:FaviconRequest");
         registerEventListener("onCameraCapture");
         registerEventListener("Gecko:Ready");
+        registerEventListener("Gecko:DelayedStartup");
         registerEventListener("Toast:Show");
         registerEventListener("DOMFullScreen:Start");
         registerEventListener("DOMFullScreen:Stop");
@@ -2050,6 +2057,15 @@ public abstract class GeckoApp
                 if (rec != null) {
                     rec.recordSessionEnd("P", editor);
                 }
+
+                // If we haven't done it before, cleanup any old files in our old temp dir
+                if (prefs.getBoolean(GeckoApp.PREFS_CLEANUP_TEMP_FILES, true)) {
+                    File tempDir = GeckoLoader.getGREDir(GeckoApp.this);
+                    FileUtils.delTree(tempDir, new FileUtils.NameAndAgeFilter(null, ONE_DAY_MS), false);
+
+                    editor.putBoolean(GeckoApp.PREFS_CLEANUP_TEMP_FILES, false);
+                }
+
                 editor.commit();
 
                 // In theory, the first browser session will not run long enough that we need to
@@ -2096,6 +2112,7 @@ public abstract class GeckoApp
         unregisterEventListener("Reader:FaviconRequest");
         unregisterEventListener("onCameraCapture");
         unregisterEventListener("Gecko:Ready");
+        unregisterEventListener("Gecko:DelayedStartup");
         unregisterEventListener("Toast:Show");
         unregisterEventListener("DOMFullScreen:Start");
         unregisterEventListener("DOMFullScreen:Stop");

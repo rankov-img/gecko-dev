@@ -15,7 +15,6 @@
 #include "mozilla/ClearOnShutdown.h"
 #include "mozilla/IntentionalCrash.h"
 #include "mozilla/docshell/OfflineCacheUpdateChild.h"
-#include "mozilla/dom/PContentDialogChild.h"
 #include "mozilla/ipc/DocumentRendererChild.h"
 #include "mozilla/ipc/FileDescriptorUtils.h"
 #include "mozilla/layers/AsyncPanZoomController.h"
@@ -42,7 +41,6 @@
 #include "mozilla/dom/Element.h"
 #include "nsIBaseWindow.h"
 #include "nsICachedFileDescriptorListener.h"
-#include "nsIDialogParamBlock.h"
 #include "nsIDocumentInlines.h"
 #include "nsIDocShellTreeOwner.h"
 #include "nsIDOMEvent.h"
@@ -115,13 +113,6 @@ ContentListener::HandleEvent(nsIDOMEvent* aEvent)
   mTabChild->SendEvent(remoteEvent);
   return NS_OK;
 }
-
-class ContentDialogChild : public PContentDialogChild
-{
-public:
-  virtual bool Recv__delete__(const InfallibleTArray<int>& aIntParams,
-                              const InfallibleTArray<nsString>& aStringParams);
-};
 
 class TabChild::CachedFileDescriptorInfo
 {
@@ -634,11 +625,6 @@ TabChild::HandlePossibleViewportChange()
     metrics.mScrollId = viewId;
   }
 
-  metrics.mDisplayPort = AsyncPanZoomController::CalculatePendingDisplayPort(
-    // The page must have been refreshed in some way such as a new document or
-    // new CSS viewport, so we know that there's no velocity, acceleration, and
-    // we have no idea how long painting will take.
-    metrics, ScreenPoint(0.0f, 0.0f), 0.0);
   metrics.mCumulativeResolution = metrics.mZoom / metrics.mDevPixelsPerCSSPixel * ScreenToLayerScale(1);
   // This is the root layer, so the cumulative resolution is the same
   // as the resolution.
@@ -658,6 +644,14 @@ TabChild::HandlePossibleViewportChange()
     return;
   }
   metrics.mScrollableRect = CSSRect(CSSPoint(), pageSize);
+
+  // Calculate a display port _after_ having a scrollable rect because the
+  // display port is clamped to the scrollable rect.
+  metrics.mDisplayPort = AsyncPanZoomController::CalculatePendingDisplayPort(
+    // The page must have been refreshed in some way such as a new document or
+    // new CSS viewport, so we know that there's no velocity, acceleration, and
+    // we have no idea how long painting will take.
+    metrics, ScreenPoint(0.0f, 0.0f), 0.0);
 
   // Force a repaint with these metrics. This, among other things, sets the
   // displayport, so we start with async painting.
@@ -781,7 +775,6 @@ NS_INTERFACE_MAP_BEGIN(TabChild)
   NS_INTERFACE_MAP_ENTRY(nsIDOMEventListener)
   NS_INTERFACE_MAP_ENTRY(nsIWebProgressListener)
   NS_INTERFACE_MAP_ENTRY(nsITabChild)
-  NS_INTERFACE_MAP_ENTRY(nsIDialogCreator)
   NS_INTERFACE_MAP_ENTRY(nsIObserver)
   NS_INTERFACE_MAP_ENTRY(nsSupportsWeakReference)
   NS_INTERFACE_MAP_ENTRY(nsITooltipListener)
@@ -1094,84 +1087,6 @@ TabChild::GetDocument()
   mWebNav->GetDocument(getter_AddRefs(domDoc));
   nsCOMPtr<nsIDocument> doc(do_QueryInterface(domDoc));
   return doc.forget();
-}
-
-static nsInterfaceHashtable<nsPtrHashKey<PContentDialogChild>, nsIDialogParamBlock>* gActiveDialogs;
-
-NS_IMETHODIMP
-TabChild::OpenDialog(uint32_t aType, const nsACString& aName,
-                     const nsACString& aFeatures,
-                     nsIDialogParamBlock* aArguments,
-                     nsIDOMElement* aFrameElement)
-{
-  if (!gActiveDialogs) {
-    gActiveDialogs = new nsInterfaceHashtable<nsPtrHashKey<PContentDialogChild>, nsIDialogParamBlock>;
-  }
-  InfallibleTArray<int32_t> intParams;
-  InfallibleTArray<nsString> stringParams;
-  ParamsToArrays(aArguments, intParams, stringParams);
-  PContentDialogChild* dialog =
-    SendPContentDialogConstructor(aType, nsCString(aName),
-                                  nsCString(aFeatures), intParams, stringParams);
-  gActiveDialogs->Put(dialog, aArguments);
-  nsIThread *thread = NS_GetCurrentThread();
-  while (gActiveDialogs && gActiveDialogs->GetWeak(dialog)) {
-    if (!NS_ProcessNextEvent(thread)) {
-      break;
-    }
-  }
-  return NS_OK;
-}
-
-bool
-ContentDialogChild::Recv__delete__(const InfallibleTArray<int>& aIntParams,
-                                   const InfallibleTArray<nsString>& aStringParams)
-{
-  nsCOMPtr<nsIDialogParamBlock> params;
-  if (gActiveDialogs && gActiveDialogs->Get(this, getter_AddRefs(params))) {
-    TabChild::ArraysToParams(aIntParams, aStringParams, params);
-    gActiveDialogs->Remove(this);
-    if (gActiveDialogs->Count() == 0) {
-      delete gActiveDialogs;
-      gActiveDialogs = nullptr;
-    }
-  }
-  return true;
-}
-
-void
-TabChild::ParamsToArrays(nsIDialogParamBlock* aParams,
-                         InfallibleTArray<int>& aIntParams,
-                         InfallibleTArray<nsString>& aStringParams)
-{
-  if (aParams) {
-    for (int32_t i = 0; i < 8; ++i) {
-      int32_t val = 0;
-      aParams->GetInt(i, &val);
-      aIntParams.AppendElement(val);
-    }
-    int32_t j = 0;
-    nsXPIDLString strVal;
-    while (NS_SUCCEEDED(aParams->GetString(j, getter_Copies(strVal)))) {
-      aStringParams.AppendElement(strVal);
-      ++j;
-    }
-  }
-}
-
-void
-TabChild::ArraysToParams(const InfallibleTArray<int>& aIntParams,
-                         const InfallibleTArray<nsString>& aStringParams,
-                         nsIDialogParamBlock* aParams)
-{
-  if (aParams) {
-    for (int32_t i = 0; uint32_t(i) < aIntParams.Length(); ++i) {
-      aParams->SetInt(i, aIntParams[i]);
-    }
-    for (int32_t j = 0; uint32_t(j) < aStringParams.Length(); ++j) {
-      aParams->SetString(j, aStringParams[j].get());
-    }
-  }
 }
 
 #ifdef DEBUG
@@ -2039,7 +1954,6 @@ TabChild::RecvTextEvent(const WidgetTextEvent& event)
 {
   WidgetTextEvent localEvent(event);
   DispatchWidgetEvent(localEvent);
-  IPC::ParamTraits<WidgetTextEvent>::Free(event);
   return true;
 }
 
@@ -2127,23 +2041,6 @@ TabChild::DeallocPColorPickerChild(PColorPickerChild* aColorPicker)
 {
   nsColorPickerProxy* picker = static_cast<nsColorPickerProxy*>(aColorPicker);
   NS_RELEASE(picker);
-  return true;
-}
-
-PContentDialogChild*
-TabChild::AllocPContentDialogChild(const uint32_t&,
-                                   const nsCString&,
-                                   const nsCString&,
-                                   const InfallibleTArray<int>&,
-                                   const InfallibleTArray<nsString>&)
-{
-  return new ContentDialogChild();
-}
-
-bool
-TabChild::DeallocPContentDialogChild(PContentDialogChild* aDialog)
-{
-  delete aDialog;
   return true;
 }
 

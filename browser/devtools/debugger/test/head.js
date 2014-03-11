@@ -16,6 +16,7 @@ let { Task } = Cu.import("resource://gre/modules/Task.jsm", {});
 let { Promise: promise } = Cu.import("resource://gre/modules/commonjs/sdk/core/promise.js", {});
 let { gDevTools } = Cu.import("resource:///modules/devtools/gDevTools.jsm", {});
 let { devtools } = Cu.import("resource://gre/modules/devtools/Loader.jsm", {});
+let { require } = devtools;
 let { DevToolsUtils } = Cu.import("resource://gre/modules/devtools/DevToolsUtils.jsm", {});
 let { BrowserToolboxProcess } = Cu.import("resource:///modules/devtools/ToolboxProcess.jsm", {});
 let { DebuggerServer } = Cu.import("resource://gre/modules/devtools/dbg-server.jsm", {});
@@ -153,6 +154,7 @@ function getTabActorForUrl(aClient, aUrl) {
 }
 
 function getAddonActorForUrl(aClient, aUrl) {
+  info("Get addon actor for URL: " + aUrl);
   let deferred = promise.defer();
 
   aClient.listAddons(aResponse => {
@@ -660,3 +662,14 @@ function filterTraces(aPanel, f) {
   return Array.filter(traces, f);
 }
 
+function attachAddonActorForUrl(aClient, aUrl) {
+  let deferred = promise.defer();
+
+  getAddonActorForUrl(aClient, aUrl).then(aGrip => {
+    aClient.attachAddon(aGrip.actor, aResponse => {
+      deferred.resolve([aGrip, aResponse]);
+    });
+  });
+
+  return deferred.promise;
+}

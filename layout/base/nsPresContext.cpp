@@ -53,6 +53,7 @@
 #include "nsRefreshDriver.h"
 #include "Layers.h"
 #include "nsIDOMEvent.h"
+#include "gfxPrefs.h"
 
 #include "nsContentUtils.h"
 #include "nsCxPusher.h"
@@ -66,6 +67,8 @@
 #include "nsCSSParser.h"
 #include "nsBidiUtils.h"
 #include "nsServiceManagerUtils.h"
+
+#include "URL.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;
@@ -688,18 +691,35 @@ nsPresContext::GetFontPrefsForLang(nsIAtom *aLanguage) const
 void
 nsPresContext::GetDocumentColorPreferences()
 {
+  // Make sure the preferences are initialized.  In the normal run,
+  // they would already be, because gfxPlatform would have been created,
+  // but in some reference tests, that is not the case.
+  gfxPrefs::GetSingleton();
+
   int32_t useAccessibilityTheme = 0;
   bool usePrefColors = true;
-  nsCOMPtr<nsIDocShellTreeItem> docShell(mContainer);
-  if (docShell) {
-    if (nsIDocShellTreeItem::typeChrome == docShell->ItemType()) {
-      usePrefColors = false;
-    } else {
-      useAccessibilityTheme =
-        LookAndFeel::GetInt(LookAndFeel::eIntID_UseAccessibilityTheme, 0);
-      usePrefColors = !useAccessibilityTheme;
-    }
+  bool isChromeDocShell = false;
 
+  nsIDocument* doc = mDocument->GetDisplayDocument();
+  if (doc && doc->GetDocShell()) {
+    isChromeDocShell = nsIDocShellTreeItem::typeChrome ==
+                       doc->GetDocShell()->ItemType();
+  } else {
+    nsCOMPtr<nsIDocShellTreeItem> docShell(mContainer);
+    if (docShell) {
+      isChromeDocShell = nsIDocShellTreeItem::typeChrome == docShell->ItemType();
+    }
+  }
+
+  mIsChromeOriginImage = mDocument->IsBeingUsedAsImage() &&
+                         IsChromeURI(mDocument->GetDocumentURI());
+
+  if (isChromeDocShell || mIsChromeOriginImage) {
+    usePrefColors = false;
+  } else {
+    useAccessibilityTheme =
+      LookAndFeel::GetInt(LookAndFeel::eIntID_UseAccessibilityTheme, 0);
+    usePrefColors = !useAccessibilityTheme;
   }
   if (usePrefColors) {
     usePrefColors =

@@ -10,7 +10,7 @@
 #include "mozilla/Assertions.h"
 #include "mozilla/TypedEnum.h"
 
-// First time gfxPrefs::One() needs to be called on the main thread,
+// First time gfxPrefs::GetSingleton() needs to be called on the main thread,
 // before any of the methods accessing the values are used, but after
 // the Preferences system has been initialized.
 
@@ -53,7 +53,7 @@
 
 #define DECL_GFX_PREF(Update, Pref, Name, Type, Default)                     \
 public:                                                                       \
-static Type Name() { MOZ_ASSERT(Exists()); return One().mPref##Name.mValue; } \
+static Type Name() { MOZ_ASSERT(SingletonExists()); return GetSingleton().mPref##Name.mValue; } \
 private:                                                                      \
 static const char* Get##Name##PrefName() { return Pref; }                     \
 static Type Get##Name##PrefDefault() { return Default; }                      \
@@ -118,6 +118,11 @@ private:
   DECL_GFX_PREF(Once, "gfx.canvas.skiagl.cache-size",          CanvasSkiaGLCacheSize, int32_t, 96);
   DECL_GFX_PREF(Once, "gfx.canvas.skiagl.cache-items",         CanvasSkiaGLCacheItems, int32_t, 256);
 
+  DECL_GFX_PREF(Live, "gfx.color_management.enablev4",         CMSEnableV4, bool, false);
+  DECL_GFX_PREF(Live, "gfx.color_management.mode",             CMSMode, int32_t,-1);
+  // The zero default here should match QCMS_INTENT_DEFAULT from qcms.h
+  DECL_GFX_PREF(Live, "gfx.color_management.rendering_intent", CMSRenderingIntent, int32_t, 0);
+
   DECL_GFX_PREF(Once, "gfx.direct2d.disabled",                 Direct2DDisabled, bool, false);
   DECL_GFX_PREF(Once, "gfx.direct2d.force-enabled",            Direct2DForceEnabled, bool, false);
   DECL_GFX_PREF(Live, "gfx.gralloc.fence-with-readpixels",     GrallocFenceWithReadPixels, bool, false);
@@ -128,7 +133,7 @@ private:
   DECL_GFX_PREF(Live, "gl.msaa-level",                         MSAALevel, uint32_t, 2);
 
   DECL_GFX_PREF(Once, "layers.acceleration.disabled",          LayersAccelerationDisabled, bool, false);
-  DECL_GFX_PREF(Live, "layers.acceleration.draw-fps",          LayersDrawFPS, bool, true);
+  DECL_GFX_PREF(Live, "layers.acceleration.draw-fps",          LayersDrawFPS, bool, false);
   DECL_GFX_PREF(Once, "layers.acceleration.force-enabled",     LayersAccelerationForceEnabled, bool, false);
 #ifdef XP_WIN
   // On windows, ignore the preference value, forcing async video to false.
@@ -151,6 +156,9 @@ private:
   DECL_GFX_PREF(Live, "layers.draw-tile-borders",              DrawTileBorders, bool, false);
   DECL_GFX_PREF(Once, "layers.dump",                           LayersDump, bool, false);
   DECL_GFX_PREF(Once, "layers.enable-tiles",                   LayersTilesEnabled, bool, false);
+  DECL_GFX_PREF(Once, "layers.force-per-tile-drawing",         PerTileDrawing, bool, false);
+  DECL_GFX_PREF(Once, "layers.overzealous-gralloc-unlocking",  OverzealousGrallocUnlocking, bool, false);
+  DECL_GFX_PREF(Once, "layers.force-shmem-tiles",              ForceShmemTiles, bool, false);
   DECL_GFX_PREF(Live, "layers.frame-counter",                  DrawFrameCounter, bool, false);
   DECL_GFX_PREF(Live, "layers.low-precision-buffer",           UseLowPrecisionBuffer, bool, false);
   DECL_GFX_PREF(Live, "layers.low-precision-resolution",       LowPrecisionResolution, int32_t, 250);
@@ -172,15 +180,15 @@ private:
 
 public:
   // Manage the singleton:
-  static gfxPrefs& One()
+  static gfxPrefs& GetSingleton()
   {
     if (!sInstance) {
       sInstance = new gfxPrefs;
     }
     return *sInstance;
   }
-  static void Destroy();
-  static bool Exists();
+  static void DestroySingleton();
+  static bool SingletonExists();
 
 private:
   static gfxPrefs* sInstance;

@@ -4846,7 +4846,7 @@ nsIFrame::InvalidateFrameWithRect(const nsRect& aRect, uint32_t aDisplayItemKey)
 /*static*/ uint8_t nsIFrame::sLayerIsPrerenderedDataKey;
 
 bool
-nsIFrame::TryUpdateTransformOnly()
+nsIFrame::TryUpdateTransformOnly(Layer** aLayerResult)
 {
   Layer* layer = FrameLayerBuilder::GetDedicatedLayer(
     this, nsDisplayItem::TYPE_TRANSFORM);
@@ -4885,6 +4885,7 @@ nsIFrame::TryUpdateTransformOnly()
   gfx::Matrix4x4 matrix;
   gfx::ToMatrix4x4(transform3d, matrix);
   layer->SetBaseTransformForNextTransaction(matrix);
+  *aLayerResult = layer;
   return true;
 }
 
@@ -5117,37 +5118,10 @@ nsIFrame::GetOverflowAreas() const
                          nsRect(nsPoint(0, 0), GetSize()));
 }
 
-nsOverflowAreas
-nsIFrame::GetOverflowAreasRelativeToSelf() const
-{
-  if (IsTransformed()) {
-    nsOverflowAreas* preTransformOverflows = static_cast<nsOverflowAreas*>
-      (Properties().Get(PreTransformOverflowAreasProperty()));
-    if (preTransformOverflows) {
-      return nsOverflowAreas(preTransformOverflows->VisualOverflow(),
-                             preTransformOverflows->ScrollableOverflow());
-    }
-  }
-  return nsOverflowAreas(GetVisualOverflowRect(),
-                         GetScrollableOverflowRect());
-}
-
 nsRect
 nsIFrame::GetScrollableOverflowRectRelativeToParent() const
 {
   return GetScrollableOverflowRect() + mRect.TopLeft();
-}
-
-nsRect
-nsIFrame::GetScrollableOverflowRectRelativeToSelf() const
-{
-  if (IsTransformed()) {
-    nsOverflowAreas* preTransformOverflows = static_cast<nsOverflowAreas*>
-      (Properties().Get(PreTransformOverflowAreasProperty()));
-    if (preTransformOverflows)
-      return preTransformOverflows->ScrollableOverflow();
-  }
-  return GetScrollableOverflowRect();
 }
 
 nsRect
@@ -7518,17 +7492,11 @@ nsFrame::DoGetParentStyleContextFrame() const
     return GetCorrectedParent(this);
   }
 
-  // For out-of-flow frames, we must resolve underneath the
-  // placeholder's parent.
-  const nsIFrame* oofFrame = this;
-  if ((oofFrame->GetStateBits() & NS_FRAME_OUT_OF_FLOW) &&
-      GetPrevInFlow()) {
-    // Out of flows that are continuations do not
-    // have placeholders. Use their first-in-flow's placeholder.
-    oofFrame = oofFrame->FirstInFlow();
-  }
-  nsIFrame* placeholder = oofFrame->PresContext()->FrameManager()->
-                            GetPlaceholderFrameFor(oofFrame);
+  // We're an out-of-flow frame.  For out-of-flow frames, we must
+  // resolve underneath the placeholder's parent.  The placeholder is
+  // reached from the first-in-flow.
+  nsIFrame* placeholder = PresContext()->FrameManager()->
+                            GetPlaceholderFrameFor(FirstInFlow());
   if (!placeholder) {
     NS_NOTREACHED("no placeholder frame for out-of-flow frame");
     return GetCorrectedParent(this);

@@ -2746,9 +2746,16 @@ Debugger::findAllGlobals(JSContext *cx, unsigned argc, Value *vp)
         return false;
 
     for (CompartmentsIter c(cx->runtime(), SkipAtoms); !c.done(); c.next()) {
+        if (c->options().invisibleToDebugger())
+            continue;
+
         c->zone()->scheduledForDestruction = false;
 
         GlobalObject *global = c->maybeGlobal();
+
+        if (cx->runtime()->isSelfHostingGlobal(global))
+            continue;
+
         if (global) {
             /*
              * We pulled |global| out of nowhere, so it's possible that it was
@@ -4468,8 +4475,7 @@ js::EvaluateInEnv(JSContext *cx, Handle<Env*> env, HandleValue thisv, AbstractFr
      * static level will suffice.
      */
     CompileOptions options(cx);
-    options.setPrincipals(env->compartment()->principals)
-           .setCompileAndGo(true)
+    options.setCompileAndGo(true)
            .setForEval(true)
            .setNoScriptRval(false)
            .setFileAndLine(filename, lineno)
