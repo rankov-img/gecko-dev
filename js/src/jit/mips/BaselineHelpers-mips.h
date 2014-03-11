@@ -29,7 +29,7 @@ EmitRestoreTailCallReg(MacroAssembler &masm)
 inline void
 EmitRepushTailCallReg(MacroAssembler &masm)
 {
-    // No-op on MIPS because link register is always holding the return address.
+    // No-op on MIPS because ra register is always holding the return address.
 }
 
 inline void
@@ -46,7 +46,7 @@ EmitCallIC(CodeOffsetLabel *patchOffset, MacroAssembler &masm)
     // R2 won't be active when we call ICs, so we can use it as scratch.
     masm.loadPtr(Address(BaselineStubReg, ICStub::offsetOfStubCode()), R2.scratchReg());
 
-    // Call the stubcode via a direct branch-and-link
+    // Call the stubcode via a direct jump-and-link
     masm.call(R2.scratchReg());
 }
 
@@ -100,9 +100,9 @@ EmitTailCallVM(JitCode *target, MacroAssembler &masm, uint32_t argSize)
     // called expects the return address to also be pushed on the stack.
     MOZ_ASSERT(BaselineTailCallReg == ra);
     masm.makeFrameDescriptor(t6, IonFrame_BaselineJS);
-    masm.subPtr(Imm32(2 * sizeof(intptr_t)), StackPointer);
-    masm.storePtr(t6, Address(StackPointer, sizeof(intptr_t)));
-    masm.storePtr(ra, Address(StackPointer, 0));
+    masm.subPtr(Imm32(sizeof(IonCommonFrameLayout)), StackPointer);
+    masm.storePtr(t6, Address(StackPointer, IonCommonFrameLayout::offsetOfDescriptor()));
+    masm.storePtr(ra, Address(StackPointer, IonCommonFrameLayout::offsetOfReturnAddress()));
 
     masm.branch(target);
 }
@@ -127,9 +127,15 @@ EmitCallVM(JitCode *target, MacroAssembler &masm)
     masm.call(target);
 }
 
-// Size of vales pushed by EmitEnterStubFrame.
-static const uint32_t STUB_FRAME_SIZE = 4 * sizeof(intptr_t);
-static const uint32_t STUB_FRAME_SAVED_STUB_OFFSET = sizeof(intptr_t);
+struct BaselineStubFrame {
+    uintptr_t savedFrame;
+    uintptr_t savedStub;
+    uintptr_t returnAddress;
+    uintptr_t descriptor;
+};
+
+static const uint32_t STUB_FRAME_SIZE = sizeof(BaselineStubFrame);
+static const uint32_t STUB_FRAME_SAVED_STUB_OFFSET = offsetof(BaselineStubFrame, savedStub);
 
 inline void
 EmitEnterStubFrame(MacroAssembler &masm, Register scratch)
@@ -143,18 +149,21 @@ EmitEnterStubFrame(MacroAssembler &masm, Register scratch)
 
     masm.storePtr(scratch, Address(BaselineFrameReg, BaselineFrame::reverseOffsetOfFrameSize()));
 
-    // Note: when making changes here, don't forget to update STUB_FRAME_SIZE
-    // if needed.
+    // Note: when making changes here, don't forget to update
+    // BaselineStubFrame if needed.
 
     // Push frame descriptor and return address.
     masm.makeFrameDescriptor(scratch, IonFrame_BaselineJS);
-    masm.subPtr(Imm32(4 * sizeof(intptr_t)), StackPointer);
-    masm.storePtr(scratch, Address(StackPointer, 3 * sizeof(intptr_t)));
-    masm.storePtr(BaselineTailCallReg, Address(StackPointer, 2 * sizeof(intptr_t)));
+    masm.subPtr(Imm32(STUB_FRAME_SIZE), StackPointer);
+    masm.storePtr(scratch, Address(StackPointer, offsetof(BaselineStubFrame, descriptor)));
+    masm.storePtr(BaselineTailCallReg, Address(StackPointer,
+                                               offsetof(BaselineStubFrame, returnAddress)));
 
     // Save old frame pointer, stack pointer and stub reg.
-    masm.storePtr(BaselineStubReg, Address(StackPointer, sizeof(intptr_t)));
-    masm.storePtr(BaselineFrameReg, Address(StackPointer, 0));
+    masm.storePtr(BaselineStubReg, Address(StackPointer,
+                                           offsetof(BaselineStubFrame, savedStub)));
+    masm.storePtr(BaselineFrameReg, Address(StackPointer,
+                                            offsetof(BaselineStubFrame, savedFrame)));
     masm.movePtr(BaselineStackReg, BaselineFrameReg);
 
     // We pushed 4 words, so the stack is still aligned to 8 bytes.
@@ -176,15 +185,18 @@ EmitLeaveStubFrame(MacroAssembler &masm, bool calledIntoIon = false)
         masm.movePtr(BaselineFrameReg, BaselineStackReg);
     }
 
-    masm.loadPtr(Address(StackPointer, 0), BaselineFrameReg);
-    masm.loadPtr(Address(StackPointer, sizeof(intptr_t)), BaselineStubReg);
+    masm.loadPtr(Address(StackPointer, offsetof(BaselineStubFrame, savedFrame)),
+                 BaselineFrameReg);
+    masm.loadPtr(Address(StackPointer, offsetof(BaselineStubFrame, savedStub)),
+                 BaselineStubReg);
 
     // Load the return address.
-    masm.loadPtr(Address(StackPointer, 2 * sizeof(intptr_t)), BaselineTailCallReg);
+    masm.loadPtr(Address(StackPointer, offsetof(BaselineStubFrame, returnAddress)),
+                 BaselineTailCallReg);
 
     // Discard the frame descriptor.
-    masm.loadPtr(Address(StackPointer, 3 * sizeof(intptr_t)), ScratchRegister);
-    masm.addPtr(Imm32(4 * sizeof(intptr_t)), StackPointer);
+    masm.loadPtr(Address(StackPointer, offsetof(BaselineStubFrame, descriptor)), ScratchRegister);
+    masm.addPtr(Imm32(STUB_FRAME_SIZE), StackPointer);
 }
 
 inline void
@@ -210,14 +222,14 @@ EmitUnstowICValues(MacroAssembler &masm, int values, bool discard = false)
     MOZ_ASSERT(values >= 0 && values <= 2);
     switch(values) {
       case 1:
-        // Unstow R0
+        // Unstow R0.
         if (discard)
             masm.addPtr(Imm32(sizeof(Value)), BaselineStackReg);
         else
             masm.popValue(R0);
         break;
       case 2:
-        // Unstow R0 and R1
+        // Unstow R0 and R1.
         if (discard) {
             masm.addPtr(Imm32(sizeof(Value) * 2), BaselineStackReg);
         } else {

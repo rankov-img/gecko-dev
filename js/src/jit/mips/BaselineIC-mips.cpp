@@ -100,7 +100,7 @@ ICBinaryArith_Int32::Compiler::generateStubCode(MacroAssembler &masm)
 
         masm.ma_b(scratchReg, Imm32(0), &goodMul, Assembler::NotEqual, ShortJump);
 
-        // Result is -0 if operands have differnet signs.
+        // Result is -0 if operands have different signs.
         masm.as_xor(t8, R0.payloadReg(), R1.payloadReg());
         masm.ma_b(t8, Imm32(0), &failure, Assembler::LessThan, ShortJump);
 
@@ -152,7 +152,7 @@ ICBinaryArith_Int32::Compiler::generateStubCode(MacroAssembler &masm)
         masm.ma_and(R0.payloadReg() , R0.payloadReg(), R1.payloadReg());
         break;
       case JSOP_LSH:
-        // MIPS will happily try to shift by more than 0x1f.
+        // MIPS will only use 5 lowest bits in R1 as shift offset.
         masm.ma_sll(R0.payloadReg(), R0.payloadReg(), R1.payloadReg());
         break;
       case JSOP_RSH:
