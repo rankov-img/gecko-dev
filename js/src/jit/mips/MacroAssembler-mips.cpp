@@ -2002,13 +2002,13 @@ MacroAssemblerMIPSCompat::branchFloat(DoubleCondition cond, const FloatRegister 
 
 // higher level tag testing code
 Operand
-ToPayload(Operand base)
+MacroAssemblerMIPS::ToPayload(Operand base)
 {
     return Operand(Register::FromCode(base.base()), base.disp() + PAYLOAD_OFFSET);
 }
 
 Operand
-ToType(Operand base)
+MacroAssemblerMIPS::ToType(Operand base)
 {
     return Operand(Register::FromCode(base.base()), base.disp() + TAG_OFFSET);
 }
