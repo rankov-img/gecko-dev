@@ -85,7 +85,6 @@ GenerateReturn(MacroAssembler &masm, int returnCode)
     masm.loadDouble(Address(StackPointer, offsetof(EnterJITStack, f28)), f28);
     masm.loadDouble(Address(StackPointer, offsetof(EnterJITStack, f30)), f30);
 
-    MOZ_ASSERT(offset == 0);
     masm.addPtr(Imm32(REGS_BUFF_SIZE), StackPointer);
 
     masm.branch(ra);
@@ -134,8 +133,6 @@ JitRuntime::generateEnterJIT(JSContext *cx, EnterJitType type)
     masm.as_sd(f26, StackPointer, offsetof(EnterJITStack, f26));
     masm.as_sd(f28, StackPointer, offsetof(EnterJITStack, f28));
     masm.as_sd(f30, StackPointer, offsetof(EnterJITStack, f30));
-
-    MOZ_ASSERT(offset == 0);
 
     // Save stack pointer into s4
     masm.movePtr(StackPointer, s4);
