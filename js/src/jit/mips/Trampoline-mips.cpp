@@ -672,17 +672,28 @@ JitRuntime::generateVMWrapper(JSContext *cx, const VMFunction &f)
     Register outReg = InvalidReg;
     switch (f.outParam) {
       case Type_Value:
-        outReg = t0; // // Use temporary register.
+        outReg = t0; // Use temporary register.
         regs.take(outReg);
-        masm.reserveStack(sizeof(Value));
-        masm.movePtr(StackPointer, outReg);
+        // Value outparam has to be 8 byte aligned because the called
+        // function can use sdc1 or ldc1 instructions to access it.
+        masm.reserveStack(3 * sizeof(uint32_t));
+        masm.alignPointerUp(StackPointer, outReg, StackAlignment);
         break;
 
       case Type_Handle:
         outReg = t0;
         regs.take(outReg);
-        masm.PushEmptyRooted(f.outParamRootType);
-        masm.movePtr(StackPointer, outReg);
+        if (f.outParamRootType == VMFunction::RootValue) {
+            // Value outparam has to be 8 byte aligned because the called
+            // function can use sdc1 or ldc1 instructions to access it.
+            masm.reserveStack(3 * sizeof(uint32_t));
+            masm.alignPointerUp(StackPointer, outReg, StackAlignment);
+            masm.storeValue(UndefinedValue(), Address(outReg, 0));
+        }
+        else {
+            masm.PushEmptyRooted(f.outParamRootType);
+            masm.movePtr(StackPointer, outReg);
+        }
         break;
 
       case Type_Bool:
@@ -700,9 +711,8 @@ JitRuntime::generateVMWrapper(JSContext *cx, const VMFunction &f)
         regs.take(outReg);
         // Double outparam has to be 8 byte aligned because the called
         // function can use sdc1 or ldc1 instructions to access it.
-        masm.ma_and(outReg, StackPointer, Imm32(~(StackAlignment - 1)));
-        masm.subPtr(Imm32(sizeof(double)), outReg);
         masm.reserveStack(3 * sizeof(uintptr_t));
+        masm.alignPointerUp(StackPointer, outReg, StackAlignment);
         break;
 
       default:
@@ -765,12 +775,20 @@ JitRuntime::generateVMWrapper(JSContext *cx, const VMFunction &f)
     // Load the outparam and free any allocated stack.
     switch (f.outParam) {
       case Type_Handle:
-        masm.popRooted(f.outParamRootType, ReturnReg, JSReturnOperand);
+        if (f.outParamRootType == VMFunction::RootValue) {
+            masm.alignPointerUp(StackPointer, SecondScratchReg, StackAlignment);
+            masm.loadValue(Address(SecondScratchReg, 0), JSReturnOperand);
+            masm.freeStack(3 * sizeof(uint32_t));
+        }
+        else {
+            masm.popRooted(f.outParamRootType, ReturnReg, JSReturnOperand);
+        }
         break;
 
       case Type_Value:
-        masm.loadValue(Address(StackPointer, 0), JSReturnOperand);
-        masm.freeStack(sizeof(Value));
+        masm.alignPointerUp(StackPointer, SecondScratchReg, StackAlignment);
+        masm.loadValue(Address(SecondScratchReg, 0), JSReturnOperand);
+        masm.freeStack(3 * sizeof(uint32_t));
         break;
 
       case Type_Int32:
@@ -786,17 +804,15 @@ JitRuntime::generateVMWrapper(JSContext *cx, const VMFunction &f)
         break;
 
       case Type_Double:
-        masm.freeStack(3 * sizeof(uintptr_t));
         if (cx->runtime()->jitSupportsFloatingPoint) {
-            masm.ma_and(SecondScratchReg, StackPointer, Imm32(~(StackAlignment - 1)));
-            masm.subPtr(Imm32(sizeof(double)), SecondScratchReg);
+            masm.alignPointerUp(StackPointer, SecondScratchReg, StackAlignment);
             // Address is aligned, so we can use as_ld.
             masm.as_ld(ReturnFloatReg, SecondScratchReg, 0);
         } else {
             masm.assumeUnreachable("Unable to load into float reg, with no FP support.");
         }
+        masm.freeStack(3 * sizeof(uint32_t));
         break;
-
 
       default:
         MOZ_ASSERT(f.outParam == Type_Void);
