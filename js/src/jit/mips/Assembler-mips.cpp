@@ -1662,7 +1662,7 @@ AutoFlushCache::update(uintptr_t newStart, size_t len)
         // covers the range. This also ensures we don't add too many pages to
         // the range.
         IonSpewCont(IonSpew_CacheFlush, "*");
-        JSC::ExecutableAllocator::cacheFlush((void*)start_, stop_);
+        JSC::ExecutableAllocator::cacheFlush((void*)start_, stop_ - start_);
         start_ = newStart;
         stop_ = newStop;
         return;
