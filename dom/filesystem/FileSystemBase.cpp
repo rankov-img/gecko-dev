@@ -12,8 +12,6 @@
 namespace mozilla {
 namespace dom {
 
-NS_IMPL_ISUPPORTS1(FileSystemBase, nsISupportsWeakReference)
-
 // static
 already_AddRefed<FileSystemBase>
 FileSystemBase::FromString(const nsAString& aString)
@@ -35,7 +33,7 @@ FileSystemBase::FromString(const nsAString& aString)
       storageName = tokenizer.nextToken();
     }
 
-    nsCOMPtr<DeviceStorageFileSystem> f =
+    nsRefPtr<DeviceStorageFileSystem> f =
       new DeviceStorageFileSystem(storageType, storageName);
     return f.forget();
   }
@@ -43,12 +41,19 @@ FileSystemBase::FromString(const nsAString& aString)
 }
 
 FileSystemBase::FileSystemBase()
-  : mIsTesting(false)
+  : mShutdown(false)
+  , mIsTesting(false)
 {
 }
 
 FileSystemBase::~FileSystemBase()
 {
+}
+
+void
+FileSystemBase::Shutdown()
+{
+  mShutdown = true;
 }
 
 nsPIDOMWindow*
@@ -60,7 +65,7 @@ FileSystemBase::GetWindow() const
 bool
 FileSystemBase::IsSafeFile(nsIFile* aFile) const
 {
-  return true;
+  return false;
 }
 
 } // namespace dom

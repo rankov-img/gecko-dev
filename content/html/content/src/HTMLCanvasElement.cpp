@@ -113,7 +113,7 @@ HTMLCanvasPrintState::NotifyDone()
 
 // ---------------------------------------------------------------------------
 
-HTMLCanvasElement::HTMLCanvasElement(already_AddRefed<nsINodeInfo> aNodeInfo)
+HTMLCanvasElement::HTMLCanvasElement(already_AddRefed<nsINodeInfo>& aNodeInfo)
   : nsGenericHTMLElement(aNodeInfo),
     mWriteOnly(false)
 {
@@ -673,7 +673,8 @@ HTMLCanvasElement::GetContext(const nsAString& aContextId,
                               nsISupports** aContext)
 {
   ErrorResult rv;
-  *aContext = GetContext(nullptr, aContextId, JS::NullHandleValue, rv).get();
+  *aContext =
+    GetContext(nullptr, aContextId, JS::NullHandleValue, rv).take();
   return rv.ErrorCode();
 }
 
@@ -780,7 +781,7 @@ HTMLCanvasElement::UpdateContext(JSContext* aCx, JS::Handle<JS::Value> aNewConte
 
   nsIntSize sz = GetWidthHeight();
 
-  nsresult rv = mCurrentContext->SetIsOpaque(GetIsOpaque());
+  nsresult rv = mCurrentContext->SetIsOpaque(HasAttr(kNameSpaceID_None, nsGkAtoms::moz_opaque));
   if (NS_FAILED(rv)) {
     mCurrentContext = nullptr;
     mCurrentContextId.Truncate();
@@ -902,6 +903,10 @@ HTMLCanvasElement::GetContextAtIndex(int32_t index)
 bool
 HTMLCanvasElement::GetIsOpaque()
 {
+  if (mCurrentContext) {
+    return mCurrentContext->GetIsOpaque();
+  }
+
   return HasAttr(kNameSpaceID_None, nsGkAtoms::moz_opaque);
 }
 

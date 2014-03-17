@@ -58,6 +58,7 @@ Cu.import("resource://gre/modules/osfile/_PromiseWorker.jsm", this);
 Cu.import("resource://gre/modules/Services.jsm", this);
 Cu.import("resource://gre/modules/TelemetryStopwatch.jsm", this);
 Cu.import("resource://gre/modules/AsyncShutdown.jsm", this);
+let Native = Cu.import("resource://gre/modules/osfile/osfile_native.jsm", {});
 
 /**
  * Constructors for decoding standard exceptions
@@ -200,13 +201,7 @@ let Scheduler = {
    * the promise returned by |code|.
    */
   push: function(code) {
-    let promise = this.queue.then(function() {
-      if (this.shutdown) {
-        LOG("OS.File is not available anymore. Request has been rejected.");
-        throw new Error("OS.File has been shut down.");
-      }
-      return code();
-    }.bind(this));
+    let promise = this.queue.then(code);
     // By definition, |this.queue| can never reject.
     this.queue = promise.then(null, () => undefined);
     // Fork |promise| to ensure that uncaught errors are reported
@@ -354,7 +349,7 @@ const PREF_OSFILE_LOG_REDIRECT = "toolkit.osfile.log.redirect";
  * @param bool oldPref
  *        An optional value that the DEBUG flag was set to previously.
  */
-let readDebugPref = function readDebugPref(prefName, oldPref = false) {
+function readDebugPref(prefName, oldPref = false) {
   let pref = oldPref;
   try {
     pref = Services.prefs.getBoolPref(prefName);
@@ -385,6 +380,19 @@ Services.prefs.addObserver(PREF_OSFILE_LOG_REDIRECT,
   }, false);
 SharedAll.Config.TEST = readDebugPref(PREF_OSFILE_LOG_REDIRECT, false);
 
+
+/**
+ * If |true|, use the native implementaiton of OS.File methods
+ * whenever possible. Otherwise, force the use of the JS version.
+ */
+let nativeWheneverAvailable = true;
+const PREF_OSFILE_NATIVE = "toolkit.osfile.native";
+Services.prefs.addObserver(PREF_OSFILE_NATIVE,
+  function prefObserver(aSubject, aTopic, aData) {
+    nativeWheneverAvailable = readDebugPref(PREF_OSFILE_NATIVE, nativeWheneverAvailable);
+  }, false);
+
+
 // Update worker's DEBUG flag if it's true.
 // Don't start the worker just for this, though.
 if (SharedAll.Config.DEBUG && Scheduler.launched) {
@@ -414,13 +422,14 @@ function warnAboutUnclosedFiles(shutdown = true) {
     // Don't launch the scheduler on our behalf. If no message has been
     // sent to the worker, we can't have any leaking file/directory
     // descriptor.
-    Scheduler.shutdown = Scheduler.shutdown || shutdown;
     return null;
   }
   let promise = Scheduler.post("Meta_getUnclosedResources");
 
   // Configure the worker to reject any further message.
-  Scheduler.shutdown = Scheduler.shutdown || shutdown;
+  if (shutdown) {
+    Scheduler.shutdown = true;
+  }
 
   return promise.then(function onSuccess(opened) {
     let msg = "";
@@ -918,12 +927,32 @@ File.makeDir = function makeDir(path, options) {
  * read from the file.
  */
 File.read = function read(path, bytes, options = {}) {
-  let promise = Scheduler.post("read",
-    [Type.path.toMsg(path), bytes, options], path);
-  return promise.then(
-    function onSuccess(data) {
-      return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
-    });
+  if (typeof bytes == "object") {
+    // Passing |bytes| as an argument is deprecated.
+    // We should now be passing it as a field of |options|.
+    options = bytes || {};
+  } else {
+    options = clone(options, ["outExecutionDuration"]);
+    if (typeof bytes != "undefined") {
+      options.bytes = bytes;
+    }
+  }
+
+  if (options.compression || !nativeWheneverAvailable) {
+    // We need to use the JS implementation.
+    let promise = Scheduler.post("read",
+      [Type.path.toMsg(path), bytes, options], path);
+    return promise.then(
+      function onSuccess(data) {
+        if (typeof data == "string") {
+          return data;
+        }
+        return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+      });
+  }
+
+  // Otherwise, use the native implementation.
+  return Scheduler.push(() => Native.read(path, options));
 };
 
 /**

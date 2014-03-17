@@ -23,9 +23,12 @@ public:
                           const nsAString& aStorageName);
 
   void
-  SetDeviceStorage(nsDOMDeviceStorage* aDeviceStorage);
+  Init(nsDOMDeviceStorage* aDeviceStorage);
 
   // Overrides FileSystemBase
+
+  virtual void
+  Shutdown() MOZ_OVERRIDE;
 
   virtual nsPIDOMWindow*
   GetWindow() const MOZ_OVERRIDE;

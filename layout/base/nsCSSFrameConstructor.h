@@ -383,13 +383,13 @@ private:
                            nsFrameItems&            aFrameItems);
 
   /**
-   * FrameConstructionData callback used for constructing table rows.
+   * FrameConstructionData callback for constructing table rows and row groups.
    */
-  nsIFrame* ConstructTableRow(nsFrameConstructorState& aState,
-                              FrameConstructionItem&   aItem,
-                              nsIFrame*                aParentFrame,
-                              const nsStyleDisplay*    aStyleDisplay,
-                              nsFrameItems&            aFrameItems);
+  nsIFrame* ConstructTableRowOrRowGroup(nsFrameConstructorState& aState,
+                                        FrameConstructionItem&   aItem,
+                                        nsIFrame*                aParentFrame,
+                                        const nsStyleDisplay*    aStyleDisplay,
+                                        nsFrameItems&            aFrameItems);
 
   /**
    * FrameConstructionData callback used for constructing table columns.
@@ -707,7 +707,7 @@ private:
                                       nsIAtom* aTag,
                                       int32_t aNameSpaceID,
                                       PendingBinding* aPendingBinding,
-                                      already_AddRefed<nsStyleContext> aStyleContext,
+                                      already_AddRefed<nsStyleContext>&& aStyleContext,
                                       bool aSuppressWhiteSpaceOptimizations,
                                       nsTArray<nsIAnonymousContentCreator::ContentInfo>* aAnonChildren)
     {
@@ -892,7 +892,7 @@ private:
                           nsIAtom* aTag,
                           int32_t aNameSpaceID,
                           PendingBinding* aPendingBinding,
-                          already_AddRefed<nsStyleContext> aStyleContext,
+                          already_AddRefed<nsStyleContext>& aStyleContext,
                           bool aSuppressWhiteSpaceOptimizations,
                           nsTArray<nsIAnonymousContentCreator::ContentInfo>* aAnonChildren) :
       mFCData(aFCData), mContent(aContent), mTag(aTag),

@@ -12,7 +12,6 @@
 #include "nsAutoPtr.h"
 #include "nsCycleCollectionParticipant.h"
 #include "nsPIDOMWindow.h"
-#include "nsWeakReference.h"
 #include "nsWrapperCache.h"
 
 // Resolve the name collision of Microsoft's API name with macros defined in
@@ -72,7 +71,7 @@ private:
   bool
   DOMPathToRealPath(const nsAString& aPath, nsAString& aRealPath) const;
 
-  nsWeakPtr mFileSystem;
+  nsRefPtr<FileSystemBase> mFileSystem;
   nsString mPath;
 };
 

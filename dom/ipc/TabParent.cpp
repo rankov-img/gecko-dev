@@ -516,7 +516,7 @@ TabParent::AcknowledgeScrollUpdate(const ViewID& aScrollId, const uint32_t& aScr
   }
 }
 
-void TabParent::HandleDoubleTap(const CSSIntPoint& aPoint,
+void TabParent::HandleDoubleTap(const CSSPoint& aPoint,
                                 int32_t aModifiers,
                                 const ScrollableLayerGuid &aGuid)
 {
@@ -525,7 +525,7 @@ void TabParent::HandleDoubleTap(const CSSIntPoint& aPoint,
   }
 }
 
-void TabParent::HandleSingleTap(const CSSIntPoint& aPoint,
+void TabParent::HandleSingleTap(const CSSPoint& aPoint,
                                 int32_t aModifiers,
                                 const ScrollableLayerGuid &aGuid)
 {
@@ -535,7 +535,7 @@ void TabParent::HandleSingleTap(const CSSIntPoint& aPoint,
   }
 }
 
-void TabParent::HandleLongTap(const CSSIntPoint& aPoint,
+void TabParent::HandleLongTap(const CSSPoint& aPoint,
                               int32_t aModifiers,
                               const ScrollableLayerGuid &aGuid)
 {
@@ -544,7 +544,7 @@ void TabParent::HandleLongTap(const CSSIntPoint& aPoint,
   }
 }
 
-void TabParent::HandleLongTapUp(const CSSIntPoint& aPoint,
+void TabParent::HandleLongTapUp(const CSSPoint& aPoint,
                                 int32_t aModifiers,
                                 const ScrollableLayerGuid &aGuid)
 {
@@ -714,15 +714,14 @@ bool TabParent::SendRealMouseEvent(WidgetMouseEvent& event)
   if (mIsDestroyed) {
     return false;
   }
-  WidgetMouseEvent outEvent(event);
-  MaybeForwardEventToRenderFrame(event, nullptr, &outEvent);
-  if (!MapEventCoordinatesForChildProcess(&outEvent)) {
+  MaybeForwardEventToRenderFrame(event, nullptr);
+  if (!MapEventCoordinatesForChildProcess(&event)) {
     return false;
   }
-  return PBrowserParent::SendRealMouseEvent(outEvent);
+  return PBrowserParent::SendRealMouseEvent(event);
 }
 
-CSSIntPoint TabParent::AdjustTapToChildWidget(const CSSIntPoint& aPoint)
+CSSPoint TabParent::AdjustTapToChildWidget(const CSSPoint& aPoint)
 {
   nsCOMPtr<nsIContent> content = do_QueryInterface(mFrameElement);
 
@@ -736,12 +735,12 @@ CSSIntPoint TabParent::AdjustTapToChildWidget(const CSSIntPoint& aPoint)
   }
   nsPresContext* presContext = doc->GetShell()->GetPresContext();
 
-  return CSSIntPoint(
-    aPoint.x + presContext->DevPixelsToIntCSSPixels(mChildProcessOffsetAtTouchStart.x),
-    aPoint.y + presContext->DevPixelsToIntCSSPixels(mChildProcessOffsetAtTouchStart.y));
+  return aPoint + CSSPoint(
+    presContext->DevPixelsToFloatCSSPixels(mChildProcessOffsetAtTouchStart.x),
+    presContext->DevPixelsToFloatCSSPixels(mChildProcessOffsetAtTouchStart.y));
 }
 
-bool TabParent::SendHandleSingleTap(const CSSIntPoint& aPoint, const ScrollableLayerGuid& aGuid)
+bool TabParent::SendHandleSingleTap(const CSSPoint& aPoint, const ScrollableLayerGuid& aGuid)
 {
   if (mIsDestroyed) {
     return false;
@@ -750,7 +749,7 @@ bool TabParent::SendHandleSingleTap(const CSSIntPoint& aPoint, const ScrollableL
   return PBrowserParent::SendHandleSingleTap(AdjustTapToChildWidget(aPoint), aGuid);
 }
 
-bool TabParent::SendHandleLongTap(const CSSIntPoint& aPoint, const ScrollableLayerGuid& aGuid)
+bool TabParent::SendHandleLongTap(const CSSPoint& aPoint, const ScrollableLayerGuid& aGuid)
 {
   if (mIsDestroyed) {
     return false;
@@ -759,7 +758,7 @@ bool TabParent::SendHandleLongTap(const CSSIntPoint& aPoint, const ScrollableLay
   return PBrowserParent::SendHandleLongTap(AdjustTapToChildWidget(aPoint), aGuid);
 }
 
-bool TabParent::SendHandleLongTapUp(const CSSIntPoint& aPoint, const ScrollableLayerGuid& aGuid)
+bool TabParent::SendHandleLongTapUp(const CSSPoint& aPoint, const ScrollableLayerGuid& aGuid)
 {
   if (mIsDestroyed) {
     return false;
@@ -768,7 +767,7 @@ bool TabParent::SendHandleLongTapUp(const CSSIntPoint& aPoint, const ScrollableL
   return PBrowserParent::SendHandleLongTapUp(AdjustTapToChildWidget(aPoint), aGuid);
 }
 
-bool TabParent::SendHandleDoubleTap(const CSSIntPoint& aPoint, const ScrollableLayerGuid& aGuid)
+bool TabParent::SendHandleDoubleTap(const CSSPoint& aPoint, const ScrollableLayerGuid& aGuid)
 {
   if (mIsDestroyed) {
     return false;
@@ -782,12 +781,11 @@ bool TabParent::SendMouseWheelEvent(WidgetWheelEvent& event)
   if (mIsDestroyed) {
     return false;
   }
-  WidgetWheelEvent outEvent(event);
-  MaybeForwardEventToRenderFrame(event, nullptr, &outEvent);
-  if (!MapEventCoordinatesForChildProcess(&outEvent)) {
+  MaybeForwardEventToRenderFrame(event, nullptr);
+  if (!MapEventCoordinatesForChildProcess(&event)) {
     return false;
   }
-  return PBrowserParent::SendMouseWheelEvent(outEvent);
+  return PBrowserParent::SendMouseWheelEvent(event);
 }
 
 bool TabParent::SendRealKeyEvent(WidgetKeyboardEvent& event)
@@ -795,12 +793,11 @@ bool TabParent::SendRealKeyEvent(WidgetKeyboardEvent& event)
   if (mIsDestroyed) {
     return false;
   }
-  WidgetKeyboardEvent outEvent(event);
-  MaybeForwardEventToRenderFrame(event, nullptr, &outEvent);
-  if (!MapEventCoordinatesForChildProcess(&outEvent)) {
+  MaybeForwardEventToRenderFrame(event, nullptr);
+  if (!MapEventCoordinatesForChildProcess(&event)) {
     return false;
   }
-  return PBrowserParent::SendRealKeyEvent(outEvent);
+  return PBrowserParent::SendRealKeyEvent(event);
 }
 
 bool TabParent::SendRealTouchEvent(WidgetTouchEvent& event)
@@ -841,24 +838,18 @@ bool TabParent::SendRealTouchEvent(WidgetTouchEvent& event)
     }
   }
 
-  // Create an out event for remote content that is identical to the event that
-  // we send to the render frame. The out event will be transformed in such a
-  // way that its async transform in the compositor is unapplied. The event that
-  // it is created from does not get mutated.
-  WidgetTouchEvent outEvent(event);
-
   ScrollableLayerGuid guid;
-  MaybeForwardEventToRenderFrame(event, &guid, &outEvent);
+  MaybeForwardEventToRenderFrame(event, &guid);
 
   if (mIsDestroyed) {
     return false;
   }
 
-  MapEventCoordinatesForChildProcess(mChildProcessOffsetAtTouchStart, &outEvent);
+  MapEventCoordinatesForChildProcess(mChildProcessOffsetAtTouchStart, &event);
 
-  return (outEvent.message == NS_TOUCH_MOVE) ?
-    PBrowserParent::SendRealTouchMoveEvent(outEvent, guid) :
-    PBrowserParent::SendRealTouchEvent(outEvent, guid);
+  return (event.message == NS_TOUCH_MOVE) ?
+    PBrowserParent::SendRealTouchMoveEvent(event, guid) :
+    PBrowserParent::SendRealTouchEvent(event, guid);
 }
 
 /*static*/ TabParent*
@@ -1703,7 +1694,7 @@ TabParent::AllocPOfflineCacheUpdateParent(const URIParams& aManifestURI,
     new mozilla::docshell::OfflineCacheUpdateParent(OwnOrContainingAppId(),
                                                     IsBrowserElement());
   // Use this reference as the IPDL reference.
-  return update.forget().get();
+  return update.forget().take();
 }
 
 bool
@@ -1811,12 +1802,11 @@ TabParent::UseAsyncPanZoom()
 }
 
 void
-TabParent::MaybeForwardEventToRenderFrame(const WidgetInputEvent& aEvent,
-                                          ScrollableLayerGuid* aOutTargetGuid,
-                                          WidgetInputEvent* aOutEvent)
+TabParent::MaybeForwardEventToRenderFrame(WidgetInputEvent& aEvent,
+                                          ScrollableLayerGuid* aOutTargetGuid)
 {
   if (RenderFrameParent* rfp = GetRenderFrame()) {
-    rfp->NotifyInputEvent(aEvent, aOutTargetGuid, aOutEvent);
+    rfp->NotifyInputEvent(aEvent, aOutTargetGuid);
   }
 }
 

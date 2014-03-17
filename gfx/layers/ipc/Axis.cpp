@@ -8,6 +8,7 @@
 #include <math.h>                       // for fabsf, pow, powf
 #include <algorithm>                    // for max
 #include "AsyncPanZoomController.h"     // for AsyncPanZoomController
+#include "mozilla/layers/APZCTreeManager.h" // for APZCTreeManager
 #include "FrameMetrics.h"               // for FrameMetrics
 #include "mozilla/Attributes.h"         // for MOZ_FINAL
 #include "mozilla/Preferences.h"        // for Preferences
@@ -65,9 +66,9 @@ namespace layers {
  */
 
 /**
- * "apz.max_velocity_pixels_per_ms"
+ * "apz.max_velocity_inches_per_ms"
  *
- * Maximum velocity in pixels per millisecond.  Velocity will be capped at this
+ * Maximum velocity in inches per millisecond.  Velocity will be capped at this
  * value if a faster fling occurs.  Negative values indicate unlimited velocity.
  *
  * The default value is -1.0f, set in gfxPrefs.h
@@ -84,7 +85,7 @@ Axis::Axis(AsyncPanZoomController* aAsyncPanZoomController)
 void Axis::UpdateWithTouchAtDevicePoint(int32_t aPos, const TimeDuration& aTimeDelta) {
   float newVelocity = mAxisLocked ? 0 : (mPos - aPos) / aTimeDelta.ToMilliseconds();
   if (gfxPrefs::APZMaxVelocity() > 0.0f) {
-    newVelocity = std::min(newVelocity, gfxPrefs::APZMaxVelocity());
+    newVelocity = std::min(newVelocity, gfxPrefs::APZMaxVelocity() * APZCTreeManager::GetDPI());
   }
 
   mVelocity = newVelocity;
@@ -254,6 +255,10 @@ float Axis::GetVelocity() {
   return mAxisLocked ? 0 : mVelocity;
 }
 
+void Axis::SetVelocity(float aVelocity) {
+  mVelocity = aVelocity;
+}
+
 float Axis::GetCompositionEnd() {
   return GetOrigin() + GetCompositionLength();
 }
@@ -263,13 +268,13 @@ float Axis::GetPageEnd() {
 }
 
 float Axis::GetOrigin() {
-  CSSPoint origin = mAsyncPanZoomController->GetFrameMetrics().mScrollOffset;
+  CSSPoint origin = mAsyncPanZoomController->GetFrameMetrics().GetScrollOffset();
   return GetPointOffset(origin);
 }
 
 float Axis::GetCompositionLength() {
   const FrameMetrics& metrics = mAsyncPanZoomController->GetFrameMetrics();
-  CSSRect cssCompositedRect = metrics.CalculateCompositedRectInCssPixels();
+  CSSRect cssCompositedRect = CSSRect(metrics.CalculateCompositedRectInCssPixels());
   return GetRectLength(cssCompositedRect);
 }
 
@@ -286,7 +291,7 @@ float Axis::GetPageLength() {
 bool Axis::ScaleWillOverscrollBothSides(float aScale) {
   const FrameMetrics& metrics = mAsyncPanZoomController->GetFrameMetrics();
 
-  CSSToScreenScale scale(metrics.mZoom.scale * aScale);
+  CSSToParentLayerScale scale(metrics.GetZoomToParent().scale * aScale);
   CSSRect cssCompositionBounds = metrics.mCompositionBounds / scale;
 
   return GetRectLength(metrics.mScrollableRect) < GetRectLength(cssCompositionBounds);

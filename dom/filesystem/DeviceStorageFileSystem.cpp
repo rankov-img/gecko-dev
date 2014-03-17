@@ -71,10 +71,19 @@ DeviceStorageFileSystem::~DeviceStorageFileSystem()
 }
 
 void
-DeviceStorageFileSystem::SetDeviceStorage(nsDOMDeviceStorage* aDeviceStorage)
+DeviceStorageFileSystem::Init(nsDOMDeviceStorage* aDeviceStorage)
 {
   MOZ_ASSERT(NS_IsMainThread(), "Only call on main thread!");
+  MOZ_ASSERT(aDeviceStorage);
   mDeviceStorage = aDeviceStorage;
+}
+
+void
+DeviceStorageFileSystem::Shutdown()
+{
+  MOZ_ASSERT(NS_IsMainThread(), "Only call on main thread!");
+  mDeviceStorage = nullptr;
+  mShutdown = true;
 }
 
 nsPIDOMWindow*

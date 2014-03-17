@@ -13,6 +13,7 @@
 #include "nsContentUtils.h"
 #include "nsGenericHTMLElement.h"
 #include "nsGkAtoms.h"
+#include "nsDOMTokenList.h"
 #include "nsIDocument.h"
 #include "nsIDOMEvent.h"
 #include "nsIDOMStyleSheet.h"
@@ -30,7 +31,7 @@ NS_IMPL_NS_NEW_HTML_ELEMENT(Link)
 namespace mozilla {
 namespace dom {
 
-HTMLLinkElement::HTMLLinkElement(already_AddRefed<nsINodeInfo> aNodeInfo)
+HTMLLinkElement::HTMLLinkElement(already_AddRefed<nsINodeInfo>& aNodeInfo)
   : nsGenericHTMLElement(aNodeInfo)
   , Link(MOZ_THIS_IN_INITIALIZER_LIST())
 {
@@ -46,12 +47,14 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(HTMLLinkElement,
                                                   nsGenericHTMLElement)
   tmp->nsStyleLinkElement::Traverse(cb);
   tmp->Link::Traverse(cb);
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mRelList)
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN_INHERITED(HTMLLinkElement,
                                                 nsGenericHTMLElement)
   tmp->nsStyleLinkElement::Unlink();
   tmp->Link::Unlink();
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mRelList)
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 
 NS_IMPL_ADDREF_INHERITED(HTMLLinkElement, Element)
@@ -323,6 +326,15 @@ HTMLLinkElement::GetLinkTarget(nsAString& aTarget)
   if (aTarget.IsEmpty()) {
     GetBaseTarget(aTarget);
   }
+}
+
+nsDOMTokenList* 
+HTMLLinkElement::RelList()
+{
+  if (!mRelList) {
+    mRelList = new nsDOMTokenList(this, nsGkAtoms::rel);
+  }
+  return mRelList;
 }
 
 already_AddRefed<nsIURI>

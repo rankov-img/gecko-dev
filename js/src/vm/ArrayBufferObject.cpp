@@ -132,24 +132,19 @@ const Class ArrayBufferObject::class_ = {
         ArrayBufferObject::obj_lookupGeneric,
         ArrayBufferObject::obj_lookupProperty,
         ArrayBufferObject::obj_lookupElement,
-        ArrayBufferObject::obj_lookupSpecial,
         ArrayBufferObject::obj_defineGeneric,
         ArrayBufferObject::obj_defineProperty,
         ArrayBufferObject::obj_defineElement,
-        ArrayBufferObject::obj_defineSpecial,
         ArrayBufferObject::obj_getGeneric,
         ArrayBufferObject::obj_getProperty,
         ArrayBufferObject::obj_getElement,
-        ArrayBufferObject::obj_getSpecial,
         ArrayBufferObject::obj_setGeneric,
         ArrayBufferObject::obj_setProperty,
         ArrayBufferObject::obj_setElement,
-        ArrayBufferObject::obj_setSpecial,
         ArrayBufferObject::obj_getGenericAttributes,
         ArrayBufferObject::obj_setGenericAttributes,
         ArrayBufferObject::obj_deleteProperty,
         ArrayBufferObject::obj_deleteElement,
-        ArrayBufferObject::obj_deleteSpecial,
         nullptr, nullptr, /* watch/unwatch */
         nullptr,          /* slice */
         ArrayBufferObject::obj_enumerate,
@@ -308,6 +303,7 @@ static ObjectElements *
 AllocateArrayBufferContents(JSContext *maybecx, uint32_t nbytes, void *oldptr = nullptr)
 {
     uint32_t size = nbytes + sizeof(ObjectElements);
+    JS_ASSERT(size > nbytes); // be wary of rollover
     ObjectElements *newheader;
 
     // if oldptr is given, then we need to do a realloc
@@ -478,23 +474,28 @@ ArrayBufferObject::changeContents(JSContext *cx, ObjectElements *newHeader)
 }
 
 void
-ArrayBufferObject::neuter(JSContext *cx)
+ArrayBufferObject::neuter(ObjectElements *newHeader, JSContext *cx)
 {
-    JS_ASSERT(!isSharedArrayBuffer());
+    MOZ_ASSERT(!isSharedArrayBuffer());
 
-    JS_ASSERT(cx);
-    if (hasDynamicElements() && !isAsmJSArrayBuffer()) {
+    if (hasStealableContents()) {
+        MOZ_ASSERT(newHeader);
+
         ObjectElements *oldHeader = getElementsHeader();
-        changeContents(cx, ObjectElements::fromElements(fixedElements()));
+        MOZ_ASSERT(newHeader != oldHeader);
+
+        changeContents(cx, newHeader);
 
         FreeOp fop(cx->runtime(), false);
         fop.free_(oldHeader);
+    } else {
+        elements = newHeader->elements();
     }
 
     uint32_t byteLen = 0;
-    updateElementsHeader(getElementsHeader(), byteLen);
+    updateElementsHeader(newHeader, byteLen);
 
-    getElementsHeader()->setIsNeuteredBuffer();
+    newHeader->setIsNeuteredBuffer();
 }
 
 /* static */ bool
@@ -761,19 +762,20 @@ ArrayBufferObject::createDataViewForThis(JSContext *cx, unsigned argc, Value *vp
 ArrayBufferObject::stealContents(JSContext *cx, Handle<ArrayBufferObject*> buffer, void **contents,
                                  uint8_t **data)
 {
-    // If the ArrayBuffer's elements are dynamically allocated and nothing else
-    // prevents us from stealing them, transfer ownership directly.  Otherwise,
-    // the elements are small and allocated inside the ArrayBuffer object's GC
-    // header so we must make a copy.
-    ObjectElements *transferableHeader;
-    bool stolen;
-    if (buffer->hasDynamicElements() && !buffer->isAsmJSArrayBuffer()) {
-        stolen = true;
-        transferableHeader = buffer->getElementsHeader();
-    } else {
-        stolen = false;
+    uint32_t byteLen = buffer->byteLength();
 
-        uint32_t byteLen = buffer->byteLength();
+    // If the ArrayBuffer's elements are transferrable, transfer ownership
+    // directly.  Otherwise we have to copy the data into new elements.
+    ObjectElements *transferableHeader;
+    ObjectElements *newHeader;
+    bool stolen = buffer->hasStealableContents();
+    if (stolen) {
+        transferableHeader = buffer->getElementsHeader();
+
+        newHeader = AllocateArrayBufferContents(cx, byteLen);
+        if (!newHeader)
+            return false;
+    } else {
         transferableHeader = AllocateArrayBufferContents(cx, byteLen);
         if (!transferableHeader)
             return false;
@@ -781,6 +783,9 @@ ArrayBufferObject::stealContents(JSContext *cx, Handle<ArrayBufferObject*> buffe
         initElementsHeader(transferableHeader, byteLen);
         void *headerDataPointer = reinterpret_cast<void*>(transferableHeader->elements());
         memcpy(headerDataPointer, buffer->dataPointer(), byteLen);
+
+        // Keep using the current elements.
+        newHeader = buffer->getElementsHeader();
     }
 
     JS_ASSERT(!IsInsideNursery(cx->runtime(), transferableHeader));
@@ -792,13 +797,13 @@ ArrayBufferObject::stealContents(JSContext *cx, Handle<ArrayBufferObject*> buffe
     if (!ArrayBufferObject::neuterViews(cx, buffer))
         return false;
 
-    // If the elements were taken from the neutered buffer, revert it back to
-    // using inline storage so it doesn't attempt to free the stolen elements
-    // when finalized.
+    // If the elements were transferrable, revert the buffer back to using
+    // inline storage so it doesn't attempt to free the stolen elements when
+    // finalized.
     if (stolen)
         buffer->changeContents(cx, ObjectElements::fromElements(buffer->fixedElements()));
 
-    buffer->neuter(cx);
+    buffer->neuter(newHeader, cx);
     return true;
 }
 
@@ -1031,14 +1036,6 @@ ArrayBufferObject::obj_lookupElement(JSContext *cx, HandleObject obj, uint32_t i
 }
 
 bool
-ArrayBufferObject::obj_lookupSpecial(JSContext *cx, HandleObject obj, HandleSpecialId sid,
-                                     MutableHandleObject objp, MutableHandleShape propp)
-{
-    Rooted<jsid> id(cx, SPECIALID_TO_JSID(sid));
-    return obj_lookupGeneric(cx, obj, id, objp, propp);
-}
-
-bool
 ArrayBufferObject::obj_defineGeneric(JSContext *cx, HandleObject obj, HandleId id, HandleValue v,
                                      PropertyOp getter, StrictPropertyOp setter, unsigned attrs)
 {
@@ -1069,14 +1066,6 @@ ArrayBufferObject::obj_defineElement(JSContext *cx, HandleObject obj, uint32_t i
     if (!delegate)
         return false;
     return baseops::DefineElement(cx, delegate, index, v, getter, setter, attrs);
-}
-
-bool
-ArrayBufferObject::obj_defineSpecial(JSContext *cx, HandleObject obj, HandleSpecialId sid, HandleValue v,
-                                     PropertyOp getter, StrictPropertyOp setter, unsigned attrs)
-{
-    Rooted<jsid> id(cx, SPECIALID_TO_JSID(sid));
-    return obj_defineGeneric(cx, obj, id, v, getter, setter, attrs);
 }
 
 bool
@@ -1111,15 +1100,6 @@ ArrayBufferObject::obj_getElement(JSContext *cx, HandleObject obj,
 }
 
 bool
-ArrayBufferObject::obj_getSpecial(JSContext *cx, HandleObject obj,
-                                  HandleObject receiver, HandleSpecialId sid,
-                                  MutableHandleValue vp)
-{
-    Rooted<jsid> id(cx, SPECIALID_TO_JSID(sid));
-    return obj_getGeneric(cx, obj, receiver, id, vp);
-}
-
-bool
 ArrayBufferObject::obj_setGeneric(JSContext *cx, HandleObject obj, HandleId id,
                                   MutableHandleValue vp, bool strict)
 {
@@ -1147,14 +1127,6 @@ ArrayBufferObject::obj_setElement(JSContext *cx, HandleObject obj,
         return false;
 
     return baseops::SetElementHelper(cx, delegate, obj, index, 0, vp, strict);
-}
-
-bool
-ArrayBufferObject::obj_setSpecial(JSContext *cx, HandleObject obj,
-                                  HandleSpecialId sid, MutableHandleValue vp, bool strict)
-{
-    Rooted<jsid> id(cx, SPECIALID_TO_JSID(sid));
-    return obj_setGeneric(cx, obj, id, vp, strict);
 }
 
 bool
@@ -1195,16 +1167,6 @@ ArrayBufferObject::obj_deleteElement(JSContext *cx, HandleObject obj, uint32_t i
     if (!delegate)
         return false;
     return baseops::DeleteElement(cx, delegate, index, succeeded);
-}
-
-bool
-ArrayBufferObject::obj_deleteSpecial(JSContext *cx, HandleObject obj, HandleSpecialId sid,
-                                     bool *succeeded)
-{
-    RootedObject delegate(cx, ArrayBufferDelegate(cx, obj));
-    if (!delegate)
-        return false;
-    return baseops::DeleteSpecial(cx, delegate, sid, succeeded);
 }
 
 bool
@@ -1318,9 +1280,33 @@ JS_NeuterArrayBuffer(JSContext *cx, HandleObject obj)
     }
 
     Rooted<ArrayBufferObject*> buffer(cx, &obj->as<ArrayBufferObject>());
-    if (!ArrayBufferObject::neuterViews(cx, buffer))
+
+    ObjectElements *newHeader;
+    if (buffer->hasStealableContents()) {
+        // If we're "disposing" with the buffer contents, allocate zeroed
+        // memory of equal size and swap that in as contents.  This ensures
+        // that stale indexes that assume the original length, won't index out
+        // of bounds.  This is a temporary hack: when we're confident we've
+        // eradicated all stale accesses, we'll stop doing this.
+        newHeader = AllocateArrayBufferContents(cx, buffer->byteLength());
+        if (!newHeader)
+            return false;
+    } else {
+        // This case neuters out the existing elements in-place, so use the
+        // old header as new.
+        newHeader = buffer->getElementsHeader();
+    }
+
+    // Mark all views of the ArrayBuffer as neutered.
+    if (!ArrayBufferObject::neuterViews(cx, buffer)) {
+        if (buffer->hasStealableContents()) {
+            FreeOp fop(cx->runtime(), false);
+            fop.free_(newHeader);
+        }
         return false;
-    buffer->neuter(cx);
+    }
+
+    buffer->neuter(newHeader, cx);
     return true;
 }
 

@@ -27,9 +27,7 @@ GetFileOrDirectoryTask::GetFileOrDirectoryTask(
   , mIsDirectory(aDirectoryOnly)
 {
   MOZ_ASSERT(NS_IsMainThread(), "Only call on main thread!");
-  if (!aFileSystem) {
-    return;
-  }
+  MOZ_ASSERT(aFileSystem);
   nsCOMPtr<nsIGlobalObject> globalObject =
     do_QueryInterface(aFileSystem->GetWindow());
   if (!globalObject) {
@@ -48,6 +46,7 @@ GetFileOrDirectoryTask::GetFileOrDirectoryTask(
   MOZ_ASSERT(FileSystemUtils::IsParentProcess(),
              "Only call from parent process!");
   MOZ_ASSERT(NS_IsMainThread(), "Only call on main thread!");
+  MOZ_ASSERT(aFileSystem);
   mTargetRealPath = aParam.realPath();
 }
 
@@ -78,9 +77,7 @@ GetFileOrDirectoryTask::GetSuccessRequestResult() const
   if (mIsDirectory) {
     return FileSystemDirectoryResponse(mTargetRealPath);
   }
-
-  ContentParent* cp = static_cast<ContentParent*>(mRequestParent->Manager());
-  BlobParent* actor = cp->GetOrCreateActorForBlob(mTargetFile);
+  BlobParent* actor = GetBlobParent(mTargetFile);
   if (!actor) {
     return FileSystemErrorResponse(NS_ERROR_DOM_FILESYSTEM_UNKNOWN_ERR);
   }
@@ -115,95 +112,90 @@ GetFileOrDirectoryTask::SetSuccessRequestResult(const FileSystemResponseValue& a
   }
 }
 
-void
+nsresult
 GetFileOrDirectoryTask::Work()
 {
   MOZ_ASSERT(FileSystemUtils::IsParentProcess(),
              "Only call from parent process!");
   MOZ_ASSERT(!NS_IsMainThread(), "Only call on worker thread!");
 
-  nsRefPtr<FileSystemBase> filesystem = do_QueryReferent(mFileSystem);
-  if (!filesystem) {
-    return;
+  if (mFileSystem->IsShutdown()) {
+    return NS_ERROR_FAILURE;
   }
 
   // Whether we want to get the root directory.
   bool getRoot = mTargetRealPath.IsEmpty();
 
-  nsCOMPtr<nsIFile> file = filesystem->GetLocalFile(mTargetRealPath);
+  nsCOMPtr<nsIFile> file = mFileSystem->GetLocalFile(mTargetRealPath);
   if (!file) {
-    SetError(NS_ERROR_DOM_FILESYSTEM_INVALID_PATH_ERR);
-    return;
+    return NS_ERROR_DOM_FILESYSTEM_INVALID_PATH_ERR;
   }
 
-  bool ret;
-  nsresult rv = file->Exists(&ret);
-  if (NS_FAILED(rv)) {
-    SetError(rv);
-    return;
+  bool exists;
+  nsresult rv = file->Exists(&exists);
+  if (NS_WARN_IF(NS_FAILED(rv))) {
+    return rv;
   }
 
-  if (!ret) {
+  if (!exists) {
     if (!getRoot) {
-      SetError(NS_ERROR_DOM_FILE_NOT_FOUND_ERR);
-      return;
+      return NS_ERROR_DOM_FILE_NOT_FOUND_ERR;
     }
 
     // If the root directory doesn't exit, create it.
     rv = file->Create(nsIFile::DIRECTORY_TYPE, 0777);
-    if (NS_FAILED(rv)) {
-      SetError(rv);
-      return;
+    if (NS_WARN_IF(NS_FAILED(rv))) {
+      return rv;
     }
   }
 
   // Get isDirectory.
   rv = file->IsDirectory(&mIsDirectory);
-  if (NS_FAILED(rv)) {
-    SetError(rv);
-    return;
+  if (NS_WARN_IF(NS_FAILED(rv))) {
+    return rv;
   }
 
-  if (!mIsDirectory) {
-    // Check if the root is a directory.
-    if (getRoot) {
-      SetError(NS_ERROR_DOM_FILESYSTEM_TYPE_MISMATCH_ERR);
-      return;
-    }
-
-    // Get isFile
-    rv = file->IsFile(&ret);
-    if (NS_FAILED(rv)) {
-      SetError(rv);
-      return;
-    }
-    if (!ret) {
-      // Neither directory or file.
-      SetError(NS_ERROR_DOM_FILESYSTEM_TYPE_MISMATCH_ERR);
-      return;
-    }
-
-    if (!filesystem->IsSafeFile(file)) {
-      SetError(NS_ERROR_DOM_SECURITY_ERR);
-      return;
-    }
-
-    mTargetFile = new nsDOMFileFile(file);
+  if (mIsDirectory) {
+    return NS_OK;
   }
+
+  // Check if the root is a directory.
+  if (getRoot) {
+    return NS_ERROR_DOM_FILESYSTEM_TYPE_MISMATCH_ERR;
+  }
+
+  bool isFile;
+  // Get isFile
+  rv = file->IsFile(&isFile);
+  if (NS_WARN_IF(NS_FAILED(rv))) {
+    return rv;
+  }
+
+  if (!isFile) {
+    // Neither directory or file.
+    return NS_ERROR_DOM_FILESYSTEM_TYPE_MISMATCH_ERR;
+  }
+
+  if (!mFileSystem->IsSafeFile(file)) {
+    return NS_ERROR_DOM_SECURITY_ERR;
+  }
+
+  mTargetFile = new nsDOMFileFile(file);
+
+  return NS_OK;
 }
 
 void
 GetFileOrDirectoryTask::HandlerCallback()
 {
   MOZ_ASSERT(NS_IsMainThread(), "Only call on main thread!");
-  nsRefPtr<FileSystemBase> filesystem = do_QueryReferent(mFileSystem);
-  if (!filesystem) {
+  if (mFileSystem->IsShutdown()) {
     mPromise = nullptr;
     return;
   }
 
   if (HasError()) {
-    nsRefPtr<DOMError> domError = new DOMError(filesystem->GetWindow(),
+    nsRefPtr<DOMError> domError = new DOMError(mFileSystem->GetWindow(),
       mErrorValue);
     mPromise->MaybeReject(domError);
     mPromise = nullptr;
@@ -211,7 +203,7 @@ GetFileOrDirectoryTask::HandlerCallback()
   }
 
   if (mIsDirectory) {
-    nsRefPtr<Directory> dir = new Directory(filesystem, mTargetRealPath);
+    nsRefPtr<Directory> dir = new Directory(mFileSystem, mTargetRealPath);
     mPromise->MaybeResolve(dir);
     mPromise = nullptr;
     return;

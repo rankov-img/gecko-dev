@@ -21,42 +21,72 @@ function test() {
     gEvents = gDebugger.EVENTS;
 
     Task.spawn(function* () {
-      yield waitForSourceShown(gPanel, CODE_URL);
+      try {
 
-      // Pause and set our breakpoints.
-      yield doInterrupt();
-      yield promise.all([
-        gPanel.addBreakpoint({
-          url: CODE_URL,
-          line: 2
-        }),
-        gPanel.addBreakpoint({
-          url: CODE_URL,
-          line: 3
-        }),
-        gPanel.addBreakpoint({
-          url: CODE_URL,
-          line: 4
-        })
-      ]);
+        // Refresh and hit the debugger statement before the location we want to
+        // set our breakpoints. We have to pause before the breakpoint locations
+        // so that GC doesn't get a chance to kick in and collect the IIFE's
+        // script, which would causes us to receive a 'noScript' error from the
+        // server when we try to set the breakpoints.
+        const [paused, ] = yield promise.all([
+          waitForThreadEvents(gPanel, "paused"),
+          reloadActiveTab(gPanel, gEvents.SOURCE_SHOWN),
+        ]);
 
-      // Should hit the first breakpoint on reload.
-      yield promise.all([
-        reloadActiveTab(gPanel, gEvents.SOURCE_SHOWN),
-        waitForCaretUpdated(gPanel, 2)
-      ]);
+        is(paused.why.type, "debuggerStatement");
 
-      // And should hit the other breakpoints as we resume.
-      yield promise.all([
-        doResume(),
-        waitForCaretUpdated(gPanel, 3)
-      ]);
-      yield promise.all([
-        doResume(),
-        waitForCaretUpdated(gPanel, 4)
-      ]);
+        // Set our breakpoints.
+        const [bp1, bp2, bp3] = yield promise.all([
+          setBreakpoint({
+            url: CODE_URL,
+            line: 3
+          }),
+          setBreakpoint({
+            url: CODE_URL,
+            line: 4
+          }),
+          setBreakpoint({
+            url: CODE_URL,
+            line: 5
+          })
+        ]);
 
-      yield resumeDebuggerThenCloseAndFinish(gPanel);
+        // Refresh and hit the debugger statement again.
+        yield promise.all([
+          reloadActiveTab(gPanel, gEvents.SOURCE_SHOWN),
+          waitForCaretAndScopes(gPanel, 1)
+        ]);
+
+        // And we should hit the breakpoints as we resume.
+        yield promise.all([
+          doResume(),
+          waitForCaretAndScopes(gPanel, 3)
+        ]);
+        yield promise.all([
+          doResume(),
+          waitForCaretAndScopes(gPanel, 4)
+        ]);
+        yield promise.all([
+          doResume(),
+          waitForCaretAndScopes(gPanel, 5)
+        ]);
+
+        // Clean up the breakpoints.
+        yield promise.all([
+          rdpInvoke(bp1, bp1.remove),
+          rdpInvoke(bp2, bp1.remove),
+          rdpInvoke(bp3, bp1.remove),
+        ]);
+
+        yield resumeDebuggerThenCloseAndFinish(gPanel);
+
+      } catch (e) {
+        DevToolsUtils.reportException(
+          "browser_dbg_breakpoints-break-on-last-line-of-script-on-reload.js",
+          e
+        );
+        ok(false);
+      }
     });
   });
 
@@ -75,5 +105,16 @@ function test() {
 
   function doInterrupt() {
     return rdpInvoke(gThreadClient, gThreadClient.interrupt);
+  }
+
+  function setBreakpoint(location) {
+    let deferred = promise.defer();
+    gThreadClient.setBreakpoint(location, ({ error, message }, bpClient) => {
+      if (error) {
+        deferred.reject(error + ": " + message);
+      }
+      deferred.resolve(bpClient);
+    });
+    return deferred.promise;
   }
 }

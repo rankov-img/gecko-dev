@@ -40,6 +40,7 @@ class PCompositorParent;
 class ViewTransform;
 class APZCTreeManager;
 class AsyncPanZoomAnimation;
+class FlingAnimation;
 
 /**
  * Controller for all panning and zooming logic. Any time a user input is
@@ -300,6 +301,12 @@ public:
    */
   void AttemptScroll(const ScreenPoint& aStartPoint, const ScreenPoint& aEndPoint,
                      uint32_t aOverscrollHandoffChainIndex = 0);
+
+  /**
+   * Take over a fling with the given velocity from another APZC. Used for
+   * during overscroll handoff for a fling.
+   */
+  void TakeOverFling(ScreenPoint aVelocity);
 
   /**
    * Returns allowed touch behavior for the given point on the scrollable layer.
@@ -594,12 +601,12 @@ private:
   void SetState(PanZoomState aState);
 
   /**
-   * Convert ScreenPoint relative to this APZC to CSSIntPoint relative
+   * Convert ScreenPoint relative to this APZC to CSSPoint relative
    * to the parent document. This excludes the transient compositor transform.
-   * NOTE: This must be converted to CSSIntPoint relative to the child
+   * NOTE: This must be converted to CSSPoint relative to the child
    * document before sending over IPC.
    */
-  bool ConvertToGecko(const ScreenPoint& aPoint, CSSIntPoint* aOut);
+  bool ConvertToGecko(const ScreenPoint& aPoint, CSSPoint* aOut);
 
   /**
    * Internal helpers for checking general state of this apzc.
@@ -614,6 +621,16 @@ private:
   };
 
   static AxisLockMode GetAxisLockMode();
+
+  // Convert a point from local screen coordinates to parent layer coordinates.
+  // This is a common operation as inputs from the tree manager are in screen
+  // coordinates but the composition bounds is in parent layer coordinates.
+  ParentLayerPoint ToParentLayerCoords(const ScreenPoint& aPoint);
+
+  // Update mFrameMetrics.mTransformScale. This should be called whenever
+  // our CSS transform or the non-transient part of our async transform
+  // changes, as it corresponds to the scale portion of those transforms.
+  void UpdateTransformScale();
 
   uint64_t mLayersId;
   nsRefPtr<CompositorParent> mCompositorParent;
@@ -640,6 +657,7 @@ protected:
   // Before manipulating |mFrameMetrics| or |mLastContentPaintMetrics|, the
   // monitor should be held. When setting |mState|, either the SetState()
   // function can be used, or the monitor can be held and then |mState| updated.
+  // IMPORTANT: See the note about lock ordering at the top of APZCTreeManager.h.
   ReentrantMonitor mMonitor;
 
   // Specifies whether we should use touch-action css property. Initialized from
@@ -690,7 +708,7 @@ private:
 
   // Stores the previous focus point if there is a pinch gesture happening. Used
   // to allow panning by moving multiple fingers (thus moving the focus point).
-  ScreenPoint mLastZoomFocus;
+  ParentLayerPoint mLastZoomFocus;
 
   // Stores the state of panning and zooming this frame. This is protected by
   // |mMonitor|; that is, it should be held whenever this is updated.
@@ -737,6 +755,7 @@ private:
   RefPtr<AsyncPanZoomAnimation> mAnimation;
 
   friend class Axis;
+  friend class FlingAnimation;
 
   /* The functions and members in this section are used to build a tree
    * structure out of APZC instances. This tree can only be walked or
@@ -790,11 +809,12 @@ private:
    * hit-testing to see which APZC instance should handle touch events.
    */
 public:
-  void SetLayerHitTestData(const ScreenRect& aRect, const gfx3DMatrix& aTransformToLayer,
+  void SetLayerHitTestData(const ParentLayerRect& aRect, const gfx3DMatrix& aTransformToLayer,
                            const gfx3DMatrix& aTransformForLayer) {
     mVisibleRect = aRect;
     mAncestorTransform = aTransformToLayer;
     mCSSTransform = aTransformForLayer;
+    UpdateTransformScale();
   }
 
   gfx3DMatrix GetAncestorTransform() const {
@@ -805,7 +825,7 @@ public:
     return mCSSTransform;
   }
 
-  bool VisibleRegionContains(const ScreenPoint& aPoint) const {
+  bool VisibleRegionContains(const ParentLayerPoint& aPoint) const {
     return mVisibleRect.Contains(aPoint);
   }
 
@@ -816,7 +836,7 @@ private:
   /* This is the visible region of the layer that this APZC corresponds to, in
    * that layer's screen pixels (the same coordinate system in which this APZC
    * receives events in ReceiveInputEvent()). */
-  ScreenRect mVisibleRect;
+  ParentLayerRect mVisibleRect;
   /* This is the cumulative CSS transform for all the layers between the parent
    * APZC and this one (not inclusive) */
   gfx3DMatrix mAncestorTransform;
@@ -854,11 +874,30 @@ public:
                       const TimeDuration& aDelta) = 0;
 
   /**
+   * Execute the tasks in |mDeferredTasks| in order. See |mDeferredTasks|
+   * for more information.
+   */
+  void ExecuteDeferredTasks() {
+    for (uint32_t i = 0; i < mDeferredTasks.length(); ++i) {
+      mDeferredTasks[i]->Run();
+    }
+    mDeferredTasks.clear();
+  }
+
+  /**
    * Specifies how frequently (at most) we want to do repaints during the
    * animation sequence. TimeDuration::Forever() will cause it to only repaint
    * at the end of the animation.
    */
   TimeDuration mRepaintInterval;
+
+protected:
+  /**
+   * Tasks scheduled for execution after the APZC's mMonitor is released.
+   * Derived classes can add tasks here in Sample(), and the APZC can call
+   * ExecuteDeferredTasks() to execute them.
+   */
+  Vector<Task*> mDeferredTasks;
 };
 
 }

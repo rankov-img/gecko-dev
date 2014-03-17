@@ -73,6 +73,8 @@ function Toolbox(target, selectedTool, hostType, hostOptions) {
   this._splitConsoleOnKeypress = this._splitConsoleOnKeypress.bind(this)
   this.destroy = this.destroy.bind(this);
   this.highlighterUtils = new ToolboxHighlighterUtils(this);
+  this._highlighterReady = this._highlighterReady.bind(this);
+  this._highlighterHidden = this._highlighterHidden.bind(this);
 
   this._target.on("close", this.destroy);
 
@@ -253,21 +255,20 @@ Toolbox.prototype = {
         this._addZoomKeys();
         this._loadInitialZoom();
 
-        // Load the toolbox-level actor fronts and utilities now
-        this._target.makeRemote().then(() => {
-          this._telemetry.toolOpened("toolbox");
+        this._telemetry.toolOpened("toolbox");
 
-          this.selectTool(this._defaultToolId).then(panel => {
-            this.emit("ready");
-            deferred.resolve();
-          });
+        this.selectTool(this._defaultToolId).then(panel => {
+          this.emit("ready");
+          deferred.resolve();
         });
       };
 
-      iframe.setAttribute("src", this._URL);
-
-      let domHelper = new DOMHelpers(iframe.contentWindow);
-      domHelper.onceDOMReady(domReady);
+      // Load the toolbox-level actor fronts and utilities now
+      this._target.makeRemote().then(() => {
+        iframe.setAttribute("src", this._URL);
+        let domHelper = new DOMHelpers(iframe.contentWindow);
+        domHelper.onceDOMReady(domReady);
+      });
 
       return deferred.promise;
     });
@@ -465,7 +466,7 @@ Toolbox.prototype = {
   fireCustomKey: function(toolId) {
     let toolDefinition = gDevTools.getToolDefinition(toolId);
 
-    if (toolDefinition.onkey && 
+    if (toolDefinition.onkey &&
         ((this.currentToolId === toolId) ||
           (toolId == "webconsole" && this.splitConsole))) {
       toolDefinition.onkey(this.getCurrentPanel(), this);
@@ -1093,27 +1094,23 @@ Toolbox.prototype = {
    * Returns a promise that resolves when the fronts are initialized
    */
   initInspector: function() {
-    let deferred = promise.defer();
-
-    if (!this._inspector) {
-      this._inspector = InspectorFront(this._target.client, this._target.form);
-      this._inspector.getWalker().then(walker => {
-        this._walker = walker;
+    if (!this._initInspector) {
+      this._initInspector = Task.spawn(function*() {
+        this._inspector = InspectorFront(this._target.client, this._target.form);
+        this._walker = yield this._inspector.getWalker();
         this._selection = new Selection(this._walker);
-        if (this.highlighterUtils.isRemoteHighlightable) {
-          this._inspector.getHighlighter().then(highlighter => {
-            this._highlighter = highlighter;
-            deferred.resolve();
-          });
-        } else {
-          deferred.resolve();
-        }
-      });
-    } else {
-      deferred.resolve();
-    }
 
-    return deferred.promise;
+        if (this.highlighterUtils.isRemoteHighlightable) {
+          let autohide = !gDevTools.testing;
+
+          this.walker.on("highlighter-ready", this._highlighterReady);
+          this.walker.on("highlighter-hide", this._highlighterHidden);
+
+          this._highlighter = yield this._inspector.getHighlighter(autohide);
+        }
+      }.bind(this));
+    }
+    return this._initInspector;
   },
 
   /**
@@ -1121,6 +1118,10 @@ Toolbox.prototype = {
    * Returns a promise that resolves when the fronts are destroyed
    */
   destroyInspector: function() {
+    if (this._destroying) {
+      return this._destroying;
+    }
+
     if (!this._inspector) {
       return promise.resolve();
     }
@@ -1136,6 +1137,11 @@ Toolbox.prototype = {
           this._selection.destroy();
         }
 
+        if (this.walker) {
+          this.walker.off("highlighter-ready", this._highlighterReady);
+          this.walker.off("highlighter-hide", this._highlighterHidden);
+        }
+
         this._inspector = null;
         this._highlighter = null;
         this._selection = null;
@@ -1146,7 +1152,9 @@ Toolbox.prototype = {
     // Releasing the walker (if it has been created)
     // This can fail, but in any case, we want to continue destroying the
     // inspector/highlighter/selection
-    let walker = this._walker ? this._walker.release() : promise.resolve();
+    let walker = (this._destroying = this._walker) ?
+                 this._walker.release() :
+                 promise.resolve();
     return walker.then(outstanding, outstanding);
   },
 
@@ -1235,7 +1243,15 @@ Toolbox.prototype = {
       this._host = null;
       this._toolPanels.clear();
     }).then(null, console.error);
-  }
+  },
+
+  _highlighterReady: function() {
+    this.emit("highlighter-ready");
+  },
+
+  _highlighterHidden: function() {
+    this.emit("highlighter-hide");
+  },
 };
 
 /**
@@ -1295,6 +1311,7 @@ ToolboxHighlighterUtils.prototype = {
     let deferred = promise.defer();
 
     let done = () => {
+      this._isPicking = true;
       this.toolbox.emit("picker-started");
       this.toolbox.on("select", this.stopPicker);
       deferred.resolve();
@@ -1304,20 +1321,20 @@ ToolboxHighlighterUtils.prototype = {
       this.toolbox.initInspector(),
       this.toolbox.selectTool("inspector")
     ]).then(() => {
-      this._isPicking = true;
       this.toolbox._pickerButton.setAttribute("checked", "true");
 
       if (this.isRemoteHighlightable) {
-        this.toolbox.highlighter.pick().then(done);
-
         this.toolbox.walker.on("picker-node-hovered", this._onPickerNodeHovered);
         this.toolbox.walker.on("picker-node-picked", this._onPickerNodePicked);
+
+        this.toolbox.highlighter.pick().then(done);
       } else {
-        this.toolbox.walker.pick().then(node => {
-          this.toolbox.selection.setNodeFront(node, "picker-node-picked");
-          this.stopPicker();
+        return this.toolbox.walker.pick().then(node => {
+          this.toolbox.selection.setNodeFront(node, "picker-node-picked").then(() => {
+            this.stopPicker();
+            done();
+          });
         });
-        done();
       }
     });
 
@@ -1415,11 +1432,16 @@ ToolboxHighlighterUtils.prototype = {
    * Hide the highlighter.
    * @return a promise that resolves when the highlighter is hidden
    */
-  unhighlight: function() {
+  unhighlight: function(forceHide=false) {
     if (this.isRemoteHighlightable) {
       // If the remote highlighter exists on the target, use it
       return this.toolbox.initInspector().then(() => {
-        return this.toolbox.highlighter.hideBoxModel();
+        let autohide = forceHide || !gDevTools.testing;
+
+        if (autohide) {
+          return this.toolbox.highlighter.hideBoxModel();
+        }
+        return promise.resolve();
       });
     } else {
       // If not, no need to unhighlight as the older highlight method uses a

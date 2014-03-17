@@ -90,8 +90,6 @@ class ArrayBufferObject : public JSObject
                                    MutableHandleObject objp, MutableHandleShape propp);
     static bool obj_lookupElement(JSContext *cx, HandleObject obj, uint32_t index,
                                   MutableHandleObject objp, MutableHandleShape propp);
-    static bool obj_lookupSpecial(JSContext *cx, HandleObject obj, HandleSpecialId sid,
-                                  MutableHandleObject objp, MutableHandleShape propp);
 
     static bool obj_defineGeneric(JSContext *cx, HandleObject obj, HandleId id, HandleValue v,
                                   PropertyOp getter, StrictPropertyOp setter, unsigned attrs);
@@ -100,21 +98,13 @@ class ArrayBufferObject : public JSObject
                                    PropertyOp getter, StrictPropertyOp setter, unsigned attrs);
     static bool obj_defineElement(JSContext *cx, HandleObject obj, uint32_t index, HandleValue v,
                                   PropertyOp getter, StrictPropertyOp setter, unsigned attrs);
-    static bool obj_defineSpecial(JSContext *cx, HandleObject obj,
-                                  HandleSpecialId sid, HandleValue v,
-                                  PropertyOp getter, StrictPropertyOp setter, unsigned attrs);
 
     static bool obj_getGeneric(JSContext *cx, HandleObject obj, HandleObject receiver,
                                HandleId id, MutableHandleValue vp);
-
     static bool obj_getProperty(JSContext *cx, HandleObject obj, HandleObject receiver,
                                 HandlePropertyName name, MutableHandleValue vp);
-
     static bool obj_getElement(JSContext *cx, HandleObject obj, HandleObject receiver,
                                uint32_t index, MutableHandleValue vp);
-
-    static bool obj_getSpecial(JSContext *cx, HandleObject obj, HandleObject receiver,
-                               HandleSpecialId sid, MutableHandleValue vp);
 
     static bool obj_setGeneric(JSContext *cx, HandleObject obj, HandleId id,
                                MutableHandleValue vp, bool strict);
@@ -122,8 +112,6 @@ class ArrayBufferObject : public JSObject
                                 MutableHandleValue vp, bool strict);
     static bool obj_setElement(JSContext *cx, HandleObject obj, uint32_t index,
                                MutableHandleValue vp, bool strict);
-    static bool obj_setSpecial(JSContext *cx, HandleObject obj,
-                               HandleSpecialId sid, MutableHandleValue vp, bool strict);
 
     static bool obj_getGenericAttributes(JSContext *cx, HandleObject obj,
                                          HandleId id, unsigned *attrsp);
@@ -134,8 +122,6 @@ class ArrayBufferObject : public JSObject
                                    bool *succeeded);
     static bool obj_deleteElement(JSContext *cx, HandleObject obj, uint32_t index,
                                   bool *succeeded);
-    static bool obj_deleteSpecial(JSContext *cx, HandleObject obj, HandleSpecialId sid,
-                                  bool *succeeded);
 
     static bool obj_enumerate(JSContext *cx, HandleObject obj, JSIterateOp enum_op,
                               MutableHandleValue statep, MutableHandleId idp);
@@ -145,6 +131,24 @@ class ArrayBufferObject : public JSObject
     static void resetArrayBufferList(JSCompartment *rt);
     static bool saveArrayBufferList(JSCompartment *c, ArrayBufferVector &vector);
     static void restoreArrayBufferLists(ArrayBufferVector &vector);
+
+    bool hasStealableContents() const {
+        // Inline elements strictly adhere to the corresponding buffer.
+        if (!hasDynamicElements())
+            return false;
+
+        // asm.js buffer contents are transferred by copying, just like inline
+        // elements.
+        if (isAsmJSArrayBuffer())
+            return false;
+
+        // Neutered contents aren't transferrable because we want a neutered
+        // array's contents to be backed by zeroed memory equal in length to
+        // the original buffer contents.  Transferring these contents would
+        // allocate new ones based on the current byteLength, which is 0 for a
+        // neutered array -- not the original byteLength.
+        return !isNeutered();
+    }
 
     static bool stealContents(JSContext *cx, Handle<ArrayBufferObject*> buffer, void **contents,
                               uint8_t **data);
@@ -190,10 +194,16 @@ class ArrayBufferObject : public JSObject
     uint8_t * dataPointer() const;
 
     /*
-     * Discard the ArrayBuffer contents. For asm.js buffers, at least, should
+     * Discard the ArrayBuffer contents, and use |newHeader| for the buffer's
+     * new contents.  (These new contents are zeroed, of identical size in
+     * memory as the current contents, but appear to be neutered and of zero
+     * length.  This is purely precautionary against stale indexes that were
+     * in-bounds with respect to the initial length but would not be after
+     * neutering.  This precaution will be removed once we're sure such stale
+     * indexing no longer happens.)  For asm.js buffers, at least, should
      * be called after neuterViews().
      */
-    void neuter(JSContext *cx);
+    void neuter(ObjectElements *newHeader, JSContext *cx);
 
     /*
      * Check if the arrayBuffer contains any data. This will return false for
@@ -292,7 +302,14 @@ InitArrayBufferViewDataPointer(ArrayBufferViewObject *obj, ArrayBufferObject *bu
      * private data rather than a slot to avoid alignment restrictions
      * on private Values.
      */
-    obj->initPrivate(buffer->dataPointer() + byteOffset);
+
+    if (buffer->isNeutered()) {
+        JS_ASSERT(byteOffset == 0);
+        obj->initPrivate(nullptr);
+    } else {
+        obj->initPrivate(buffer->dataPointer() + byteOffset);
+    }
+
     PostBarrierTypedArrayObject(obj);
 }
 

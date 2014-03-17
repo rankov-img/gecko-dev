@@ -14,41 +14,40 @@
 #include "mozilla/dom/Promise.h"
 #include "mozilla/dom/PContent.h"
 #include "mozilla/unused.h"
+#include "nsDOMFile.h"
 
 namespace mozilla {
 namespace dom {
 
 FileSystemTaskBase::FileSystemTaskBase(FileSystemBase* aFileSystem)
   : mErrorValue(NS_OK)
+  , mFileSystem(aFileSystem)
 {
   MOZ_ASSERT(NS_IsMainThread(), "Only call on main thread!");
   MOZ_ASSERT(aFileSystem, "aFileSystem should not be null.");
-  mFileSystem = do_GetWeakReference(aFileSystem);
 }
 
 FileSystemTaskBase::FileSystemTaskBase(FileSystemBase* aFileSystem,
                                        const FileSystemParams& aParam,
                                        FileSystemRequestParent* aParent)
   : mErrorValue(NS_OK)
+  , mFileSystem(aFileSystem)
   , mRequestParent(aParent)
 {
   MOZ_ASSERT(FileSystemUtils::IsParentProcess(),
              "Only call from parent process!");
   MOZ_ASSERT(NS_IsMainThread(), "Only call on main thread!");
   MOZ_ASSERT(aFileSystem, "aFileSystem should not be null.");
-  mFileSystem = do_GetWeakReference(aFileSystem);
 }
 
 FileSystemTaskBase::~FileSystemTaskBase()
 {
-  MOZ_ASSERT(NS_IsMainThread(), "Only call on main thread!");
 }
 
-already_AddRefed<FileSystemBase>
-FileSystemTaskBase::GetFileSystem()
+FileSystemBase*
+FileSystemTaskBase::GetFileSystem() const
 {
-  nsRefPtr<FileSystemBase> filesystem = do_QueryReferent(mFileSystem);
-  return filesystem.forget();
+  return mFileSystem.get();
 }
 
 void
@@ -57,7 +56,7 @@ FileSystemTaskBase::Start()
   MOZ_ASSERT(NS_IsMainThread(), "Only call on main thread!");
 
   if (HasError()) {
-    HandlerCallback();
+    NS_DispatchToMainThread(this);
     return;
   }
 
@@ -72,8 +71,7 @@ FileSystemTaskBase::Start()
   }
 
   // Run in child process.
-  nsRefPtr<FileSystemBase> filesystem = do_QueryReferent(mFileSystem);
-  if (!filesystem) {
+  if (mFileSystem->IsShutdown()) {
     return;
   }
 
@@ -82,7 +80,7 @@ FileSystemTaskBase::Start()
   // mozilla::dom::ContentChild::DeallocPFileSystemRequestChild.
   NS_ADDREF_THIS();
   ContentChild::GetSingleton()->SendPFileSystemRequestConstructor(this,
-    GetRequestParams(filesystem->ToString()));
+    GetRequestParams(mFileSystem->ToString()));
 }
 
 NS_IMETHODIMP
@@ -90,7 +88,10 @@ FileSystemTaskBase::Run()
 {
   if (!NS_IsMainThread()) {
     // Run worker thread tasks
-    Work();
+    nsresult rv = Work();
+    if (NS_FAILED(rv)) {
+      SetError(rv);
+    }
     // Dispatch itself to main thread
     NS_DispatchToMainThread(this);
     return NS_OK;
@@ -104,11 +105,8 @@ FileSystemTaskBase::Run()
 void
 FileSystemTaskBase::HandleResult()
 {
-  MOZ_ASSERT(FileSystemUtils::IsParentProcess(),
-             "Only call from parent process!");
   MOZ_ASSERT(NS_IsMainThread(), "Only call on main thread!");
-  nsRefPtr<FileSystemBase> filesystem = do_QueryReferent(mFileSystem);
-  if (!filesystem) {
+  if (mFileSystem->IsShutdown()) {
     return;
   }
   if (mRequestParent && mRequestParent->IsRunning()) {
@@ -152,6 +150,26 @@ FileSystemTaskBase::Recv__delete__(const FileSystemResponseValue& aValue)
   SetRequestResult(aValue);
   HandlerCallback();
   return true;
+}
+
+BlobParent*
+FileSystemTaskBase::GetBlobParent(nsIDOMFile* aFile) const
+{
+  MOZ_ASSERT(FileSystemUtils::IsParentProcess(),
+             "Only call from parent process!");
+  MOZ_ASSERT(NS_IsMainThread(), "Only call on main thread!");
+  MOZ_ASSERT(aFile);
+
+  // Load the lazy dom file data from the parent before sending to the child.
+  nsString mimeType;
+  aFile->GetType(mimeType);
+  uint64_t fileSize;
+  aFile->GetSize(&fileSize);
+  uint64_t lastModifiedDate;
+  aFile->GetMozLastModifiedDate(&lastModifiedDate);
+
+  ContentParent* cp = static_cast<ContentParent*>(mRequestParent->Manager());
+  return cp->GetOrCreateActorForBlob(aFile);
 }
 
 void

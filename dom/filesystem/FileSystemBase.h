@@ -7,25 +7,17 @@
 #ifndef mozilla_dom_FileSystemBase_h
 #define mozilla_dom_FileSystemBase_h
 
-#include "nsWeakReference.h"
 #include "nsAutoPtr.h"
 #include "nsString.h"
 
-class nsPIDOMWindow; // You need |#include "nsPIDOMWindow.h"| in CPP files.
+class nsPIDOMWindow;
 
 namespace mozilla {
 namespace dom {
 
-/*
- * To make FileSystemBase as a weak reference, so that before the child window
- * is closed and the FileSystemBase is destroyed, we don't need to notify the
- * FileSystemTaskBase instances, which hold the FileSystemBase reference, to
- * cancel and wait until the instances finish.
- */
 class FileSystemBase
-  : public nsSupportsWeakReference
 {
-  NS_DECL_THREADSAFE_ISUPPORTS
+  NS_INLINE_DECL_THREADSAFE_REFCOUNTING(FileSystemBase)
 public:
 
   // Create file system object from its string representation.
@@ -33,6 +25,9 @@ public:
   FromString(const nsAString& aString);
 
   FileSystemBase();
+
+  virtual void
+  Shutdown();
 
   // Get the string representation of the file system.
   const nsString&
@@ -57,6 +52,12 @@ public:
   virtual const nsAString&
   GetRootName() const = 0;
 
+  bool
+  IsShutdown() const
+  {
+    return mShutdown;
+  }
+
   virtual bool
   IsSafeFile(nsIFile* aFile) const;
 
@@ -79,6 +80,8 @@ protected:
 
   // The string representation of the file system.
   nsString mString;
+
+  bool mShutdown;
 
   // The permission name required to access the file system.
   nsCString mPermission;

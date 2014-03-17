@@ -7,7 +7,7 @@
 #ifndef mozilla_dom_FileSystemUtils_h
 #define mozilla_dom_FileSystemUtils_h
 
-#include "nsStringGlue.h"
+#include "nsString.h"
 
 namespace mozilla {
 namespace dom {

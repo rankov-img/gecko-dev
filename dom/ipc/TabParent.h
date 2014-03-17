@@ -198,16 +198,16 @@ public:
     void UpdateDimensions(const nsRect& rect, const nsIntSize& size);
     void UpdateFrame(const layers::FrameMetrics& aFrameMetrics);
     void AcknowledgeScrollUpdate(const ViewID& aScrollId, const uint32_t& aScrollGeneration);
-    void HandleDoubleTap(const CSSIntPoint& aPoint,
+    void HandleDoubleTap(const CSSPoint& aPoint,
                          int32_t aModifiers,
                          const ScrollableLayerGuid& aGuid);
-    void HandleSingleTap(const CSSIntPoint& aPoint,
+    void HandleSingleTap(const CSSPoint& aPoint,
                          int32_t aModifiers,
                          const ScrollableLayerGuid& aGuid);
-    void HandleLongTap(const CSSIntPoint& aPoint,
+    void HandleLongTap(const CSSPoint& aPoint,
                        int32_t aModifiers,
                        const ScrollableLayerGuid& aGuid);
-    void HandleLongTapUp(const CSSIntPoint& aPoint,
+    void HandleLongTapUp(const CSSPoint& aPoint,
                          int32_t aModifiers,
                          const ScrollableLayerGuid& aGuid);
     void NotifyTransformBegin(ViewID aViewId);
@@ -229,10 +229,10 @@ public:
     bool SendMouseWheelEvent(mozilla::WidgetWheelEvent& event);
     bool SendRealKeyEvent(mozilla::WidgetKeyboardEvent& event);
     bool SendRealTouchEvent(WidgetTouchEvent& event);
-    bool SendHandleSingleTap(const CSSIntPoint& aPoint, const ScrollableLayerGuid& aGuid);
-    bool SendHandleLongTap(const CSSIntPoint& aPoint, const ScrollableLayerGuid& aGuid);
-    bool SendHandleLongTapUp(const CSSIntPoint& aPoint, const ScrollableLayerGuid& aGuid);
-    bool SendHandleDoubleTap(const CSSIntPoint& aPoint, const ScrollableLayerGuid& aGuid);
+    bool SendHandleSingleTap(const CSSPoint& aPoint, const ScrollableLayerGuid& aGuid);
+    bool SendHandleLongTap(const CSSPoint& aPoint, const ScrollableLayerGuid& aGuid);
+    bool SendHandleLongTapUp(const CSSPoint& aPoint, const ScrollableLayerGuid& aGuid);
+    bool SendHandleDoubleTap(const CSSPoint& aPoint, const ScrollableLayerGuid& aGuid);
 
     virtual PDocumentRendererParent*
     AllocPDocumentRendererParent(const nsRect& documentRect,
@@ -360,20 +360,20 @@ private:
     nsRefPtr<ContentParent> mManager;
     void TryCacheDPIAndScale();
 
-    CSSIntPoint AdjustTapToChildWidget(const CSSIntPoint& aPoint);
+    CSSPoint AdjustTapToChildWidget(const CSSPoint& aPoint);
 
     // When true, we create a pan/zoom controller for our frame and
     // notify it of input events targeting us.
     bool UseAsyncPanZoom();
     // If we have a render frame currently, notify it that we're about
     // to dispatch |aEvent| to our child.  If there's a relevant
-    // transform in place, |aOutEvent| is the transformed |aEvent| to
-    // dispatch to content. |aOutTargetGuid| will contain the identifier
+    // transform in place, |aEvent| will be transformed in-place so that
+    // it is ready to be dispatched to content.
+    // |aOutTargetGuid| will contain the identifier
     // of the APZC instance that handled the event. aOutTargetGuid may be
-    // null but aOutEvent must not be.
-    void MaybeForwardEventToRenderFrame(const WidgetInputEvent& aEvent,
-                                        ScrollableLayerGuid* aOutTargetGuid,
-                                        WidgetInputEvent* aOutEvent);
+    // null.
+    void MaybeForwardEventToRenderFrame(WidgetInputEvent& aEvent,
+                                        ScrollableLayerGuid* aOutTargetGuid);
     // The offset for the child process which is sampled at touch start. This
     // means that the touch events are relative to where the frame was at the
     // start of the touch. We need to look for a better solution to this

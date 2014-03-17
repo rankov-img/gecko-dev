@@ -10,7 +10,7 @@ interface File;
  * All functions on Directory that accept DOMString arguments for file or
  * directory names only allow relative path to current directory itself. The
  * path should be a descendent path like "path/to/file.txt" and not contain a
- * segment of ".." or ".". So the paths aren't allowd to walk up the directory
+ * segment of ".." or ".". So the paths aren't allowed to walk up the directory
  * tree. For example, paths like "../foo", "..", "/foo/bar" or "foo/../bar" are
  * not allowed.
  */

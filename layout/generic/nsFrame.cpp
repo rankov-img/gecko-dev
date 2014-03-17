@@ -944,19 +944,87 @@ nsIFrame::GetUsedPadding() const
   return padding;
 }
 
+int
+nsIFrame::GetSkipSides(const nsHTMLReflowState* aReflowState) const
+{
+  // Convert the logical skip sides to physical sides using the frame's
+  // writing mode
+  WritingMode writingMode = GetWritingMode();
+  int logicalSkip = GetLogicalSkipSides(aReflowState);
+  int skip = 0;
+
+  if (logicalSkip & LOGICAL_SIDE_B_START) {
+    if (writingMode.IsVertical()) {
+      skip |= 1 << (writingMode.IsVerticalLR() ? NS_SIDE_LEFT : NS_SIDE_RIGHT);
+    } else {
+      skip |= 1 << NS_SIDE_TOP;
+    }
+  }
+
+  if (logicalSkip & LOGICAL_SIDE_B_END) {
+    if (writingMode.IsVertical()) {
+      skip |= 1 << (writingMode.IsVerticalLR() ? NS_SIDE_RIGHT : NS_SIDE_LEFT);
+    } else {
+      skip |= 1 << NS_SIDE_BOTTOM;
+    }
+  }
+
+  if (logicalSkip & LOGICAL_SIDE_I_START) {
+    if (writingMode.IsVertical()) {
+      skip |= 1 << NS_SIDE_TOP;
+    } else {
+      skip |= 1 << (writingMode.IsBidiLTR() ? NS_SIDE_LEFT : NS_SIDE_RIGHT);
+    }
+  }
+
+  if (logicalSkip & LOGICAL_SIDE_I_END) {
+    if (writingMode.IsVertical()) {
+      skip |= 1 << NS_SIDE_BOTTOM;
+    } else {
+      skip |= 1 << (writingMode.IsBidiLTR() ? NS_SIDE_RIGHT : NS_SIDE_LEFT);
+    }
+  }
+
+  return skip;
+}
+
+
 void
 nsIFrame::ApplySkipSides(nsMargin& aMargin,
                          const nsHTMLReflowState* aReflowState) const
 {
   int skipSides = GetSkipSides(aReflowState);
-  if (skipSides & (1 << NS_SIDE_TOP))
+  if (skipSides & (1 << NS_SIDE_TOP)) {
     aMargin.top = 0;
-  if (skipSides & (1 << NS_SIDE_RIGHT))
+  }
+  if (skipSides & (1 << NS_SIDE_RIGHT)) {
     aMargin.right = 0;
-  if (skipSides & (1 << NS_SIDE_BOTTOM))
+  }
+  if (skipSides & (1 << NS_SIDE_BOTTOM)) {
     aMargin.bottom = 0;
-  if (skipSides & (1 << NS_SIDE_LEFT))
+  }
+  if (skipSides & (1 << NS_SIDE_LEFT)) {
     aMargin.left = 0;
+  }
+}
+
+void
+nsIFrame::ApplyLogicalSkipSides(LogicalMargin& aMargin,
+                                const nsHTMLReflowState* aReflowState) const
+{
+  int skipSides = GetLogicalSkipSides(aReflowState);
+  if (skipSides & (LOGICAL_SIDE_B_START)) {
+    aMargin.BStart(GetWritingMode()) = 0;
+  }
+  if (skipSides & (LOGICAL_SIDE_I_END)) {
+    aMargin.IEnd(GetWritingMode()) = 0;
+  }
+  if (skipSides & (LOGICAL_SIDE_B_END)) {
+    aMargin.BEnd(GetWritingMode()) = 0;
+  }
+  if (skipSides & (LOGICAL_SIDE_I_START)) {
+    aMargin.IStart(GetWritingMode()) = 0;
+  }
 }
 
 nsRect
@@ -973,6 +1041,20 @@ nsRect
 nsIFrame::GetPaddingRect() const
 {
   return GetPaddingRectRelativeToSelf() + GetPosition();
+}
+
+WritingMode
+nsIFrame::GetWritingMode(nsIFrame* aSubFrame) const
+{
+  WritingMode writingMode = GetWritingMode();
+
+  if (!writingMode.IsVertical() &&
+      (StyleTextReset()->mUnicodeBidi & NS_STYLE_UNICODE_BIDI_PLAINTEXT)) {
+    nsBidiLevel frameLevel = nsBidiPresUtils::GetFrameBaseLevel(aSubFrame);
+    writingMode.SetDirectionFromBidiLevel(frameLevel);
+  }
+
+  return writingMode;
 }
 
 nsRect
@@ -5118,10 +5200,37 @@ nsIFrame::GetOverflowAreas() const
                          nsRect(nsPoint(0, 0), GetSize()));
 }
 
+nsOverflowAreas
+nsIFrame::GetOverflowAreasRelativeToSelf() const
+{
+  if (IsTransformed()) {
+    nsOverflowAreas* preTransformOverflows = static_cast<nsOverflowAreas*>
+      (Properties().Get(PreTransformOverflowAreasProperty()));
+    if (preTransformOverflows) {
+      return nsOverflowAreas(preTransformOverflows->VisualOverflow(),
+                             preTransformOverflows->ScrollableOverflow());
+    }
+  }
+  return nsOverflowAreas(GetVisualOverflowRect(),
+                         GetScrollableOverflowRect());
+}
+
 nsRect
 nsIFrame::GetScrollableOverflowRectRelativeToParent() const
 {
   return GetScrollableOverflowRect() + mRect.TopLeft();
+}
+
+nsRect
+nsIFrame::GetScrollableOverflowRectRelativeToSelf() const
+{
+  if (IsTransformed()) {
+    nsOverflowAreas* preTransformOverflows = static_cast<nsOverflowAreas*>
+      (Properties().Get(PreTransformOverflowAreasProperty()));
+    if (preTransformOverflows)
+      return preTransformOverflows->ScrollableOverflow();
+  }
+  return GetScrollableOverflowRect();
 }
 
 nsRect
@@ -6160,20 +6269,23 @@ nsIFrame::PeekOffset(nsPeekOffsetStruct* aPos)
     case eSelectCluster:
     {
       bool eatingNonRenderableWS = false;
-      bool done = false;
+      nsIFrame::FrameSearchResult peekSearchState = CONTINUE;
       bool jumpedLine = false;
+      bool movedOverNonSelectableText = false;
       
-      while (!done) {
+      while (peekSearchState != FOUND) {
         bool movingInFrameDirection =
           IsMovingInFrameDirection(current, aPos->mDirection, aPos->mVisual);
 
         if (eatingNonRenderableWS)
-          done = current->PeekOffsetNoAmount(movingInFrameDirection, &offset); 
+          peekSearchState = current->PeekOffsetNoAmount(movingInFrameDirection, &offset); 
         else
-          done = current->PeekOffsetCharacter(movingInFrameDirection, &offset,
+          peekSearchState = current->PeekOffsetCharacter(movingInFrameDirection, &offset,
                                               aPos->mAmount == eSelectCluster);
 
-        if (!done) {
+        movedOverNonSelectableText |= (peekSearchState == CONTINUE_UNSELECTABLE);
+
+        if (peekSearchState != FOUND) {
           result =
             current->GetFrameFromDirection(aPos->mDirection, aPos->mVisual,
                                            aPos->mJumpLines, aPos->mScrollViewStop,
@@ -6185,6 +6297,15 @@ nsIFrame::PeekOffset(nsPeekOffsetStruct* aPos)
           // to eat non-renderable content on the new line.
           if (jumpedLine)
             eatingNonRenderableWS = true;
+        }
+
+        // Found frame, but because we moved over non selectable text we want the offset
+        // to be at the frame edge.
+        if (peekSearchState == FOUND && movedOverNonSelectableText)
+        {
+          int32_t start, end;
+          current->GetOffsets(start, end);
+          offset = aPos->mDirection == eDirNext ? 0 : end - start;
         }
       }
 
@@ -6253,7 +6374,7 @@ nsIFrame::PeekOffset(nsPeekOffsetStruct* aPos)
           IsMovingInFrameDirection(current, aPos->mDirection, aPos->mVisual);
         
         done = current->PeekOffsetWord(movingInFrameDirection, wordSelectEatSpace,
-                                       aPos->mIsKeyboardSelect, &offset, &state);
+                                       aPos->mIsKeyboardSelect, &offset, &state) == FOUND;
         
         if (!done) {
           nsIFrame* nextFrame;
@@ -6468,15 +6589,15 @@ nsIFrame::PeekOffset(nsPeekOffsetStruct* aPos)
   return NS_OK;
 }
 
-bool
+nsIFrame::FrameSearchResult
 nsFrame::PeekOffsetNoAmount(bool aForward, int32_t* aOffset)
 {
   NS_ASSERTION (aOffset && *aOffset <= 1, "aOffset out of range");
   // Sure, we can stop right here.
-  return true;
+  return FOUND;
 }
 
-bool
+nsIFrame::FrameSearchResult
 nsFrame::PeekOffsetCharacter(bool aForward, int32_t* aOffset,
                              bool aRespectClusters)
 {
@@ -6489,12 +6610,12 @@ nsFrame::PeekOffsetCharacter(bool aForward, int32_t* aOffset,
     // We're before the frame and moving forward, or after it and moving backwards:
     // skip to the other side and we're done.
     *aOffset = 1 - startOffset;
-    return true;
+    return FOUND;
   }
-  return false;
+  return CONTINUE;
 }
 
-bool
+nsIFrame::FrameSearchResult
 nsFrame::PeekOffsetWord(bool aForward, bool aWordSelectEatSpace, bool aIsKeyboardSelect,
                         int32_t* aOffset, PeekWordState* aState)
 {
@@ -6511,11 +6632,11 @@ nsFrame::PeekOffsetWord(bool aForward, bool aWordSelectEatSpace, bool aIsKeyboar
       if (aState->mLastCharWasPunctuation) {
         // We're not punctuation, so this is a punctuation boundary.
         if (BreakWordBetweenPunctuation(aState, aForward, false, false, aIsKeyboardSelect))
-          return true;
+          return FOUND;
       } else {
         // This is not a punctuation boundary.
         if (aWordSelectEatSpace && aState->mSawBeforeType)
-          return true;
+          return FOUND;
       }
     }
     // Otherwise skip to the other side and note that we encountered non-whitespace.
@@ -6526,7 +6647,7 @@ nsFrame::PeekOffsetWord(bool aForward, bool aWordSelectEatSpace, bool aIsKeyboar
     if (!aWordSelectEatSpace)
       aState->SetSawBeforeType();
   }
-  return false;
+  return CONTINUE;
 }
 
 bool

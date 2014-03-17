@@ -122,15 +122,16 @@ class WebGLContext :
     public nsWrapperCache
 {
     friend class WebGLContextUserData;
-    friend class WebGLMemoryPressureObserver;
-    friend class WebGLMemoryTracker;
-    friend class WebGLExtensionLoseContext;
-    friend class WebGLExtensionCompressedTextureS3TC;
     friend class WebGLExtensionCompressedTextureATC;
+    friend class WebGLExtensionCompressedTextureETC1;
     friend class WebGLExtensionCompressedTexturePVRTC;
+    friend class WebGLExtensionCompressedTextureS3TC;
     friend class WebGLExtensionDepthTexture;
     friend class WebGLExtensionDrawBuffers;
+    friend class WebGLExtensionLoseContext;
     friend class WebGLExtensionVertexArray;
+    friend class WebGLMemoryPressureObserver;
+    friend class WebGLMemoryTracker;
 
     enum {
         UNPACK_FLIP_Y_WEBGL = 0x9240,
@@ -177,6 +178,7 @@ public:
     mozilla::TemporaryRef<mozilla::gfx::SourceSurface> GetSurfaceSnapshot() MOZ_OVERRIDE;
 
     NS_IMETHOD SetIsOpaque(bool b) MOZ_OVERRIDE { return NS_OK; };
+    bool GetIsOpaque() MOZ_OVERRIDE { return false; }
     NS_IMETHOD SetContextOptions(JSContext* aCx,
                                  JS::Handle<JS::Value> aOptions) MOZ_OVERRIDE;
 
@@ -909,6 +911,7 @@ protected:
         OES_vertex_array_object,
         WEBGL_color_buffer_float,
         WEBGL_compressed_texture_atc,
+        WEBGL_compressed_texture_etc1,
         WEBGL_compressed_texture_pvrtc,
         WEBGL_compressed_texture_s3tc,
         WEBGL_debug_renderer_info,

@@ -10,16 +10,8 @@
 #include "mozilla/dom/FileSystemTaskBase.h"
 #include "nsAutoPtr.h"
 
-class nsIDOMFile;
-class nsString;
-
 namespace mozilla {
 namespace dom {
-
-class FileSystemBase;
-class FileSystemFile;
-class FileSystemGetFileOrDirectoryParams;
-class Promise;
 
 class GetFileOrDirectoryTask MOZ_FINAL
   : public FileSystemTaskBase
@@ -51,7 +43,7 @@ protected:
   virtual void
   SetSuccessRequestResult(const FileSystemResponseValue& aValue) MOZ_OVERRIDE;
 
-  virtual void
+  virtual nsresult
   Work() MOZ_OVERRIDE;
 
   virtual void

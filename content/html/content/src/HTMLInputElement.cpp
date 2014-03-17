@@ -399,7 +399,7 @@ public:
       // Note that we leave the trailing "/" on the path.
       domFile->SetPath(Substring(path, 0, uint32_t(length)));
     }
-    *aResult = static_cast<nsIDOMFile*>(domFile.forget().get());
+    *aResult = domFile.forget().downcast<nsIDOMFile>().take();
     LookupAndCacheNext();
     return NS_OK;
   }
@@ -1109,7 +1109,7 @@ static nsresult FireEventForAccessibility(nsIDOMHTMLInputElement* aTarget,
 // construction, destruction
 //
 
-HTMLInputElement::HTMLInputElement(already_AddRefed<nsINodeInfo> aNodeInfo,
+HTMLInputElement::HTMLInputElement(already_AddRefed<nsINodeInfo>& aNodeInfo,
                                    FromParser aFromParser)
   : nsGenericHTMLFormElementWithState(aNodeInfo)
   , mType(kInputDefaultType->value)
@@ -1245,9 +1245,8 @@ HTMLInputElement::Clone(nsINodeInfo* aNodeInfo, nsINode** aResult) const
 {
   *aResult = nullptr;
 
-  nsCOMPtr<nsINodeInfo> ni = aNodeInfo;
-  nsRefPtr<HTMLInputElement> it =
-    new HTMLInputElement(ni.forget(), NOT_FROM_PARSER);
+  already_AddRefed<nsINodeInfo> ni = nsCOMPtr<nsINodeInfo>(aNodeInfo).forget();
+  nsRefPtr<HTMLInputElement> it = new HTMLInputElement(ni, NOT_FROM_PARSER);
 
   nsresult rv = const_cast<HTMLInputElement*>(this)->CopyInnerTo(it);
   NS_ENSURE_SUCCESS(rv, rv);
@@ -5079,6 +5078,9 @@ HTMLInputElement::SetSelectionRange(int32_t aSelectionStart,
       aRv = textControlFrame->SetSelectionRange(aSelectionStart, aSelectionEnd, dir);
       if (!aRv.Failed()) {
         aRv = textControlFrame->ScrollSelectionIntoView();
+        nsRefPtr<nsAsyncDOMEvent> event =
+          new nsAsyncDOMEvent(this, NS_LITERAL_STRING("select"), true, false);
+        event->PostDOMEvent();
       }
     }
   }
@@ -5204,11 +5206,6 @@ HTMLInputElement::SetRangeText(const nsAString& aReplacement, uint32_t aStart,
 
   Optional<nsAString> direction;
   SetSelectionRange(aSelectionStart, aSelectionEnd, direction, aRv);
-  if (!aRv.Failed()) {
-    nsRefPtr<nsAsyncDOMEvent> event =
-      new nsAsyncDOMEvent(this, NS_LITERAL_STRING("select"), true, false);
-    event->PostDOMEvent();
-  }
 }
 
 int32_t

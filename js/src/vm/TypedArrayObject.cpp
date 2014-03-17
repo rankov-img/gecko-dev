@@ -362,7 +362,7 @@ class TypedArrayObjectTemplate : public TypedArrayObject
         uint32_t bufferByteLength = buffer->byteLength();
         uint32_t arrayByteLength = obj->byteLength();
         uint32_t arrayByteOffset = obj->byteOffset();
-        JS_ASSERT(buffer->dataPointer() <= obj->viewData());
+        JS_ASSERT_IF(!buffer->isNeutered(), buffer->dataPointer() <= obj->viewData());
         JS_ASSERT(bufferByteLength - arrayByteOffset >= arrayByteLength);
         JS_ASSERT(arrayByteOffset <= bufferByteLength);
 
@@ -734,7 +734,7 @@ class TypedArrayObjectTemplate : public TypedArrayObject
                  */
 
                 Rooted<JSObject*> proto(cx);
-                if (!FindProto(cx, fastClass(), &proto))
+                if (!GetBuiltinPrototype(cx, JSCLASS_CACHED_PROTO_KEY(fastClass()), &proto))
                     return nullptr;
 
                 InvokeArgs args(cx);
@@ -907,14 +907,20 @@ class TypedArrayObjectTemplate : public TypedArrayObject
     copyFromArray(JSContext *cx, HandleObject thisTypedArrayObj,
                   HandleObject ar, uint32_t len, uint32_t offset = 0)
     {
+        // Exit early if nothing to copy, to simplify loop conditions below.
+        if (len == 0)
+            return true;
+
         Rooted<TypedArrayObject*> thisTypedArray(cx, &thisTypedArrayObj->as<TypedArrayObject>());
         JS_ASSERT(offset <= thisTypedArray->length());
         JS_ASSERT(len <= thisTypedArray->length() - offset);
         if (ar->is<TypedArrayObject>())
             return copyFromTypedArray(cx, thisTypedArray, ar, offset);
 
+#ifdef DEBUG
         JSRuntime *runtime = cx->runtime();
         uint64_t gcNumber = runtime->gcNumber;
+#endif
 
         NativeType *dest = static_cast<NativeType*>(thisTypedArray->viewData()) + offset;
         SkipRoot skipDest(cx, &dest);
@@ -929,33 +935,33 @@ class TypedArrayObjectTemplate : public TypedArrayObject
              */
             const Value *src = ar->getDenseElements();
             SkipRoot skipSrc(cx, &src);
-            for (uint32_t i = 0; i < len; ++i) {
+            uint32_t i = 0;
+            do {
                 NativeType n;
                 if (!nativeFromValue(cx, src[i], &n))
                     return false;
                 dest[i] = n;
-            }
+            } while (++i < len);
             JS_ASSERT(runtime->gcNumber == gcNumber);
         } else {
             RootedValue v(cx);
 
-            for (uint32_t i = 0; i < len; ++i) {
+            uint32_t i = 0;
+            do {
                 if (!JSObject::getElement(cx, ar, ar, i, &v))
                     return false;
                 NativeType n;
                 if (!nativeFromValue(cx, v, &n))
                     return false;
 
-                /*
-                 * Detect when a GC has occurred so we can update the dest
-                 * pointers in case it has been moved.
-                 */
-                if (runtime->gcNumber != gcNumber) {
-                    dest = static_cast<NativeType*>(thisTypedArray->viewData()) + offset;
-                    gcNumber = runtime->gcNumber;
-                }
+                len = Min(len, thisTypedArray->length());
+                if (i >= len)
+                    break;
+
+                // Compute every iteration in case getElement acts wacky.
+                dest = static_cast<NativeType*>(thisTypedArray->viewData()) + offset;
                 dest[i] = n;
-            }
+            } while (++i < len);
         }
 
         return true;
@@ -2140,22 +2146,25 @@ IMPL_TYPED_ARRAY_COMBINED_UNWRAPPERS(Float64, double, double)
 }
 
 template<class ArrayType>
-static inline JSObject *
+static inline bool
 InitTypedArrayClass(JSContext *cx)
 {
     Rooted<GlobalObject*> global(cx, cx->compartment()->maybeGlobal());
+    if (global->isStandardClassResolved(ArrayType::key))
+        return true;
+
     RootedObject proto(cx, global->createBlankPrototype(cx, ArrayType::protoClass()));
     if (!proto)
-        return nullptr;
+        return false;
 
     RootedFunction ctor(cx);
     ctor = global->createConstructor(cx, ArrayType::class_constructor,
                                      ClassName(ArrayType::key, cx), 3);
     if (!ctor)
-        return nullptr;
+        return false;
 
     if (!LinkConstructorAndPrototype(cx, ctor, proto))
-        return nullptr;
+        return false;
 
     RootedValue bytesValue(cx, Int32Value(ArrayType::BYTES_PER_ELEMENT));
 
@@ -2168,14 +2177,14 @@ InitTypedArrayClass(JSContext *cx)
                                   JS_PropertyStub, JS_StrictPropertyStub,
                                   JSPROP_PERMANENT | JSPROP_READONLY))
     {
-        return nullptr;
+        return false;
     }
 
     if (!ArrayType::defineGetters(cx, proto))
-        return nullptr;
+        return false;
 
     if (!JS_DefineFunctions(cx, proto, ArrayType::jsfuncs))
-        return nullptr;
+        return false;
 
     RootedFunction fun(cx);
     fun =
@@ -2183,14 +2192,14 @@ InitTypedArrayClass(JSContext *cx)
                     ArrayBufferObject::createTypedArrayFromBuffer<typename ArrayType::ThisType>,
                     0, JSFunction::NATIVE_FUN, global, NullPtr());
     if (!fun)
-        return nullptr;
+        return false;
 
-    if (!DefineConstructorAndPrototype(cx, global, ArrayType::key, ctor, proto))
-        return nullptr;
+    if (!GlobalObject::initBuiltinConstructor(cx, global, ArrayType::key, ctor, proto))
+        return false;
 
     global->setCreateArrayFromBuffer<typename ArrayType::ThisType>(fun);
 
-    return proto;
+    return true;
 }
 
 IMPL_TYPED_ARRAY_STATICS(Int8Array);
@@ -2248,6 +2257,9 @@ static JSObject *
 InitArrayBufferClass(JSContext *cx)
 {
     Rooted<GlobalObject*> global(cx, cx->compartment()->maybeGlobal());
+    if (global->isStandardClassResolved(JSProto_ArrayBuffer))
+        return &global->getPrototype(JSProto_ArrayBuffer).toObject();
+
     RootedObject arrayBufferProto(cx, global->createBlankPrototype(cx, &ArrayBufferObject::protoClass));
     if (!arrayBufferProto)
         return nullptr;
@@ -2277,8 +2289,11 @@ InitArrayBufferClass(JSContext *cx)
     if (!JS_DefineFunctions(cx, arrayBufferProto, ArrayBufferObject::jsfuncs))
         return nullptr;
 
-    if (!DefineConstructorAndPrototype(cx, global, JSProto_ArrayBuffer, ctor, arrayBufferProto))
+    if (!GlobalObject::initBuiltinConstructor(cx, global, JSProto_ArrayBuffer,
+                                              ctor, arrayBufferProto))
+    {
         return nullptr;
+    }
 
     return arrayBufferProto;
 }
@@ -2371,33 +2386,36 @@ DataViewObject::defineGetter(JSContext *cx, PropertyName *name, HandleObject pro
                                 flags, 0, 0);
 }
 
-/* static */ JSObject *
+/* static */ bool
 DataViewObject::initClass(JSContext *cx)
 {
     Rooted<GlobalObject*> global(cx, cx->compartment()->maybeGlobal());
+    if (global->isStandardClassResolved(JSProto_DataView))
+        return true;
+
     RootedObject proto(cx, global->createBlankPrototype(cx, &DataViewObject::protoClass));
     if (!proto)
-        return nullptr;
+        return false;
 
     RootedFunction ctor(cx, global->createConstructor(cx, DataViewObject::class_constructor,
                                                       cx->names().DataView, 3));
     if (!ctor)
-        return nullptr;
+        return false;
 
     if (!LinkConstructorAndPrototype(cx, ctor, proto))
-        return nullptr;
+        return false;
 
     if (!defineGetter<bufferValue>(cx, cx->names().buffer, proto))
-        return nullptr;
+        return false;
 
     if (!defineGetter<byteLengthValue>(cx, cx->names().byteLength, proto))
-        return nullptr;
+        return false;
 
     if (!defineGetter<byteOffsetValue>(cx, cx->names().byteOffset, proto))
-        return nullptr;
+        return false;
 
     if (!JS_DefineFunctions(cx, proto, DataViewObject::jsfuncs))
-        return nullptr;
+        return false;
 
     /*
      * Create a helper function to implement the craziness of
@@ -2407,14 +2425,14 @@ DataViewObject::initClass(JSContext *cx)
     RootedFunction fun(cx, NewFunction(cx, NullPtr(), ArrayBufferObject::createDataViewForThis,
                                        0, JSFunction::NATIVE_FUN, global, NullPtr()));
     if (!fun)
-        return nullptr;
+        return false;
 
-    if (!DefineConstructorAndPrototype(cx, global, JSProto_DataView, ctor, proto))
-        return nullptr;
+    if (!GlobalObject::initBuiltinConstructor(cx, global, JSProto_DataView, ctor, proto))
+        return false;
 
     global->setCreateDataViewForThis(fun);
 
-    return proto;
+    return true;
 }
 
 void
@@ -2428,17 +2446,6 @@ DataViewObject::neuter()
 JSObject *
 js_InitTypedArrayClasses(JSContext *cx, HandleObject obj)
 {
-    JS_ASSERT(obj->isNative());
-    assertSameCompartment(cx, obj);
-    Rooted<GlobalObject*> global(cx, &obj->as<GlobalObject>());
-
-    /* Idempotency required: we initialize several things, possibly lazily. */
-    RootedObject stop(cx);
-    if (!js_GetClassObject(cx, JSProto_ArrayBuffer, &stop))
-        return nullptr;
-    if (stop)
-        return stop;
-
     if (!InitTypedArrayClass<Int8ArrayObject>(cx) ||
         !InitTypedArrayClass<Uint8ArrayObject>(cx) ||
         !InitTypedArrayClass<Int16ArrayObject>(cx) ||

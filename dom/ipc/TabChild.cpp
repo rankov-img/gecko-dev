@@ -72,6 +72,7 @@
 #include "nsILoadContext.h"
 #include "ipc/nsGUIEventIPC.h"
 #include "mozilla/gfx/Matrix.h"
+#include "UnitTransforms.h"
 
 #include "nsColorPickerProxy.h"
 
@@ -286,6 +287,7 @@ TabChild::TabChild(ContentChild* aManager, const TabContext& aContext, uint32_t 
   , mUpdateHitRegion(false)
   , mContextMenuHandled(false)
   , mWaitingTouchListeners(false)
+  , mIgnoreKeyPressEvent(false)
 {
   if (!sActiveDurationMsSet) {
     Preferences::AddIntVarCache(&sActiveDurationMs,
@@ -316,17 +318,19 @@ TabChild::InitializeRootMetrics()
   // be keeping, as well as putting the scroll offset back to
   // the top-left of the page.
   mLastRootMetrics.mViewport = CSSRect(CSSPoint(), kDefaultViewportSize);
-  mLastRootMetrics.mCompositionBounds = ScreenIntRect(ScreenIntPoint(), mInnerSize);
-  mLastRootMetrics.mZoom = mLastRootMetrics.CalculateIntrinsicScale();
+  mLastRootMetrics.mCompositionBounds = ParentLayerIntRect(
+      ParentLayerIntPoint(),
+      ViewAs<ParentLayerPixel>(mInnerSize, PixelCastJustification::ScreenToParentLayerForRoot));
+  mLastRootMetrics.SetZoom(mLastRootMetrics.CalculateIntrinsicScale());
   mLastRootMetrics.mDevPixelsPerCSSPixel = mWidget->GetDefaultScale();
   // We use ScreenToLayerScale(1) below in order to turn the
   // async zoom amount into the gecko zoom amount.
   mLastRootMetrics.mCumulativeResolution =
-    mLastRootMetrics.mZoom / mLastRootMetrics.mDevPixelsPerCSSPixel * ScreenToLayerScale(1);
+    mLastRootMetrics.GetZoom() / mLastRootMetrics.mDevPixelsPerCSSPixel * ScreenToLayerScale(1);
   // This is the root layer, so the cumulative resolution is the same
   // as the resolution.
   mLastRootMetrics.mResolution = mLastRootMetrics.mCumulativeResolution / LayoutDeviceToParentLayerScale(1);
-  mLastRootMetrics.mScrollOffset = CSSPoint(0, 0);
+  mLastRootMetrics.SetScrollOffset(CSSPoint(0, 0));
 }
 
 bool
@@ -588,7 +592,9 @@ TabChild::HandlePossibleViewportChange()
 
   FrameMetrics metrics(mLastRootMetrics);
   metrics.mViewport = CSSRect(CSSPoint(), viewport);
-  metrics.mCompositionBounds = ScreenIntRect(ScreenIntPoint(), mInnerSize);
+  metrics.mCompositionBounds = ParentLayerIntRect(
+      ParentLayerIntPoint(),
+      ViewAs<ParentLayerPixel>(mInnerSize, PixelCastJustification::ScreenToParentLayerForRoot));
 
   // This change to the zoom accounts for all types of changes I can conceive:
   // 1. screen size changes, CSS viewport does not (pages with no meta viewport
@@ -603,7 +609,7 @@ TabChild::HandlePossibleViewportChange()
   // within the screen width. Note that "actual content" may be different with
   // respect to CSS pixels because of the CSS viewport size changing.
   float oldIntrinsicScale = oldScreenWidth / oldBrowserWidth;
-  metrics.mZoom.scale *= metrics.CalculateIntrinsicScale().scale / oldIntrinsicScale;
+  metrics.ZoomBy(metrics.CalculateIntrinsicScale().scale / oldIntrinsicScale);
 
   // Changing the zoom when we're not doing a first paint will get ignored
   // by AsyncPanZoomController and causes a blurry flash.
@@ -620,18 +626,18 @@ TabChild::HandlePossibleViewportChange()
     CSSToScreenScale defaultZoom = viewportInfo.GetDefaultZoom();
     MOZ_ASSERT(viewportInfo.GetMinZoom() <= defaultZoom &&
                defaultZoom <= viewportInfo.GetMaxZoom());
-    metrics.mZoom = defaultZoom;
+    metrics.SetZoom(defaultZoom);
 
     metrics.mScrollId = viewId;
   }
 
-  metrics.mCumulativeResolution = metrics.mZoom / metrics.mDevPixelsPerCSSPixel * ScreenToLayerScale(1);
+  metrics.mCumulativeResolution = metrics.GetZoom() / metrics.mDevPixelsPerCSSPixel * ScreenToLayerScale(1);
   // This is the root layer, so the cumulative resolution is the same
   // as the resolution.
   metrics.mResolution = metrics.mCumulativeResolution / LayoutDeviceToParentLayerScale(1);
   utils->SetResolution(metrics.mResolution.scale, metrics.mResolution.scale);
 
-  CSSSize scrollPort = metrics.CalculateCompositedRectInCssPixels().Size();
+  CSSSize scrollPort = CSSSize(metrics.CalculateCompositedRectInCssPixels().Size());
   utils->SetScrollPositionClampingScrollPortSize(scrollPort.width, scrollPort.height);
 
   // The call to GetPageSize forces a resize event to content, so we need to
@@ -655,7 +661,7 @@ TabChild::HandlePossibleViewportChange()
 
   // Force a repaint with these metrics. This, among other things, sets the
   // displayport, so we start with async painting.
-  ProcessUpdateFrame(metrics);
+  mLastRootMetrics = ProcessUpdateFrame(metrics);
 
   if (viewportInfo.IsZoomAllowed() && scrollIdentifiersValid) {
     // If the CSS viewport is narrower than the screen (i.e. width <= device-width)
@@ -826,7 +832,7 @@ TabChild::SetChromeFlags(uint32_t aChromeFlags)
 NS_IMETHODIMP
 TabChild::DestroyBrowserWindow()
 {
-  NS_NOTREACHED("TabChild::SetWebBrowser not supported in TabChild");
+  NS_NOTREACHED("TabChild::DestroyBrowserWindow not supported in TabChild");
 
   return NS_ERROR_NOT_IMPLEMENTED;
 }
@@ -1045,7 +1051,7 @@ TabChild::BrowserFrameProvideWindow(nsIDOMWindow* aOpener,
 
   unused << Manager()->SendPBrowserConstructor(
       // We release this ref in DeallocPBrowserChild
-      nsRefPtr<TabChild>(newChild).forget().get(),
+      nsRefPtr<TabChild>(newChild).forget().take(),
       IPCTabContext(context, mScrolling), /* chromeFlags */ 0);
 
   nsAutoCString spec;
@@ -1471,7 +1477,9 @@ TabChild::RecvUpdateFrame(const FrameMetrics& aFrameMetrics)
   if (aFrameMetrics.mIsRoot) {
     nsCOMPtr<nsIDOMWindowUtils> utils(GetDOMWindowUtils());
     if (APZCCallbackHelper::HasValidPresShellId(utils, aFrameMetrics)) {
-      return ProcessUpdateFrame(aFrameMetrics);
+      mLastRootMetrics = ProcessUpdateFrame(aFrameMetrics);
+      APZCCallbackHelper::UpdateCallbackTransform(aFrameMetrics, mLastRootMetrics);
+      return true;
     }
   } else {
     // aFrameMetrics.mIsRoot is false, so we are trying to update a subframe.
@@ -1481,6 +1489,7 @@ TabChild::RecvUpdateFrame(const FrameMetrics& aFrameMetrics)
     if (content) {
       FrameMetrics newSubFrameMetrics(aFrameMetrics);
       APZCCallbackHelper::UpdateSubFrame(content, newSubFrameMetrics);
+      APZCCallbackHelper::UpdateCallbackTransform(aFrameMetrics, newSubFrameMetrics);
       return true;
     }
   }
@@ -1488,7 +1497,8 @@ TabChild::RecvUpdateFrame(const FrameMetrics& aFrameMetrics)
   // We've recieved a message that is out of date and we want to ignore.
   // However we can't reply without painting so we reply by painting the
   // exact same thing as we did before.
-  return ProcessUpdateFrame(mLastRootMetrics);
+  mLastRootMetrics = ProcessUpdateFrame(mLastRootMetrics);
+  return true;
 }
 
 bool
@@ -1499,11 +1509,11 @@ TabChild::RecvAcknowledgeScrollUpdate(const ViewID& aScrollId,
   return true;
 }
 
-bool
+FrameMetrics
 TabChild::ProcessUpdateFrame(const FrameMetrics& aFrameMetrics)
   {
     if (!mGlobal || !mTabChildGlobal) {
-        return true;
+        return aFrameMetrics;
     }
 
     nsCOMPtr<nsIDOMWindowUtils> utils(GetDOMWindowUtils());
@@ -1511,34 +1521,18 @@ TabChild::ProcessUpdateFrame(const FrameMetrics& aFrameMetrics)
     FrameMetrics newMetrics = aFrameMetrics;
     APZCCallbackHelper::UpdateRootFrame(utils, newMetrics);
 
-    CSSRect cssCompositedRect = newMetrics.CalculateCompositedRectInCssPixels();
+    CSSRect cssCompositedRect = CSSRect(newMetrics.CalculateCompositedRectInCssPixels());
     // The BrowserElementScrolling helper must know about these updated metrics
     // for other functions it performs, such as double tap handling.
     // Note, %f must not be used because it is locale specific!
     nsCString data;
-    data.AppendPrintf("{ \"x\" : %d", NS_lround(newMetrics.mScrollOffset.x));
-    data.AppendPrintf(", \"y\" : %d", NS_lround(newMetrics.mScrollOffset.y));
+    data.AppendPrintf("{ \"x\" : %d", NS_lround(newMetrics.GetScrollOffset().x));
+    data.AppendPrintf(", \"y\" : %d", NS_lround(newMetrics.GetScrollOffset().y));
     data.AppendLiteral(", \"viewport\" : ");
         data.AppendLiteral("{ \"width\" : ");
         data.AppendFloat(newMetrics.mViewport.width);
         data.AppendLiteral(", \"height\" : ");
         data.AppendFloat(newMetrics.mViewport.height);
-        data.AppendLiteral(" }");
-    data.AppendLiteral(", \"displayPort\" : ");
-        data.AppendLiteral("{ \"x\" : ");
-        data.AppendFloat(newMetrics.mDisplayPort.x);
-        data.AppendLiteral(", \"y\" : ");
-        data.AppendFloat(newMetrics.mDisplayPort.y);
-        data.AppendLiteral(", \"width\" : ");
-        data.AppendFloat(newMetrics.mDisplayPort.width);
-        data.AppendLiteral(", \"height\" : ");
-        data.AppendFloat(newMetrics.mDisplayPort.height);
-        data.AppendLiteral(" }");
-    data.AppendLiteral(", \"compositionBounds\" : ");
-        data.AppendPrintf("{ \"x\" : %d", newMetrics.mCompositionBounds.x);
-        data.AppendPrintf(", \"y\" : %d", newMetrics.mCompositionBounds.y);
-        data.AppendPrintf(", \"width\" : %d", newMetrics.mCompositionBounds.width);
-        data.AppendPrintf(", \"height\" : %d", newMetrics.mCompositionBounds.height);
         data.AppendLiteral(" }");
     data.AppendLiteral(", \"cssPageRect\" : ");
         data.AppendLiteral("{ \"x\" : ");
@@ -1559,22 +1553,20 @@ TabChild::ProcessUpdateFrame(const FrameMetrics& aFrameMetrics)
     data.AppendLiteral(" }");
 
     DispatchMessageManagerMessage(NS_LITERAL_STRING("Viewport:Change"), data);
-
-    mLastRootMetrics = newMetrics;
-
-    return true;
+    return newMetrics;
 }
 
 bool
-TabChild::RecvHandleDoubleTap(const CSSIntPoint& aPoint, const ScrollableLayerGuid& aGuid)
+TabChild::RecvHandleDoubleTap(const CSSPoint& aPoint, const ScrollableLayerGuid& aGuid)
 {
     if (!mGlobal || !mTabChildGlobal) {
         return true;
     }
 
+    CSSPoint point = APZCCallbackHelper::ApplyCallbackTransform(aPoint, aGuid);
     nsCString data;
-    data += nsPrintfCString("{ \"x\" : %d", aPoint.x);
-    data += nsPrintfCString(", \"y\" : %d", aPoint.y);
+    data += nsPrintfCString("{ \"x\" : %f", point.x);
+    data += nsPrintfCString(", \"y\" : %f", point.y);
     data += nsPrintfCString(" }");
 
     DispatchMessageManagerMessage(NS_LITERAL_STRING("Gesture:DoubleTap"), data);
@@ -1583,13 +1575,13 @@ TabChild::RecvHandleDoubleTap(const CSSIntPoint& aPoint, const ScrollableLayerGu
 }
 
 bool
-TabChild::RecvHandleSingleTap(const CSSIntPoint& aPoint, const ScrollableLayerGuid& aGuid)
+TabChild::RecvHandleSingleTap(const CSSPoint& aPoint, const ScrollableLayerGuid& aGuid)
 {
   if (!mGlobal || !mTabChildGlobal) {
     return true;
   }
 
-  LayoutDevicePoint currentPoint = CSSPoint(aPoint) * mWidget->GetDefaultScale();;
+  LayoutDevicePoint currentPoint = APZCCallbackHelper::ApplyCallbackTransform(aPoint, aGuid) * mWidget->GetDefaultScale();;
 
   MessageLoop::current()->PostDelayedTask(
     FROM_HERE,
@@ -1608,14 +1600,16 @@ TabChild::FireSingleTapEvent(LayoutDevicePoint aPoint)
 }
 
 bool
-TabChild::RecvHandleLongTap(const CSSIntPoint& aPoint, const ScrollableLayerGuid& aGuid)
+TabChild::RecvHandleLongTap(const CSSPoint& aPoint, const ScrollableLayerGuid& aGuid)
 {
   if (!mGlobal || !mTabChildGlobal) {
     return true;
   }
 
   mContextMenuHandled =
-      DispatchMouseEvent(NS_LITERAL_STRING("contextmenu"), aPoint, 2, 1, 0, false,
+      DispatchMouseEvent(NS_LITERAL_STRING("contextmenu"),
+                         APZCCallbackHelper::ApplyCallbackTransform(aPoint, aGuid),
+                         2, 1, 0, false,
                          nsIDOMMouseEvent::MOZ_SOURCE_TOUCH);
 
   SendContentReceivedTouch(aGuid, mContextMenuHandled);
@@ -1624,7 +1618,7 @@ TabChild::RecvHandleLongTap(const CSSIntPoint& aPoint, const ScrollableLayerGuid
 }
 
 bool
-TabChild::RecvHandleLongTapUp(const CSSIntPoint& aPoint, const ScrollableLayerGuid& aGuid)
+TabChild::RecvHandleLongTapUp(const CSSPoint& aPoint, const ScrollableLayerGuid& aGuid)
 {
   if (mContextMenuHandled) {
     mContextMenuHandled = false;
@@ -1867,6 +1861,10 @@ TabChild::RecvRealTouchEvent(const WidgetTouchEvent& aEvent,
                              const ScrollableLayerGuid& aGuid)
 {
   WidgetTouchEvent localEvent(aEvent);
+  for (size_t i = 0; i < localEvent.touches.Length(); i++) {
+    aEvent.touches[i]->mRefPoint = APZCCallbackHelper::ApplyCallbackTransform(aEvent.touches[i]->mRefPoint, aGuid, mWidget->GetDefaultScale());
+  }
+
   nsEventStatus status = DispatchWidgetEvent(localEvent);
 
   if (!IsAsyncPanZoomEnabled()) {
@@ -1921,8 +1919,19 @@ TabChild::RecvRealTouchMoveEvent(const WidgetTouchEvent& aEvent,
 bool
 TabChild::RecvRealKeyEvent(const WidgetKeyboardEvent& event)
 {
+  // If content code called preventDefault() on a keydown event, then we don't
+  // want to process any following keypress events.
+  if (event.message == NS_KEY_PRESS && mIgnoreKeyPressEvent) {
+    return true;
+  }
+
   WidgetKeyboardEvent localEvent(event);
-  DispatchWidgetEvent(localEvent);
+  nsEventStatus status = DispatchWidgetEvent(localEvent);
+
+  if (event.message == NS_KEY_DOWN) {
+    mIgnoreKeyPressEvent = status == nsEventStatus_eConsumeNoDefault;
+  }
+
   return true;
 }
 

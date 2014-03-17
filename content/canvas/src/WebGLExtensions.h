@@ -30,8 +30,13 @@ public:
         return Context();
     }
 
+    void MarkLost();
+
     NS_INLINE_DECL_CYCLE_COLLECTING_NATIVE_REFCOUNTING(WebGLExtensionBase)
     NS_DECL_CYCLE_COLLECTION_SCRIPT_HOLDER_NATIVE_CLASS(WebGLExtensionBase)
+
+protected:
+    bool mIsLost;
 };
 
 #define DECL_WEBGL_EXTENSION_GOOP                                           \
@@ -50,6 +55,16 @@ class WebGLExtensionCompressedTextureATC
 public:
     WebGLExtensionCompressedTextureATC(WebGLContext*);
     virtual ~WebGLExtensionCompressedTextureATC();
+
+    DECL_WEBGL_EXTENSION_GOOP
+};
+
+class WebGLExtensionCompressedTextureETC1
+    : public WebGLExtensionBase
+{
+public:
+    WebGLExtensionCompressedTextureETC1(WebGLContext*);
+    virtual ~WebGLExtensionCompressedTextureETC1();
 
     DECL_WEBGL_EXTENSION_GOOP
 };

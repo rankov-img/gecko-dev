@@ -23,9 +23,7 @@ CreateDirectoryTask::CreateDirectoryTask(FileSystemBase* aFileSystem,
   , mTargetRealPath(aPath)
 {
   MOZ_ASSERT(NS_IsMainThread(), "Only call on main thread!");
-  if (!aFileSystem) {
-    return;
-  }
+  MOZ_ASSERT(aFileSystem);
   nsCOMPtr<nsIGlobalObject> globalObject =
     do_QueryInterface(aFileSystem->GetWindow());
   if (!globalObject) {
@@ -43,6 +41,7 @@ CreateDirectoryTask::CreateDirectoryTask(
   MOZ_ASSERT(FileSystemUtils::IsParentProcess(),
              "Only call from parent process!");
   MOZ_ASSERT(NS_IsMainThread(), "Only call on main thread!");
+  MOZ_ASSERT(aFileSystem);
   mTargetRealPath = aParam.realPath();
 }
 
@@ -81,61 +80,53 @@ CreateDirectoryTask::SetSuccessRequestResult(const FileSystemResponseValue& aVal
   mTargetRealPath = r.realPath();
 }
 
-void
+nsresult
 CreateDirectoryTask::Work()
 {
   MOZ_ASSERT(FileSystemUtils::IsParentProcess(),
              "Only call from parent process!");
   MOZ_ASSERT(!NS_IsMainThread(), "Only call on worker thread!");
 
-  nsRefPtr<FileSystemBase> filesystem = do_QueryReferent(mFileSystem);
-  if (!filesystem) {
-    return;
+  if (mFileSystem->IsShutdown()) {
+    return NS_ERROR_FAILURE;
   }
 
-  nsCOMPtr<nsIFile> file = filesystem->GetLocalFile(mTargetRealPath);
+  nsCOMPtr<nsIFile> file = mFileSystem->GetLocalFile(mTargetRealPath);
   if (!file) {
-    SetError(NS_ERROR_DOM_FILESYSTEM_INVALID_PATH_ERR);
-    return;
+    return NS_ERROR_DOM_FILESYSTEM_INVALID_PATH_ERR;
   }
 
-  bool ret;
-  nsresult rv = file->Exists(&ret);
-  if (NS_FAILED(rv)) {
-    SetError(rv);
-    return;
+  bool fileExists;
+  nsresult rv = file->Exists(&fileExists);
+  if (NS_WARN_IF(NS_FAILED(rv))) {
+    return rv;
   }
 
-  if (ret) {
-    SetError(NS_ERROR_DOM_FILESYSTEM_PATH_EXISTS_ERR);
-    return;
+  if (fileExists) {
+    return NS_ERROR_DOM_FILESYSTEM_PATH_EXISTS_ERR;
   }
 
-  rv = file->Create(nsIFile::DIRECTORY_TYPE, 0777);
-  if (NS_FAILED(rv)) {
-    SetError(rv);
-    return;
-  }
+  rv = file->Create(nsIFile::DIRECTORY_TYPE, 0770);
+  return rv;
 }
 
 void
 CreateDirectoryTask::HandlerCallback()
 {
   MOZ_ASSERT(NS_IsMainThread(), "Only call on main thread!");
-  nsRefPtr<FileSystemBase> filesystem = do_QueryReferent(mFileSystem);
-  if (!filesystem) {
+  if (mFileSystem->IsShutdown()) {
     mPromise = nullptr;
     return;
   }
 
   if (HasError()) {
-    nsRefPtr<DOMError> domError = new DOMError(filesystem->GetWindow(),
+    nsRefPtr<DOMError> domError = new DOMError(mFileSystem->GetWindow(),
       mErrorValue);
     mPromise->MaybeReject(domError);
     mPromise = nullptr;
     return;
   }
-  nsRefPtr<Directory> dir = new Directory(filesystem, mTargetRealPath);
+  nsRefPtr<Directory> dir = new Directory(mFileSystem, mTargetRealPath);
   mPromise->MaybeResolve(dir);
   mPromise = nullptr;
 }

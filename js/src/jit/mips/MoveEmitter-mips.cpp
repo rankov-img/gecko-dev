@@ -100,6 +100,7 @@ MoveEmitterMIPS::breakCycle(const MoveOperand &from, const MoveOperand &to, Move
         }
         break;
       case MoveOp::INT32:
+        MOZ_ASSERT(sizeof(uintptr_t) == sizeof(int32_t));
       case MoveOp::GENERAL:
         if (to.isMemory()) {
             Register temp = tempReg();
@@ -145,6 +146,7 @@ MoveEmitterMIPS::completeCycle(const MoveOperand &from, const MoveOperand &to, M
         }
         break;
       case MoveOp::INT32:
+        MOZ_ASSERT(sizeof(uintptr_t) == sizeof(int32_t));
       case MoveOp::GENERAL:
         if (to.isMemory()) {
             Register temp = tempReg();
@@ -242,7 +244,9 @@ MoveEmitterMIPS::emitDoubleMove(const MoveOperand &from, const MoveOperand &to)
         if (to.isFloatReg()) {
             masm.moveDouble(from.floatReg(), to.floatReg());
         } else if (to.isGeneralReg()) {
-            // This should only be used when passing double parameter in a2,a3
+            // Used for passing double parameter in a2,a3 register pair.
+            // Two moves are added for one double parameter by
+            // MacroAssemblerMIPSCompat::passABIArg
             if(to.reg() == a2)
                 masm.as_mfc1(a2, from.floatReg());
             else if(to.reg() == a3)
@@ -258,7 +262,9 @@ MoveEmitterMIPS::emitDoubleMove(const MoveOperand &from, const MoveOperand &to)
         masm.loadDouble(getAdjustedAddress(from), to.floatReg());
     } else if (to.isGeneralReg()) {
         MOZ_ASSERT(from.isMemory());
-        // This should only be used when passing double parameter in a2,a3
+        // Used for passing double parameter in a2,a3 register pair.
+        // Two moves are added for one double parameter by
+        // MacroAssemblerMIPSCompat::passABIArg
         if(to.reg() == a2)
             masm.loadPtr(getAdjustedAddress(from), a2);
         else if(to.reg() == a3)
@@ -300,6 +306,7 @@ MoveEmitterMIPS::emit(const MoveOp &move)
         emitDoubleMove(from, to);
         break;
       case MoveOp::INT32:
+        MOZ_ASSERT(sizeof(uintptr_t) == sizeof(int32_t));
       case MoveOp::GENERAL:
         emitMove(from, to);
         break;

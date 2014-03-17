@@ -10,7 +10,9 @@
 #include "mozilla/ErrorResult.h"
 #include "mozilla/dom/FileSystemRequestParent.h"
 #include "mozilla/dom/PFileSystemRequestChild.h"
-#include "nsWeakReference.h"
+#include "mozilla/dom/ipc/Blob.h"
+
+class nsIDOMFile;
 
 namespace mozilla {
 namespace dom {
@@ -126,8 +128,8 @@ public:
   void
   SetError(const nsresult& aErrorCode);
 
-  already_AddRefed<FileSystemBase>
-  GetFileSystem();
+  FileSystemBase*
+  GetFileSystem() const;
 
   /*
    * Get the type of permission access required to perform this task.
@@ -158,7 +160,7 @@ protected:
    * thread of the parent process.
    * Overrides this function to define the task operation for individual task.
    */
-  virtual void
+  virtual nsresult
   Work() = 0;
 
   /*
@@ -203,9 +205,12 @@ protected:
   virtual bool
   Recv__delete__(const FileSystemResponseValue& value) MOZ_OVERRIDE;
 
+  BlobParent*
+  GetBlobParent(nsIDOMFile* aFile) const;
+
   nsresult mErrorValue;
 
-  nsWeakPtr mFileSystem;
+  nsRefPtr<FileSystemBase> mFileSystem;
   nsRefPtr<FileSystemRequestParent> mRequestParent;
 private:
   /*

@@ -203,20 +203,22 @@
            align="start"
            orient="vertical"
            role="alert">
-      <hbox>
-        <vbox>
+     <vbox>
+      <hbox pack="end">
+        <toolbarbutton id="UITourTooltipClose" class="close-icon"
+                       tooltiptext="&uiTour.infoPanel.close;"/>
+      </hbox>
+      <hbox id="UITourTooltipBody">
+        <vbox id="UITourTooltipIconContainer">
           <image id="UITourTooltipIcon"/>
         </vbox>
         <vbox flex="1">
           <label id="UITourTooltipTitle" flex="1"/>
           <description id="UITourTooltipDescription" flex="1"/>
-          <hbox id="UITourTooltipButtons" flex="1" align="center"/>
-        </vbox>
-        <vbox align="start">
-          <toolbarbutton id="UITourTooltipClose" class="close-icon"
-                         tooltiptext="&uiTour.infoPanel.close;"/>
         </vbox>
       </hbox>
+      <hbox id="UITourTooltipButtons" flex="1" align="center"/>
+     </vbox>
     </panel>
     <!-- type="default" forces frames to be created so that the panel's size can be determined --> 
     <panel id="UITourHighlightContainer"
@@ -404,14 +406,9 @@
         <image class="sync-panel-icon"/>
         <vbox class="sync-panel-inner">
           <description id="sync-start-panel-title"
-                       value="&syncStartPanel.heading;"/>
-          <description id="sync-start-panel-subtitle">
-#ifdef XP_UNIX
-            &syncStartPanel.subTitleUnix;
-#else
-            &syncStartPanel.subTitle;
-#endif
-          </description>
+                       value="&syncStartPanel2.heading;"/>
+          <description id="sync-start-panel-subtitle"
+                       value="&syncStartPanel2.subTitle;"/>
         </vbox>
       </hbox>
     </panel>
@@ -631,6 +628,7 @@
              overflowable="true"
              overflowbutton="nav-bar-overflow-button"
              overflowtarget="widget-overflow-list"
+             overflowpanel="widget-overflow"
              context="toolbar-context-menu">
 
       <hbox id="nav-bar-customization-target" flex="1">
@@ -825,7 +823,8 @@
                          placespopup="true"
                          context="placesContext"
                          onpopupshowing="if (!this.parentNode._placesView)
-                                           new PlacesMenu(event, 'place:folder=TOOLBAR');">
+                                           new PlacesMenu(event, 'place:folder=TOOLBAR',
+                                                          PlacesUIUtils.getViewForNode(this.parentNode.parentNode).options);">
                 <menuitem id="BMB_viewBookmarksToolbar"
                           placesanonid="view-toolbar"
                           toolbarId="PersonalToolbar"
@@ -844,7 +843,8 @@
                          placespopup="true"
                          context="placesContext"
                          onpopupshowing="if (!this.parentNode._placesView)
-                                           new PlacesMenu(event, 'place:folder=UNFILED_BOOKMARKS');"/>
+                                           new PlacesMenu(event, 'place:folder=UNFILED_BOOKMARKS',
+                                                          PlacesUIUtils.getViewForNode(this.parentNode.parentNode).options);"/>
             </menu>
             <menuseparator/>
             <!-- Bookmarks menu items will go here -->
@@ -1079,7 +1079,6 @@
                         command="Social:ToggleNotifications"
                         label="&social.toggleNotifications.label;"
                         accesskey="&social.toggleNotifications.accesskey;"/>
-              <menuitem class="social-toggle-menuitem" command="Social:Toggle"/>
               <menuseparator/>
               <menuseparator class="social-provider-menu" hidden="true"/>
               <menuitem class="social-addons-menuitem" command="Social:Addons"
@@ -1166,7 +1165,7 @@
 
 #ifndef XP_UNIX
     <svg:clipPath id="windows-keyhole-forward-clip-path" clipPathUnits="objectBoundingBox">
-      <svg:path d="M 0,0 C 0.16,0.11 0.28,0.29 0.28,0.5 0.28,0.71 0.16,0.89 0,1 L 1,1 1,0 0,0 z"/>
+      <svg:path d="m 0,0 c .3,.25 .3,.75, 0,1 l 1,0 0,-1 z"/>
     </svg:clipPath>
     <svg:clipPath id="windows-urlbar-back-button-clip-path" clipPathUnits="userSpaceOnUse">
       <svg:path d="m 0,-5 l 0,7.8 c 2.5,3.2 4,6.2 4,10.2 c 0,4 -1.5,7 -4,10 l 0,22l10000,0 l 0,-50 l -10000,0 z"/>

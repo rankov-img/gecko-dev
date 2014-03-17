@@ -549,7 +549,7 @@ public:
     static void ActivityCallback(void *arg, bool active);
     static void CTypesActivityCallback(JSContext *cx,
                                        js::CTypesActivityType type);
-    static bool OperationCallback(JSContext *cx);
+    static bool InterruptCallback(JSContext *cx);
     static void OutOfMemoryCallback(JSContext *cx);
 
     size_t SizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf);
@@ -907,24 +907,19 @@ XPC_WN_JSOp_ThisObject(JSContext *cx, JS::HandleObject obj);
         nullptr, /* lookupGeneric */                                          \
         nullptr, /* lookupProperty */                                         \
         nullptr, /* lookupElement */                                          \
-        nullptr, /* lookupSpecial */                                          \
         nullptr, /* defineGeneric */                                          \
         nullptr, /* defineProperty */                                         \
         nullptr, /* defineElement */                                          \
-        nullptr, /* defineSpecial */                                          \
         nullptr, /* getGeneric    */                                          \
         nullptr, /* getProperty    */                                         \
         nullptr, /* getElement    */                                          \
-        nullptr, /* getSpecial    */                                          \
         nullptr, /* setGeneric    */                                          \
         nullptr, /* setProperty    */                                         \
         nullptr, /* setElement    */                                          \
-        nullptr, /* setSpecial    */                                          \
         nullptr, /* getGenericAttributes  */                                  \
         nullptr, /* setGenericAttributes  */                                  \
         nullptr, /* deleteProperty */                                         \
         nullptr, /* deleteElement */                                          \
-        nullptr, /* deleteSpecial */                                          \
         nullptr, nullptr, /* watch/unwatch */                                 \
         nullptr, /* slice */                                                  \
         XPC_WN_JSOp_Enumerate,                                                \
@@ -936,24 +931,19 @@ XPC_WN_JSOp_ThisObject(JSContext *cx, JS::HandleObject obj);
         nullptr, /* lookupGeneric */                                          \
         nullptr, /* lookupProperty */                                         \
         nullptr, /* lookupElement */                                          \
-        nullptr, /* lookupSpecial */                                          \
         nullptr, /* defineGeneric */                                          \
         nullptr, /* defineProperty */                                         \
         nullptr, /* defineElement */                                          \
-        nullptr, /* defineSpecial */                                          \
         nullptr, /* getGeneric    */                                          \
         nullptr, /* getProperty    */                                         \
         nullptr, /* getElement    */                                          \
-        nullptr, /* getSpecial    */                                          \
         nullptr, /* setGeneric    */                                          \
         nullptr, /* setProperty    */                                         \
         nullptr, /* setElement    */                                          \
-        nullptr, /* setSpecial    */                                          \
         nullptr, /* getGenericAttributes  */                                  \
         nullptr, /* setGenericAttributes  */                                  \
         nullptr, /* deleteProperty */                                         \
         nullptr, /* deleteElement */                                          \
-        nullptr, /* deleteSpecial */                                          \
         nullptr, nullptr, /* watch/unwatch */                                 \
         nullptr, /* slice */                                                  \
         XPC_WN_JSOp_Enumerate,                                                \
@@ -1655,7 +1645,7 @@ public:
     void
     SetCallback(nsIXPCScriptable* s) {mCallback = s;}
     void
-    SetCallback(already_AddRefed<nsIXPCScriptable> s) {mCallback = s;}
+    SetCallback(already_AddRefed<nsIXPCScriptable>&& s) {mCallback = s;}
 
     void
     SetScriptableShared(XPCNativeScriptableShared* shared) {mShared = shared;}
@@ -1699,7 +1689,7 @@ public:
         : mCallback(si.GetCallback()), mFlags(si.GetFlags()),
           mInterfacesBitmap(si.GetInterfacesBitmap()) {}
 
-    XPCNativeScriptableCreateInfo(already_AddRefed<nsIXPCScriptable> callback,
+    XPCNativeScriptableCreateInfo(already_AddRefed<nsIXPCScriptable>&& callback,
                                   XPCNativeScriptableFlags flags,
                                   uint32_t interfacesBitmap)
         : mCallback(callback), mFlags(flags),
@@ -1719,7 +1709,7 @@ public:
     GetInterfacesBitmap() const     {return mInterfacesBitmap;}
 
     void
-    SetCallback(already_AddRefed<nsIXPCScriptable> callback)
+    SetCallback(already_AddRefed<nsIXPCScriptable>&& callback)
         {mCallback = callback;}
 
     void
@@ -2170,11 +2160,11 @@ protected:
     XPCWrappedNative(); // not implemented
 
     // This ctor is used if this object will have a proto.
-    XPCWrappedNative(already_AddRefed<nsISupports> aIdentity,
+    XPCWrappedNative(already_AddRefed<nsISupports>&& aIdentity,
                      XPCWrappedNativeProto* aProto);
 
     // This ctor is used if this object will NOT have a proto.
-    XPCWrappedNative(already_AddRefed<nsISupports> aIdentity,
+    XPCWrappedNative(already_AddRefed<nsISupports>&& aIdentity,
                      XPCWrappedNativeScope* aScope,
                      XPCNativeSet* aSet);
 

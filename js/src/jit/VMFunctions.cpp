@@ -109,8 +109,8 @@ bool
 CheckOverRecursed(JSContext *cx)
 {
     // IonMonkey's stackLimit is equal to nativeStackLimit by default. When we
-    // want to trigger an operation callback, we set the jitStackLimit to nullptr,
-    // which causes the stack limit check to fail.
+    // request an interrupt, we set the jitStackLimit to nullptr, which causes
+    // the stack limit check to fail.
     //
     // There are two states we're concerned about here:
     //   (1) The interrupt bit is set, and we need to fire the interrupt callback.
@@ -506,29 +506,19 @@ InterruptCheck(JSContext *cx)
     cx->runtime()->jitRuntime()->patchIonBackedges(cx->runtime(),
                                                    JitRuntime::BackedgeLoopHeader);
 
-    return !!js_HandleExecutionInterrupt(cx);
+    return CheckForInterrupt(cx);
 }
 
-HeapSlot *
-NewSlots(JSRuntime *rt, unsigned nslots)
+void *
+MallocWrapper(JSRuntime *rt, size_t nbytes)
 {
-    JS_STATIC_ASSERT(sizeof(Value) == sizeof(HeapSlot));
-
-    Value *slots = reinterpret_cast<Value *>(rt->malloc_(nslots * sizeof(Value)));
-    if (!slots)
-        return nullptr;
-
-    for (unsigned i = 0; i < nslots; i++)
-        slots[i] = UndefinedValue();
-
-    return reinterpret_cast<HeapSlot *>(slots);
+    return rt->pod_malloc<uint8_t>(nbytes);
 }
 
 JSObject *
-NewCallObject(JSContext *cx, HandleScript script,
-              HandleShape shape, HandleTypeObject type, HeapSlot *slots)
+NewCallObject(JSContext *cx, HandleScript script, HandleShape shape, HandleTypeObject type)
 {
-    JSObject *obj = CallObject::create(cx, script, shape, type, slots);
+    JSObject *obj = CallObject::create(cx, script, shape, type);
     if (!obj)
         return nullptr;
 

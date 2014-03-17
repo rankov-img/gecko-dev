@@ -34,6 +34,9 @@ public:
 
   bool
   Dispatch(ContentParent* aParent, const FileSystemParams& aParams);
+
+  virtual void
+  ActorDestroy(ActorDestroyReason why) MOZ_OVERRIDE;
 private:
   nsRefPtr<FileSystemBase> mFileSystem;
 };

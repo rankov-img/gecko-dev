@@ -733,6 +733,15 @@ UnsizedArrayTypeDescr::dimension(JSContext *cx, unsigned int argc, jsval *vp)
     return true;
 }
 
+bool
+js::IsTypedObjectArray(JSObject &obj)
+{
+    if (!obj.is<TypedObject>())
+        return false;
+    TypeDescr& d = obj.as<TypedObject>().typeDescr();
+    return d.is<SizedArrayTypeDescr>() || d.is<UnsizedArrayTypeDescr>();
+}
+
 /*********************************
  * StructType class
  */
@@ -1694,15 +1703,6 @@ ReportPropertyError(JSContext *cx,
 }
 
 bool
-TypedObject::obj_lookupSpecial(JSContext *cx, HandleObject obj,
-                              HandleSpecialId sid, MutableHandleObject objp,
-                              MutableHandleShape propp)
-{
-    RootedId id(cx, SPECIALID_TO_JSID(sid));
-    return obj_lookupGeneric(cx, obj, id, objp, propp);
-}
-
-bool
 TypedObject::obj_defineGeneric(JSContext *cx, HandleObject obj, HandleId id, HandleValue v,
                               PropertyOp getter, StrictPropertyOp setter, unsigned attrs)
 {
@@ -1728,14 +1728,6 @@ TypedObject::obj_defineElement(JSContext *cx, HandleObject obj, uint32_t index, 
     if (!delegate)
         return false;
     return baseops::DefineElement(cx, delegate, index, v, getter, setter, attrs);
-}
-
-bool
-TypedObject::obj_defineSpecial(JSContext *cx, HandleObject obj, HandleSpecialId sid, HandleValue v,
-                              PropertyOp getter, StrictPropertyOp setter, unsigned attrs)
-{
-    Rooted<jsid> id(cx, SPECIALID_TO_JSID(sid));
-    return obj_defineGeneric(cx, obj, id, v, getter, setter, attrs);
 }
 
 bool
@@ -1860,15 +1852,6 @@ TypedObject::obj_getArrayElement(JSContext *cx,
 }
 
 bool
-TypedObject::obj_getSpecial(JSContext *cx, HandleObject obj,
-                            HandleObject receiver, HandleSpecialId sid,
-                            MutableHandleValue vp)
-{
-    RootedId id(cx, SPECIALID_TO_JSID(sid));
-    return obj_getGeneric(cx, obj, receiver, id, vp);
-}
-
-bool
 TypedObject::obj_setGeneric(JSContext *cx, HandleObject obj, HandleId id,
                            MutableHandleValue vp, bool strict)
 {
@@ -1967,15 +1950,6 @@ TypedObject::obj_setArrayElement(JSContext *cx,
     elementType = &descr->as<T>().elementType();
     size_t offset = elementType->size() * index;
     return ConvertAndCopyTo(cx, elementType, typedObj, offset, vp);
-}
-
-bool
-TypedObject::obj_setSpecial(JSContext *cx, HandleObject obj,
-                             HandleSpecialId sid, MutableHandleValue vp,
-                             bool strict)
-{
-    RootedId id(cx, SPECIALID_TO_JSID(sid));
-    return obj_setGeneric(cx, obj, id, vp, strict);
 }
 
 bool
@@ -2098,19 +2072,6 @@ TypedObject::obj_deleteElement(JSContext *cx, HandleObject obj, uint32_t index,
     }
 
     return JSObject::deleteElement(cx, proto, index, succeeded);
-}
-
-bool
-TypedObject::obj_deleteSpecial(JSContext *cx, HandleObject obj,
-                               HandleSpecialId sid, bool *succeeded)
-{
-    RootedObject proto(cx, obj->getProto());
-    if (!proto) {
-        *succeeded = false;
-        return true;
-    }
-
-    return JSObject::deleteSpecial(cx, proto, sid, succeeded);
 }
 
 bool
@@ -2242,24 +2203,19 @@ const Class TransparentTypedObject::class_ = {
         TypedObject::obj_lookupGeneric,
         TypedObject::obj_lookupProperty,
         TypedObject::obj_lookupElement,
-        TypedObject::obj_lookupSpecial,
         TypedObject::obj_defineGeneric,
         TypedObject::obj_defineProperty,
         TypedObject::obj_defineElement,
-        TypedObject::obj_defineSpecial,
         TypedObject::obj_getGeneric,
         TypedObject::obj_getProperty,
         TypedObject::obj_getElement,
-        TypedObject::obj_getSpecial,
         TypedObject::obj_setGeneric,
         TypedObject::obj_setProperty,
         TypedObject::obj_setElement,
-        TypedObject::obj_setSpecial,
         TypedObject::obj_getGenericAttributes,
         TypedObject::obj_setGenericAttributes,
         TypedObject::obj_deleteProperty,
         TypedObject::obj_deleteElement,
-        TypedObject::obj_deleteSpecial,
         nullptr, nullptr, // watch/unwatch
         nullptr,   /* slice */
         TypedObject::obj_enumerate,
@@ -2344,6 +2300,12 @@ TypedObject::constructSized(JSContext *cx, unsigned int argc, Value *vp)
     if (args[0].isObject() && args[0].toObject().is<ArrayBufferObject>()) {
         Rooted<ArrayBufferObject*> buffer(cx);
         buffer = &args[0].toObject().as<ArrayBufferObject>();
+
+        if (buffer->isNeutered()) {
+            JS_ReportErrorNumber(cx, js_GetErrorMessage,
+                                 nullptr, JSMSG_TYPEDOBJECT_BAD_ARGS);
+            return false;
+        }
 
         int32_t offset;
         if (args.length() >= 2 && !args[1].isUndefined()) {
@@ -2450,6 +2412,12 @@ TypedObject::constructUnsized(JSContext *cx, unsigned int argc, Value *vp)
     if (args[0].isObject() && args[0].toObject().is<ArrayBufferObject>()) {
         Rooted<ArrayBufferObject*> buffer(cx);
         buffer = &args[0].toObject().as<ArrayBufferObject>();
+
+        if (buffer->isNeutered()) {
+            JS_ReportErrorNumber(cx, js_GetErrorMessage,
+                                 nullptr, JSMSG_TYPEDOBJECT_BAD_ARGS);
+            return false;
+        }
 
         int32_t offset;
         if (args.length() >= 2 && !args[1].isUndefined()) {
@@ -2575,24 +2543,19 @@ const Class OpaqueTypedObject::class_ = {
         TypedObject::obj_lookupGeneric,
         TypedObject::obj_lookupProperty,
         TypedObject::obj_lookupElement,
-        TypedObject::obj_lookupSpecial,
         TypedObject::obj_defineGeneric,
         TypedObject::obj_defineProperty,
         TypedObject::obj_defineElement,
-        TypedObject::obj_defineSpecial,
         TypedObject::obj_getGeneric,
         TypedObject::obj_getProperty,
         TypedObject::obj_getElement,
-        TypedObject::obj_getSpecial,
         TypedObject::obj_setGeneric,
         TypedObject::obj_setProperty,
         TypedObject::obj_setElement,
-        TypedObject::obj_setSpecial,
         TypedObject::obj_getGenericAttributes,
         TypedObject::obj_setGenericAttributes,
         TypedObject::obj_deleteProperty,
         TypedObject::obj_deleteElement,
-        TypedObject::obj_deleteSpecial,
         nullptr, nullptr, // watch/unwatch
         nullptr, // slice
         TypedObject::obj_enumerate,

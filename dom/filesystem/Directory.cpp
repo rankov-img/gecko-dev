@@ -11,7 +11,7 @@
 #include "GetFileOrDirectoryTask.h"
 
 #include "nsCharSeparatedTokenizer.h"
-#include "nsStringGlue.h"
+#include "nsString.h"
 #include "mozilla/dom/DirectoryBinding.h"
 #include "mozilla/dom/FileSystemBase.h"
 #include "mozilla/dom/FileSystemUtils.h"
@@ -46,10 +46,10 @@ Directory::GetRoot(FileSystemBase* aFileSystem)
 
 Directory::Directory(FileSystemBase* aFileSystem,
                      const nsAString& aPath)
-  : mPath(aPath)
+  : mFileSystem(aFileSystem)
+  , mPath(aPath)
 {
   MOZ_ASSERT(aFileSystem, "aFileSystem should not be null.");
-  mFileSystem = do_GetWeakReference(aFileSystem);
   // Remove the trailing "/".
   mPath.Trim(FILESYSTEM_DOM_PATH_SEPARATOR, false, true);
 
@@ -63,11 +63,7 @@ Directory::~Directory()
 nsPIDOMWindow*
 Directory::GetParentObject() const
 {
-  nsRefPtr<FileSystemBase> fs = do_QueryReferent(mFileSystem);
-  if (!fs) {
-    return nullptr;
-  }
-  return fs->GetWindow();
+  return mFileSystem->GetWindow();
 }
 
 JSObject*
@@ -81,9 +77,8 @@ Directory::GetName(nsString& aRetval) const
 {
   aRetval.Truncate();
 
-  nsRefPtr<FileSystemBase> fs = do_QueryReferent(mFileSystem);
-  if (mPath.IsEmpty() && fs) {
-    aRetval = fs->GetRootName();
+  if (mPath.IsEmpty()) {
+    aRetval = mFileSystem->GetRootName();
     return;
   }
 
@@ -99,9 +94,8 @@ Directory::CreateDirectory(const nsAString& aPath)
   if (!DOMPathToRealPath(aPath, realPath)) {
     error = NS_ERROR_DOM_FILESYSTEM_INVALID_PATH_ERR;
   }
-  nsRefPtr<FileSystemBase> fs = do_QueryReferent(mFileSystem);
   nsRefPtr<CreateDirectoryTask> task = new CreateDirectoryTask(
-    fs, realPath);
+    mFileSystem, realPath);
   task->SetError(error);
   FileSystemPermissionRequest::RequestForTask(task);
   return task->GetPromise();
@@ -115,9 +109,8 @@ Directory::Get(const nsAString& aPath)
   if (!DOMPathToRealPath(aPath, realPath)) {
     error = NS_ERROR_DOM_FILESYSTEM_INVALID_PATH_ERR;
   }
-  nsRefPtr<FileSystemBase> fs = do_QueryReferent(mFileSystem);
   nsRefPtr<GetFileOrDirectoryTask> task = new GetFileOrDirectoryTask(
-      fs, realPath, false);
+    mFileSystem, realPath, false);
   task->SetError(error);
   FileSystemPermissionRequest::RequestForTask(task);
   return task->GetPromise();
