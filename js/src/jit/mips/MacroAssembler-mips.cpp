@@ -69,18 +69,19 @@ MacroAssemblerMIPS::convertUInt32ToDouble(const Register &src, const FloatRegist
 void
 MacroAssemblerMIPS::convertUInt32ToFloat32(const Register &src, const FloatRegister &dest)
 {
-    MOZ_ASSERT(dest != ScratchFloatReg);
+    Label positive, done;
+    ma_b(src, src, &positive, NotSigned, ShortJump);
 
-    // Subtract INT32_MIN to get a positive number
-    ma_subu(ScratchRegister, src, Imm32(INT32_MIN));
+    // We cannot do the same as convertUInt32ToDouble because float32 doesn't
+    // have enough precision.
+    convertUInt32ToDouble(src, dest);
+    convertDoubleToFloat32(dest, dest);
+    ma_b(&done);
 
-    // Convert value
-    as_mtc1(ScratchRegister, dest);
-    as_cvtsw(dest, dest);
+    bind(&positive);
+    convertInt32ToFloat32(src, dest);
 
-    // Add unsigned value of INT32_MIN
-    ma_lis(ScratchFloatReg, 2147483648.0);
-    as_adds(dest, dest, ScratchFloatReg);
+    bind(&done);
 }
 
 void
