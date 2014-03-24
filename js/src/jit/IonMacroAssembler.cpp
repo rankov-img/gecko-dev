@@ -289,7 +289,10 @@ MacroAssembler::PushRegsInMask(RegisterSet set)
 
     for (FloatRegisterForwardIterator iter(set.fpus()); iter.more(); iter++) {
         // Use assembly s.d because we have alligned the stack.
-        as_sd(*iter, SecondScratchReg, -diffF);
+        // :TODO: (Bug 972836) // Fix this once odd regs can be used as
+        // float32 only. For now we skip saving odd regs for O32 ABI.
+        if ((*iter).code() % 2 == 0)
+            as_sd(*iter, SecondScratchReg, -diffF);
         diffF -= sizeof(double);
     }
 #else
@@ -325,7 +328,9 @@ MacroAssembler::PopRegsInMaskIgnore(RegisterSet set, RegisterSet ignore)
         ma_and(SecondScratchReg, SecondScratchReg, Imm32(~(StackAlignment - 1)));
 
         for (FloatRegisterForwardIterator iter(set.fpus()); iter.more(); iter++) {
-            if (!ignore.has(*iter))
+            // :TODO: (Bug 972836) // Fix this once odd regs can be used as
+            // float32 only. For now we skip loading odd regs for O32 ABI.
+            if (!ignore.has(*iter) && ((*iter).code() % 2 == 0))
                 // Use assembly l.d because we have alligned the stack.
                 as_ld(*iter, SecondScratchReg, -diffF);
             diffF -= sizeof(double);

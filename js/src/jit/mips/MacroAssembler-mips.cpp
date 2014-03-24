@@ -125,7 +125,7 @@ MacroAssemblerMIPS::convertDoubleToInt32(const FloatRegister &src, const Registe
         // Test and bail for -0.0, when integer result is 0
         // Move the top word of the double into the output reg, if it is
         // non-zero, then the original value was -0.0
-        as_mfc1_Odd(dest, src);
+        moveFromDoubleHi(src, dest);
         ma_b(dest, Imm32(INT32_MIN), fail, Assembler::Equal);
         bind(&notZero);
     }
@@ -152,7 +152,7 @@ MacroAssemblerMIPS::convertFloat32ToInt32(const FloatRegister &src, const Regist
         // Test and bail for -0.0, when integer result is 0
         // Move the top word of the double into the output reg,
         // if it is non-zero, then the original value was -0.0
-        as_mfc1_Odd(dest, src);
+        moveFromDoubleHi(src, dest);
         ma_b(dest, Imm32(INT32_MIN), fail, Assembler::Equal);
         bind(&notZero);
     }
@@ -1321,10 +1321,10 @@ MacroAssemblerMIPS::ma_lid(FloatRegister dest, double value)
 
     // put hi part of 64 bit value into the odd register
     if (intStruct.hi == 0) {
-        as_mtc1_Odd(zero, dest);
+        moveToDoubleHi(zero, dest);
     } else {
         ma_li(ScratchRegister, Imm32(intStruct.hi));
-        as_mtc1_Odd(ScratchRegister, dest);
+        moveToDoubleHi(ScratchRegister, dest);
     }
 
     // put low part of 64 bit value into the even register
@@ -1341,21 +1341,21 @@ MacroAssemblerMIPS::ma_liNegZero(FloatRegister dest)
 {
     as_mtc1(zero, dest);
     ma_li(ScratchRegister, Imm32(INT_MIN));
-    as_mtc1_Odd(ScratchRegister, dest);
+    moveToDoubleHi(ScratchRegister, dest);
 }
 
 void
 MacroAssemblerMIPS::ma_mv(FloatRegister src, ValueOperand dest)
 {
     as_mfc1(dest.payloadReg(), src);
-    as_mfc1_Odd(dest.typeReg(), src);
+    moveFromDoubleHi(src, dest.typeReg());
 }
 
 void
 MacroAssemblerMIPS::ma_mv(ValueOperand src, FloatRegister dest)
 {
     as_mtc1(src.payloadReg(), dest);
-    as_mtc1_Odd(src.typeReg(), dest);
+    moveToDoubleHi(src.typeReg(), dest);
 }
 
 void
@@ -1380,12 +1380,12 @@ MacroAssemblerMIPS::ma_ld(FloatRegister ft, Address address)
     int32_t off2 = address.offset + TAG_OFFSET;
     if (Imm16::isInSignedRange(address.offset) && Imm16::isInSignedRange(off2)) {
         as_ls(ft, address.base, Imm16(address.offset).encode());
-        as_ls_Odd(ft, address.base, Imm16(off2).encode());
+        as_ls(getOddPair(ft), address.base, Imm16(off2).encode());
     } else {
         ma_li(ScratchRegister, Imm32(address.offset));
         as_addu(ScratchRegister, address.base, ScratchRegister);
         as_ls(ft, ScratchRegister, PAYLOAD_OFFSET);
-        as_ls_Odd(ft, ScratchRegister, TAG_OFFSET);
+        as_ls(getOddPair(ft), ScratchRegister, TAG_OFFSET);
     }
 }
 
@@ -1395,12 +1395,12 @@ MacroAssemblerMIPS::ma_sd(FloatRegister ft, Address address)
     int32_t off2 = address.offset + TAG_OFFSET;
     if (Imm16::isInSignedRange(address.offset) && Imm16::isInSignedRange(off2)) {
         as_ss(ft, address.base, Imm16(address.offset).encode());
-        as_ss_Odd(ft, address.base, Imm16(off2).encode());
+        as_ss(getOddPair(ft), address.base, Imm16(off2).encode());
     } else {
         ma_li(ScratchRegister, Imm32(address.offset));
         as_addu(ScratchRegister, address.base, ScratchRegister);
         as_ss(ft, ScratchRegister, PAYLOAD_OFFSET);
-        as_ss_Odd(ft, ScratchRegister, TAG_OFFSET);
+        as_ss(getOddPair(ft), ScratchRegister, TAG_OFFSET);
     }
 }
 
@@ -2338,7 +2338,7 @@ MacroAssemblerMIPSCompat::unboxDouble(const ValueOperand &operand, const FloatRe
 {
     MOZ_ASSERT(dest != ScratchFloatReg);
     as_mtc1(operand.payloadReg(), dest);
-    as_mtc1_Odd(operand.typeReg(), dest);
+    moveToDoubleHi(operand.typeReg(), dest);
 }
 
 void
@@ -2347,7 +2347,7 @@ MacroAssemblerMIPSCompat::unboxDouble(const Address &src, const FloatRegister &d
     ma_lw(ScratchRegister, Address(src.base, src.offset + PAYLOAD_OFFSET));
     as_mtc1(ScratchRegister, dest);
     ma_lw(ScratchRegister, Address(src.base, src.offset + TAG_OFFSET));
-    as_mtc1_Odd(ScratchRegister, dest);
+    moveToDoubleHi(ScratchRegister, dest);
 }
 
 void
@@ -2394,7 +2394,7 @@ void
 MacroAssemblerMIPSCompat::boxDouble(const FloatRegister &src, const ValueOperand &dest)
 {
     as_mfc1(dest.payloadReg(), src);
-    as_mfc1_Odd(dest.typeReg(), src);
+    moveFromDoubleHi(src, dest.typeReg());
 }
 
 void

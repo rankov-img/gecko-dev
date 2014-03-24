@@ -1245,7 +1245,7 @@ CodeGeneratorMIPS::visitFloor(LFloor *lir)
     masm.ma_bc1d(input, scratch, &skipCheck, Assembler::DoubleNotEqual, ShortJump);
 
     // If high part is not zero, it is NaN or -0, so we bail.
-    masm.as_mfc1_Odd(SecondScratchReg, input);
+    masm.moveFromDoubleHi(input, SecondScratchReg);
     masm.ma_b(SecondScratchReg, Imm32(0), &bail, Assembler::NotEqual, ShortJump);
     if (!bailoutFrom(&bail, lir->snapshot()))
         return false;
@@ -1328,7 +1328,7 @@ CodeGeneratorMIPS::visitRound(LRound *lir)
     masm.ma_bc1d(input, scratch, &skipCheck, Assembler::DoubleNotEqual, ShortJump);
 
     // If high part is not zero, it is NaN or -0, so we bail.
-    masm.as_mfc1_Odd(SecondScratchReg, input);
+    masm.moveFromDoubleHi(input, SecondScratchReg);
     masm.ma_b(SecondScratchReg, Imm32(0), &bail1, Assembler::NotEqual, ShortJump);
     if (!bailoutFrom(&bail1, lir->snapshot()))
         return false;
