@@ -22,9 +22,6 @@
     _(AsmJSUInt32ToFloat32)     \
     _(UDiv)                     \
     _(UMod)                     \
-    _(AsmJSDivOrMod)            \
     _(AsmJSLoadFuncPtr)
 
-
 #endif // jit_mips_LOpcodes_mips_h__
-

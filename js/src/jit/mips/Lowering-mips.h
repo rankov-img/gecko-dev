@@ -35,7 +35,7 @@ class LIRGeneratorMIPS : public LIRGeneratorShared
         return LDefinition::BogusTemp();
     }
 
-    // x64 has a scratch register, so no need for another temp for dispatch
+    // MIPS has a scratch register, so no need for another temp for dispatch
     // ICs.
     LDefinition tempForDispatchCache(MIRType outputType = MIRType_None) {
         return LDefinition::BogusTemp();

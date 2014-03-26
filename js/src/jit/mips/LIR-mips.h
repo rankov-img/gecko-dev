@@ -120,10 +120,6 @@ class LAsmJSUInt32ToFloat32 : public LInstructionHelper<1, 1, 0>
 };
 
 
-// LDivI is presently implemented as a proper C function,
-// The LInstruction gets encoded such that the divisor and
-// dividend are passed in their apropriate registers, and are marked as copy
-// so we can modify them (and the function will).
 class LDivI : public LBinaryMath<1>
 {
   public:
@@ -383,25 +379,6 @@ class LUMod : public LBinaryMath<0>
     }
 };
 
-// This class performs a simple x86 'div', yielding either a quotient or remainder depending on
-// whether this instruction is defined to output eax (quotient) or edx (remainder).
-class LAsmJSDivOrMod : public LBinaryMath<2>
-{
-  public:
-    LIR_HEADER(AsmJSDivOrMod);
-
-    LAsmJSDivOrMod(const LAllocation &lhs, const LAllocation &rhs, const LDefinition &temp1,
-                   const LDefinition &temp2) {
-        setOperand(0, lhs);
-        setOperand(1, rhs);
-        setTemp(0, temp1);
-        setTemp(1, temp2);
-    }
-    // this is incorrect, it is returned in r1, getTemp(0) is r2.
-    const LDefinition *remainder() {
-        return getTemp(0);
-    }
-};
 class LAsmJSLoadFuncPtr : public LInstructionHelper<1, 1, 1>
 {
   public:
@@ -425,4 +402,3 @@ class LAsmJSLoadFuncPtr : public LInstructionHelper<1, 1, 1>
 } // namespace js
 
 #endif /* jit_mips_LIR_mips_h */
-

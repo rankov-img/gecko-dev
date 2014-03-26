@@ -92,8 +92,8 @@ LIRGeneratorMIPS::visitBox(MBox *box)
 
     // If the box wrapped a double, it needs a new register.
     if (IsFloatingPointType(inner->type()))
-        return defineBox(new(alloc()) LBoxFloatingPoint(useRegisterAtStart(inner), tempCopy(inner, 0),
-                                                        inner->type()), box);
+        return defineBox(new(alloc()) LBoxFloatingPoint(useRegisterAtStart(inner),
+                                                        tempCopy(inner, 0), inner->type()), box);
 
     if (box->canEmitAtUses())
         return emitAtUses(box);
@@ -303,9 +303,7 @@ LIRGeneratorMIPS::lowerMulI(MMul *mul, MDefinition *lhs, MDefinition *rhs)
     if (mul->fallible() && !assignSnapshot(lir, Bailout_BaselineInfo))
         return false;
 
-    lir->setOperand(0, useRegister(lhs));
-    lir->setOperand(1, useRegisterOrConstant(rhs));
-    return define(lir, mul);
+    return lowerForALU(lir, mul, lhs, rhs);
 }
 
 bool
