@@ -471,6 +471,15 @@ class MacroAssemblerX86 : public MacroAssemblerX86Shared
         }
     }
 
+    void testNullSet(Condition cond, const ValueOperand &value, Register dest) {
+        cond = testNull(cond, value);
+        emitSet(cond, dest);
+    }
+    void testUndefinedSet(Condition cond, const ValueOperand &value, Register dest) {
+        cond = testUndefined(cond, value);
+        emitSet(cond, dest);
+    }
+
     void cmpPtr(Register lhs, const ImmWord rhs) {
         cmpl(lhs, Imm32(rhs.value));
     }
@@ -506,6 +515,13 @@ class MacroAssemblerX86 : public MacroAssemblerX86Shared
     }
     void testPtr(Register lhs, Register rhs) {
         testl(lhs, rhs);
+    }
+
+    template <typename T1, typename T2>
+    void cmpPtrSet(Assembler::Condition cond, T1 lhs, T2 rhs, const Register &dest)
+    {
+        cmpPtr(lhs, rhs);
+        emitSet(cond, dest);
     }
 
     Condition testNegativeZero(const FloatRegister &reg, const Register &scratch);

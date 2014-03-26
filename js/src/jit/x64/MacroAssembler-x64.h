@@ -495,6 +495,13 @@ class MacroAssemblerX64 : public MacroAssemblerX86Shared
         testq(lhs, rhs);
     }
 
+    template <typename T1, typename T2>
+    void cmpPtrSet(Assembler::Condition cond, T1 lhs, T2 rhs, const Register &dest)
+    {
+        cmpPtr(lhs, rhs);
+        emitSet(cond, dest);
+    }
+
     Condition testNegativeZero(const FloatRegister &reg, const Register &scratch);
     Condition testNegativeZeroFloat32(const FloatRegister &reg, const Register &scratch);
 
@@ -869,6 +876,38 @@ class MacroAssemblerX64 : public MacroAssemblerX86Shared
         cond = testNumber(cond, src);
         j(cond, label);
     }
+
+    // Perform a type-test on a Value addressed by BaseIndex.
+    // Clobbers the ScratchReg.
+    void branchTestUndefined(Condition cond, const BaseIndex &address, Label *label) {
+        cond = testUndefined(cond, address);
+        j(cond, label);
+    }
+    void branchTestInt32(Condition cond, const BaseIndex &address, Label *label) {
+        splitTag(address, ScratchReg);
+        branchTestInt32(cond, ScratchReg, label);
+    }
+    void branchTestBoolean(Condition cond, const BaseIndex &address, Label *label) {
+        splitTag(address, ScratchReg);
+        branchTestBoolean(cond, ScratchReg, label);
+    }
+    void branchTestDouble(Condition cond, const BaseIndex &address, Label *label) {
+        cond = testDouble(cond, address);
+        j(cond, label);
+    }
+    void branchTestNull(Condition cond, const BaseIndex &address, Label *label) {
+        cond = testNull(cond, address);
+        j(cond, label);
+    }
+    void branchTestString(Condition cond, const BaseIndex &address, Label *label) {
+        cond = testString(cond, address);
+        j(cond, label);
+    }
+    void branchTestObject(Condition cond, const BaseIndex &address, Label *label) {
+        cond = testObject(cond, address);
+        j(cond, label);
+    }
+
     template <typename T>
     void branchTestGCThing(Condition cond, const T &src, Label *label) {
         cond = testGCThing(cond, src);
@@ -915,6 +954,15 @@ class MacroAssemblerX64 : public MacroAssemblerX86Shared
     {
         JS_ASSERT(cond == Equal || cond == NotEqual);
         branchPtr(cond, valaddr, value.valueReg(), label);
+    }
+
+    void testNullSet(Condition cond, const ValueOperand &value, Register dest) {
+        cond = testNull(cond, value);
+        emitSet(cond, dest);
+    }
+    void testUndefinedSet(Condition cond, const ValueOperand &value, Register dest) {
+        cond = testUndefined(cond, value);
+        emitSet(cond, dest);
     }
 
     void boxDouble(const FloatRegister &src, const ValueOperand &dest) {

@@ -331,36 +331,8 @@ class MacroAssembler : public MacroAssemblerSpecific
         branchPtr(cond, familyAddr, ImmPtr(handlerp), label);
     }
 
-// Implemented for MIPS in MacroAssembler-mips.h
-#ifndef JS_CODEGEN_MIPS
-    template <typename Value>
-    Condition testMIRType(Condition cond, const Value &val, MIRType type) {
-        switch (type) {
-          case MIRType_Null:        return testNull(cond, val);
-          case MIRType_Undefined:   return testUndefined(cond, val);
-          case MIRType_Boolean:     return testBoolean(cond, val);
-          case MIRType_Int32:       return testInt32(cond, val);
-          case MIRType_String:      return testString(cond, val);
-          case MIRType_Object:      return testObject(cond, val);
-          case MIRType_Double:      return testDouble(cond, val);
-          case MIRType_Magic:       return testMagic(cond, val);
-          default:
-            MOZ_ASSUME_UNREACHABLE("Bad MIRType");
-        }
-    }
-
     template <typename Value>
     void branchTestMIRType(Condition cond, const Value &val, MIRType type, Label *label) {
-        cond = testMIRType(cond, val, type);
-        j(cond, label);
-    }
-#else
-    template <typename Value>
-    void branchTestMIRType(Condition cond, const Value &val, MIRType type, Label *label) {
-        JS_ASSERT(type == MIRType_Null    || type == MIRType_Undefined  ||
-                  type == MIRType_Boolean || type == MIRType_Int32      ||
-                  type == MIRType_String  || type == MIRType_Object     ||
-                  type == MIRType_Double  || type == MIRType_Magic);
         switch (type) {
           case MIRType_Null:        return branchTestNull(cond, val, label);
           case MIRType_Undefined:   return branchTestUndefined(cond, val, label);
@@ -374,7 +346,6 @@ class MacroAssembler : public MacroAssemblerSpecific
             MOZ_ASSUME_UNREACHABLE("Bad MIRType");
         }
     }
-#endif
 
     // Branches to |label| if |reg| is false. |reg| should be a C++ bool.
     void branchIfFalseBool(Register reg, Label *label) {

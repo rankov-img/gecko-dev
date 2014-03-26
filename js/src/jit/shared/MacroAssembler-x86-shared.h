@@ -156,6 +156,16 @@ class MacroAssemblerX86Shared : public Assembler
     void sub32(Register src, Register dest) {
         subl(src, dest);
     }
+    template <typename T>
+    void add32TestOverflow(T src, Register dest, Label *overflow) {
+        add32(src, dest);
+        j(Assembler::Overflow, overflow);
+    }
+    template <typename T>
+    void sub32TestOverflow(T src, Register dest, Label *overflow) {
+        sub32(src, dest);
+        j(Assembler::Overflow, overflow);
+    }
     void xor32(Imm32 imm, Register dest) {
         xorl(imm, dest);
     }
@@ -576,6 +586,8 @@ class MacroAssemblerX86Shared : public Assembler
         bind(&inRange);
     }
 
+    void clampDoubleToUint8(FloatRegister input, Register output);
+
     bool maybeInlineDouble(double d, const FloatRegister &dest) {
         uint64_t u = mozilla::BitwiseCast<uint64_t>(d);
 
@@ -646,6 +658,13 @@ class MacroAssemblerX86Shared : public Assembler
 
             bind(&end);
         }
+    }
+
+    template <typename T1, typename T2>
+    void cmp32Set(Assembler::Condition cond, T1 lhs, T2 rhs, const Register &dest)
+    {
+        cmp32(lhs, rhs);
+        emitSet(cond, dest);
     }
 
     // Emit a JMP that can be toggled to a CMP. See ToggleToJmp(), ToggleToCmp().

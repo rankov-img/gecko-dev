@@ -77,9 +77,33 @@ class CodeGeneratorMIPS : public CodeGeneratorShared
 
     MoveOperand toMoveOperand(const LAllocation *a) const;
 
-    // T can be Register or Imm32
     template <typename T1, typename T2>
-    bool bailoutIf(T1 lhs, T2 rhs, Assembler::Condition c, LSnapshot *snapshot);
+    bool bailoutCmpPtr(Assembler::Condition c, T1 lhs, T2 rhs, LSnapshot *snapshot) {
+        bool bailed;
+        Label skip;
+        masm.ma_b(lhs, rhs, &skip, Assembler::InvertCondition(c), ShortJump);
+        bailed = bailout(snapshot);
+        masm.bind(&skip);
+        return bailed;
+    }
+    bool bailoutTestPtr(Assembler::Condition c, Register lhs, Register rhs, LSnapshot *snapshot) {
+        Label bail;
+        masm.branchTestPtr(c, lhs, rhs, &bail);
+        return bailoutFrom(&bail, snapshot);
+    }
+    template <typename T1, typename T2>
+    bool bailoutCmp32(Assembler::Condition c, T1 lhs, T2 rhs, LSnapshot *snapshot) {
+        return bailoutCmpPtr(c, lhs, rhs, snapshot);
+    }
+    template<typename T2>
+    bool bailoutCmp32(Assembler::Condition c, Operand lhs, T2 rhs, LSnapshot *snapshot) {
+        if (lhs.getTag() == Operand::REG)
+              return bailoutCmp32(c, lhs.toReg(), rhs, snapshot);
+        if (lhs.getTag() == Operand::MEM)
+              return bailoutCmp32(c, lhs.toAddress(), rhs, snapshot);
+        MOZ_ASSUME_UNREACHABLE("Invalid operand tag.");
+        return false;
+    }
 
     bool bailoutFrom(Label *label, LSnapshot *snapshot);
     bool bailout(LSnapshot *snapshot);
@@ -95,6 +119,14 @@ class CodeGeneratorMIPS : public CodeGeneratorShared
     void emitBranch(Register lhs, T rhs, Assembler::Condition cond,
                     MBasicBlock *mirTrue, MBasicBlock *mirFalse);
     void emitBranch(Assembler::Condition cond, MBasicBlock *ifTrue, MBasicBlock *ifFalse);
+    void testNullEmitBranch(Assembler::Condition cond, const ValueOperand &value,
+                            MBasicBlock *ifTrue, MBasicBlock *ifFalse) {
+        emitBranch(value.typeReg(), (Imm32)ImmType(JSVAL_TYPE_NULL), cond, ifTrue, ifFalse);
+    }
+    void testUndefinedEmitBranch(Assembler::Condition cond, const ValueOperand &value,
+                            MBasicBlock *ifTrue, MBasicBlock *ifFalse) {
+        emitBranch(value.typeReg(), (Imm32)ImmType(JSVAL_TYPE_UNDEFINED), cond, ifTrue, ifFalse);
+    }
 
     template <typename T>
     void branchToBlock(Register lhs, T rhs, MBasicBlock *mir, Assembler::Condition cond);

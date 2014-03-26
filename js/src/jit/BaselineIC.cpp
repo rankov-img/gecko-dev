@@ -2004,12 +2004,7 @@ ICCompare_Boolean::Compiler::generateStubCode(MacroAssembler &masm)
 
     // Compare payload regs of R0 and R1.
     Assembler::Condition cond = JSOpToCondition(op, /* signed = */true);
-#ifndef JS_CODEGEN_MIPS
-    masm.cmp32(left, right);
-    masm.emitSet(cond, left);
-#else
-    masm.ma_cmp_set(left, left, right, cond);
-#endif
+    masm.cmp32Set(cond, left, right, left);
 
     // Box the result and return
     masm.tagValue(JSVAL_TYPE_BOOLEAN, left, R0);
@@ -2180,14 +2175,8 @@ ICCompare_Int32WithBoolean::Compiler::generateStubCode(MacroAssembler &masm)
 
         // Compare payload regs of R0 and R1.
         Assembler::Condition cond = JSOpToCondition(op_, /* signed = */true);
-#ifndef JS_CODEGEN_MIPS
-        masm.cmp32(lhsIsInt32_ ? int32Reg : boolReg,
-                   lhsIsInt32_ ? boolReg : int32Reg);
-        masm.emitSet(cond, R0.scratchReg());
-#else
-        masm.ma_cmp_set(R0.scratchReg(), lhsIsInt32_ ? int32Reg : boolReg,
-                        lhsIsInt32_ ? boolReg : int32Reg, cond);
-#endif
+        masm.cmp32Set(cond, lhsIsInt32_ ? int32Reg : boolReg,
+                      lhsIsInt32_ ? boolReg : int32Reg, R0.scratchReg());
 
         // Box the result and return
         masm.tagValue(JSVAL_TYPE_BOOLEAN, R0.scratchReg(), R0);
@@ -2354,7 +2343,6 @@ ICToBool_String::Compiler::generateStubCode(MacroAssembler &masm)
     return true;
 }
 
-//
 //
 // ToBool_NullUndefined
 //
@@ -2918,12 +2906,7 @@ ICBinaryArith_BooleanWithInt32::Compiler::generateStubCode(MacroAssembler &masm)
       case JSOP_ADD: {
         Label fixOverflow;
 
-#ifndef JS_CODEGEN_MIPS
-        masm.add32(rhsReg, lhsReg);
-        masm.j(Assembler::Overflow, &fixOverflow);
-#else
-        masm.ma_addTestOverflow(lhsReg, lhsReg, rhsReg, &failure);
-#endif
+        masm.add32TestOverflow(rhsReg, lhsReg, &fixOverflow);
         masm.tagValue(JSVAL_TYPE_INT32, lhsReg, R0);
         EmitReturnFromIC(masm);
 
@@ -2935,12 +2918,7 @@ ICBinaryArith_BooleanWithInt32::Compiler::generateStubCode(MacroAssembler &masm)
       case JSOP_SUB: {
         Label fixOverflow;
 
-#ifndef JS_CODEGEN_MIPS
-        masm.sub32(rhsReg, lhsReg);
-        masm.j(Assembler::Overflow, &fixOverflow);
-#else
-        masm.ma_subTestOverflow(lhsReg, lhsReg, rhsReg, &failure);
-#endif
+        masm.sub32TestOverflow(rhsReg, lhsReg, &fixOverflow);
         masm.tagValue(JSVAL_TYPE_INT32, lhsReg, R0);
         EmitReturnFromIC(masm);
 
@@ -9483,13 +9461,8 @@ ICIteratorMore_Native::Compiler::generateStubCode(MacroAssembler &masm)
 
     // Set output to true if props_cursor < props_end.
     masm.loadPtr(Address(nativeIterator, offsetof(NativeIterator, props_end)), scratch);
-#ifndef JS_CODEGEN_MIPS
-    masm.cmpPtr(Address(nativeIterator, offsetof(NativeIterator, props_cursor)), scratch);
-    masm.emitSet(Assembler::LessThan, scratch);
-#else
-    Address addr = Address(nativeIterator, offsetof(NativeIterator, props_cursor));
-    masm.ma_cmp_set(scratch, addr, scratch, Assembler::LessThan);
-#endif
+    Address cursorAddr = Address(nativeIterator, offsetof(NativeIterator, props_cursor));
+    masm.cmpPtrSet(Assembler::LessThan, cursorAddr, scratch, scratch);
 
     masm.tagValue(JSVAL_TYPE_BOOLEAN, scratch, R0);
     EmitReturnFromIC(masm);

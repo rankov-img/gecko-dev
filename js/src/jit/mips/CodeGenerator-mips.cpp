@@ -227,65 +227,6 @@ CodeGeneratorMIPS::generateOutOfLineCode()
     return true;
 }
 
-template bool
-CodeGeneratorMIPS::bailoutIf(Register lhs, Register rhs,
-                             Assembler::Condition c, LSnapshot *snapshot);
-
-template bool
-CodeGeneratorMIPS::bailoutIf(Register lhs, Imm32 rhs,
-                             Assembler::Condition c, LSnapshot *snapshot);
-
-template <typename T1, typename T2> bool
-CodeGeneratorMIPS::bailoutIf(T1 lhs, T2 rhs, Assembler::Condition c, LSnapshot *snapshot)
-{
-    CompileInfo &info = snapshot->mir()->block()->info();
-    switch (info.executionMode()) {
-
-      case ParallelExecution: {
-        // in parallel mode, make no attempt to recover, just signal an error.
-        OutOfLineAbortPar *ool = oolAbortPar(ParallelBailoutUnsupported,
-                                             snapshot->mir()->block(),
-                                             snapshot->mir()->pc());
-        masm.ma_b(lhs, rhs, ool->entry(), c);
-        return true;
-      }
-      case SequentialExecution:
-        break;
-      default:
-        MOZ_ASSUME_UNREACHABLE("No such execution mode");
-    }
-    if (!encode(snapshot))
-        return false;
-
-    // Though the assembler doesn't track all frame pushes, at least make sure
-    // the known value makes sense. We can't use bailout tables if the stack
-    // isn't properly aligned to the static frame size.
-    MOZ_ASSERT_IF(frameClass_ != FrameSizeClass::None(),
-                 frameClass_.frameSize() == masm.framePushed());
-
-    if (assignBailoutId(snapshot)) {
-        uint8_t *code = deoptTable_->raw() + snapshot->bailoutId() * BAILOUT_TABLE_ENTRY_SIZE;
-        Label noBail;
-        masm.ma_b(lhs, rhs, &noBail, Assembler::InvertCondition(c), ShortJump);
-
-        masm.ma_jump(ImmPtr(reinterpret_cast<void *>(code)));
-
-        masm.bind(&noBail);
-        return true;
-    }
-
-    // We could not use a jump table, either because all bailout IDs were
-    // reserved, or a jump table is not optimal for this frame size or
-    // platform. Whatever, we will generate a lazy bailout.
-    OutOfLineBailout *ool = new(alloc()) OutOfLineBailout(snapshot, masm.framePushed());
-    if (!addOutOfLineCode(ool))
-        return false;
-
-    masm.ma_b(lhs, rhs, ool->entry(), c);
-
-    return true;
-}
-
 bool
 CodeGeneratorMIPS::bailoutFrom(Label *label, LSnapshot *snapshot)
 {
@@ -520,7 +461,7 @@ CodeGeneratorMIPS::visitMulI(LMulI *ins)
         switch (constant) {
           case -1:
             if (mul->canOverflow()) {
-                if (!bailoutIf(src, Imm32(INT32_MIN), Assembler::Equal, ins->snapshot()))
+                if (!bailoutCmpPtr(Assembler::Equal, src, Imm32(INT32_MIN), ins->snapshot()))
                     return false;
             }
             masm.ma_negu(dest, src);
@@ -580,7 +521,7 @@ CodeGeneratorMIPS::visitMulI(LMulI *ins)
                     // not hold, some bits were lost due to overflow, and the
                     // computation should be resumed as a double.
                     masm.ma_sra(ScratchRegister, dest, Imm32(shift));
-                    if (!bailoutIf(src, ScratchRegister, Assembler::NotEqual, ins->snapshot()))
+                    if (!bailoutCmpPtr(Assembler::NotEqual, src, ScratchRegister, ins->snapshot()))
                         return false;
                     return true;
                 }
@@ -793,7 +734,7 @@ CodeGeneratorMIPS::visitModI(LModI *ins)
             masm.bind(&skip);
         } else {
             MOZ_ASSERT(mir->fallible());
-            if (!bailoutIf(rhs, Imm32(-1), Assembler::Equal, ins->snapshot()))
+            if (!bailoutCmpPtr(Assembler::Equal, rhs, Imm32(-1), ins->snapshot()))
                 return false;
         }
         masm.bind(&prevent);
@@ -820,7 +761,7 @@ CodeGeneratorMIPS::visitModI(LModI *ins)
             masm.bind(&skip);
         } else {
             MOZ_ASSERT(mir->fallible());
-            if (!bailoutIf(rhs, Imm32(0), Assembler::Equal, ins->snapshot()))
+            if (!bailoutCmpPtr(Assembler::Equal, rhs, Imm32(0), ins->snapshot()))
                 return false;
         }
     }
@@ -837,7 +778,7 @@ CodeGeneratorMIPS::visitModI(LModI *ins)
             masm.bind(&skip);
         } else {
             MOZ_ASSERT(mir->fallible());
-            if (!bailoutIf(lhs, Imm32(0), Assembler::Equal, ins->snapshot()))
+            if (!bailoutCmpPtr(Assembler::Equal, lhs, Imm32(0), ins->snapshot()))
                 return false;
         }
         masm.bind(&notNegative);
@@ -854,7 +795,7 @@ CodeGeneratorMIPS::visitModI(LModI *ins)
             MOZ_ASSERT(mir->fallible());
             // See if X < 0
             masm.ma_b(dest, Imm32(0), &done, Assembler::NotEqual, ShortJump);
-            if (!bailoutIf(callTemp, Imm32(0), Assembler::Signed, ins->snapshot()))
+            if (!bailoutCmpPtr(Assembler::Signed, callTemp, Imm32(0), ins->snapshot()))
                 return false;
         }
     }
@@ -890,7 +831,7 @@ CodeGeneratorMIPS::visitModPowTwoI(LModPowTwoI *ins)
     if (mir->canBeNegativeDividend()) {
         if (!mir->isTruncated()) {
             MOZ_ASSERT(mir->fallible());
-            if (!bailoutIf(out, zero, Assembler::Equal, ins->snapshot()))
+            if (!bailoutCmpPtr(Assembler::Equal, out, zero, ins->snapshot()))
                 return false;
         } else {
             // -0|0 == 0
@@ -1258,10 +1199,10 @@ CodeGeneratorMIPS::visitFloor(LFloor *lir)
     masm.as_floorwd(scratch, input);
     masm.as_mfc1(output, scratch);
 
-    if (!bailoutIf(output, Imm32(INT_MIN), Assembler::Equal, lir->snapshot()))
+    if (!bailoutCmpPtr(Assembler::Equal, output, Imm32(INT_MIN), lir->snapshot()))
         return false;
 
-    if (!bailoutIf(output, Imm32(INT_MAX), Assembler::Equal, lir->snapshot()))
+    if (!bailoutCmpPtr(Assembler::Equal, output, Imm32(INT_MAX), lir->snapshot()))
         return false;
 
     masm.bind(&done);
@@ -1296,10 +1237,10 @@ CodeGeneratorMIPS::visitFloorF(LFloorF *lir)
     masm.as_floorws(scratch, input);
     masm.as_mfc1(output, scratch);
 
-    if (!bailoutIf(output, Imm32(INT_MIN), Assembler::Equal, lir->snapshot()))
+    if (!bailoutCmpPtr(Assembler::Equal, output, Imm32(INT_MIN), lir->snapshot()))
         return false;
 
-    if (!bailoutIf(output, Imm32(INT_MAX), Assembler::Equal, lir->snapshot()))
+    if (!bailoutCmpPtr(Assembler::Equal, output, Imm32(INT_MAX), lir->snapshot()))
         return false;
 
     masm.bind(&done);
@@ -1344,10 +1285,10 @@ CodeGeneratorMIPS::visitRound(LRound *lir)
 
     masm.as_mfc1(output, scratch);
 
-    if (!bailoutIf(output, Imm32(INT_MIN), Assembler::Equal, lir->snapshot()))
+    if (!bailoutCmpPtr(Assembler::Equal, output, Imm32(INT_MIN), lir->snapshot()))
         return false;
 
-    if (!bailoutIf(output, Imm32(INT_MAX), Assembler::Equal, lir->snapshot()))
+    if (!bailoutCmpPtr(Assembler::Equal, output, Imm32(INT_MAX), lir->snapshot()))
         return false;
 
     masm.jump(&end);
@@ -1367,7 +1308,7 @@ CodeGeneratorMIPS::visitRound(LRound *lir)
     masm.as_floorwd(scratch, temp);
     masm.as_mfc1(output, scratch);
 
-    if (!bailoutIf(output, Imm32(INT_MIN), Assembler::Equal, lir->snapshot()))
+    if (!bailoutCmpPtr(Assembler::Equal, output, Imm32(INT_MIN), lir->snapshot()))
         return false;
 
     masm.bind(&end);
@@ -1411,10 +1352,10 @@ CodeGeneratorMIPS::visitRoundF(LRoundF *lir)
 
     masm.as_mfc1(output, scratch);
 
-    if (!bailoutIf(output, Imm32(INT_MIN), Assembler::Equal, lir->snapshot()))
+    if (!bailoutCmpPtr(Assembler::Equal, output, Imm32(INT_MIN), lir->snapshot()))
         return false;
 
-    if (!bailoutIf(output, Imm32(INT_MAX), Assembler::Equal, lir->snapshot()))
+    if (!bailoutCmpPtr(Assembler::Equal, output, Imm32(INT_MAX), lir->snapshot()))
         return false;
 
     masm.jump(&end);
@@ -1434,7 +1375,7 @@ CodeGeneratorMIPS::visitRoundF(LRoundF *lir)
     masm.as_floorws(scratch, temp);
     masm.as_mfc1(output, scratch);
 
-    if (!bailoutIf(output, Imm32(INT_MIN), Assembler::Equal, lir->snapshot()))
+    if (!bailoutCmpPtr(Assembler::Equal, output, Imm32(INT_MIN), lir->snapshot()))
         return false;
 
     masm.bind(&end);
@@ -1553,8 +1494,8 @@ CodeGeneratorMIPS::visitUnbox(LUnbox *unbox)
     Register type = ToRegister(unbox->type());
 
     if (mir->fallible()) {
-        if (!bailoutIf(type, Imm32(MIRTypeToTag(mir->type())), Assembler::NotEqual,
-                       unbox->snapshot()))
+        if (!bailoutCmpPtr(Assembler::NotEqual, type, Imm32(MIRTypeToTag(mir->type())),
+                           unbox->snapshot()))
             return false;
     }
     return true;
@@ -2003,7 +1944,7 @@ CodeGeneratorMIPS::visitGuardShape(LGuardShape *guard)
     // Use second scratch. It is safe.
     masm.ma_li(SecondScratchReg, ImmGCPtr(guard->mir()->shape()));
     masm.ma_lw(tmp, Address(obj, JSObject::offsetOfShape()));
-    return bailoutIf(tmp, SecondScratchReg, Assembler::NotEqual, guard->snapshot());
+    return bailoutCmpPtr(Assembler::NotEqual, tmp, SecondScratchReg, guard->snapshot());
 }
 
 bool
@@ -2016,7 +1957,7 @@ CodeGeneratorMIPS::visitGuardObjectType(LGuardObjectType *guard)
     masm.ma_li(SecondScratchReg, ImmGCPtr(guard->mir()->typeObject()));
     Assembler::Condition cond =
         guard->mir()->bailOnEquality() ? Assembler::Equal : Assembler::NotEqual;
-    return bailoutIf(tmp, SecondScratchReg, cond, guard->snapshot());
+    return bailoutCmpPtr(cond, tmp, SecondScratchReg, guard->snapshot());
 }
 
 bool
@@ -2026,7 +1967,8 @@ CodeGeneratorMIPS::visitGuardClass(LGuardClass *guard)
     Register tmp = ToRegister(guard->tempInt());
 
     masm.loadObjClass(obj, tmp);
-    if (!bailoutIf(tmp, Imm32((uint32_t)guard->mir()->getClass()), Assembler::NotEqual, guard->snapshot()))
+    if (!bailoutCmpPtr(Assembler::NotEqual, tmp, Imm32((uint32_t)guard->mir()->getClass()),
+                       guard->snapshot()))
         return false;
     return true;
 }
@@ -2043,7 +1985,7 @@ CodeGeneratorMIPS::visitImplicitThis(LImplicitThis *lir)
     masm.ma_li(SecondScratchReg, ImmGCPtr(&gen->info().script()->global()));
 
     // TODO: OOL stub path.
-    if (!bailoutIf(out.typeReg(), SecondScratchReg, Assembler::NotEqual, lir->snapshot()))
+    if (!bailoutCmpPtr(Assembler::NotEqual, out.typeReg(), SecondScratchReg, lir->snapshot()))
         return false;
 
     masm.moveValue(UndefinedValue(), out);
@@ -2306,7 +2248,7 @@ CodeGeneratorMIPS::visitUDiv(LUDiv *ins)
             masm.bind(&notzero);
         } else {
             MOZ_ASSERT(ins->mir()->fallible());
-            if (!bailoutIf(rhs, Imm32(0), Assembler::Equal, ins->snapshot()))
+            if (!bailoutCmpPtr(Assembler::Equal, rhs, Imm32(0), ins->snapshot()))
                 return false;
         }
     }
@@ -2315,7 +2257,7 @@ CodeGeneratorMIPS::visitUDiv(LUDiv *ins)
     masm.as_mflo(output);
 
     if (!ins->mir()->isTruncated()) {
-        if (!bailoutIf(output, Imm32(0), Assembler::LessThan, ins->snapshot()))
+        if (!bailoutCmpPtr(Assembler::LessThan, output, Imm32(0), ins->snapshot()))
             return false;
     }
 
@@ -2341,7 +2283,7 @@ CodeGeneratorMIPS::visitUMod(LUMod *ins)
             masm.bind(&notzero);
         } else {
             MOZ_ASSERT(ins->mir()->fallible());
-            if (!bailoutIf(rhs, Imm32(0), Assembler::Equal, ins->snapshot()))
+            if (!bailoutCmpPtr(Assembler::Equal, rhs, Imm32(0), ins->snapshot()))
                 return false;
         }
     }
@@ -2350,7 +2292,7 @@ CodeGeneratorMIPS::visitUMod(LUMod *ins)
     masm.as_mfhi(output);
 
     if (!ins->mir()->isTruncated()) {
-        if (!bailoutIf(output, Imm32(0), Assembler::LessThan, ins->snapshot()))
+        if (!bailoutCmpPtr(Assembler::LessThan, output, Imm32(0), ins->snapshot()))
             return false;
     }
 
@@ -2466,183 +2408,4 @@ JitCode *
 JitRuntime::generateForkJoinGetSliceStub(JSContext *cx)
 {
     MOZ_ASSUME_UNREACHABLE("NYI");
-}
-
-
-// Methods that have been copied from CodeGenerator.cpp because they need
-// special implementation for MIPS.
-
-bool
-CodeGenerator::visitAbsI(LAbsI *ins)
-{
-    Register input = ToRegister(ins->input());
-    Label positive;
-
-    MOZ_ASSERT(input == ToRegister(ins->output()));
-    masm.ma_b(input, input, &positive, Assembler::NotSigned, ShortJump);
-
-    if (ins->snapshot() && !bailoutIf(input, Imm32(INT32_MIN), Assembler::Equal, ins->snapshot()))
-        return false;
-
-    masm.ma_negu(input, input);
-
-    masm.bind(&positive);
-    return true;
-}
-
-
-bool
-CodeGenerator::visitBoundsCheck(LBoundsCheck *lir)
-{
-    if (lir->index()->isConstant()) {
-        // Use uint32 so that the comparison is unsigned.
-        uint32_t index = ToInt32(lir->index());
-        if (lir->length()->isConstant()) {
-            uint32_t length = ToInt32(lir->length());
-            if (index < length)
-                return true;
-            return bailout(lir->snapshot());
-        }
-        if (lir->length()->isGeneralReg()) {
-            return bailoutIf(ToRegister(lir->length()), Imm32(index),
-                             Assembler::BelowOrEqual, lir->snapshot());
-        }
-        // Use second scratch. It is safe.
-        masm.ma_lw(SecondScratchReg, Address(StackPointer, ToStackOffset(lir->length())));
-        return bailoutIf(SecondScratchReg, Imm32(index), Assembler::BelowOrEqual,
-                         lir->snapshot());
-    }
-    if (lir->length()->isConstant()) {
-        return bailoutIf(ToRegister(lir->index()), Imm32(ToInt32(lir->length())),
-                         Assembler::AboveOrEqual, lir->snapshot());
-    }
-    if (lir->length()->isGeneralReg()) {
-        return bailoutIf(ToRegister(lir->length()), ToRegister(lir->index()),
-                         Assembler::BelowOrEqual, lir->snapshot());
-    }
-    // Use second scratch. It is safe.
-    masm.ma_lw(SecondScratchReg, Address(StackPointer, ToStackOffset(lir->length())));
-    return bailoutIf(SecondScratchReg, ToRegister(lir->index()),
-                     Assembler::BelowOrEqual, lir->snapshot());
-}
-
-bool
-CodeGenerator::visitBoundsCheckRange(LBoundsCheckRange *lir)
-{
-    int32_t min = lir->mir()->minimum();
-    int32_t max = lir->mir()->maximum();
-    MOZ_ASSERT(max >= min);
-
-    Register temp = ToRegister(lir->getTemp(0));
-    if (lir->index()->isConstant()) {
-        int32_t nmin, nmax;
-        int32_t index = ToInt32(lir->index());
-        if (SafeAdd(index, min, &nmin) && SafeAdd(index, max, &nmax) && nmin >= 0) {
-            if (lir->length()->isGeneralReg())
-                return bailoutIf(ToRegister(lir->length()), Imm32(nmax), Assembler::BelowOrEqual,
-                                 lir->snapshot());
-            else
-                return bailoutIf(ToAddress(lir->length()), Imm32(nmax), Assembler::BelowOrEqual,
-                                 lir->snapshot());
-        }
-        masm.mov(ImmWord(index), temp);
-    } else {
-        masm.mov(ToRegister(lir->index()), temp);
-    }
-
-    // If the minimum and maximum differ then do an underflow check first.
-    // If the two are the same then doing an unsigned comparison on the
-    // length will also catch a negative index.
-    if (min != max) {
-        if (min != 0) {
-            Label bail;
-            masm.ma_addTestOverflow(temp, temp, Imm32(min), &bail);
-            if (!bailoutFrom(&bail, lir->snapshot()))
-                return false;
-            int32_t diff;
-            if (SafeSub(max, min, &diff))
-                max = diff;
-            else
-                masm.sub32(Imm32(min), temp);
-        }
-
-        if (!bailoutIf(temp, Imm32(0), Assembler::LessThan, lir->snapshot()))
-            return false;
-    }
-
-    // Compute the maximum possible index. No overflow check is needed when
-    // max > 0. We can only wraparound to a negative number, which will test as
-    // larger than all nonnegative numbers in the unsigned comparison, and the
-    // length is required to be nonnegative (else testing a negative length
-    // would succeed on any nonnegative index).
-    if (max != 0) {
-        if (max > 0) {
-            masm.add32(Imm32(max), temp);
-        } else {
-            Label bail;
-            masm.ma_addTestOverflow(temp, temp, Imm32(max), &bail);
-            if (!bailoutFrom(&bail, lir->snapshot()))
-                return false;
-        }
-    }
-
-    if (lir->length()->isGeneralReg())
-        return bailoutIf(temp, ToRegister(lir->length()), Assembler::AboveOrEqual,
-                         lir->snapshot());
-    else
-        return bailoutIf(temp, ToAddress(lir->length()), Assembler::AboveOrEqual,
-                         lir->snapshot());
-
-    return true;
-}
-
-bool
-CodeGenerator::visitBoundsCheckLower(LBoundsCheckLower *lir)
-{
-    int32_t min = lir->mir()->minimum();
-    return bailoutIf(ToRegister(lir->index()), Imm32(min), Assembler::LessThan, lir->snapshot());
-}
-
-bool
-CodeGenerator::emitStoreHoleCheck(Register elements, const LAllocation *index, LSnapshot *snapshot)
-{
-    Assembler::Condition cond;
-    Label testMagic;
-    if (index->isConstant())
-        masm.branchTestMagic(Assembler::Equal,
-                             Address(elements, ToInt32(index) * sizeof(js::Value)), &testMagic);
-    else
-        masm.branchTestMagic(Assembler::Equal, BaseIndex(elements, ToRegister(index), TimesEight),
-                             &testMagic);
-    return bailoutFrom(&testMagic, snapshot);
-}
-
-bool
-CodeGenerator::visitMinMaxI(LMinMaxI *ins)
-{
-    Register first = ToRegister(ins->first());
-    Register output = ToRegister(ins->output());
-
-    MOZ_ASSERT(first == output);
-
-    Label done;
-    if (ins->mir()->isMax()) {
-        if (ins->second()->isConstant())
-            masm.ma_b(first, Imm32(ToInt32(ins->second())), &done, Assembler::GreaterThan, ShortJump);
-        else
-            masm.ma_b(first, ToRegister(ins->second()), &done, Assembler::GreaterThan, ShortJump);
-    } else {
-        if (ins->second()->isConstant())
-            masm.ma_b(first, Imm32(ToInt32(ins->second())), &done, Assembler::LessThan, ShortJump);
-        else
-            masm.ma_b(first, ToRegister(ins->second()), &done, Assembler::LessThan, ShortJump);
-    }
-
-    if (ins->second()->isConstant())
-        masm.move32(Imm32(ToInt32(ins->second())), output);
-    else
-        masm.ma_move(output, ToRegister(ins->second()));
-
-    masm.bind(&done);
-    return true;
 }
