@@ -108,8 +108,6 @@ struct Zone : public JS::shadow::Zone,
 
     js::CompartmentVector        compartments;
 
-    bool                         hold;
-
   private:
     bool                         ionUsingBarriers_;
 
@@ -278,7 +276,6 @@ struct Zone : public JS::shadow::Zone,
 
     Zone(JSRuntime *rt);
     ~Zone();
-    bool init(JSContext *cx);
 
     void findOutgoingEdges(js::gc::ComponentFinder<JS::Zone> &finder);
 

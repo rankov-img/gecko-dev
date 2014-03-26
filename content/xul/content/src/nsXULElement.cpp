@@ -33,7 +33,7 @@
 #include "nsIDOMElementCSSInlineStyle.h"
 #include "nsIDOMXULSelectCntrlItemEl.h"
 #include "nsIDocument.h"
-#include "nsEventListenerManager.h"
+#include "mozilla/EventListenerManager.h"
 #include "nsEventStateManager.h"
 #include "nsFocusManager.h"
 #include "nsHTMLStyleSheet.h"
@@ -75,7 +75,6 @@
 #include "nsContentList.h"
 #include "mozilla/InternalMutationEvent.h"
 #include "mozilla/MouseEvents.h"
-#include "nsAsyncDOMEvent.h"
 #include "nsIDOMMutationEvent.h"
 #include "nsPIDOMWindow.h"
 #include "nsJSPrincipals.h"
@@ -100,7 +99,7 @@
 #include "nsIFrame.h"
 #include "nsNodeInfoManager.h"
 #include "nsXBLBinding.h"
-#include "nsEventDispatcher.h"
+#include "mozilla/EventDispatcher.h"
 #include "mozAutoDocUpdate.h"
 #include "nsIDOMXULCommandEvent.h"
 #include "nsCCUncollectableMarker.h"
@@ -483,7 +482,7 @@ nsXULElement::GetElementsByAttributeNS(const nsAString& aNamespaceURI,
     return list.forget();
 }
 
-nsEventListenerManager*
+EventListenerManager*
 nsXULElement::GetEventListenerManagerForAttr(nsIAtom* aAttrName, bool* aDefer)
 {
     // XXXbz sXBL/XBL2 issue: should we instead use GetCurrentDoc()
@@ -1140,7 +1139,7 @@ nsXULElement::List(FILE* out, int32_t aIndent) const
 #endif
 
 nsresult
-nsXULElement::PreHandleEvent(nsEventChainPreVisitor& aVisitor)
+nsXULElement::PreHandleEvent(EventChainPreVisitor& aVisitor)
 {
     aVisitor.mForceContentDispatch = true; //FIXME! Bug 329119
     nsIAtom* tag = Tag();
@@ -1620,18 +1619,18 @@ nsXULElement::ClickWithInputSource(uint16_t aInputSource)
 
             // send mouse down
             nsEventStatus status = nsEventStatus_eIgnore;
-            nsEventDispatcher::Dispatch(static_cast<nsIContent*>(this),
-                                        context, &eventDown,  nullptr, &status);
+            EventDispatcher::Dispatch(static_cast<nsIContent*>(this),
+                                      context, &eventDown,  nullptr, &status);
 
             // send mouse up
             status = nsEventStatus_eIgnore;  // reset status
-            nsEventDispatcher::Dispatch(static_cast<nsIContent*>(this),
-                                        context, &eventUp, nullptr, &status);
+            EventDispatcher::Dispatch(static_cast<nsIContent*>(this),
+                                      context, &eventUp, nullptr, &status);
 
             // send mouse click
             status = nsEventStatus_eIgnore;  // reset status
-            nsEventDispatcher::Dispatch(static_cast<nsIContent*>(this),
-                                        context, &eventClick, nullptr, &status);
+            EventDispatcher::Dispatch(static_cast<nsIContent*>(this),
+                                      context, &eventClick, nullptr, &status);
         }
     }
 
@@ -1680,17 +1679,17 @@ nsXULElement::AddPopupListener(nsIAtom* aName)
       new nsXULPopupListener(this, isContext);
 
     // Add the popup as a listener on this element.
-    nsEventListenerManager* manager = GetOrCreateListenerManager();
+    EventListenerManager* manager = GetOrCreateListenerManager();
     SetFlags(listenerFlag);
 
     if (isContext) {
       manager->AddEventListenerByType(listener,
                                       NS_LITERAL_STRING("contextmenu"),
-                                      dom::TrustedEventsAtSystemGroupBubble());
+                                      TrustedEventsAtSystemGroupBubble());
     } else {
       manager->AddEventListenerByType(listener,
                                       NS_LITERAL_STRING("mousedown"),
-                                      dom::TrustedEventsAtSystemGroupBubble());
+                                      TrustedEventsAtSystemGroupBubble());
     }
     return NS_OK;
 }

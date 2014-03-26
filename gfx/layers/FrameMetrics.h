@@ -71,7 +71,6 @@ public:
     , mDisplayPort(0, 0, 0, 0)
     , mCriticalDisplayPort(0, 0, 0, 0)
     , mViewport(0, 0, 0, 0)
-    , mScrollId(NULL_SCROLL_ID)
     , mScrollableRect(0, 0, 0, 0)
     , mResolution(1)
     , mCumulativeResolution(1)
@@ -81,6 +80,7 @@ public:
     , mMayHaveTouchListeners(false)
     , mIsRoot(false)
     , mHasScrollgrab(false)
+    , mScrollId(NULL_SCROLL_ID)
     , mScrollOffset(0, 0)
     , mZoom(1)
     , mUpdateScrollOffset(false)
@@ -97,7 +97,6 @@ public:
            mDisplayPort.IsEqualEdges(aOther.mDisplayPort) &&
            mCriticalDisplayPort.IsEqualEdges(aOther.mCriticalDisplayPort) &&
            mViewport.IsEqualEdges(aOther.mViewport) &&
-           mScrollId == aOther.mScrollId &&
            mScrollableRect.IsEqualEdges(aOther.mScrollableRect) &&
            mResolution == aOther.mResolution &&
            mCumulativeResolution == aOther.mCumulativeResolution &&
@@ -105,6 +104,7 @@ public:
            mMayHaveTouchListeners == aOther.mMayHaveTouchListeners &&
            mPresShellId == aOther.mPresShellId &&
            mIsRoot == aOther.mIsRoot &&
+           mScrollId == aOther.mScrollId &&
            mScrollOffset == aOther.mScrollOffset &&
            mHasScrollgrab == aOther.mHasScrollgrab &&
            mUpdateScrollOffset == aOther.mUpdateScrollOffset;
@@ -204,12 +204,6 @@ public:
     mZoom.scale *= aFactor;
   }
 
-  void CopyScrollInfoFrom(const FrameMetrics& aOther)
-  {
-    mScrollOffset = aOther.mScrollOffset;
-    mScrollGeneration = aOther.mScrollGeneration;
-  }
-
   // ---------------------------------------------------------------------------
   // The following metrics are all in widget space/device pixels.
   //
@@ -270,9 +264,6 @@ public:
   // iframe. For layers that don't correspond to a document, this metric is
   // meaningless and invalid.
   CSSRect mViewport;
-
-  // A unique ID assigned to each scrollable frame.
-  ViewID mScrollId;
 
   // The scrollable bounds of a frame. This is determined by reflow.
   // Ordinarily the x and y will be 0 and the width and height will be the
@@ -376,9 +367,22 @@ public:
     mContentDescription = aContentDescription;
   }
 
+  ViewID GetScrollId() const
+  {
+    return mScrollId;
+  }
+  
+  void SetScrollId(ViewID scrollId) 
+  {
+    mScrollId = scrollId;
+  }
+  
 private:
   // New fields from now on should be made private and old fields should
   // be refactored to be private.
+
+  // A unique ID assigned to each scrollable frame.
+  ViewID mScrollId;
 
   // The position of the top-left of the CSS viewport, relative to the document
   // (or the document relative to the viewport, if that helps understand it).
@@ -447,7 +451,7 @@ struct ScrollableLayerGuid {
   ScrollableLayerGuid(uint64_t aLayersId, const FrameMetrics& aMetrics)
     : mLayersId(aLayersId)
     , mPresShellId(aMetrics.mPresShellId)
-    , mScrollId(aMetrics.mScrollId)
+    , mScrollId(aMetrics.GetScrollId())
   {
     MOZ_COUNT_CTOR(ScrollableLayerGuid);
   }

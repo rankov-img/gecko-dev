@@ -5,6 +5,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 DIRS += ['locales']
+SPHINX_TREES['fennec'] = 'docs'
 
 include('android-services.mozbuild')
 
@@ -166,6 +167,7 @@ gbjar.sources += [
     'GeckoNetworkManager.java',
     'GeckoProfile.java',
     'GeckoProfileDirectories.java',
+    'GeckoProfilesProvider.java',
     'GeckoScreenOrientation.java',
     'GeckoSmsManager.java',
     'GeckoThread.java',
@@ -246,13 +248,14 @@ gbjar.sources += [
     'home/LastTabsPanel.java',
     'home/MostRecentPanel.java',
     'home/MultiTypeCursorAdapter.java',
+    'home/PanelBackItemView.java',
     'home/PanelGridView.java',
     'home/PanelItemView.java',
     'home/PanelLayout.java',
     'home/PanelListView.java',
     'home/PanelManager.java',
     'home/PanelViewAdapter.java',
-    'home/PanelViewUrlHandler.java',
+    'home/PanelViewItemHandler.java',
     'home/PinSiteDialog.java',
     'home/ReadingListPanel.java',
     'home/SearchEngine.java',
@@ -381,6 +384,7 @@ gbjar.sources += [
     'widget/DateTimePicker.java',
     'widget/Divider.java',
     'widget/DoorHanger.java',
+    'widget/EllipsisTextView.java',
     'widget/FaviconView.java',
     'widget/FlowLayout.java',
     'widget/GeckoActionProvider.java',

@@ -51,7 +51,7 @@ _SUBDIR_CONFIG_ARGS="$ac_configure_args"
 dnl Set the version number of the libs included with mozilla
 dnl ========================================================
 MOZJPEG=62
-MOZPNG=10609
+MOZPNG=10610
 NSPR_VERSION=4
 NSS_VERSION=3
 
@@ -71,7 +71,7 @@ GCONF_VERSION=1.2.1
 GIO_VERSION=2.20
 STARTUP_NOTIFICATION_VERSION=0.8
 DBUS_VERSION=0.60
-SQLITE_VERSION=3.8.3.1
+SQLITE_VERSION=3.8.4.1
 
 MSMANIFEST_TOOL=
 
@@ -176,7 +176,11 @@ fi
 if test -n "$FXOS_SIMULATOR" -a -z "$GAIADIR" ; then
     AC_MSG_ERROR([FXOS_SIMULATOR=1 requires GAIADIR to be defined])
 fi
-AC_SUBST(FXOS_SIMULATOR)
+
+if test -n "$FXOS_SIMULATOR" ; then
+    AC_DEFINE(FXOS_SIMULATOR)
+    AC_SUBST(FXOS_SIMULATOR)
+fi
 
 MOZ_ARG_WITH_STRING(gonk,
 [  --with-gonk=DIR
@@ -1912,6 +1916,9 @@ case "$target" in
     fi
     TARGET_NSPR_MDCPUCFG='\"md/_darwin.cfg\"'
 
+    MMX_FLAGS="-mmmx"
+    SSE_FLAGS="-msse"
+    SSE2_FLAGS="-msse2"
 
     if test "x$lto_is_enabled" = "xyes"; then
         echo "Skipping -dead_strip because lto is enabled."
@@ -2004,6 +2011,10 @@ ia64*-hpux*)
     fi
     TARGET_NSPR_MDCPUCFG='\"md/_linux.cfg\"'
 
+    MMX_FLAGS="-mmmx"
+    SSE_FLAGS="-msse"
+    SSE2_FLAGS="-msse2"
+
     MOZ_GFX_OPTIMIZE_MOBILE=1
     MOZ_OPTIMIZE_FLAGS="-Os -freorder-blocks -fno-reorder-functions"
     ;;
@@ -2024,6 +2035,10 @@ ia64*-hpux*)
         MOZ_PGO_OPTIMIZE_FLAGS="-O3"
         MOZ_OPTIMIZE_FLAGS="-Os -freorder-blocks $MOZ_OPTIMIZE_SIZE_TWEAK"
     fi
+
+    MMX_FLAGS="-mmmx"
+    SSE_FLAGS="-msse"
+    SSE2_FLAGS="-msse2"
 
     TARGET_NSPR_MDCPUCFG='\"md/_linux.cfg\"'
 
@@ -2069,6 +2084,10 @@ ia64*-hpux*)
         MOZ_FIX_LINK_PATHS=
         DLL_PREFIX=
         IMPORT_LIB_SUFFIX=dll.a
+
+        MMX_FLAGS="-mmmx"
+        SSE_FLAGS="-msse"
+        SSE2_FLAGS="-msse2"
 
         # We use mix of both POSIX and Win32 printf format across the tree, so format
         # warnings are useless on mingw.
@@ -2271,6 +2290,9 @@ ia64*-hpux*)
     fi
     MKSHLIB='$(CXX) $(CXXFLAGS) $(DSO_PIC_CFLAGS) $(DSO_LDOPTS) -Wl,-soname,$(notdir $@) -o $@'
     MKCSHLIB='$(CC) $(CFLAGS) $(DSO_PIC_CFLAGS) $(DSO_LDOPTS) -Wl,-soname,$(notdir $@)) -o $@'
+    MMX_FLAGS="-mmmx"
+    SSE_FLAGS="-msse"
+    SSE2_FLAGS="-msse2"
     ;;
 
 *-openbsd*)
@@ -2286,6 +2308,9 @@ ia64*-hpux*)
     if test "$LIBRUNPATH"; then
         DSO_LDOPTS="-R$LIBRUNPATH $DSO_LDOPTS"
     fi
+    MMX_FLAGS="-mmmx"
+    SSE_FLAGS="-msse"
+    SSE2_FLAGS="-msse2"
     ;;
 
 *-solaris*)
@@ -2301,6 +2326,9 @@ ia64*-hpux*)
        CFLAGS="$CFLAGS -xlibmieee -xstrconst -xbuiltin=%all -D__FUNCTION__=__func__"
        CXXFLAGS="$CXXFLAGS -xlibmieee -xbuiltin=%all -features=tmplife,tmplrefstatic,extensions,no%except -norunpath -D__FUNCTION__=__func__ -template=no%extdef"
        LDFLAGS="-xildoff $LDFLAGS"
+       MMX_FLAGS="-xarch=mmx -xO4"
+       SSE_FLAGS="-xarch=sse"
+       SSE2_FLAGS="-xarch=ssei2 -xO4"
        if test -z "$CROSS_COMPILE" -a -f /usr/lib/ld/map.noexstk; then
            _SAVE_LDFLAGS=$LDFLAGS
            LDFLAGS="-M /usr/lib/ld/map.noexstk $LDFLAGS"
@@ -2364,6 +2392,9 @@ ia64*-hpux*)
        if test "$OS_RELEASE" = "5.3"; then
            AC_DEFINE(MUST_UNDEF_HAVE_BOOLEAN_AFTER_INCLUDES)
        fi
+       MMX_FLAGS="-mmmx"
+       SSE_FLAGS="-msse"
+       SSE2_FLAGS="-msse2"
     fi
     if test "$OS_RELEASE" = "5.5.1"; then
         AC_DEFINE(NEED_USLEEP_PROTOTYPE)
@@ -2384,6 +2415,10 @@ ia64*-hpux*)
     ;;
 
 esac
+
+AC_SUBST_LIST(MMX_FLAGS)
+AC_SUBST_LIST(SSE_FLAGS)
+AC_SUBST_LIST(SSE2_FLAGS)
 
 case "$target" in
 *-*linux*)
@@ -3726,7 +3761,7 @@ dnl ========================================================
 MOZ_ZLIB_CHECK([1.2.3])
 
 if test "$MOZ_NATIVE_ZLIB" != 1; then
-    MOZ_ZLIB_CFLAGS=
+    MOZ_ZLIB_CFLAGS="-I${_topsrcdir}/modules/zlib/src"
     MOZ_ZLIB_LIBS='$(call EXPAND_LIBNAME_PATH,mozz,'"$MOZ_BUILD_ROOT"'/modules/zlib/src)'
 fi
 
@@ -3913,6 +3948,7 @@ MOZ_GSTREAMER=
 MOZ_DIRECTSHOW=
 MOZ_WMF=
 MOZ_FMP4=
+MOZ_FFMPEG=
 MOZ_WEBRTC=1
 MOZ_PEERCONNECTION=
 MOZ_SRTP=
@@ -5232,9 +5268,26 @@ if test -n "$MOZ_WMF"; then
 fi;
 
 dnl ========================================================
+dnl FFmpeg H264/AAC Decoding Support
+dnl ========================================================
+if test "$OS_TARGET" = "Linux"; then
+  MOZ_FFMPEG=1
+fi
+
+MOZ_ARG_DISABLE_BOOL(ffmpeg,
+[  --disable-ffmpeg         Disable FFmpeg for fragmented H264/AAC decoding],
+    MOZ_FFMPEG=,
+    MOZ_FFMPEG=1
+)
+
+if test -n "$MOZ_FFMPEG"; then
+    AC_DEFINE(MOZ_FFMPEG)
+fi;
+
+dnl ========================================================
 dnl = Built-in fragmented MP4 support.
 dnl ========================================================
-if test -n "$MOZ_WMF"; then
+if test -n "$MOZ_WMF" -o -n "$MOZ_FFMPEG"; then
     dnl Enable fragmented MP4 parser on Windows by default.
     dnl We will also need to enable it on other platforms as we implement
     dnl platform decoder support there too.
@@ -5717,10 +5770,12 @@ dnl = * only applies to win32
 dnl = * enabled by default (shipping build); requires explicit --disable to disable
 dnl ========================================================
 MOZ_ANGLE_RENDERER=
-MOZ_DIRECTX_SDK_PATH=
 MOZ_DIRECTX_SDK_CPU_SUFFIX=
-MOZ_D3DCOMPILER_CAB=
+MOZ_DIRECTX_SDK_PATH=
 MOZ_D3DCOMPILER_DLL=
+MOZ_HAS_WINSDK_WITH_D3D=
+MOZ_D3DCOMPILER_DLL_PATH=
+MOZ_D3DCOMPILER_CAB=
 case "$target_os" in
 *mingw*)
     MOZ_ANGLE_RENDERER=1
@@ -5742,6 +5797,11 @@ MOZ_ARG_DISABLE_BOOL(webgl,
     MOZ_WEBGL_DISABLED=1,
     MOZ_WEBGL_DISABLED=)
 
+MOZ_ARG_ENABLE_BOOL(winsdk-directx,
+[  --enable-winsdk-directx use DirectX SDK in Windows SDK],
+    MOZ_WINSDK_DIRECTX=1,
+    MOZ_WINSDK_DIRECTX=)
+
 if test -n "$MOZ_WEBGL_DISABLED"; then
   MOZ_WEBGL=
   MOZ_ANGLE_RENDERER=
@@ -5755,6 +5815,7 @@ if test -n "$MOZ_WEBGL_CONFORMANT"; then
   AC_DEFINE(MOZ_WEBGL_CONFORMANT)
 fi
 
+
 # Locate a DirectX SDK here so we can use it for both ANGLE and
 # Joystick support.
 if test "$OS_TARGET" = "WINNT" -a -z "$CROSS_COMPILE"; then
@@ -5766,36 +5827,94 @@ if test "$OS_TARGET" = "WINNT" -a -z "$CROSS_COMPILE"; then
     MOZ_DIRECTX_SDK_REG_KEY=`reg query 'HKLM\Software\Microsoft\DirectX' //s | grep 'Microsoft DirectX SDK' | head -n 1`
   fi
   MOZ_DIRECTX_SDK_PATH=`reg query "$MOZ_DIRECTX_SDK_REG_KEY" //v InstallPath | grep REG_SZ | sed 's/.*\([[a-zA-Z]]\)\\:\\\\/\\1\\:\\\\/' | sed 's,\\\\,/,g'`
-fi
-
-if test -n "$MOZ_ANGLE_RENDERER" -a -z "$CROSS_COMPILE"; then
-  if test -n "`echo $MOZ_DIRECTX_SDK_REG_KEY | grep 'February 2010'`" ; then
-    AC_MSG_ERROR([Found the February 2010 DirectX SDK. Need the June 2010 DirectX SDK, or newer.  Upgrade your SDK or reconfigure with --disable-webgl.])
-  fi
 
   if test -n "$MOZ_DIRECTX_SDK_PATH" &&
-     test -f "$MOZ_DIRECTX_SDK_PATH"/include/d3dx9.h &&
      test -f "$MOZ_DIRECTX_SDK_PATH"/lib/$MOZ_DIRECTX_SDK_CPU_SUFFIX/dxguid.lib ; then
     AC_MSG_RESULT([Found DirectX SDK via registry, using $MOZ_DIRECTX_SDK_PATH])
   else
-    AC_MSG_ERROR([Couldn't find the DirectX SDK, needed for WebGL. Either install it (June 2010 version or newer), or reconfigure with --disable-webgl.])
+    AC_MSG_RESULT([Couldn't find the DirectX SDK.])
   fi
-
-  # Get the SDK numeric version (e.g. 43) by looking at the dependencies of d3dx9.lib
-  MOZ_D3DX9_VERSION=`dumpbin //headers "$MOZ_DIRECTX_SDK_PATH"/lib/$MOZ_DIRECTX_SDK_CPU_SUFFIX/d3dx9.lib | egrep d3dx9_[[0-9]][[0-9]]\.dll | head -n1 | sed 's/.*\([[0-9]][[0-9]]\).*/\\1/g'`
-
-  if test -z "$MOZ_D3DX9_VERSION" ; then
-      AC_MSG_ERROR([Couldn't determine the D3DX9 version, needed for WebGL. Either reinstall the DirectX SDK (June 2010 version or newer), or reconfigure with --disable-webgl.])
-  fi
-
-  MOZ_D3DCOMPILER_CAB=`find "$MOZ_DIRECTX_SDK_PATH"/Redist -name *D3DCompiler_${MOZ_D3DX9_VERSION}_${MOZ_DIRECTX_SDK_CPU_SUFFIX}.cab | head -n1`
-
-  if test -z "$MOZ_D3DCOMPILER_CAB"; then
-    AC_MSG_ERROR([Couldn't find the DirectX redistributable files. Either reinstall the DirectX SDK (making sure the "DirectX Redistributable Files" option is selected), or reconfigure with --disable-webgl.])
-  fi
-
-  MOZ_D3DCOMPILER_DLL=D3DCompiler_$MOZ_D3DX9_VERSION.dll
 fi
+
+
+dnl ========================================================
+dnl D3D compiler DLL
+dnl ========================================================
+
+if test -n "$MOZ_ANGLE_RENDERER"; then
+  # Check that our DirectX SDK is acceptable.
+  if test -n "$MOZ_DIRECTX_SDK_PATH"; then
+    if test -n "`echo $MOZ_DIRECTX_SDK_REG_KEY | grep 'February 2010'`" ; then
+      AC_MSG_RESULT([Found the February 2010 DirectX SDK, which is unacceptable to ANGLE.])
+      MOZ_DIRECTX_SDK_PATH_BAD=1
+    fi
+
+    if test -n "$MOZ_DIRECTX_SDK_PATH" &&
+       test -f "$MOZ_DIRECTX_SDK_PATH"/include/d3dx9.h &&
+       test -f "$MOZ_DIRECTX_SDK_PATH"/lib/$MOZ_DIRECTX_SDK_CPU_SUFFIX/dxguid.lib ; then
+      AC_MSG_RESULT([Found acceptable DirectX SDK for ANGLE.])
+    else
+      AC_MSG_RESULT([Found DirectX SDK is unacceptable for ANGLE.])
+      MOZ_DIRECTX_SDK_PATH_BAD=1
+    fi
+  fi
+
+  if test -n "$MOZ_DIRECTX_SDK_PATH_BAD"; then
+    AC_MSG_ERROR([Couldn't find an acceptable DirectX SDK for ANGLE. Either install DirectX SDK (June 2010 version or newer), or reconfigure with --disable-webgl.])
+  fi
+
+  # Find a D3D compiler DLL in a Windows SDK.
+  MOZ_D3DCOMPILER_DLL=
+  if test -n "$MOZ_WINSDK_DIRECTX"; then
+    case "$MOZ_WINSDK_MAXVER" in
+    0x0603*)
+      MOZ_D3DCOMPILER_DLL=d3dcompiler_47.dll
+      AC_MSG_RESULT([Found D3D compiler in Windows SDK 8.1.])
+    ;;
+    0x0602*)
+      MOZ_D3DCOMPILER_DLL=d3dcompiler_46.dll
+      AC_MSG_RESULT([Found D3D compiler in Windows SDK 8.0.])
+    ;;
+    esac
+  fi
+
+  if test -n "$MOZ_D3DCOMPILER_DLL"; then
+    # We have a name, now track down the path.
+    if test -n "$WINDOWSSDKDIR"; then
+      MOZ_D3DCOMPILER_DLL_PATH="$WINDOWSSDKDIR/Redist/D3D/$MOZ_DIRECTX_SDK_CPU_SUFFIX/$MOZ_D3DCOMPILER_DLL"
+      if test -f "$MOZ_D3DCOMPILER_DLL_PATH"; then
+        MOZ_HAS_WINSDK_WITH_D3D=1
+        AC_MSG_RESULT([Found MOZ_D3DCOMPILER_DLL_PATH: $MOZ_D3DCOMPILER_DLL_PATH])
+      else
+        AC_MSG_RESULT([MOZ_D3DCOMPILER_DLL_PATH doesn't exist: $MOZ_D3DCOMPILER_DLL_PATH])
+      fi
+    else
+      AC_MSG_RESULT([WINDOWSSDKDIR is missing.])
+    fi
+  fi
+
+  # Find a D3D compiler DLL in the DirectX SDK, if we didn't find one already.
+  # Get the SDK numeric version (e.g. 43) by looking at the dependencies of d3dx9.lib
+  if test -z "$MOZ_HAS_WINSDK_WITH_D3D"; then
+    MOZ_D3DX9_VERSION=`dumpbin //headers "$MOZ_DIRECTX_SDK_PATH"/lib/$MOZ_DIRECTX_SDK_CPU_SUFFIX/d3dx9.lib | egrep d3dx9_[[0-9]][[0-9]]\.dll | head -n1 | sed 's/.*\([[0-9]][[0-9]]\).*/\\1/g'`
+
+    if test -n "$MOZ_D3DX9_VERSION" ; then
+      MOZ_D3DCOMPILER_CAB=`find "$MOZ_DIRECTX_SDK_PATH"/Redist -name *D3DCompiler_${MOZ_D3DX9_VERSION}_${MOZ_DIRECTX_SDK_CPU_SUFFIX}.cab | head -n1`
+      MOZ_D3DCOMPILER_DLL=D3DCompiler_$MOZ_D3DX9_VERSION.dll
+    else
+      AC_MSG_RESULT([Couldn't determine the D3DX9 version for the DirectX SDK.])
+    fi
+
+    if test -z "$MOZ_D3DCOMPILER_CAB"; then
+      AC_MSG_RESULT([Couldn't find a CAB containing the D3D compiler DLL.])
+    fi
+  fi
+
+  if test -z "$MOZ_D3DCOMPILER_DLL_PATH" -a -z "$MOZ_D3DCOMPILER_CAB"; then
+    AC_MSG_ERROR([Couldn't find an acceptable D3D compiler DLL. Either install Windows SDK 8.0+ and reconfigure with --enable-winsdk-directx, install DirectX SDK (June 2010 version or newer), or reconfigure with --disable-webgl.])
+  fi
+fi
+
 
 dnl ========================================================
 dnl Gamepad support
@@ -5823,12 +5942,14 @@ if test "$MOZ_GAMEPAD"; then
         MOZ_GAMEPAD_BACKEND=cocoa
         ;;
     WINNT)
-        if test -n "$MOZ_DIRECTX_SDK_PATH" ; then
-            if ! test -f "$MOZ_DIRECTX_SDK_PATH"/lib/$MOZ_DIRECTX_SDK_CPU_SUFFIX/dxguid.lib ; then
-               MOZ_GAMEPAD=
+        if test -z "$MOZ_HAS_WINSDK_WITH_D3D"; then
+            if test -n "$MOZ_DIRECTX_SDK_PATH" ; then
+                if ! test -f "$MOZ_DIRECTX_SDK_PATH"/lib/$MOZ_DIRECTX_SDK_CPU_SUFFIX/dxguid.lib ; then
+                   MOZ_GAMEPAD=
+                fi
+            elif test "$GCC" != "yes"; then
+                MOZ_GAMEPAD=
             fi
-        elif test "$GCC" != "yes"; then
-            MOZ_GAMEPAD=
         fi
         if test -z "$MOZ_GAMEPAD"; then
            AC_MSG_ERROR([Couldn't find the DirectX SDK, needed for gamepad support. Please install it or, reconfigure with --disable-gamepad to disable gamepad support.])
@@ -7410,6 +7531,14 @@ fi
 AC_SUBST(MOZ_AUDIO_CHANNEL_MANAGER)
 
 dnl ========================================================
+dnl = Enable Support for Firefox Accounts (services/fxaccounts)
+dnl ========================================================
+if test -n "$MOZ_SERVICES_FXACCOUNTS"; then
+    AC_DEFINE(MOZ_SERVICES_FXACCOUNTS)
+fi
+AC_SUBST(MOZ_SERVICES_FXACCOUNTS)
+
+dnl ========================================================
 dnl = Support for demangling undefined symbols
 dnl ========================================================
 if test -z "$SKIP_LIBRARY_CHECKS"; then
@@ -7888,7 +8017,13 @@ dnl ========================================================
 dnl Check for pixman and cairo
 dnl ========================================================
 
-MOZ_TREE_CAIRO=1
+if test "$MOZ_WIDGET_TOOLKIT" = "gtk3" ; then
+  # cairo-gtk3 can be build with system-cairo only
+  MOZ_TREE_CAIRO=
+else
+  MOZ_TREE_CAIRO=1
+fi
+
 MOZ_ARG_ENABLE_BOOL(system-cairo,
 [  --enable-system-cairo   Use system cairo (located with pkgconfig)],
 MOZ_TREE_CAIRO=,
@@ -7977,6 +8112,9 @@ if test "$MOZ_TREE_CAIRO"; then
         if test -n "$WIN32_D2D_SURFACE_FEATURE"; then
           MOZ_CHECK_HEADER(d3d10.h, MOZ_ENABLE_D3D10_LAYER=1)
         fi
+        ;;
+      gtk3)
+        AC_MSG_ERROR([cairo-gtk3 toolkit is incompatible with in-tree cairo. Please add --enable-system-cairo to your build config.])
         ;;
     esac
     if test "$USE_FC_FREETYPE"; then
@@ -8318,12 +8456,15 @@ AC_SUBST(MOZ_STUB_INSTALLER)
 AC_SUBST(MOZ_VERIFY_MAR_SIGNATURE)
 AC_SUBST(MOZ_ENABLE_SIGNMAR)
 AC_SUBST(MOZ_UPDATER)
+
 AC_SUBST(MOZ_ANGLE_RENDERER)
-AC_SUBST(MOZ_DIRECTX_SDK_PATH)
 AC_SUBST(MOZ_DIRECTX_SDK_CPU_SUFFIX)
-AC_SUBST(MOZ_D3DX9_VERSION)
-AC_SUBST(MOZ_D3DCOMPILER_CAB)
+AC_SUBST(MOZ_DIRECTX_SDK_PATH)
 AC_SUBST(MOZ_D3DCOMPILER_DLL)
+AC_SUBST(MOZ_HAS_WINSDK_WITH_D3D)
+AC_SUBST(MOZ_D3DCOMPILER_DLL_PATH)
+AC_SUBST(MOZ_D3DCOMPILER_CAB)
+
 AC_SUBST(MOZ_METRO)
 
 AC_SUBST(MOZ_ANDROID_HISTORY)
@@ -8641,6 +8782,7 @@ AC_SUBST(MOZ_TREMOR)
 AC_SUBST(MOZ_OPUS)
 AC_SUBST(MOZ_WEBM)
 AC_SUBST(MOZ_WMF)
+AC_SUBST(MOZ_FFMPEG)
 AC_SUBST(MOZ_FMP4)
 AC_SUBST(MOZ_DIRECTSHOW)
 AC_SUBST(MOZ_MEDIA_PLUGINS)
@@ -8915,10 +9057,14 @@ if test "$MOZ_TREE_FREETYPE"; then
    export CPPFLAGS="$CPPFLAGS $MOZ_DEBUG_FLAGS"
    export CXXFLAGS="$CXXFLAGS $MOZ_DEBUG_FLAGS"
    export LDFLAGS="$LDFLAGS $MOZ_DEBUG_LDFLAGS"
-   export LIBPNG_CFLAGS="$MOZ_PNG_CFLAGS"
-   export LIBPNG_LDFLAGS="$MOZ_PNG_LIBS"
+   # Spaces in the *_CFLAGS and *_LIBS variables are intentionally placed
+   # to force freetype to use our settings rather than autodetecting
+   export LIBPNG_CFLAGS="$MOZ_PNG_CFLAGS "
+   export LIBPNG_LIBS="$MOZ_PNG_LIBS "
+   export ZLIB_CFLAGS="$MOZ_ZLIB_CFLAGS "
+   export ZLIB_LIBS="$MOZ_ZLIB_LIBS "
    export CONFIG_FILES="unix-cc.mk:unix-cc.in unix-def.mk:unix-def.in freetype-config freetype2.pc:freetype2.in"
-   ac_configure_args="$ac_configure_args --host=$target --disable-shared --with-pic=yes"
+   ac_configure_args="$ac_configure_args --host=$target --disable-shared --with-pic=yes --with-zlib=yes --without-bzip2 --with-png=yes --without-harfbuzz"
 
    if ! test -e modules; then
      mkdir modules

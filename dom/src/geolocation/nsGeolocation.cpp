@@ -684,18 +684,17 @@ nsresult nsGeolocationService::Init()
 #endif
 
 #ifdef MOZ_WIDGET_GONK
-  mProvider = do_GetService(GONK_GPS_GEOLOCATION_PROVIDER_CONTRACTID);
+  mProvider = do_CreateInstance(GONK_GPS_GEOLOCATION_PROVIDER_CONTRACTID);
 #endif
 
 #ifdef MOZ_WIDGET_COCOA
-  if (Preferences::GetBool("geo.provider.use_corelocation", true) &&
-      CoreLocationLocationProvider::IsCoreLocationAvailable()) {
+  if (Preferences::GetBool("geo.provider.use_corelocation", false)) {
     mProvider = new CoreLocationLocationProvider();
   }
 #endif
 
   if (Preferences::GetBool("geo.provider.use_mls", false)) {
-    mProvider = do_GetService("@mozilla.org/geolocation/mls-provider;1");
+    mProvider = do_CreateInstance("@mozilla.org/geolocation/mls-provider;1");
   }
 
   // Override platform-specific providers with the default (network)

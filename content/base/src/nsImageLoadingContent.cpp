@@ -26,7 +26,6 @@
 #include "imgRequestProxy.h"
 #include "nsThreadUtils.h"
 #include "nsNetUtil.h"
-#include "nsAsyncDOMEvent.h"
 #include "nsImageFrame.h"
 
 #include "nsIPresShell.h"
@@ -41,14 +40,14 @@
 #include "nsContentUtils.h"
 #include "nsLayoutUtils.h"
 #include "nsIContentPolicy.h"
-#include "nsEventDispatcher.h"
 #include "nsSVGEffects.h"
 
 #include "mozAutoDocUpdate.h"
+#include "mozilla/AsyncEventDispatcher.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/ScriptSettings.h"
 
-#if defined(XP_WIN)
+#ifdef LoadImage
 // Undefine LoadImage to prevent naming conflict with Windows.
 #undef LoadImage
 #endif
@@ -1039,10 +1038,10 @@ nsImageLoadingContent::FireEvent(const nsAString& aEventType)
 
   nsCOMPtr<nsINode> thisNode = do_QueryInterface(static_cast<nsIImageLoadingContent*>(this));
 
-  nsRefPtr<nsAsyncDOMEvent> event =
-    new nsLoadBlockingAsyncDOMEvent(thisNode, aEventType, false, false);
-  event->PostDOMEvent();
-  
+  nsRefPtr<AsyncEventDispatcher> loadBlockingAsyncDispatcher =
+    new LoadBlockingAsyncEventDispatcher(thisNode, aEventType, false, false);
+  loadBlockingAsyncDispatcher->PostDOMEvent();
+
   return NS_OK;
 }
 

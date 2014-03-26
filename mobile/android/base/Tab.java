@@ -117,7 +117,7 @@ public class Tab {
         mZoomConstraints = new ZoomConstraints(false);
         mPluginViews = new ArrayList<View>();
         mPluginLayers = new HashMap<Object, Layer>();
-        mState = shouldShowProgress(url) ? STATE_SUCCESS : STATE_LOADING;
+        mState = shouldShowProgress(url) ? STATE_LOADING : STATE_SUCCESS;
         mLoadProgress = LOAD_PROGRESS_INIT;
 
         // At startup, the background is set to a color specified by LayerView
@@ -457,6 +457,22 @@ public class Tab {
         });
     }
 
+    public void addToReadingList() {
+        if (!mReaderEnabled)
+            return;
+
+        JSONObject json = new JSONObject();
+        try {
+            json.put("tabID", String.valueOf(getId()));
+        } catch (JSONException e) {
+            Log.e(LOGTAG, "JSON error - failing to add to reading list", e);
+            return;
+        }
+
+        GeckoEvent e = GeckoEvent.createBroadcastEvent("Reader:Add", json.toString());
+        GeckoAppShell.sendEventToGecko(e);
+    }
+
     public void toggleReaderMode() {
         if (AboutPages.isAboutReader(mUrl)) {
             Tabs.getInstance().loadUrl(ReaderModeUtils.getUrlFromAboutReader(mUrl));
@@ -641,14 +657,12 @@ public class Tab {
     }
 
     private static boolean shouldShowProgress(final String url) {
-        return AboutPages.isAboutHome(url) ||
-               AboutPages.isAboutReader(url) ||
-               AboutPages.isAboutPrivateBrowsing(url);
+        return !AboutPages.isAboutPage(url);
     }
 
-    void handleDocumentStart(boolean showProgress, String url) {
+    void handleDocumentStart(boolean restoring, String url) {
         setLoadProgress(LOAD_PROGRESS_START);
-        setState(showProgress ? STATE_LOADING : STATE_SUCCESS);
+        setState((!restoring && shouldShowProgress(url)) ? STATE_LOADING : STATE_SUCCESS);
         updateIdentityData(null);
         setReaderEnabled(false);
     }

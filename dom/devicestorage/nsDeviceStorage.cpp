@@ -20,6 +20,8 @@
 #include "mozilla/dom/PContentPermissionRequestChild.h"
 #include "mozilla/dom/PermissionMessageUtils.h"
 #include "mozilla/dom/Promise.h"
+#include "mozilla/EventDispatcher.h"
+#include "mozilla/EventListenerManager.h"
 #include "mozilla/LazyIdleThread.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/Scoped.h"
@@ -4274,19 +4276,19 @@ nsDOMDeviceStorage::GetTargetForEventTargetChain()
 }
 
 nsresult
-nsDOMDeviceStorage::PreHandleEvent(nsEventChainPreVisitor & aVisitor)
+nsDOMDeviceStorage::PreHandleEvent(EventChainPreVisitor& aVisitor)
 {
   return nsDOMEventTargetHelper::PreHandleEvent(aVisitor);
 }
 
 nsresult
-nsDOMDeviceStorage::WillHandleEvent(nsEventChainPostVisitor & aVisitor)
+nsDOMDeviceStorage::WillHandleEvent(EventChainPostVisitor& aVisitor)
 {
   return nsDOMEventTargetHelper::WillHandleEvent(aVisitor);
 }
 
 nsresult
-nsDOMDeviceStorage::PostHandleEvent(nsEventChainPostVisitor & aVisitor)
+nsDOMDeviceStorage::PostHandleEvent(EventChainPostVisitor& aVisitor)
 {
   return nsDOMEventTargetHelper::PostHandleEvent(aVisitor);
 }
@@ -4303,13 +4305,13 @@ nsDOMDeviceStorage::DispatchDOMEvent(WidgetEvent* aEvent,
                                                   aEventStatus);
 }
 
-nsEventListenerManager *
+EventListenerManager*
 nsDOMDeviceStorage::GetOrCreateListenerManager()
 {
   return nsDOMEventTargetHelper::GetOrCreateListenerManager();
 }
 
-nsEventListenerManager *
+EventListenerManager*
 nsDOMDeviceStorage::GetExistingListenerManager() const
 {
   return nsDOMEventTargetHelper::GetExistingListenerManager();

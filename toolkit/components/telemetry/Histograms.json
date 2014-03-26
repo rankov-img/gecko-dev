@@ -2845,6 +2845,15 @@
     "extended_statistics_ok": true,
     "description": "PLACES: Time to convert and write bookmarks.html"
   },
+  "PLACES_BACKUPS_HASHING_MS": {
+    "expires_in_version": "never",
+    "kind": "exponential",
+    "low": 50,
+    "high": 2000,
+    "n_buckets": 10,
+    "extended_statistics_ok": true,
+    "description": "PLACES: Time to calculate the md5 hash for a backup"
+  },
   "FENNEC_FAVICONS_COUNT": {
     "expires_in_version": "never",
     "kind": "exponential",
@@ -4254,13 +4263,13 @@
     "extended_statistics_ok": true,
     "description": "Time spent on a successful cert  verification in classic mode (ms)"
   },
-  "SSL_SUCCESFUL_CERT_VALIDATION_TIME_INSANITY" : {
+  "SSL_SUCCESFUL_CERT_VALIDATION_TIME_MOZILLAPKIX" : {
     "expires_in_version": "never",
     "kind": "exponential",
     "high": "60000",
     "n_buckets": 50,
     "extended_statistics_ok": true,
-    "description": "Time spent on a successful cert verification in insanity mode (ms)"
+    "description": "Time spent on a successful cert verification in mozilla::pkix mode (ms)"
   },
   "SSL_INITIAL_FAILED_CERT_VALIDATION_TIME_LIBPKIX" : {
     "expires_in_version": "never",
@@ -4278,13 +4287,13 @@
     "extended_statistics_ok": true,
     "description": "Time spent on an initially failed cert  verification in classic mode (ms)"
   },
-  "SSL_INITIAL_FAILED_CERT_VALIDATION_TIME_INSANITY" : {
+  "SSL_INITIAL_FAILED_CERT_VALIDATION_TIME_MOZILLAPKIX" : {
     "expires_in_version": "never",
     "kind": "exponential",
     "high": "60000",
     "n_buckets": 50,
     "extended_statistics_ok": true,
-    "description": "Time spent on an initially failed cert verification in insanity mode (ms)"
+    "description": "Time spent on an initially failed cert verification in mozilla::pkix mode (ms)"
   },
   "HEALTHREPORT_DB_OPEN_FIRSTRUN_MS": {
     "expires_in_version": "never",

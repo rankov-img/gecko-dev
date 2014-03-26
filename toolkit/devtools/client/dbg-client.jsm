@@ -28,6 +28,8 @@ Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/NetUtil.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/Timer.jsm");
+Cu.import("resource://gre/modules/devtools/Console.jsm");
+
 let promise = Cu.import("resource://gre/modules/commonjs/sdk/core/promise.js").Promise;
 const { defer, resolve, reject } = promise;
 
@@ -246,9 +248,7 @@ this.DebuggerClient = function (aTransport)
   this._activeRequests = new Map;
   this._eventsEnabled = true;
 
-  this.compat = new ProtocolCompatibility(this, [
-    new SourcesShim(),
-  ]);
+  this.compat = new ProtocolCompatibility(this, []);
   this.traits = {};
 
   this.request = this.request.bind(this);
@@ -933,41 +933,6 @@ const FeatureCompatibilityShim = {
 };
 
 /**
- * A shim to support the "sources" and "newSource" packets for older servers
- * which don't support them.
- */
-function SourcesShim() {
-  this._sourcesSeen = new Set();
-}
-
-SourcesShim.prototype = Object.create(FeatureCompatibilityShim);
-let SSProto = SourcesShim.prototype;
-
-SSProto.name = "sources";
-
-SSProto.onPacketTest = function (aPacket) {
-  if (aPacket.traits) {
-    return aPacket.traits.sources
-      ? SUPPORTED
-      : NOT_SUPPORTED;
-  }
-  return SKIP;
-};
-
-SSProto.translatePacket = function (aPacket, aReplacePacket, aExtraPacket,
-                                    aKeepPacket) {
-  if (aPacket.type !== "newScript" || this._sourcesSeen.has(aPacket.url)) {
-    return aKeepPacket();
-  }
-  this._sourcesSeen.add(aPacket.url);
-  return aExtraPacket({
-    from: aPacket.from,
-    type: "newSource",
-    source: aPacket.source
-  });
-};
-
-/**
  * Creates a tab client for the remote debugging protocol server. This client
  * is a front to the tab actor created in the server side, hiding the protocol
  * details in a traditional JavaScript API.
@@ -1444,17 +1409,28 @@ ThreadClient.prototype = {
    * @param function aOnResponse
    *        Called with the thread's response.
    */
-  setBreakpoint: function (aLocation, aOnResponse) {
+  setBreakpoint: function ({ url, line, column, condition }, aOnResponse) {
     // A helper function that sets the breakpoint.
     let doSetBreakpoint = function (aCallback) {
-      let packet = { to: this._actor, type: "setBreakpoint",
-                     location: aLocation };
+      const location = {
+        url: url,
+        line: line,
+        column: column
+      };
+
+      let packet = {
+        to: this._actor,
+        type: "setBreakpoint",
+        location: location,
+        condition: condition
+      };
       this.client.request(packet, function (aResponse) {
         // Ignoring errors, since the user may be setting a breakpoint in a
         // dead script that will reappear on a page reload.
         if (aOnResponse) {
-          let bpClient = new BreakpointClient(this.client, aResponse.actor,
-                                              aLocation);
+          let bpClient = new BreakpointClient(this.client,
+                                              aResponse.actor,
+                                              location);
           if (aCallback) {
             aCallback(aOnResponse(aResponse, bpClient));
           } else {
@@ -1526,52 +1502,11 @@ ThreadClient.prototype = {
    * @param aOnResponse Function
    *        Called with the thread's response.
    */
-  getSources: function (aOnResponse) {
-    // This is how we should get sources if the server supports "sources"
-    // requests.
-    let getSources = DebuggerClient.requester({
-      type: "sources"
-    }, {
-      telemetry: "SOURCES"
-    });
-
-    // This is how we should deduct what sources exist from the existing scripts
-    // when the server does not support "sources" requests.
-    let getSourcesBackwardsCompat = DebuggerClient.requester({
-      type: "scripts"
-    }, {
-      after: function (aResponse) {
-        if (aResponse.error) {
-          return aResponse;
-        }
-
-        let sourceActorsByURL = aResponse.scripts
-          .reduce(function (aSourceActorsByURL, aScript) {
-            aSourceActorsByURL[aScript.url] = aScript.source;
-            return aSourceActorsByURL;
-          }, {});
-
-        return {
-          sources: [
-            { url: url, actor: sourceActorsByURL[url] }
-            for (url of Object.keys(sourceActorsByURL))
-          ]
-        }
-      },
-      telemetry: "SOURCES"
-    });
-
-    // On the first time `getSources` is called, patch the thread client with
-    // the best method for the server's capabilities.
-    let threadClient = this;
-    this.compat.supportsFeature("sources").then(function () {
-      threadClient.getSources = getSources;
-    }, function () {
-      threadClient.getSources = getSourcesBackwardsCompat;
-    }).then(function () {
-      threadClient.getSources(aOnResponse);
-    });
-  },
+  getSources: DebuggerClient.requester({
+    type: "sources"
+  }, {
+    telemetry: "SOURCES"
+  }),
 
   _doInterrupted: function (aAction, aError) {
     if (this.paused) {

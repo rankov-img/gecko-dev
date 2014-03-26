@@ -187,7 +187,8 @@ pref("privacy.item.syncAccount", true);
 
 // base url for the wifi geolocation network provider
 pref("geo.provider.use_mls", false);
-pref("geo.wifi.uri", "https://location.services.mozilla.com/v1/geolocate?key=%MOZILLA_API_KEY%");
+pref("geo.cell.scan", true);
+pref("geo.wifi.uri", "https://location.services.mozilla.com/v1/geolocate?key=%MOZ_MOZILLA_API_KEY%");
 
 // enable geo
 pref("geo.enabled", true);
@@ -417,6 +418,7 @@ pref("dom.global-constructor.disable.mozContact", false);
 pref("dom.phonenumber.substringmatching.BR", 8);
 pref("dom.phonenumber.substringmatching.CO", 10);
 pref("dom.phonenumber.substringmatching.VE", 7);
+pref("dom.phonenumber.substringmatching.CL", 8);
 
 // WebAlarms
 pref("dom.mozAlarms.enabled", true);
@@ -649,6 +651,9 @@ pref("dom.ipc.processPriorityManager.backgroundLRUPoolLevels", 5);
 pref("hal.processPriorityManager.gonk.MASTER.OomScoreAdjust", 0);
 pref("hal.processPriorityManager.gonk.MASTER.KillUnderKB", 4096);
 pref("hal.processPriorityManager.gonk.MASTER.Nice", 0);
+
+pref("hal.processPriorityManager.gonk.PREALLOC.OomScoreAdjust", 67);
+pref("hal.processPriorityManager.gonk.PREALLOC.Nice", 18);
 
 pref("hal.processPriorityManager.gonk.FOREGROUND_HIGH.OomScoreAdjust", 67);
 pref("hal.processPriorityManager.gonk.FOREGROUND_HIGH.KillUnderKB", 5120);
@@ -907,3 +912,9 @@ pref("browser.autofocus", false);
 
 // Enable wakelock
 pref("dom.wakelock.enabled", true);
+
+// Enable sync and mozId with Firefox Accounts.
+#ifdef MOZ_SERVICES_FXACCOUNTS
+pref("services.sync.fxaccounts.enabled", true);
+pref("identity.fxaccounts.enabled", true);
+#endif

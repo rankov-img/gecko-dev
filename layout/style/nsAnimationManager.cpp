@@ -6,6 +6,7 @@
 #include "nsAnimationManager.h"
 #include "nsTransitionManager.h"
 
+#include "mozilla/EventDispatcher.h"
 #include "mozilla/MemoryReporting.h"
 
 #include "nsPresContext.h"
@@ -15,7 +16,6 @@
 #include "nsCSSRules.h"
 #include "RestyleManager.h"
 #include "nsStyleAnimation.h"
-#include "nsEventDispatcher.h"
 #include "nsLayoutUtils.h"
 #include "nsIFrame.h"
 #include "nsIDocument.h"
@@ -203,8 +203,9 @@ ElementAnimations::EnsureStyleRuleFor(TimeStamp aRefreshTime,
       // indicator that the animation has finished, it should be reserved for
       // events. If we use it differently in the future this use might need
       // changing.
-      if (anim.mLastNotification == ElementAnimation::LAST_NOTIFICATION_END &&
-          anim.mLastNotification != oldLastNotification) {
+      if (!anim.mIsRunningOnCompositor ||
+          (anim.mLastNotification != oldLastNotification &&
+           anim.mLastNotification == ElementAnimation::LAST_NOTIFICATION_END)) {
         aIsThrottled = false;
         break;
       }
@@ -1091,7 +1092,7 @@ nsAnimationManager::DoDispatchEvents()
   mPendingEvents.SwapElements(events);
   for (uint32_t i = 0, i_end = events.Length(); i < i_end; ++i) {
     AnimationEventInfo &info = events[i];
-    nsEventDispatcher::Dispatch(info.mElement, mPresContext, &info.mEvent);
+    EventDispatcher::Dispatch(info.mElement, mPresContext, &info.mEvent);
 
     if (!mPresContext) {
       break;

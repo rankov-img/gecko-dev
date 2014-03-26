@@ -146,7 +146,7 @@ ValueToIdentifier(JSContext *cx, HandleValue v, MutableHandleId id)
 }
 
 /*
- * A range of all the Debugger.Frame objects for a particular StackFrame.
+ * A range of all the Debugger.Frame objects for a particular AbstractFramePtr.
  *
  * FIXME This checks only current debuggers, so it relies on a hack in
  * Debugger::removeDebuggeeGlobal to make sure only current debuggers have Frame
@@ -1609,7 +1609,7 @@ Debugger::trace(JSTracer *trc)
 
     /*
      * Mark Debugger.Frame objects. These are all reachable from JS, because the
-     * corresponding StackFrames are still on the stack.
+     * corresponding JS frames are still on the stack.
      *
      * (Once we support generator frames properly, we will need
      * weakly-referenced Debugger.Frame objects as well, for suspended generator
@@ -2116,7 +2116,7 @@ Debugger::construct(JSContext *cx, unsigned argc, Value *vp)
     CallArgs args = CallArgsFromVp(argc, vp);
 
     /* Check that the arguments, if any, are cross-compartment wrappers. */
-    for (unsigned i = 0; i < argc; i++) {
+    for (unsigned i = 0; i < args.length(); i++) {
         const Value &arg = args[i];
         if (!arg.isObject())
             return ReportObjectRequired(cx);
@@ -2159,7 +2159,7 @@ Debugger::construct(JSContext *cx, unsigned argc, Value *vp)
     /* Now the JSObject owns the js::Debugger instance, so we needn't delete it. */
 
     /* Add the initial debuggees, if any. */
-    for (unsigned i = 0; i < argc; i++) {
+    for (unsigned i = 0; i < args.length(); i++) {
         Rooted<GlobalObject*>
             debuggee(cx, &args[i].toObject().as<ProxyObject>().private_().toObject().global());
         if (!dbg->addDebuggeeGlobal(cx, debuggee))
@@ -2286,7 +2286,7 @@ Debugger::removeDebuggeeGlobal(FreeOp *fop, GlobalObject *global,
 
     /*
      * FIXME Debugger::slowPathOnLeaveFrame needs to kill all Debugger.Frame
-     * objects referring to a particular js::StackFrame. This is hard if
+     * objects referring to a particular JS stack frame. This is hard if
      * Debugger objects that are no longer debugging the relevant global might
      * have live Frame objects. So we take the easy way out and kill them here.
      * This is a bug, since it's observable and contrary to the spec. One
@@ -2713,7 +2713,7 @@ Debugger::findScripts(JSContext *cx, unsigned argc, Value *vp)
     if (!query.init())
         return false;
 
-    if (argc >= 1) {
+    if (args.length() >= 1) {
         RootedObject queryObject(cx, NonNullObject(cx, args[0]));
         if (!queryObject || !query.parseQuery(queryObject))
             return false;
@@ -3546,7 +3546,7 @@ Debugger::observesScript(JSScript *script) const
 }
 
 /* static */ bool
-Debugger::handleBaselineOsr(JSContext *cx, StackFrame *from, jit::BaselineFrame *to)
+Debugger::handleBaselineOsr(JSContext *cx, InterpreterFrame *from, jit::BaselineFrame *to)
 {
     ScriptFrameIter iter(cx);
     JS_ASSERT(iter.abstractFramePtr() == to);
@@ -3617,7 +3617,7 @@ DebuggerScript_getBreakpoints(JSContext *cx, unsigned argc, Value *vp)
     Debugger *dbg = Debugger::fromChildJSObject(obj);
 
     jsbytecode *pc;
-    if (argc > 0) {
+    if (args.length() > 0) {
         size_t offset;
         if (!ScriptOffset(cx, script, args[0], &offset))
             return false;
@@ -5321,7 +5321,7 @@ ApplyOrCall(JSContext *cx, unsigned argc, Value *vp, ApplyOrCallMode mode)
     Value *callArgv = nullptr;
     AutoValueVector argv(cx);
     if (mode == ApplyMode) {
-        if (argc >= 2 && !args[1].isNullOrUndefined()) {
+        if (args.length() >= 2 && !args[1].isNullOrUndefined()) {
             if (!args[1].isObject()) {
                 JS_ReportErrorNumber(cx, js_GetErrorMessage, nullptr, JSMSG_BAD_APPLY_ARGS,
                                      js_apply_str);
@@ -5336,7 +5336,7 @@ ApplyOrCall(JSContext *cx, unsigned argc, Value *vp, ApplyOrCallMode mode)
             callArgv = argv.begin();
         }
     } else {
-        callArgc = argc > 0 ? unsigned(Min(argc - 1, ARGS_LENGTH_MAX)) : 0;
+        callArgc = args.length() > 0 ? unsigned(Min(args.length() - 1, ARGS_LENGTH_MAX)) : 0;
         callArgv = args.array() + 1;
     }
 
@@ -5478,7 +5478,7 @@ DebuggerObject_unwrap(JSContext *cx, unsigned argc, Value *vp)
     THIS_DEBUGOBJECT_OWNER_REFERENT(cx, argc, vp, "unwrap", args, dbg, referent);
     JSObject *unwrapped = UnwrapOneChecked(referent);
     if (!unwrapped) {
-        vp->setNull();
+        args.rval().setNull();
         return true;
     }
 
@@ -5895,10 +5895,8 @@ static const JSFunctionSpec DebuggerEnv_methods[] = {
 /*** Glue ****************************************************************************************/
 
 extern JS_PUBLIC_API(bool)
-JS_DefineDebuggerObject(JSContext *cx, JSObject *obj_)
+JS_DefineDebuggerObject(JSContext *cx, HandleObject obj)
 {
-    RootedObject obj(cx, obj_);
-
     RootedObject
         objProto(cx),
         debugCtor(cx),

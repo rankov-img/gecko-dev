@@ -65,6 +65,7 @@ this.promised = promised;
 this.all = all;
 
 Cu.import("resource://gre/modules/devtools/SourceMap.jsm");
+Cu.import("resource://gre/modules/devtools/Console.jsm");
 
 function dumpn(str) {
   if (wantLogging) {
@@ -802,7 +803,8 @@ ActorPool.prototype = {
     if (!aActor.actorID) {
       let prefix = aActor.actorPrefix;
       if (typeof aActor == "function") {
-        prefix = aActor.prototype.actorPrefix;
+        // typeName is a convention used with protocol.js-based actors
+        prefix = aActor.prototype.actorPrefix || aActor.prototype.typeName;
       }
       aActor.actorID = this.conn.allocID(prefix || undefined);
     }

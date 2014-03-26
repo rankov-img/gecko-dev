@@ -170,6 +170,8 @@ pref("dom.experimental_forms", true);
 pref("dom.forms.number", true);
 
 /* extension manager and xpinstall */
+pref("xpinstall.whitelist.directRequest", false);
+pref("xpinstall.whitelist.fileRequest", false);
 pref("xpinstall.whitelist.add", "addons.mozilla.org");
 pref("xpinstall.whitelist.add.180", "marketplace.firefox.com");
 
@@ -234,7 +236,6 @@ pref("accessibility.browsewithcaret_shortcut.enabled", false);
 // Whether the character encoding menu is under the main Firefox button. This
 // preference is a string so that localizers can alter it.
 pref("browser.menu.showCharacterEncoding", "chrome://browser/locale/browser.properties");
-pref("intl.charsetmenu.browser.static", "chrome://browser/locale/browser.properties");
 
 // pointer to the default engine name
 pref("browser.search.defaultenginename", "chrome://browser/locale/region.properties");

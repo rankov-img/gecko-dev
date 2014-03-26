@@ -2073,6 +2073,14 @@ nsRuleNode::ResolveVariableReferences(const nsStyleStructID aSID,
       &aContext->StyleVariables()->mVariables;
     nsCSSValueTokenStream* tokenStream = value->GetTokenStreamValue();
 
+    // Note that ParsePropertyWithVariableReferences relies on the fact
+    // that the nsCSSValue in aRuleData for the property we are re-parsing
+    // is still the token stream value.  When
+    // ParsePropertyWithVariableReferences calls
+    // nsCSSExpandedDataBlock::MapRuleInfoInto, that function will add
+    // the ImageValue that is created into the token stream object's
+    // mImageValues table; see the comment above mImageValues for why.
+
     // XXX Should pass in sheet here (see bug 952338).
     parser.ParsePropertyWithVariableReferences(
         tokenStream->mPropertyID, tokenStream->mShorthandPropertyID,
@@ -7226,8 +7234,8 @@ SetGridTrackList(const nsCSSValue& aValue,
 
 static void
 SetGridTemplateAreas(const nsCSSValue& aValue,
-                     nsCSSValueGridTemplateAreas& aResult,
-                     const nsCSSValueGridTemplateAreas& aParentValue,
+                     nsRefPtr<css::GridTemplateAreasValue>* aResult,
+                     css::GridTemplateAreasValue* aParentValue,
                      bool& aCanStoreInRuleTree)
 {
   switch (aValue.GetUnit()) {
@@ -7236,21 +7244,17 @@ SetGridTemplateAreas(const nsCSSValue& aValue,
 
   case eCSSUnit_Inherit:
     aCanStoreInRuleTree = false;
-    aResult.mNamedAreas = aParentValue.mNamedAreas;
-    aResult.mTemplates = aParentValue.mTemplates;
+    *aResult = aParentValue;
     break;
 
   case eCSSUnit_Initial:
   case eCSSUnit_Unset:
   case eCSSUnit_None:
-    aResult.mNamedAreas.Clear();
-    aResult.mTemplates.Clear();
+    *aResult = nullptr;
     break;
 
   default:
-    const nsCSSValueGridTemplateAreas& value = aValue.GetGridTemplateAreas();
-    aResult.mNamedAreas = value.mNamedAreas;
-    aResult.mTemplates = value.mTemplates;
+    *aResult = aValue.GetGridTemplateAreas();
   }
 }
 
@@ -7480,7 +7484,6 @@ nsRuleNode::ComputePositionData(void* aStartStruct,
       break;
     case eCSSUnit_Initial:
     case eCSSUnit_Unset:
-    case eCSSUnit_None:
       pos->mGridAutoFlow = NS_STYLE_GRID_AUTO_FLOW_NONE;
       break;
     default:
@@ -7517,7 +7520,8 @@ nsRuleNode::ComputePositionData(void* aStartStruct,
 
   // grid-tempate-areas
   SetGridTemplateAreas(*aRuleData->ValueForGridTemplateAreas(),
-                       pos->mGridTemplateAreas, parentPos->mGridTemplateAreas,
+                       &pos->mGridTemplateAreas,
+                       parentPos->mGridTemplateAreas,
                        canStoreInRuleTree);
 
   // grid-auto-position

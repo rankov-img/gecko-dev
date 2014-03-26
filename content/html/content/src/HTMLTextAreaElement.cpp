@@ -7,14 +7,15 @@
 #include "mozilla/dom/HTMLTextAreaElement.h"
 
 #include "mozAutoDocUpdate.h"
+#include "mozilla/AsyncEventDispatcher.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/dom/HTMLTextAreaElementBinding.h"
+#include "mozilla/EventDispatcher.h"
 #include "mozilla/MouseEvents.h"
 #include "nsAttrValueInlines.h"
 #include "nsContentCID.h"
 #include "nsContentCreatorFunctions.h"
 #include "nsError.h"
-#include "nsEventDispatcher.h"
 #include "nsFocusManager.h"
 #include "nsFormSubmission.h"
 #include "nsIComponentManager.h"
@@ -136,8 +137,8 @@ HTMLTextAreaElement::Select()
   nsEventStatus status = nsEventStatus_eIgnore;
   WidgetGUIEvent event(true, NS_FORM_SELECTED, nullptr);
   // XXXbz HTMLInputElement guards against this reentering; shouldn't we?
-  nsEventDispatcher::Dispatch(static_cast<nsIContent*>(this), presContext,
-                              &event, nullptr, &status);
+  EventDispatcher::Dispatch(static_cast<nsIContent*>(this), presContext,
+                            &event, nullptr, &status);
 
   // If the DOM event was not canceled (e.g. by a JS event handler
   // returning false)
@@ -357,7 +358,9 @@ HTMLTextAreaElement::SetValueChanged(bool aValueChanged)
 NS_IMETHODIMP
 HTMLTextAreaElement::GetDefaultValue(nsAString& aDefaultValue)
 {
-  nsContentUtils::GetNodeTextContent(this, false, aDefaultValue);
+  if (!nsContentUtils::GetNodeTextContent(this, false, aDefaultValue)) {
+    return NS_ERROR_OUT_OF_MEMORY;
+  }
   return NS_OK;
 }  
 
@@ -453,7 +456,7 @@ HTMLTextAreaElement::IsDisabledForEvents(uint32_t aMessage)
 }
 
 nsresult
-HTMLTextAreaElement::PreHandleEvent(nsEventChainPreVisitor& aVisitor)
+HTMLTextAreaElement::PreHandleEvent(EventChainPreVisitor& aVisitor)
 {
   aVisitor.mCanHandle = false;
   if (IsDisabledForEvents(aVisitor.mEvent->message)) {
@@ -508,7 +511,7 @@ HTMLTextAreaElement::FireChangeEventIfNeeded()
 }
 
 nsresult
-HTMLTextAreaElement::PostHandleEvent(nsEventChainPostVisitor& aVisitor)
+HTMLTextAreaElement::PostHandleEvent(EventChainPostVisitor& aVisitor)
 {
   if (aVisitor.mEvent->message == NS_FORM_SELECTED) {
     mHandlingSelect = false;
@@ -887,9 +890,10 @@ HTMLTextAreaElement::SetSelectionRange(uint32_t aSelectionStart,
       rv = textControlFrame->SetSelectionRange(aSelectionStart, aSelectionEnd, dir);
       if (NS_SUCCEEDED(rv)) {
         rv = textControlFrame->ScrollSelectionIntoView();
-        nsRefPtr<nsAsyncDOMEvent> event =
-          new nsAsyncDOMEvent(this, NS_LITERAL_STRING("select"), true, false);
-        event->PostDOMEvent();
+        nsRefPtr<AsyncEventDispatcher> asyncDispatcher =
+          new AsyncEventDispatcher(this, NS_LITERAL_STRING("select"),
+                                   true, false);
+        asyncDispatcher->PostDOMEvent();
       }
     }
   }

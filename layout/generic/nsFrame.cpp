@@ -25,7 +25,6 @@
 #include "nsViewManager.h"
 #include "nsIScrollableFrame.h"
 #include "nsPresContext.h"
-#include "nsAsyncDOMEvent.h"
 #include "nsStyleConsts.h"
 #include "nsIPresShell.h"
 #include "prlog.h"
@@ -77,8 +76,9 @@
 #include "gfxASurface.h"
 #include "nsRegion.h"
 #include "nsIFrameInlines.h"
-#include "nsEventListenerManager.h"
 
+#include "mozilla/AsyncEventDispatcher.h"
+#include "mozilla/EventListenerManager.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/LookAndFeel.h"
 #include "mozilla/MouseEvents.h"
@@ -1146,8 +1146,7 @@ nsIFrame::HasPerspective() const
 bool
 nsIFrame::ChildrenHavePerspective() const
 {
-  const nsStyleDisplay *disp = StyleDisplay();
-  return disp->mChildPerspective.GetUnit() == eStyleUnit_Coord;
+  return StyleDisplay()->HasPerspectiveStyle();
 }
 
 nsRect
@@ -1871,7 +1870,7 @@ CheckForTouchEventHandler(nsDisplayListBuilder* aBuilder, nsIFrame* aFrame)
   if (!content) {
     return;
   }
-  nsEventListenerManager* elm = nsContentUtils::GetExistingListenerManagerForNode(content);
+  EventListenerManager* elm = nsContentUtils::GetExistingListenerManagerForNode(content);
   if (!elm) {
     return;
   }
@@ -2024,13 +2023,10 @@ nsIFrame::BuildDisplayListForStackingContext(nsDisplayListBuilder* aBuilder,
   // 3: negative z-index children.
   for (;;) {
     nsDisplayItem* item = set.PositionedDescendants()->GetBottom();
-    if (item) {
-      nsIFrame* f = item->Frame();
-      if (nsLayoutUtils::GetZIndex(f) < 0) {
-        set.PositionedDescendants()->RemoveBottom();
-        resultList.AppendToTop(item);
-        continue;
-      }
+    if (item && item->ZIndex() < 0) {
+      set.PositionedDescendants()->RemoveBottom();
+      resultList.AppendToTop(item);
+      continue;
     }
     break;
   }
@@ -2302,6 +2298,13 @@ nsIFrame::BuildDisplayListForChild(nsDisplayListBuilder*   aBuilder,
   NS_ASSERTION(!isStackingContext || pseudoStackingContext,
                "Stacking contexts must also be pseudo-stacking-contexts");
 
+  bool isInFixedPos = aBuilder->IsInFixedPos() ||
+                        (isPositioned &&
+                         disp->mPosition == NS_STYLE_POSITION_FIXED &&
+                         nsLayoutUtils::IsReallyFixedPos(child));
+  nsDisplayListBuilder::AutoInFixedPosSetter
+    buildingInFixedPos(aBuilder, isInFixedPos);
+
   nsDisplayListBuilder::AutoBuildingDisplayList
     buildingForChild(aBuilder, child, pseudoStackingContext);
   DisplayListClipState::AutoClipMultiple clipState(aBuilder);
@@ -2443,10 +2446,10 @@ nsFrame::FireDOMEvent(const nsAString& aDOMEventName, nsIContent *aContent)
   nsIContent* target = aContent ? aContent : mContent;
 
   if (target) {
-    nsRefPtr<nsAsyncDOMEvent> event =
-      new nsAsyncDOMEvent(target, aDOMEventName, true, false);
-    if (NS_FAILED(event->PostDOMEvent()))
-      NS_WARNING("Failed to dispatch nsAsyncDOMEvent");
+    nsRefPtr<AsyncEventDispatcher> asyncDispatcher =
+      new AsyncEventDispatcher(target, aDOMEventName, true, false);
+    DebugOnly<nsresult> rv = asyncDispatcher->PostDOMEvent();
+    NS_ASSERTION(NS_SUCCEEDED(rv), "AsyncEventDispatcher failed to dispatch");
   }
 }
 

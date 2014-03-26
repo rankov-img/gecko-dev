@@ -17,7 +17,6 @@ import org.mozilla.gecko.GeckoApplication;
 import org.mozilla.gecko.GeckoProfile;
 import org.mozilla.gecko.LightweightTheme;
 import org.mozilla.gecko.R;
-import org.mozilla.gecko.ReaderModeUtils;
 import org.mozilla.gecko.Tab;
 import org.mozilla.gecko.Tabs;
 import org.mozilla.gecko.animation.PropertyAnimator;
@@ -208,8 +207,6 @@ public class BrowserToolbar extends GeckoRelativeLayout
         mActionItemBar = (LinearLayout) findViewById(R.id.menu_items);
         mHasSoftMenuButton = !HardwareUtils.hasMenuButton();
 
-        mProgressBar = (ToolbarProgressView) findViewById(R.id.progress);
-
         // We use different layouts on phones and tablets, so adjust the focus
         // order appropriately.
         mFocusOrder = new ArrayList<View>();
@@ -369,6 +366,10 @@ public class BrowserToolbar extends GeckoRelativeLayout
         }
     }
 
+    public void setProgressBar(ToolbarProgressView progressBar) {
+        mProgressBar = progressBar;
+    }
+
     public void refresh() {
         mUrlDisplayLayout.dismissSiteIdentityPopup();
     }
@@ -503,6 +504,9 @@ public class BrowserToolbar extends GeckoRelativeLayout
                     break;
 
                 case SELECTED:
+                    flags.add(UpdateFlags.PRIVATE_MODE);
+                    setPrivateMode(tab.isPrivate());
+                    // Fall through.
                 case LOAD_ERROR:
                     flags.add(UpdateFlags.TITLE);
                     // Fall through.
@@ -511,12 +515,9 @@ public class BrowserToolbar extends GeckoRelativeLayout
                     // us of a title change, so we don't update the title here.
                     flags.add(UpdateFlags.FAVICON);
                     flags.add(UpdateFlags.SITE_IDENTITY);
-                    flags.add(UpdateFlags.PRIVATE_MODE);
 
                     updateBackButton(tab);
                     updateForwardButton(tab);
-
-                    setPrivateMode(tab.isPrivate());
                     break;
 
                 case TITLE:
@@ -1350,7 +1351,10 @@ public class BrowserToolbar extends GeckoRelativeLayout
                 tab.toggleReaderMode();
             }
         } else if (event.equals("Reader:LongClick")) {
-            ReaderModeUtils.addToReadingList(Tabs.getInstance().getSelectedTab());
+            Tab tab = Tabs.getInstance().getSelectedTab();
+            if (tab != null) {
+                tab.addToReadingList();
+            }
         }
     }
 

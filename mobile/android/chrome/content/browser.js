@@ -82,6 +82,9 @@ XPCOMUtils.defineLazyModuleGetter(this, "WebappManager",
                                   "resource://gre/modules/WebappManager.jsm");
 #endif
 
+XPCOMUtils.defineLazyModuleGetter(this, "CharsetMenu",
+                                  "resource://gre/modules/CharsetMenu.jsm");
+
 // Lazily-loaded browser scripts:
 [
   ["SelectHelper", "chrome://browser/content/SelectHelper.js"],
@@ -241,20 +244,13 @@ function resolveGeckoURI(aURI) {
   return aURI;
 }
 
-function shouldShowProgress(url) {
-  return (url != "about:home" &&
-          url != "about:privatebrowsing" &&
-          !url.startsWith("about:reader"));
-}
-
 /**
  * Cache of commonly used string bundles.
  */
 var Strings = {};
 [
   ["brand",      "chrome://branding/locale/brand.properties"],
-  ["browser",    "chrome://browser/locale/browser.properties"],
-  ["charset",    "chrome://global/locale/charsetTitles.properties"]
+  ["browser",    "chrome://browser/locale/browser.properties"]
 ].forEach(function (aStringBundle) {
   let [name, bundle] = aStringBundle;
   XPCOMUtils.defineLazyGetter(Strings, name, function() {
@@ -3884,15 +3880,14 @@ Tab.prototype = {
 
       // Check to see if we restoring the content from a previous presentation (session)
       // since there should be no real network activity
-      let restoring = aStateFlags & Ci.nsIWebProgressListener.STATE_RESTORING;
-      let showProgress = restoring ? false : shouldShowProgress(uri);
+      let restoring = (aStateFlags & Ci.nsIWebProgressListener.STATE_RESTORING) > 0;
 
       let message = {
         type: "Content:StateChange",
         tabID: this.id,
         uri: uri,
         state: aStateFlags,
-        showProgress: showProgress,
+        restoring: restoring,
         success: success
       };
       sendMessageToJava(message);
@@ -4744,8 +4739,8 @@ var BrowserEventHandler = {
         let rect = rects[0];
         // if either width or height is zero, we don't want to move the click to the edge of the element. See bug 757208
         if (rect.width != 0 && rect.height != 0) {
-          aX = Math.min(Math.floor(rect.left + rect.width), Math.max(Math.ceil(rect.left), aX));
-          aY = Math.min(Math.floor(rect.top + rect.height), Math.max(Math.ceil(rect.top),  aY));
+          aX = Math.min(Math.ceil(rect.left + rect.width) - 1, Math.max(Math.ceil(rect.left), aX));
+          aY = Math.min(Math.ceil(rect.top + rect.height) - 1, Math.max(Math.ceil(rect.top),  aY));
         }
       }
     }
@@ -5697,7 +5692,10 @@ var XPInstallObserver = {
         if (!tab)
           return;
 
-        let host = installInfo.originatingURI.host;
+        let host = null;
+        if (installInfo.originatingURI) {
+          host = installInfo.originatingURI.host;
+        }
 
         let brandShortName = Strings.brand.GetStringFromName("brandShortName");
         let notificationName, buttons, message;
@@ -5725,7 +5723,23 @@ var XPInstallObserver = {
           }
         } else {
           notificationName = "xpinstall";
-          message = strings.formatStringFromName("xpinstallPromptWarning2", [brandShortName, host], 2);
+          if (host) {
+            // We have a host which asked for the install.
+            message = strings.formatStringFromName("xpinstallPromptWarning2", [brandShortName, host], 2);
+          } else {
+            // Without a host we address the add-on as the initiator of the install.
+            let addon = null;
+            if (installInfo.installs.length > 0) {
+              addon = installInfo.installs[0].name;
+            }
+            if (addon) {
+              // We have an addon name, show the regular message.
+              message = strings.formatStringFromName("xpinstallPromptWarningLocal", [brandShortName, addon], 2);
+            } else {
+              // We don't have an addon name, show an alternative message.
+              message = strings.formatStringFromName("xpinstallPromptWarningDirect", [brandShortName], 1);
+            }
+          }
 
           buttons = [{
             label: strings.GetStringFromName("xpinstallPromptAllowButton"),
@@ -6409,40 +6423,31 @@ var CharacterEncoding = {
   },
 
   getEncoding: function getEncoding() {
-    function normalizeCharsetCode(charsetCode) {
-      return charsetCode.trim().toLowerCase();
-    }
-
-    function getTitle(charsetCode) {
-      let charsetTitle = charsetCode;
-      try {
-        charsetTitle = Strings.charset.GetStringFromName(charsetCode + ".title");
-      } catch (e) {
-        dump("error: title not found for " + charsetCode);
-      }
-      return charsetTitle;
+    function infoToCharset(info) {
+      return { code: info.value, title: info.label };
     }
 
     if (!this._charsets.length) {
-      let charsets = Services.prefs.getComplexValue("intl.charsetmenu.browser.static", Ci.nsIPrefLocalizedString).data;
-      this._charsets = charsets.split(",").map(function (charset) {
-        return {
-          code: normalizeCharsetCode(charset),
-          title: getTitle(charset)
-        };
-      });
+      let data = CharsetMenu.getData();
+
+      // In the desktop UI, the pinned charsets are shown above the rest.
+      let pinnedCharsets = data.pinnedCharsets.map(infoToCharset);
+      let otherCharsets = data.otherCharsets.map(infoToCharset)
+
+      this._charsets = pinnedCharsets.concat(otherCharsets);
     }
 
-    // if document charset is not in charset options, add it
-    let docCharset = normalizeCharsetCode(BrowserApp.selectedBrowser.contentDocument.characterSet);
-    let selected = 0;
+    // Look for the index of the selected charset. Default to -1 if the
+    // doc charset isn't found in the list of available charsets.
+    let docCharset = BrowserApp.selectedBrowser.contentDocument.characterSet;
+    let selected = -1;
     let charsetCount = this._charsets.length;
-    for (; selected < charsetCount && this._charsets[selected].code != docCharset; selected++);
-    if (selected == charsetCount) {
-      this._charsets.push({
-        code: docCharset,
-        title: getTitle(docCharset)
-      });
+
+    for (let i = 0; i < charsetCount; i++) {
+      if (this._charsets[i].code === docCharset) {
+        selected = i;
+        break;
+      }
     }
 
     sendMessageToJava({

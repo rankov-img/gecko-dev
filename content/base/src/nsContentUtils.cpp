@@ -41,6 +41,8 @@
 #include "mozilla/dom/TextDecoder.h"
 #include "mozilla/dom/TouchEvent.h"
 #include "mozilla/dom/ShadowRoot.h"
+#include "mozilla/EventDispatcher.h"
+#include "mozilla/EventListenerManager.h"
 #include "mozilla/IMEStateManager.h"
 #include "mozilla/InternalMutationEvent.h"
 #include "mozilla/Likely.h"
@@ -73,8 +75,6 @@
 #include "nsDOMJSUtils.h"
 #include "nsDOMMutationObserver.h"
 #include "nsError.h"
-#include "nsEventDispatcher.h"
-#include "nsEventListenerManager.h"
 #include "nsEventStateManager.h"
 #include "nsFocusManager.h"
 #include "nsGenericHTMLElement.h"
@@ -269,7 +269,7 @@ public:
   NS_IMETHOD CollectReports(nsIHandleReportCallback* aHandleReport,
                             nsISupports* aData)
   {
-    // We don't measure the |nsEventListenerManager| objects pointed to by the
+    // We don't measure the |EventListenerManager| objects pointed to by the
     // entries because those references are non-owning.
     int64_t amount = sEventListenerManagersHash.ops
                    ? PL_DHashTableSizeOfExcludingThis(
@@ -302,7 +302,7 @@ protected:          // declared protected to silence clang warnings
   const void *mKey; // must be first, to look like PLDHashEntryStub
 
 public:
-  nsRefPtr<nsEventListenerManager> mListenerManager;
+  nsRefPtr<EventListenerManager> mListenerManager;
 };
 
 static bool
@@ -3561,7 +3561,7 @@ nsContentUtils::HasMutationListeners(nsINode* aNode,
 
   // global object will be null for documents that don't have windows.
   nsPIDOMWindow* window = doc->GetInnerWindow();
-  // This relies on nsEventListenerManager::AddEventListener, which sets
+  // This relies on EventListenerManager::AddEventListener, which sets
   // all mutation bits when there is a listener for DOMSubtreeModified event.
   if (window && !window->HasMutationListeners(aType)) {
     return false;
@@ -3578,7 +3578,7 @@ nsContentUtils::HasMutationListeners(nsINode* aNode,
   if (aNode->IsInDoc()) {
     nsCOMPtr<EventTarget> piTarget(do_QueryInterface(window));
     if (piTarget) {
-      nsEventListenerManager* manager = piTarget->GetExistingListenerManager();
+      EventListenerManager* manager = piTarget->GetExistingListenerManager();
       if (manager && manager->HasMutationListeners()) {
         return true;
       }
@@ -3589,7 +3589,7 @@ nsContentUtils::HasMutationListeners(nsINode* aNode,
   // might not be in our chain.  If we don't have a window, we might have a
   // mutation listener.  Check quickly to see.
   while (aNode) {
-    nsEventListenerManager* manager = aNode->GetExistingListenerManager();
+    EventListenerManager* manager = aNode->GetExistingListenerManager();
     if (manager && manager->HasMutationListeners()) {
       return true;
     }
@@ -3616,7 +3616,7 @@ nsContentUtils::HasMutationListeners(nsIDocument* aDocument,
   nsPIDOMWindow* window = aDocument ?
     aDocument->GetInnerWindow() : nullptr;
 
-  // This relies on nsEventListenerManager::AddEventListener, which sets
+  // This relies on EventListenerManager::AddEventListener, which sets
   // all mutation bits when there is a listener for DOMSubtreeModified event.
   return !window || window->HasMutationListeners(aType);
 }
@@ -3630,7 +3630,7 @@ nsContentUtils::MaybeFireNodeRemoved(nsINode* aChild, nsINode* aParent,
   NS_PRECONDITION(aChild->OwnerDoc() == aOwnerDoc, "Wrong owner-doc");
 
   // This checks that IsSafeToRunScript is true since we don't want to fire
-  // events when that is false. We can't rely on nsEventDispatcher to assert
+  // events when that is false. We can't rely on EventDispatcher to assert
   // this in this situation since most of the time there are no mutation
   // event listeners, in which case we won't even attempt to dispatch events.
   // However this also allows for two exceptions. First off, we don't assert
@@ -3661,7 +3661,7 @@ nsContentUtils::MaybeFireNodeRemoved(nsINode* aChild, nsINode* aParent,
     mutation.mRelatedNode = do_QueryInterface(aParent);
 
     mozAutoSubtreeModified subtree(aOwnerDoc, aParent);
-    nsEventDispatcher::Dispatch(aChild, nullptr, &mutation);
+    EventDispatcher::Dispatch(aChild, nullptr, &mutation);
   }
 }
 
@@ -3710,7 +3710,7 @@ nsContentUtils::TraverseListenerManager(nsINode *aNode,
   }
 }
 
-nsEventListenerManager*
+EventListenerManager*
 nsContentUtils::GetListenerManagerForNode(nsINode *aNode)
 {
   if (!sEventListenerManagersHash.ops) {
@@ -3730,7 +3730,7 @@ nsContentUtils::GetListenerManagerForNode(nsINode *aNode)
   }
 
   if (!entry->mListenerManager) {
-    entry->mListenerManager = new nsEventListenerManager(aNode);
+    entry->mListenerManager = new EventListenerManager(aNode);
 
     aNode->SetFlags(NODE_HAS_LISTENERMANAGER);
   }
@@ -3738,7 +3738,7 @@ nsContentUtils::GetListenerManagerForNode(nsINode *aNode)
   return entry->mListenerManager;
 }
 
-nsEventListenerManager*
+EventListenerManager*
 nsContentUtils::GetExistingListenerManagerForNode(const nsINode *aNode)
 {
   if (!aNode->HasFlag(NODE_HAS_LISTENERMANAGER)) {
@@ -3773,7 +3773,7 @@ nsContentUtils::RemoveListenerManager(nsINode *aNode)
                  (PL_DHashTableOperate(&sEventListenerManagersHash, aNode,
                                           PL_DHASH_LOOKUP));
     if (PL_DHASH_ENTRY_IS_BUSY(entry)) {
-      nsRefPtr<nsEventListenerManager> listenerManager;
+      nsRefPtr<EventListenerManager> listenerManager;
       listenerManager.swap(entry->mListenerManager);
       // Remove the entry and *then* do operations that could cause further
       // modification of sEventListenerManagersHash.  See bug 334177.
@@ -4191,40 +4191,58 @@ nsContentUtils::SetNodeTextContent(nsIContent* aContent,
   return rv;
 }
 
-static void AppendNodeTextContentsRecurse(nsINode* aNode, nsAString& aResult)
+static bool
+AppendNodeTextContentsRecurse(nsINode* aNode, nsAString& aResult,
+                              const mozilla::fallible_t&)
 {
   for (nsIContent* child = aNode->GetFirstChild();
        child;
        child = child->GetNextSibling()) {
     if (child->IsElement()) {
-      AppendNodeTextContentsRecurse(child, aResult);
+      bool ok = AppendNodeTextContentsRecurse(child, aResult,
+                                              mozilla::fallible_t());
+      if (!ok) {
+        return false;
+      }
     }
     else if (child->IsNodeOfType(nsINode::eTEXT)) {
-      child->AppendTextTo(aResult);
+      bool ok = child->AppendTextTo(aResult, mozilla::fallible_t());
+      if (!ok) {
+        return false;
+      }
     }
   }
+
+  return true;
 }
 
 /* static */
-void
+bool
 nsContentUtils::AppendNodeTextContent(nsINode* aNode, bool aDeep,
-                                      nsAString& aResult)
+                                      nsAString& aResult,
+                                      const mozilla::fallible_t&)
 {
   if (aNode->IsNodeOfType(nsINode::eTEXT)) {
-    static_cast<nsIContent*>(aNode)->AppendTextTo(aResult);
+    return static_cast<nsIContent*>(aNode)->AppendTextTo(aResult,
+                                                         mozilla::fallible_t());
   }
   else if (aDeep) {
-    AppendNodeTextContentsRecurse(aNode, aResult);
+    return AppendNodeTextContentsRecurse(aNode, aResult, mozilla::fallible_t());
   }
   else {
     for (nsIContent* child = aNode->GetFirstChild();
          child;
          child = child->GetNextSibling()) {
       if (child->IsNodeOfType(nsINode::eTEXT)) {
-        child->AppendTextTo(aResult);
+        bool ok = child->AppendTextTo(aResult, mozilla::fallible_t());
+        if (!ok) {
+            return false;
+        }
       }
     }
   }
+
+  return true;
 }
 
 bool
@@ -6569,11 +6587,11 @@ nsContentUtils::DOMWindowDumpEnabled()
 #endif
 }
 
-void
+bool
 nsContentUtils::GetNodeTextContent(nsINode* aNode, bool aDeep, nsAString& aResult)
 {
   aResult.Truncate();
-  AppendNodeTextContent(aNode, aDeep, aResult);
+  return AppendNodeTextContent(aNode, aDeep, aResult, mozilla::fallible_t());
 }
 
 void

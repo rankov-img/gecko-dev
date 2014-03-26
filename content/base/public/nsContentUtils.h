@@ -40,7 +40,6 @@ class imgIRequest;
 class imgLoader;
 class imgRequestProxy;
 class nsAutoScriptBlockerSuppressNodeRemoved;
-class nsEventListenerManager;
 class nsHtml5StringParser;
 class nsIChannel;
 class nsIConsoleService;
@@ -109,6 +108,7 @@ template<class T> class nsReadingIterator;
 
 namespace mozilla {
 class ErrorResult;
+class EventListenerManager;
 class Selection;
 
 namespace dom {
@@ -1074,14 +1074,16 @@ public:
    *
    * @param aNode The node for which to get the eventlistener manager.
    */
-  static nsEventListenerManager* GetListenerManagerForNode(nsINode* aNode);
+  static mozilla::EventListenerManager*
+    GetListenerManagerForNode(nsINode* aNode);
   /**
    * Get the eventlistener manager for aNode, returning null if it does not
    * already exist.
    *
    * @param aNode The node for which to get the eventlistener manager.
    */
-  static nsEventListenerManager* GetExistingListenerManagerForNode(const nsINode* aNode);
+  static mozilla::EventListenerManager*
+    GetExistingListenerManagerForNode(const nsINode* aNode);
 
   static void UnmarkGrayJSListenersInCCGenerationDocuments(uint32_t aGeneration);
 
@@ -1238,15 +1240,16 @@ public:
    * @param aDeep If true child elements of aNode are recursivly descended
    *              into to find text children.
    * @param aResult the result. Out param.
+   * @return false on out of memory errors, true otherwise.
    */
-  static void GetNodeTextContent(nsINode* aNode, bool aDeep,
-                                 nsAString& aResult);
+  static bool GetNodeTextContent(nsINode* aNode, bool aDeep,
+                                 nsAString& aResult) NS_WARN_UNUSED_RESULT;
 
   /**
    * Same as GetNodeTextContents but appends the result rather than sets it.
    */
-  static void AppendNodeTextContent(nsINode* aNode, bool aDeep,
-                                    nsAString& aResult);
+  static bool AppendNodeTextContent(nsINode* aNode, bool aDeep,
+                                    nsAString& aResult, const mozilla::fallible_t&);
 
   /**
    * Utility method that checks if a given node has any non-empty

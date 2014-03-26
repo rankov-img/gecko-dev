@@ -11,11 +11,11 @@
 #include "mozilla/DebugOnly.h"
 
 #include "nsGenericDOMDataNode.h"
+#include "mozilla/AsyncEventDispatcher.h"
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/ShadowRoot.h"
 #include "nsIDocument.h"
-#include "nsEventListenerManager.h"
 #include "nsIDOMDocument.h"
 #include "nsReadableUtils.h"
 #include "mozilla/InternalMutationEvent.h"
@@ -26,14 +26,12 @@
 #include "nsDOMString.h"
 #include "nsIDOMUserDataHandler.h"
 #include "nsChangeHint.h"
-#include "nsEventDispatcher.h"
 #include "nsCOMArray.h"
 #include "nsNodeUtils.h"
 #include "mozilla/dom/DirectionalityUtils.h"
 #include "nsBindingManager.h"
 #include "nsCCUncollectableMarker.h"
 #include "mozAutoDocUpdate.h"
-#include "nsAsyncDOMEvent.h"
 
 #include "pldhash.h"
 #include "prprf.h"
@@ -388,7 +386,7 @@ nsGenericDOMDataNode::SetTextInternal(uint32_t aOffset, uint32_t aCount,
       }
 
       mozAutoSubtreeModified subtree(OwnerDoc(), this);
-      (new nsAsyncDOMEvent(this, mutation))->RunDOMEventWhenSafe();
+      (new AsyncEventDispatcher(this, mutation))->RunDOMEventWhenSafe();
     }
   }
 
@@ -996,6 +994,12 @@ void
 nsGenericDOMDataNode::AppendTextTo(nsAString& aResult)
 {
   mText.AppendTo(aResult);
+}
+
+bool
+nsGenericDOMDataNode::AppendTextTo(nsAString& aResult, const mozilla::fallible_t&)
+{
+  return mText.AppendTo(aResult, mozilla::fallible_t());
 }
 
 already_AddRefed<nsIAtom>

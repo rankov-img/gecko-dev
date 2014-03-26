@@ -211,7 +211,7 @@ APZCTreeManager::UpdatePanZoomControllerTree(CompositorParent* aCompositor,
           apzc->SetPrevSibling(nullptr);
           apzc->SetLastChild(nullptr);
         }
-        APZC_LOG("Using APZC %p for layer %p with identifiers %lld %lld\n", apzc, aLayer, aLayersId, container->GetFrameMetrics().mScrollId);
+        APZC_LOG("Using APZC %p for layer %p with identifiers %lld %lld\n", apzc, aLayer, aLayersId, container->GetFrameMetrics().GetScrollId());
 
         apzc->NotifyLayersUpdated(metrics,
                                   aIsFirstPaint && (aLayersId == aFirstPaintLayersId));
@@ -241,6 +241,7 @@ APZCTreeManager::UpdatePanZoomControllerTree(CompositorParent* aCompositor,
         mApzcTreeLog << "APZC " << guid
                      << "\tcb=" << visible
                      << "\tsr=" << container->GetFrameMetrics().mScrollableRect
+                     << (aLayer->GetVisibleRegion().IsEmpty() ? "\tscrollinfo" : "")
                      << "\t" << container->GetFrameMetrics().GetContentDescription();
 
         // Bind the APZC instance into the tree of APZCs

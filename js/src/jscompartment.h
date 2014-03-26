@@ -113,7 +113,6 @@ struct TypeInferenceSizes;
 
 namespace js {
 class AutoDebugModeInvalidation;
-class ArrayBufferObject;
 class DebugScopes;
 class WeakMapBase;
 }
@@ -280,8 +279,8 @@ struct JSCompartment
      */
     JSObject                     *gcIncomingGrayPointers;
 
-    /* Linked list of live array buffers with >1 view. */
-    js::ArrayBufferObject        *gcLiveArrayBuffers;
+    /* During GC, list of live array buffers with >1 view accumulated during tracing. */
+    js::ArrayBufferVector        gcLiveArrayBuffers;
 
     /* Linked list of live weakmaps in this compartment. */
     js::WeakMapBase              *gcWeakMapList;
@@ -333,7 +332,7 @@ struct JSCompartment
         WrapperEnum(JSCompartment *c) : js::WrapperMap::Enum(c->crossCompartmentWrappers) {}
     };
 
-    void mark(JSTracer *trc);
+    void markRoots(JSTracer *trc);
     bool isDiscardingJitCode(JSTracer *trc);
     void sweep(js::FreeOp *fop, bool releaseTypes);
     void sweepCrossCompartmentWrappers();
@@ -516,12 +515,6 @@ class js::AutoDebugModeInvalidation
 };
 
 namespace js {
-
-inline bool
-ExclusiveContext::typeInferenceEnabled() const
-{
-    return zone()->types.inferenceEnabled;
-}
 
 inline js::Handle<js::GlobalObject*>
 ExclusiveContext::global() const

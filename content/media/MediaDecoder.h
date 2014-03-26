@@ -646,7 +646,7 @@ public:
 
   // Returns the size, in bytes, of the heap memory used by the currently
   // queued decoded video and audio data.
-  virtual int64_t VideoQueueMemoryInUse();
+  size_t SizeOfVideoQueue();
   size_t SizeOfAudioQueue();
 
   VideoFrameContainer* GetVideoFrameContainer() MOZ_FINAL MOZ_OVERRIDE
@@ -1025,7 +1025,7 @@ protected:
   // is synchronised on a monitor. The lifetime of this object is
   // after mPlayState is LOADING and before mPlayState is SHUTDOWN. It
   // is safe to access it during this period.
-  nsCOMPtr<MediaDecoderStateMachine> mDecoderStateMachine;
+  nsRefPtr<MediaDecoderStateMachine> mDecoderStateMachine;
 
   // Media data resource.
   nsRefPtr<MediaResource> mResource;
