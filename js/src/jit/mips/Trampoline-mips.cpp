@@ -54,7 +54,7 @@ struct EnterJITArgs
     void * jitcode; // <- sp points here when function is entered.
     int maxArgc;
     Value *maxArgv;
-    StackFrame *fp;
+    InterpreterFrame *fp;
 
     // Arguments on stack
     CalleeToken calleeToken;
@@ -121,8 +121,8 @@ GeneratePrologue(MacroAssembler &masm)
 /*
  * This method generates a trampoline for a c++ function with the following
  * signature:
- *   void enter(void *code, int argc, Value *argv, StackFrame *fp, CalleeToken
- *              calleeToken, JSObject *scopeChain, Value *vp)
+ *   void enter(void *code, int argc, Value *argv, InterpreterFrame *fp,
+ *              CalleeToken calleeToken, JSObject *scopeChain, Value *vp)
  *   ...using standard EABI calling convention
  */
 JitCode *
@@ -245,7 +245,7 @@ JitRuntime::generateEnterJIT(JSContext *cx, EnterJitType type)
 
         masm.setupUnalignedABICall(3, scratch);
         masm.passABIArg(BaselineFrameReg); // BaselineFrame
-        masm.passABIArg(OsrFrameReg); // StackFrame
+        masm.passABIArg(OsrFrameReg); // InterpreterFrame
         masm.passABIArg(numStackValues);
         masm.callWithABI(JS_FUNC_TO_DATA_PTR(void *, jit::InitBaselineFrameForOsr));
 

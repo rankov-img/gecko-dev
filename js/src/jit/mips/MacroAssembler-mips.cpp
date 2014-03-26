@@ -1484,7 +1484,7 @@ MacroAssemblerMIPSCompat::buildFakeExitFrame(const Register &scratch, uint32_t *
 bool
 MacroAssemblerMIPSCompat::buildOOLFakeExitFrame(void *fakeReturnAddr)
 {
-    DebugOnly<uint32_t> initialDepth = framePushed();
+    mozilla::DebugOnly<uint32_t> initialDepth = framePushed();
     uint32_t descriptor = MakeFrameDescriptor(framePushed(), IonFrame_OptimizedJS);
 
     Push(Imm32(descriptor)); // descriptor_

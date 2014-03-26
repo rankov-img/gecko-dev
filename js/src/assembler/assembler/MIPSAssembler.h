@@ -776,6 +776,11 @@ public:
         return m_buffer.size();
     }
 
+    size_t allocSize() const
+    {
+        return m_buffer.allocSize();
+    }
+
     void executableCopy(void* buffer)
     {
         memcpy(buffer, m_buffer.data(), m_buffer.size());

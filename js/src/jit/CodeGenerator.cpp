@@ -3370,9 +3370,14 @@ CodeGenerator::visitNewSlots(LNewSlots *lir)
     masm.passABIArg(temp2);
     masm.callWithABI(JS_FUNC_TO_DATA_PTR(void *, NewSlots));
 
+#ifndef JS_CODEGEN_MIPS
     masm.testPtr(output, output);
     if (!bailoutIf(Assembler::Zero, lir->snapshot()))
         return false;
+#else
+    if (!bailoutIf(output, output, Assembler::Zero, lir->snapshot()))
+        return false;
+#endif
 
     return true;
 }
