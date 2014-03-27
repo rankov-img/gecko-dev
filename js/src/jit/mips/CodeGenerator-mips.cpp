@@ -1187,7 +1187,7 @@ CodeGeneratorMIPS::visitFloor(LFloor *lir)
 
     // If high part is not zero, it is NaN or -0, so we bail.
     masm.moveFromDoubleHi(input, SecondScratchReg);
-    masm.ma_b(SecondScratchReg, Imm32(0), &bail, Assembler::NotEqual, ShortJump);
+    masm.ma_b(SecondScratchReg, Imm32(0), &bail, Assembler::NotEqual);
     if (!bailoutFrom(&bail, lir->snapshot()))
         return false;
 
@@ -1225,7 +1225,7 @@ CodeGeneratorMIPS::visitFloorF(LFloorF *lir)
 
     // If binary value is not zero, it is NaN or -0, so we bail.
     masm.as_mfc1(SecondScratchReg, input);
-    masm.ma_b(SecondScratchReg, Imm32(0), &bail, Assembler::NotEqual, ShortJump);
+    masm.ma_b(SecondScratchReg, Imm32(0), &bail, Assembler::NotEqual);
     if (!bailoutFrom(&bail, lir->snapshot()))
         return false;
 
@@ -1270,7 +1270,7 @@ CodeGeneratorMIPS::visitRound(LRound *lir)
 
     // If high part is not zero, it is NaN or -0, so we bail.
     masm.moveFromDoubleHi(input, SecondScratchReg);
-    masm.ma_b(SecondScratchReg, Imm32(0), &bail1, Assembler::NotEqual, ShortJump);
+    masm.ma_b(SecondScratchReg, Imm32(0), &bail1, Assembler::NotEqual);
     if (!bailoutFrom(&bail1, lir->snapshot()))
         return false;
 
@@ -1337,7 +1337,7 @@ CodeGeneratorMIPS::visitRoundF(LRoundF *lir)
 
     // If binary value is not zero, it is NaN or -0, so we bail.
     masm.as_mfc1(SecondScratchReg, input);
-    masm.ma_b(SecondScratchReg, Imm32(0), &bail1, Assembler::NotEqual, ShortJump);
+    masm.ma_b(SecondScratchReg, Imm32(0), &bail1, Assembler::NotEqual);
     if (!bailoutFrom(&bail1, lir->snapshot()))
         return false;
 
@@ -1537,9 +1537,9 @@ CodeGeneratorMIPS::visitTestDAndBranch(LTestDAndBranch *test)
 
 
     if (isNextBlock(ifFalse->lir())) {
-        branchToBlock(input, ScratchFloatReg, ifTrue, Assembler::DoubleNotEqual, ShortJump);
+        branchToBlock(input, ScratchFloatReg, ifTrue, Assembler::DoubleNotEqual, true);
     } else {
-        branchToBlock(input, ScratchFloatReg, ifFalse, Assembler::DoubleEqualOrUnordered, ShortJump);
+        branchToBlock(input, ScratchFloatReg, ifFalse, Assembler::DoubleEqualOrUnordered, true);
         jumpToBlock(ifTrue);
     }
 
@@ -1604,9 +1604,9 @@ CodeGeneratorMIPS::visitCompareDAndBranch(LCompareDAndBranch *comp)
     MBasicBlock *ifFalse = comp->ifFalse();
 
     if (isNextBlock(ifFalse->lir())) {
-        branchToBlock(lhs, rhs, ifTrue, cond, ShortJump);
+        branchToBlock(lhs, rhs, ifTrue, cond, true);
     } else {
-        branchToBlock(lhs, rhs, ifFalse, Assembler::InvertCondition(cond), ShortJump);
+        branchToBlock(lhs, rhs, ifFalse, Assembler::InvertCondition(cond), true);
         jumpToBlock(ifTrue);
     }
 
