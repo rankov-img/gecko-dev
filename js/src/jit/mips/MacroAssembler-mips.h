@@ -945,12 +945,29 @@ public:
     void sub32(Register src, Register dest);
 
     template <typename T>
-    void add32TestOverflow(T src, Register dest, Label *overflow) {
-        ma_addTestOverflow(dest, dest, src, overflow);
+    void branchAdd32(Condition cond, T src, Register dest, Label *overflow) {
+        switch (cond) {
+          case Overflow:
+            ma_addTestOverflow(dest, dest, src, overflow);
+            break;
+          default:
+            MOZ_ASSUME_UNREACHABLE("NYI");
+        }
     }
     template <typename T>
-    void sub32TestOverflow(T src, Register dest, Label *overflow) {
-        ma_subTestOverflow(dest, dest, src, overflow);
+    void branchSub32(Condition cond, T src, Register dest, Label *overflow) {
+        switch (cond) {
+          case Overflow:
+            ma_subTestOverflow(dest, dest, src, overflow);
+            break;
+          case NonZero:
+          case Zero:
+            sub32(src, dest);
+            ma_b(dest, dest, overflow, cond);
+            break;
+          default:
+            MOZ_ASSUME_UNREACHABLE("NYI");
+        }
     }
 
     void and32(Imm32 imm, Register dest);

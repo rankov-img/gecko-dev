@@ -1244,14 +1244,14 @@ class MacroAssemblerARMCompat : public MacroAssemblerARM
     void sub32(Imm32 imm, Register dest);
     void sub32(Register src, Register dest);
     template <typename T>
-    void add32TestOverflow(T src, Register dest, Label *overflow) {
+    void branchAdd32(Condition cond, T src, Register dest, Label *label) {
         add32(src, dest);
-        j(Assembler::Overflow, overflow);
+        j(cond, label);
     }
     template <typename T>
-    void sub32TestOverflow(T src, Register dest, Label *overflow) {
+    void branchSub32(Condition cond, T src, Register dest, Label *label) {
         sub32(src, dest);
-        j(Assembler::Overflow, overflow);
+        j(cond, label);
     }
     void xor32(Imm32 imm, Register dest);
 

@@ -2392,8 +2392,8 @@ CodeGenerator::visitApplyArgsGeneric(LApplyArgsGeneric *apply)
     if (!apply->hasSingleTarget()) {
         masm.loadObjClass(calleereg, objreg);
 
-        if (!bailoutCmpPtr(Assembler::NotEqual, objreg, ImmPtr(&JSFunction::class_),
-                           apply->snapshot()))
+        ImmPtr ptr = ImmPtr(&JSFunction::class_);
+        if (!bailoutCmpPtr(Assembler::NotEqual, objreg, ptr, apply->snapshot()))
             return false;
     }
 
@@ -4071,15 +4071,10 @@ CodeGenerator::visitNeuterCheck(LNeuterCheck *lir)
 
     masm.extractObject(Address(obj, TypedObject::ownerOffset()), temp);
     masm.unboxInt32(Address(temp, ArrayBufferObject::flagsOffset()), temp);
-    masm.and32(Imm32(ArrayBufferObject::neuteredFlag()), temp);
 
-#ifdef JS_CODEGEN_MIPS
-    if (!bailoutCmpPtr(Assembler::NonZero, temp, temp, lir->snapshot()))
+    if (!bailoutTestPtr(Assembler::NonZero, temp, temp, lir->snapshot()))
         return false;
-#else
-    if (!bailoutIf(Assembler::NonZero, lir->snapshot()))
-        return false;
-#endif
+
     return true;
 }
 
@@ -4111,8 +4106,9 @@ CodeGenerator::visitMinMaxI(LMinMaxI *ins)
     JS_ASSERT(first == output);
 
     Label done;
-    Assembler::Condition cond = ins->mir()->isMax() ? Assembler::GreaterThan :
-                                Assembler::LessThan;
+    Assembler::Condition cond = ins->mir()->isMax()
+                                ? Assembler::GreaterThan
+                                : Assembler::LessThan;
 
     if (ins->second()->isConstant()) {
         masm.branch32(cond, first, Imm32(ToInt32(ins->second())), &done);
@@ -4126,8 +4122,6 @@ CodeGenerator::visitMinMaxI(LMinMaxI *ins)
     return true;
 }
 
-
-
 bool
 CodeGenerator::visitAbsI(LAbsI *ins)
 {
@@ -4138,9 +4132,9 @@ CodeGenerator::visitAbsI(LAbsI *ins)
     masm.branchTest32(Assembler::NotSigned, input, input, &positive);
     masm.neg32(input);
 #ifdef JS_CODEGEN_MIPS
-    if (ins->snapshot() && !bailoutCmpPtr(Assembler::Equal, input, Imm32(INT32_MIN),
-                                          ins->snapshot()))
-    return false;
+    LSnapshot *snapshot = ins->snapshot();
+    if (snapshot && !bailoutCmp32(Assembler::Equal, input, Imm32(INT32_MIN), snapshot))
+        return false;
 #else
     if (ins->snapshot() && !bailoutIf(Assembler::Overflow, ins->snapshot()))
         return false;
@@ -4149,7 +4143,6 @@ CodeGenerator::visitAbsI(LAbsI *ins)
 
     return true;
 }
-
 
 bool
 CodeGenerator::visitPowI(LPowI *ins)
@@ -4830,12 +4823,7 @@ CopyStringChars(MacroAssembler &masm, Register to, Register from, Register len, 
     masm.store16(scratch, Address(to, 0));
     masm.addPtr(Imm32(2), from);
     masm.addPtr(Imm32(2), to);
-    masm.sub32(Imm32(1), len);
-#ifdef JS_CODEGEN_MIPS
-    masm.branch32(Assembler::NonZero, len, len, &start);
-#else
-    masm.j(Assembler::NonZero, &start);
-#endif
+    masm.branchSub32(Assembler::NonZero, Imm32(1), len, &start);
 }
 
 JitCode *
@@ -5197,7 +5185,7 @@ CodeGenerator::visitBoundsCheckRange(LBoundsCheckRange *lir)
     if (min != max) {
         if (min != 0) {
             Label bail;
-            masm.add32TestOverflow(Imm32(min), temp, &bail);
+            masm.branchAdd32(Assembler::Overflow, Imm32(min), temp, &bail);
             if (!bailoutFrom(&bail, lir->snapshot()))
                 return false;
         }
@@ -5222,7 +5210,7 @@ CodeGenerator::visitBoundsCheckRange(LBoundsCheckRange *lir)
     if (max != 0) {
         if (max < 0) {
             Label bail;
-            masm.add32TestOverflow(Imm32(max), temp, &bail);
+            masm.branchAdd32(Assembler::Overflow, Imm32(max), temp, &bail);
             if (!bailoutFrom(&bail, lir->snapshot()))
                 return false;
         } else {
@@ -5268,13 +5256,13 @@ bool
 CodeGenerator::emitStoreHoleCheck(Register elements, const LAllocation *index, LSnapshot *snapshot)
 {
     Label bail;
-    Assembler::Condition cond;
-    if (index->isConstant())
+    if (index->isConstant()) {
         masm.branchTestMagic(Assembler::Equal,
                              Address(elements, ToInt32(index) * sizeof(js::Value)), &bail);
-    else
+    } else {
         masm.branchTestMagic(Assembler::Equal,
                              BaseIndex(elements, ToRegister(index), TimesEight), &bail);
+    }
     return bailoutFrom(&bail, snapshot);
 }
 

@@ -157,14 +157,14 @@ class MacroAssemblerX86Shared : public Assembler
         subl(src, dest);
     }
     template <typename T>
-    void add32TestOverflow(T src, Register dest, Label *overflow) {
+    void branchAdd32(Condition cond, T src, Register dest, Label *label) {
         add32(src, dest);
-        j(Assembler::Overflow, overflow);
+        j(cond, label);
     }
     template <typename T>
-    void sub32TestOverflow(T src, Register dest, Label *overflow) {
+    void branchSub32(Condition cond, T src, Register dest, Label *label) {
         sub32(src, dest);
-        j(Assembler::Overflow, overflow);
+        j(cond, label);
     }
     void xor32(Imm32 imm, Register dest) {
         xorl(imm, dest);
@@ -585,8 +585,6 @@ class MacroAssemblerX86Shared : public Assembler
         }
         bind(&inRange);
     }
-
-    void clampDoubleToUint8(FloatRegister input, Register output);
 
     bool maybeInlineDouble(double d, const FloatRegister &dest) {
         uint64_t u = mozilla::BitwiseCast<uint64_t>(d);

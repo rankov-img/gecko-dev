@@ -336,12 +336,8 @@ BaselineCompiler::emitPrologue()
             masm.bind(&pushLoop);
             for (size_t i = 0; i < LOOP_UNROLL_FACTOR; i++)
                 masm.pushValue(R0);
-            masm.sub32(Imm32(LOOP_UNROLL_FACTOR), R1.scratchReg());
-#ifndef JS_CODEGEN_MIPS
-            masm.j(Assembler::NonZero, &pushLoop);
-#else
-            masm.ma_b(R1.scratchReg(), R1.scratchReg(), &pushLoop, Assembler::NonZero, ShortJump);
-#endif
+            masm.branchSub32(Assembler::NonZero,
+                             Imm32(LOOP_UNROLL_FACTOR), R1.scratchReg(), &pushLoop);
         }
     }
 

@@ -2175,8 +2175,8 @@ ICCompare_Int32WithBoolean::Compiler::generateStubCode(MacroAssembler &masm)
 
         // Compare payload regs of R0 and R1.
         Assembler::Condition cond = JSOpToCondition(op_, /* signed = */true);
-        masm.cmp32Set(cond, lhsIsInt32_ ? int32Reg : boolReg,
-                      lhsIsInt32_ ? boolReg : int32Reg, R0.scratchReg());
+        masm.cmp32Set(cond, (lhsIsInt32_ ? int32Reg : boolReg),
+                      (lhsIsInt32_ ? boolReg : int32Reg), R0.scratchReg());
 
         // Box the result and return
         masm.tagValue(JSVAL_TYPE_BOOLEAN, R0.scratchReg(), R0);
@@ -2906,7 +2906,7 @@ ICBinaryArith_BooleanWithInt32::Compiler::generateStubCode(MacroAssembler &masm)
       case JSOP_ADD: {
         Label fixOverflow;
 
-        masm.add32TestOverflow(rhsReg, lhsReg, &fixOverflow);
+        masm.branchAdd32(Assembler::Overflow, rhsReg, lhsReg, &fixOverflow);
         masm.tagValue(JSVAL_TYPE_INT32, lhsReg, R0);
         EmitReturnFromIC(masm);
 
@@ -2918,7 +2918,7 @@ ICBinaryArith_BooleanWithInt32::Compiler::generateStubCode(MacroAssembler &masm)
       case JSOP_SUB: {
         Label fixOverflow;
 
-        masm.sub32TestOverflow(rhsReg, lhsReg, &fixOverflow);
+        masm.branchSub32(Assembler::Overflow, rhsReg, lhsReg, &fixOverflow);
         masm.tagValue(JSVAL_TYPE_INT32, lhsReg, R0);
         EmitReturnFromIC(masm);
 
