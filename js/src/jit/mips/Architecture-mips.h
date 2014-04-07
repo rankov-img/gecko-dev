@@ -202,8 +202,7 @@ typedef uint32_t PackedRegisterMask;
 // - 64 bit floating-point coprocessor - In this case, there are 32 double
 // precision register which can also be used as single precision registers.
 
-// When using O32 ABI, floating-point coprocessor is 32 bit or working in 32
-// bit mode.
+// When using O32 ABI, floating-point coprocessor is 32 bit.
 // When using N32 ABI, floating-point coprocessor is 64 bit.
 class FloatRegisters
 {

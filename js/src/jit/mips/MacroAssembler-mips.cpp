@@ -1304,7 +1304,7 @@ MacroAssemblerMIPS::ma_lis(FloatRegister dest, float value)
     Imm32 imm(mozilla::BitwiseCast<uint32_t>(value));
 
     ma_li(ScratchRegister, imm);
-    as_mtc1(ScratchRegister, dest);
+    moveToFloat32(ScratchRegister, dest);
 }
 
 void
@@ -1326,17 +1326,17 @@ MacroAssemblerMIPS::ma_lid(FloatRegister dest, double value)
 
     // put low part of 64 bit value into the even register
     if (intStruct.lo == 0) {
-        as_mtc1(zero, dest);
+        moveToDoubleLo(zero, dest);
     } else {
         ma_li(ScratchRegister, Imm32(intStruct.lo));
-        as_mtc1(ScratchRegister, dest);
+        moveToDoubleLo(ScratchRegister, dest);
     }
 }
 
 void
 MacroAssemblerMIPS::ma_liNegZero(FloatRegister dest)
 {
-    as_mtc1(zero, dest);
+    moveToDoubleLo(zero, dest);
     ma_li(ScratchRegister, Imm32(INT_MIN));
     moveToDoubleHi(ScratchRegister, dest);
 }
@@ -1344,14 +1344,14 @@ MacroAssemblerMIPS::ma_liNegZero(FloatRegister dest)
 void
 MacroAssemblerMIPS::ma_mv(FloatRegister src, ValueOperand dest)
 {
-    as_mfc1(dest.payloadReg(), src);
+    moveFromDoubleLo(src, dest.payloadReg());
     moveFromDoubleHi(src, dest.typeReg());
 }
 
 void
 MacroAssemblerMIPS::ma_mv(ValueOperand src, FloatRegister dest)
 {
-    as_mtc1(src.payloadReg(), dest);
+    moveToDoubleLo(src.payloadReg(), dest);
     moveToDoubleHi(src.typeReg(), dest);
 }
 
@@ -2457,7 +2457,7 @@ void
 MacroAssemblerMIPSCompat::unboxDouble(const ValueOperand &operand, const FloatRegister &dest)
 {
     MOZ_ASSERT(dest != ScratchFloatReg);
-    as_mtc1(operand.payloadReg(), dest);
+    moveToDoubleLo(operand.payloadReg(), dest);
     moveToDoubleHi(operand.typeReg(), dest);
 }
 
@@ -2465,7 +2465,7 @@ void
 MacroAssemblerMIPSCompat::unboxDouble(const Address &src, const FloatRegister &dest)
 {
     ma_lw(ScratchRegister, Address(src.base, src.offset + PAYLOAD_OFFSET));
-    as_mtc1(ScratchRegister, dest);
+    moveToDoubleLo(ScratchRegister, dest);
     ma_lw(ScratchRegister, Address(src.base, src.offset + TAG_OFFSET));
     moveToDoubleHi(ScratchRegister, dest);
 }
@@ -2513,7 +2513,7 @@ MacroAssemblerMIPSCompat::unboxPrivate(const ValueOperand &src, Register dest)
 void
 MacroAssemblerMIPSCompat::boxDouble(const FloatRegister &src, const ValueOperand &dest)
 {
-    as_mfc1(dest.payloadReg(), src);
+    moveFromDoubleLo(src, dest.payloadReg());
     moveFromDoubleHi(src, dest.typeReg());
 }
 

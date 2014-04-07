@@ -271,6 +271,20 @@ class MacroAssemblerMIPS : public Assembler
         as_mfc1(dest, getOddPair(src));
     }
 
+    void moveToDoubleLo(Register src, FloatRegister dest) {
+        as_mtc1(src, dest);
+    }
+    void moveFromDoubleLo(FloatRegister src, Register dest) {
+        as_mfc1(dest, src);
+    }
+
+    void moveToFloat32(Register src, FloatRegister dest) {
+        as_mtc1(src, dest);
+    }
+    void moveFromFloat32(FloatRegister src, Register dest) {
+        as_mfc1(dest, src);
+    }
+
   protected:
     void branchWithCode(InstImm code, Label *label, JumpKind jumpKind);
     Condition ma_cmp(Register rd, Register lhs, Register rhs, Condition c);
@@ -1068,7 +1082,7 @@ public:
     }
 
     void zeroDouble(FloatRegister reg) {
-        as_mtc1(zero, reg);
+        moveToDoubleLo(zero, reg);
         moveToDoubleHi(zero, reg);
     }
 

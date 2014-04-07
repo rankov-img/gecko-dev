@@ -1130,7 +1130,7 @@ CodeGeneratorMIPS::visitFloor(LFloor *lir)
 
     masm.bind(&skipCheck);
     masm.as_floorwd(scratch, input);
-    masm.as_mfc1(output, scratch);
+    masm.moveFromDoubleLo(scratch, output);
 
     if (!bailoutCmp32(Assembler::Equal, output, Imm32(INT_MIN), lir->snapshot()))
         return false;
@@ -1157,7 +1157,7 @@ CodeGeneratorMIPS::visitFloorF(LFloorF *lir)
     masm.ma_bc1s(input, scratch, &skipCheck, Assembler::DoubleNotEqual, ShortJump);
 
     // If binary value is not zero, it is NaN or -0, so we bail.
-    masm.as_mfc1(SecondScratchReg, input);
+    masm.moveFromDoubleLo(input, SecondScratchReg);
     if (!bailoutCmp32(Assembler::NotEqual, SecondScratchReg, Imm32(0), lir->snapshot()))
         return false;
 
@@ -1167,7 +1167,7 @@ CodeGeneratorMIPS::visitFloorF(LFloorF *lir)
 
     masm.bind(&skipCheck);
     masm.as_floorws(scratch, input);
-    masm.as_mfc1(output, scratch);
+    masm.moveFromDoubleLo(scratch, output);
 
     if (!bailoutCmp32(Assembler::Equal, output, Imm32(INT_MIN), lir->snapshot()))
         return false;
@@ -1214,7 +1214,7 @@ CodeGeneratorMIPS::visitRound(LRound *lir)
     masm.as_addd(scratch, input, scratch);
     masm.as_floorwd(scratch, scratch);
 
-    masm.as_mfc1(output, scratch);
+    masm.moveFromDoubleLo(scratch, output);
 
     if (!bailoutCmp32(Assembler::Equal, output, Imm32(INT_MIN), lir->snapshot()))
         return false;
@@ -1237,7 +1237,7 @@ CodeGeneratorMIPS::visitRound(LRound *lir)
     // Truncate and round toward zero.
     // This is off-by-one for everything but integer-valued inputs.
     masm.as_floorwd(scratch, temp);
-    masm.as_mfc1(output, scratch);
+    masm.moveFromDoubleLo(scratch, output);
 
     if (!bailoutCmp32(Assembler::Equal, output, Imm32(INT_MIN), lir->snapshot()))
         return false;
@@ -1267,7 +1267,7 @@ CodeGeneratorMIPS::visitRoundF(LRoundF *lir)
     masm.ma_bc1s(input, scratch, &skipCheck, Assembler::DoubleNotEqual, ShortJump);
 
     // If binary value is not zero, it is NaN or -0, so we bail.
-    masm.as_mfc1(SecondScratchReg, input);
+    masm.moveFromFloat32(input, SecondScratchReg);
     if (!bailoutCmp32(Assembler::NotEqual, SecondScratchReg, Imm32(0), lir->snapshot()))
         return false;
 
@@ -1280,7 +1280,7 @@ CodeGeneratorMIPS::visitRoundF(LRoundF *lir)
     masm.as_adds(scratch, input, scratch);
     masm.as_floorws(scratch, scratch);
 
-    masm.as_mfc1(output, scratch);
+    masm.moveFromFloat32(scratch, output);
 
     if (!bailoutCmp32(Assembler::Equal, output, Imm32(INT_MIN), lir->snapshot()))
         return false;
@@ -1303,7 +1303,7 @@ CodeGeneratorMIPS::visitRoundF(LRoundF *lir)
     // Truncate and round toward zero.
     // This is off-by-one for everything but integer-valued inputs.
     masm.as_floorws(scratch, temp);
-    masm.as_mfc1(output, scratch);
+    masm.moveFromFloat32(scratch, output);
 
     if (!bailoutCmp32(Assembler::Equal, output, Imm32(INT_MIN), lir->snapshot()))
         return false;
