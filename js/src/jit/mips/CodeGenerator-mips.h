@@ -14,12 +14,7 @@ namespace js {
 namespace jit {
 
 class OutOfLineBailout;
-class OutOfLineUndoALUOperation;
-class MulNegativeZeroCheck;
 class OutOfLineTableSwitch;
-
-class OutOfLineLoadTypedArrayOutOfBounds;
-class OutOfLineTruncate;
 
 class CodeGeneratorMIPS : public CodeGeneratorShared
 {
@@ -78,22 +73,13 @@ class CodeGeneratorMIPS : public CodeGeneratorShared
     MoveOperand toMoveOperand(const LAllocation *a) const;
 
     template <typename T1, typename T2>
-    bool bailoutCmpPtr(Assembler::Condition c, T1 lhs, T2 rhs, LSnapshot *snapshot) {
-        bool bailed;
+    bool bailoutCmp32(Assembler::Condition c, T1 lhs, T2 rhs, LSnapshot *snapshot) {
+        bool goodBailout;
         Label skip;
         masm.ma_b(lhs, rhs, &skip, Assembler::InvertCondition(c), ShortJump);
-        bailed = bailout(snapshot);
+        goodBailout = bailout(snapshot);
         masm.bind(&skip);
-        return bailed;
-    }
-    bool bailoutTestPtr(Assembler::Condition c, Register lhs, Register rhs, LSnapshot *snapshot) {
-        Label bail;
-        masm.branchTestPtr(c, lhs, rhs, &bail);
-        return bailoutFrom(&bail, snapshot);
-    }
-    template <typename T1, typename T2>
-    bool bailoutCmp32(Assembler::Condition c, T1 lhs, T2 rhs, LSnapshot *snapshot) {
-        return bailoutCmpPtr(c, lhs, rhs, snapshot);
+        return goodBailout;
     }
     template<typename T2>
     bool bailoutCmp32(Assembler::Condition c, Operand lhs, T2 rhs, LSnapshot *snapshot) {
@@ -104,6 +90,15 @@ class CodeGeneratorMIPS : public CodeGeneratorShared
         MOZ_ASSUME_UNREACHABLE("Invalid operand tag.");
         return false;
     }
+    template <typename T1, typename T2>
+    bool bailoutCmpPtr(Assembler::Condition c, T1 lhs, T2 rhs, LSnapshot *snapshot) {
+        return bailoutCmp32(c, lhs, rhs, snapshot);
+    }
+    bool bailoutTestPtr(Assembler::Condition c, Register lhs, Register rhs, LSnapshot *snapshot) {
+        Label bail;
+        masm.branchTestPtr(c, lhs, rhs, &bail);
+        return bailoutFrom(&bail, snapshot);
+    }
 
     bool bailoutFrom(Label *label, LSnapshot *snapshot);
     bool bailout(LSnapshot *snapshot);
@@ -113,25 +108,54 @@ class CodeGeneratorMIPS : public CodeGeneratorShared
     bool generateEpilogue();
     bool generateOutOfLineCode();
 
+    template <typename T>
+    void branchToBlock(Register lhs, T rhs, MBasicBlock *mir, Assembler::Condition cond)
+    {
+        Label *label = mir->lir()->label();
+        if (Label *oolEntry = labelForBackedgeWithImplicitCheck(mir)) {
+            // Note: the backedge is initially a jump to the next instruction.
+            // It will be patched to the target block's label during link().
+            RepatchLabel rejoin;
+            CodeOffsetJump backedge;
+            Label skip;
+
+            masm.ma_b(lhs, rhs, &skip, Assembler::InvertCondition(cond), ShortJump);
+            backedge = masm.jumpWithPatch(&rejoin);
+            masm.bind(&rejoin);
+            masm.bind(&skip);
+
+            if (!patchableBackedges_.append(PatchableBackedgeInfo(backedge, label, oolEntry)))
+                MOZ_CRASH();
+        } else {
+            masm.ma_b(lhs, rhs, label, cond);
+        }
+    }
+    void branchToBlock(Assembler::FloatFormat fmt, FloatRegister lhs, FloatRegister rhs,
+                       MBasicBlock *mir, Assembler::DoubleCondition cond);
+
     // Emits a branch that directs control flow to the true block if |cond| is
     // true, and the false block if |cond| is false.
     template <typename T>
     void emitBranch(Register lhs, T rhs, Assembler::Condition cond,
-                    MBasicBlock *mirTrue, MBasicBlock *mirFalse);
-    void emitBranch(Assembler::Condition cond, MBasicBlock *ifTrue, MBasicBlock *ifFalse);
+                    MBasicBlock *mirTrue, MBasicBlock *mirFalse)
+    {
+        if (isNextBlock(mirFalse->lir())) {
+            branchToBlock(lhs, rhs, mirTrue, cond);
+        } else {
+            branchToBlock(lhs, rhs, mirFalse, Assembler::InvertCondition(cond));
+            jumpToBlock(mirTrue);
+        }
+    }
     void testNullEmitBranch(Assembler::Condition cond, const ValueOperand &value,
-                            MBasicBlock *ifTrue, MBasicBlock *ifFalse) {
+                            MBasicBlock *ifTrue, MBasicBlock *ifFalse)
+    {
         emitBranch(value.typeReg(), (Imm32)ImmType(JSVAL_TYPE_NULL), cond, ifTrue, ifFalse);
     }
     void testUndefinedEmitBranch(Assembler::Condition cond, const ValueOperand &value,
-                            MBasicBlock *ifTrue, MBasicBlock *ifFalse) {
+                                 MBasicBlock *ifTrue, MBasicBlock *ifFalse)
+    {
         emitBranch(value.typeReg(), (Imm32)ImmType(JSVAL_TYPE_UNDEFINED), cond, ifTrue, ifFalse);
     }
-
-    template <typename T>
-    void branchToBlock(Register lhs, T rhs, MBasicBlock *mir, Assembler::Condition cond);
-    void branchToBlock(FloatRegister lhs, FloatRegister rhs, MBasicBlock *mir,
-                       Assembler::DoubleCondition cond, bool isDouble);
 
     bool emitTableSwitchDispatch(MTableSwitch *mir, const Register &index, const Register &base);
 
