@@ -81,14 +81,20 @@ class CodeGeneratorMIPS : public CodeGeneratorShared
         masm.bind(&skip);
         return goodBailout;
     }
-    template<typename T2>
-    bool bailoutCmp32(Assembler::Condition c, Operand lhs, T2 rhs, LSnapshot *snapshot) {
+    template<typename T>
+    bool bailoutCmp32(Assembler::Condition c, Operand lhs, T rhs, LSnapshot *snapshot) {
         if (lhs.getTag() == Operand::REG)
               return bailoutCmp32(c, lhs.toReg(), rhs, snapshot);
         if (lhs.getTag() == Operand::MEM)
               return bailoutCmp32(c, lhs.toAddress(), rhs, snapshot);
         MOZ_ASSUME_UNREACHABLE("Invalid operand tag.");
         return false;
+    }
+    template<typename T>
+    bool bailoutTest32(Assembler::Condition c, Register lhs, T rhs, LSnapshot *snapshot) {
+        Label bail;
+        masm.branchTest32(c, lhs, rhs, &bail);
+        return bailoutFrom(&bail, snapshot);
     }
     template <typename T1, typename T2>
     bool bailoutCmpPtr(Assembler::Condition c, T1 lhs, T2 rhs, LSnapshot *snapshot) {
