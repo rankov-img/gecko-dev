@@ -2083,6 +2083,14 @@ MacroAssemblerMIPSCompat::subPtr(Imm32 imm, const Register dest)
 }
 
 void
+MacroAssemblerMIPSCompat::subPtr(const Register &src, const Address &dest)
+{
+    ma_lw(SecondScratchReg, dest);
+    ma_subu(SecondScratchReg, SecondScratchReg, src);
+    ma_sw(SecondScratchReg, dest);
+}
+
+void
 MacroAssemblerMIPSCompat::addPtr(Imm32 imm, const Register dest)
 {
     ma_addu(dest, imm);

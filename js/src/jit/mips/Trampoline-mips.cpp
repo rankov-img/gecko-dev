@@ -188,7 +188,7 @@ JitRuntime::generateEnterJIT(JSContext *cx, EnterJitType type)
     masm.storePtr(s2, Address(StackPointer, 0)); // callee token
 
     masm.subPtr(StackPointer, s4);
-    masm.makeFrameDescriptor(s4, IonFrame_Entry);
+    masm.makeFrameDescriptor(s4, JitFrame_Entry);
     masm.push(s4); // descriptor
 
     CodeLabel returnLabel;
@@ -230,7 +230,7 @@ JitRuntime::generateEnterJIT(JSContext *cx, EnterJitType type)
 
         // Enter exit frame.
         masm.addPtr(Imm32(BaselineFrame::Size() + BaselineFrame::FramePointerOffset), scratch);
-        masm.makeFrameDescriptor(scratch, IonFrame_BaselineJS);
+        masm.makeFrameDescriptor(scratch, JitFrame_BaselineJS);
 
         // Push frame descriptor and fake return address.
         masm.reserveStack(2 * sizeof(uintptr_t));
@@ -457,7 +457,7 @@ JitRuntime::generateArgumentsRectifier(JSContext *cx, ExecutionMode mode, void *
     masm.lshiftPtr(Imm32(3), t0);
 
     // Construct sizeDescriptor.
-    masm.makeFrameDescriptor(t0, IonFrame_Rectifier);
+    masm.makeFrameDescriptor(t0, JitFrame_Rectifier);
 
     // Construct IonJSFrameLayout.
     masm.subPtr(Imm32(3 * sizeof(uintptr_t)), StackPointer);
