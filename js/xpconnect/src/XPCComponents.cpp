@@ -265,15 +265,15 @@ nsXPCComponents_Interfaces::NewEnumerate(nsIXPConnectWrappedNative *wrapper,
             *statep = UINT_TO_JSVAL(idx + 1);
 
             if (interface) {
-                JSString* idstr;
                 const char* name;
 
-                JS::Rooted<jsid> id(cx);
-                if (NS_SUCCEEDED(interface->GetNameShared(&name)) && name &&
-                        nullptr != (idstr = JS_NewStringCopyZ(cx, name)) &&
-                        JS_ValueToId(cx, StringValue(idstr), &id)) {
-                    *idp = id;
-                    return NS_OK;
+                RootedId id(cx);
+                if (NS_SUCCEEDED(interface->GetNameShared(&name)) && name) {
+                    RootedString idstr(cx, JS_NewStringCopyZ(cx, name));
+                    if (idstr && JS_StringToId(cx, idstr, &id)) {
+                        *idp = id;
+                        return NS_OK;
+                    }
                 }
             }
             // fall through
@@ -514,13 +514,12 @@ nsXPCComponents_InterfacesByID::NewEnumerate(nsIXPConnectWrappedNative *wrapper,
             if (interface) {
                 nsIID const *iid;
                 char idstr[NSID_LENGTH];
-                JSString* jsstr;
 
                 if (NS_SUCCEEDED(interface->GetIIDShared(&iid))) {
                     iid->ToProvidedString(idstr);
-                    jsstr = JS_NewStringCopyZ(cx, idstr);
-                    JS::Rooted<jsid> id(cx);
-                    if (jsstr && JS_ValueToId(cx, StringValue(jsstr), &id)) {
+                    RootedString jsstr(cx, JS_NewStringCopyZ(cx, idstr));
+                    RootedId id(cx);
+                    if (jsstr && JS_StringToId(cx, jsstr, &id)) {
                         *idp = id;
                         return NS_OK;
                     }
@@ -774,10 +773,9 @@ nsXPCComponents_Classes::NewEnumerate(nsIXPConnectWrappedNative *wrapper,
                 if (holder) {
                     nsAutoCString name;
                     if (NS_SUCCEEDED(holder->GetData(name))) {
-                        JSString* idstr = JS_NewStringCopyN(cx, name.get(), name.Length());
-                        JS::Rooted<jsid> id(cx);
-                        if (idstr &&
-                            JS_ValueToId(cx, StringValue(idstr), &id)) {
+                        RootedString idstr(cx, JS_NewStringCopyN(cx, name.get(), name.Length()));
+                        RootedId id(cx);
+                        if (idstr && JS_StringToId(cx, idstr, &id)) {
                             *idp = id;
                             return NS_OK;
                         }
@@ -1015,11 +1013,10 @@ nsXPCComponents_ClassesByID::NewEnumerate(nsIXPConnectWrappedNative *wrapper,
                 if (holder) {
                     char* name;
                     if (NS_SUCCEEDED(holder->ToString(&name)) && name) {
-                        JSString* idstr = JS_NewStringCopyZ(cx, name);
+                        RootedString idstr(cx, JS_NewStringCopyZ(cx, name));
                         nsMemory::Free(name);
-                        JS::Rooted<jsid> id(cx);
-                        if (idstr &&
-                            JS_ValueToId(cx, StringValue(idstr), &id)) {
+                        RootedId id(cx);
+                        if (idstr && JS_StringToId(cx, idstr, &id)) {
                             *idp = id;
                             return NS_OK;
                         }
@@ -1270,9 +1267,9 @@ nsXPCComponents_Results::NewEnumerate(nsIXPConnectWrappedNative *wrapper,
             const char* name;
             iter = (const void**) JSVAL_TO_PRIVATE(*statep);
             if (nsXPCException::IterateNSResults(nullptr, &name, nullptr, iter)) {
-                JSString* idstr = JS_NewStringCopyZ(cx, name);
-                JS::Rooted<jsid> id(cx);
-                if (idstr && JS_ValueToId(cx, StringValue(idstr), &id)) {
+                RootedString idstr(cx, JS_NewStringCopyZ(cx, name));
+                JS::RootedId id(cx);
+                if (idstr && JS_StringToId(cx, idstr, &id)) {
                     *idp = id;
                     return NS_OK;
                 }
@@ -2417,7 +2414,7 @@ nsXPCComponents_Constructor::CallOrConstruct(nsIXPConnectWrappedNative *wrapper,
 
         RootedString str(cx, ToString(cx, args[1]));
         RootedId id(cx);
-        if (!str || !JS_ValueToId(cx, StringValue(str), &id))
+        if (!str || !JS_StringToId(cx, str, &id))
             return ThrowAndFail(NS_ERROR_XPC_BAD_CONVERT_JS, cx, _retval);
 
         RootedValue val(cx);
@@ -2465,7 +2462,7 @@ nsXPCComponents_Constructor::CallOrConstruct(nsIXPConnectWrappedNative *wrapper,
 
         RootedString str(cx, ToString(cx, args[0]));
         RootedId id(cx);
-        if (!str || !JS_ValueToId(cx, StringValue(str), &id))
+        if (!str || !JS_StringToId(cx, str, &id))
             return ThrowAndFail(NS_ERROR_XPC_BAD_CONVERT_JS, cx, _retval);
 
         RootedValue val(cx);
@@ -2756,7 +2753,7 @@ nsXPCComponents_Utils::ImportGlobalProperties(HandleValue aPropertyList,
 {
     RootedObject global(cx, CurrentGlobalOrNull(cx));
     MOZ_ASSERT(global);
-    GlobalProperties options;
+    GlobalProperties options(false);
     NS_ENSURE_TRUE(aPropertyList.isObject(), NS_ERROR_INVALID_ARG);
     RootedObject propertyList(cx, &aPropertyList.toObject());
     NS_ENSURE_TRUE(JS_IsArrayObject(cx, propertyList), NS_ERROR_INVALID_ARG);
@@ -3009,7 +3006,7 @@ nsXPCComponents_Utils::EvalInWindow(const nsAString &source, HandleValue window,
     return NS_OK;
 }
 
-/* jsval exportFunction(in jsval vfunction, in jsval vscope, in jsval vname); */
+/* jsval exportFunction(in jsval vfunction, in jsval vscope, in jsval voptions); */
 NS_IMETHODIMP
 nsXPCComponents_Utils::ExportFunction(HandleValue vfunction, HandleValue vscope,
                                       HandleValue voptions, JSContext *cx,
@@ -3563,40 +3560,48 @@ static JSStructuredCloneCallbacks CloneIntoCallbacks = {
     nullptr
 };
 
-NS_IMETHODIMP
-nsXPCComponents_Utils::CloneInto(HandleValue aValue, HandleValue aScope,
-                                 HandleValue aOptions, JSContext *aCx,
-                                 MutableHandleValue aCloned)
+bool
+xpc::CloneInto(JSContext *aCx, HandleValue aValue, HandleValue aScope,
+               HandleValue aOptions, MutableHandleValue aCloned)
 {
     if (!aScope.isObject())
-        return NS_ERROR_INVALID_ARG;
+        return false;
 
     RootedObject scope(aCx, &aScope.toObject());
     scope = js::CheckedUnwrap(scope);
-    NS_ENSURE_TRUE(scope, NS_ERROR_FAILURE);
+    if(!scope) {
+        JS_ReportError(aCx, "Permission denied to clone object into scope");
+        return false;
+    }
 
     if (!aOptions.isUndefined() && !aOptions.isObject()) {
         JS_ReportError(aCx, "Invalid argument");
-        return NS_ERROR_FAILURE;
+        return false;
     }
 
     RootedObject optionsObject(aCx, aOptions.isObject() ? &aOptions.toObject()
                                                         : nullptr);
     CloneIntoOptions options(aCx, optionsObject);
     if (aOptions.isObject() && !options.Parse())
-        return NS_ERROR_FAILURE;
+        return false;
 
     {
         CloneIntoCallbacksData data(aCx, &options);
         JSAutoCompartment ac(aCx, scope);
         if (!JS_StructuredClone(aCx, aValue, aCloned, &CloneIntoCallbacks, &data))
-            return NS_ERROR_FAILURE;
+            return false;
     }
 
-    if (!JS_WrapValue(aCx, aCloned))
-        return NS_ERROR_FAILURE;
+    return JS_WrapValue(aCx, aCloned);
+}
 
-    return NS_OK;
+NS_IMETHODIMP
+nsXPCComponents_Utils::CloneInto(HandleValue aValue, HandleValue aScope,
+                                 HandleValue aOptions, JSContext *aCx,
+                                 MutableHandleValue aCloned)
+{
+    return xpc::CloneInto(aCx, aValue, aScope, aOptions, aCloned) ?
+           NS_OK : NS_ERROR_FAILURE;
 }
 
 NS_IMETHODIMP
@@ -3781,8 +3786,8 @@ private:
 ComponentsSH ComponentsSH::singleton(0);
 
 // Singleton refcounting.
-NS_IMETHODIMP_(nsrefcnt) ComponentsSH::AddRef(void) { return 1; }
-NS_IMETHODIMP_(nsrefcnt) ComponentsSH::Release(void) { return 1; }
+NS_IMETHODIMP_(MozExternalRefCountType) ComponentsSH::AddRef(void) { return 1; }
+NS_IMETHODIMP_(MozExternalRefCountType) ComponentsSH::Release(void) { return 1; }
 
 NS_INTERFACE_MAP_BEGIN(ComponentsSH)
   NS_INTERFACE_MAP_ENTRY(nsIXPCScriptable)

@@ -90,7 +90,6 @@ public:
                          APZCTreeManager* aTreeManager,
                          GeckoContentController* aController,
                          GestureBehavior aGestures = DEFAULT_GESTURES);
-  ~AsyncPanZoomController();
 
   // --------------------------------------------------------------------------
   // These methods must only be called on the gecko thread.
@@ -238,7 +237,7 @@ public:
    * checkerboard immediately. This includes a bunch of logic, including
    * algorithms to bias painting in the direction of the velocity.
    */
-  static const CSSRect CalculatePendingDisplayPort(
+  static const LayerMargin CalculatePendingDisplayPort(
     const FrameMetrics& aFrameMetrics,
     const ScreenPoint& aVelocity,
     double aEstimatedPaintDuration);
@@ -254,6 +253,15 @@ public:
    * Does the work for ReceiveInputEvent().
    */
   nsEventStatus HandleInputEvent(const InputData& aEvent);
+
+  /**
+   * Handler for gesture events.
+   * Currently some gestures are detected in GestureEventListener that calls
+   * APZC back through this handler in order to avoid recursive calls to
+   * APZC::HandleInputEvent() which is supposed to do the work for
+   * ReceiveInputEvent().
+   */
+  nsEventStatus HandleGestureEvent(const InputData& aEvent);
 
   /**
    * Populates the provided object (if non-null) with the scrollable guid of this apzc.
@@ -351,6 +359,9 @@ public:
   }
 
 protected:
+  // Protected destructor, to discourage deletion outside of Release():
+  ~AsyncPanZoomController();
+
   /**
    * Helper method for touches beginning. Sets everything up for panning and any
    * multitouch gestures.
@@ -757,6 +768,7 @@ private:
   friend class Axis;
   friend class FlingAnimation;
 
+
   /* The functions and members in this section are used to build a tree
    * structure out of APZC instances. This tree can only be walked or
    * manipulated while holding the lock in the associated APZCTreeManager
@@ -804,6 +816,7 @@ private:
   nsRefPtr<AsyncPanZoomController> mPrevSibling;
   nsRefPtr<AsyncPanZoomController> mParent;
 
+
   /* The functions and members in this section are used to maintain the
    * area that this APZC instance is responsible for. This is used when
    * hit-testing to see which APZC instance should handle touch events.
@@ -830,9 +843,6 @@ public:
   }
 
 private:
-  /* Unique id assigned to each APZC. Used with ViewID to uniquely identify
-   * shared FrameMeterics used in progressive tile painting. */
-  const uint32_t mAPZCId;
   /* This is the visible region of the layer that this APZC corresponds to, in
    * that layer's screen pixels (the same coordinate system in which this APZC
    * receives events in ReceiveInputEvent()). */
@@ -842,6 +852,15 @@ private:
   gfx3DMatrix mAncestorTransform;
   /* This is the CSS transform for this APZC's layer. */
   gfx3DMatrix mCSSTransform;
+
+
+  /* The functions and members in this section are used for sharing the
+   * FrameMetrics across processes for the progressive tiling code.
+   */
+private:
+  /* Unique id assigned to each APZC. Used with ViewID to uniquely identify
+   * shared FrameMeterics used in progressive tile painting. */
+  const uint32_t mAPZCId;
 
   ipc::SharedMemoryBasic* mSharedFrameMetricsBuffer;
   CrossProcessMutex* mSharedLock;
@@ -867,9 +886,6 @@ public:
     : mRepaintInterval(aRepaintInterval)
   { }
 
-  virtual ~AsyncPanZoomAnimation()
-  { }
-
   virtual bool Sample(FrameMetrics& aFrameMetrics,
                       const TimeDuration& aDelta) = 0;
 
@@ -892,6 +908,10 @@ public:
   TimeDuration mRepaintInterval;
 
 protected:
+  // Protected destructor, to discourage deletion outside of Release():
+  virtual ~AsyncPanZoomAnimation()
+  { }
+
   /**
    * Tasks scheduled for execution after the APZC's mMonitor is released.
    * Derived classes can add tasks here in Sample(), and the APZC can call

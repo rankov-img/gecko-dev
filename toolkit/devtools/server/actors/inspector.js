@@ -55,7 +55,7 @@ const Services = require("Services");
 const protocol = require("devtools/server/protocol");
 const {Arg, Option, method, RetVal, types} = protocol;
 const {LongStringActor, ShortLongString} = require("devtools/server/actors/string");
-const promise = require("sdk/core/promise");
+const {Promise: promise} = Cu.import("resource://gre/modules/Promise.jsm", {});
 const object = require("sdk/util/object");
 const events = require("sdk/event/core");
 const {Unknown} = require("sdk/platform/xpcom");
@@ -104,6 +104,8 @@ let HELPER_SHEET = ".__fx-devtools-hide-shortcut__ { visibility: hidden !importa
 HELPER_SHEET += ":-moz-devtools-highlighted { outline: 2px dashed #F06!important; outline-offset: -2px!important } ";
 
 Cu.import("resource://gre/modules/devtools/LayoutHelpers.jsm");
+
+loader.lazyImporter(this, "gDevTools", "resource:///modules/devtools/gDevTools.jsm");
 
 loader.lazyGetter(this, "DOMParser", function() {
   return Cc["@mozilla.org/xmlextras/domparser;1"].createInstance(Ci.nsIDOMParser);
@@ -2602,10 +2604,12 @@ var InspectorActor = protocol.ActorClass({
     }
 
     // If the request hangs for too long, kill it to avoid queuing up other requests
-    // to the same actor
-    this.window.setTimeout(() => {
-      deferred.reject(new Error("Image " + url + " could not be retrieved in time"));
-    }, IMAGE_FETCHING_TIMEOUT);
+    // to the same actor, except if we're running tests
+    if (!gDevTools.testing) {
+      this.window.setTimeout(() => {
+        deferred.reject(new Error("Image " + url + " could not be retrieved in time"));
+      }, IMAGE_FETCHING_TIMEOUT);
+    }
 
     img.src = url;
 

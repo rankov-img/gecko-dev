@@ -142,6 +142,7 @@ class CodeGenerator : public CodeGeneratorSpecific
     bool visitOutOfLineNewObject(OutOfLineNewObject *ool);
     bool visitNewDeclEnvObject(LNewDeclEnvObject *lir);
     bool visitNewCallObject(LNewCallObject *lir);
+    bool visitNewSingletonCallObject(LNewSingletonCallObject *lir);
     bool visitNewCallObjectPar(LNewCallObjectPar *lir);
     bool visitNewStringObject(LNewStringObject *lir);
     bool visitNewPar(LNewPar *lir);
@@ -161,12 +162,14 @@ class CodeGenerator : public CodeGeneratorSpecific
     bool visitSetArgumentsObjectArg(LSetArgumentsObjectArg *lir);
     bool visitReturnFromCtor(LReturnFromCtor *lir);
     bool visitComputeThis(LComputeThis *lir);
+    bool visitLoadArrowThis(LLoadArrowThis *lir);
     bool visitArrayLength(LArrayLength *lir);
     bool visitSetArrayLength(LSetArrayLength *lir);
     bool visitTypedArrayLength(LTypedArrayLength *lir);
     bool visitTypedArrayElements(LTypedArrayElements *lir);
     bool visitNeuterCheck(LNeuterCheck *lir);
     bool visitTypedObjectElements(LTypedObjectElements *lir);
+    bool visitSetTypedObjectOffset(LSetTypedObjectOffset *lir);
     bool visitStringLength(LStringLength *lir);
     bool visitInitializedLength(LInitializedLength *lir);
     bool visitSetInitializedLength(LSetInitializedLength *lir);

@@ -70,6 +70,11 @@ class CodeGeneratorX86Shared : public CodeGeneratorShared
         masm.cmp32(lhs, rhs);
         return bailoutIf(c, snapshot);
     }
+    template <typename T1, typename T2>
+    bool bailoutTest32(Assembler::Condition c, T1 lhs, T2 rhs, LSnapshot *snapshot) {
+        masm.test32(lhs, rhs);
+        return bailoutIf(c, snapshot);
+    }
 
   protected:
     bool generatePrologue();
@@ -87,12 +92,14 @@ class CodeGeneratorX86Shared : public CodeGeneratorShared
     void emitBranch(Assembler::DoubleCondition cond, MBasicBlock *ifTrue, MBasicBlock *ifFalse);
 
     void testNullEmitBranch(Assembler::Condition cond, const ValueOperand &value,
-                            MBasicBlock *ifTrue, MBasicBlock *ifFalse) {
+                            MBasicBlock *ifTrue, MBasicBlock *ifFalse)
+    {
         cond = masm.testNull(cond, value);
         emitBranch(cond, ifTrue, ifFalse);
     }
     void testUndefinedEmitBranch(Assembler::Condition cond, const ValueOperand &value,
-                            MBasicBlock *ifTrue, MBasicBlock *ifFalse) {
+                                 MBasicBlock *ifTrue, MBasicBlock *ifFalse)
+    {
         cond = masm.testUndefined(cond, value);
         emitBranch(cond, ifTrue, ifFalse);
     }

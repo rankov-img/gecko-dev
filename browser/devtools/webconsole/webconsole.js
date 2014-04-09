@@ -401,6 +401,11 @@ WebConsoleFrame.prototype = {
    */
   setSaveRequestAndResponseBodies:
   function WCF_setSaveRequestAndResponseBodies(aValue) {
+    if (!this.webConsoleClient) {
+      // Don't continue if the webconsole disconnected.
+      return promise.resolve(null);
+    }
+
     let deferred = promise.defer();
     let newValue = !!aValue;
     let toSet = {
@@ -843,6 +848,16 @@ WebConsoleFrame.prototype = {
         // main part of the button. Go through all the severities and toggle
         // their associated filters.
         this._setMenuState(target, state);
+
+        // CSS reflow logging can decrease web page performance.
+        // Make sure the option is always unchecked when the CSS filter button is selected.
+        // See bug 971798.
+        if (target.getAttribute("category") == "css" && state) {
+          let csslogMenuItem = target.querySelector("menuitem[prefKey=csslog]");
+          csslogMenuItem.setAttribute("checked", false);
+          this.setFilterState("csslog", false);
+        }
+
         break;
       }
 
@@ -3474,6 +3489,7 @@ JSTerm.prototype = {
 
     this._sidebarDestroy();
     this.inputNode.focus();
+    aEvent.stopPropagation();
   },
 
   /**
@@ -3907,10 +3923,12 @@ JSTerm.prototype = {
         if (this.autocompletePopup.isOpen) {
           this.clearCompletion();
           aEvent.preventDefault();
+          aEvent.stopPropagation();
         }
         else if (this.sidebar) {
           this._sidebarDestroy();
           aEvent.preventDefault();
+          aEvent.stopPropagation();
         }
         break;
 

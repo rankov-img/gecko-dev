@@ -16,6 +16,7 @@
 #include "mozilla/docshell/OfflineCacheUpdateParent.h"
 #include "mozilla/dom/ContentParent.h"
 #include "mozilla/dom/PContentPermissionRequestParent.h"
+#include "mozilla/EventStateManager.h"
 #include "mozilla/Hal.h"
 #include "mozilla/ipc/DocumentRendererParent.h"
 #include "mozilla/layers/CompositorParent.h"
@@ -29,7 +30,6 @@
 #include "nsContentPermissionHelper.h"
 #include "nsContentUtils.h"
 #include "nsDebug.h"
-#include "nsEventStateManager.h"
 #include "nsFocusManager.h"
 #include "nsFrameLoader.h"
 #include "nsIContent.h"
@@ -38,6 +38,7 @@
 #include "nsIDOMElement.h"
 #include "nsIDOMEvent.h"
 #include "nsIDOMWindow.h"
+#include "nsIDOMWindowUtils.h"
 #include "nsIInterfaceRequestorUtils.h"
 #include "nsIPromptFactory.h"
 #include "nsIURI.h"
@@ -683,7 +684,8 @@ TabParent::MapEventCoordinatesForChildProcess(WidgetEvent* aEvent)
   if (!frameLoader) {
     return false;
   }
-  LayoutDeviceIntPoint offset = nsEventStateManager::GetChildProcessOffset(frameLoader, *aEvent);
+  LayoutDeviceIntPoint offset =
+    EventStateManager::GetChildProcessOffset(frameLoader, *aEvent);
   MapEventCoordinatesForChildProcess(offset, aEvent);
   return true;
 }
@@ -844,8 +846,7 @@ bool TabParent::SendRealTouchEvent(WidgetTouchEvent& event)
     }
 
     mChildProcessOffsetAtTouchStart =
-        nsEventStateManager::GetChildProcessOffset(frameLoader,
-                                                   event);
+      EventStateManager::GetChildProcessOffset(frameLoader, event);
 
     MOZ_ASSERT((!sEventCapturer && mEventCaptureDepth == 0) ||
                (sEventCapturer == this && mEventCaptureDepth > 0));
@@ -1502,6 +1503,18 @@ TabParent::RecvSetInputContext(const int32_t& aIMEEnabled,
   observerService->NotifyObservers(nullptr, "ime-enabled-state-changed", state.get());
 
   return true;
+}
+
+bool
+TabParent::RecvIsParentWindowMainWidgetVisible(bool* aIsVisible)
+{
+  nsCOMPtr<nsIContent> frame = do_QueryInterface(mFrameElement);
+  if (!frame)
+    return true;
+  nsCOMPtr<nsIDOMWindowUtils> windowUtils =
+    do_QueryInterface(frame->OwnerDoc()->GetWindow());
+  nsresult rv = windowUtils->GetIsParentWindowMainWidgetVisible(aIsVisible);
+  return NS_SUCCEEDED(rv);
 }
 
 bool

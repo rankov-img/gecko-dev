@@ -17,6 +17,7 @@ import org.mozilla.gecko.GeckoAppShell;
 import org.mozilla.gecko.GeckoApplication;
 import org.mozilla.gecko.GeckoEvent;
 import org.mozilla.gecko.GeckoProfile;
+import org.mozilla.gecko.GeckoSharedPrefs;
 import org.mozilla.gecko.PrefsHelper;
 import org.mozilla.gecko.R;
 import org.mozilla.gecko.background.announcements.AnnouncementsConstants;
@@ -45,7 +46,6 @@ import android.preference.Preference.OnPreferenceChangeListener;
 import android.preference.Preference.OnPreferenceClickListener;
 import android.preference.PreferenceActivity;
 import android.preference.PreferenceGroup;
-import android.preference.PreferenceManager;
 import android.preference.PreferenceScreen;
 import android.preference.TwoStatePreference;
 import android.text.Editable;
@@ -82,7 +82,7 @@ public class GeckoPreferences
     private static final String PREFS_HOME_ADD_PANEL = NON_PREF_PREFIX + "home.add_panel";
     private static final String PREFS_ANNOUNCEMENTS_ENABLED = NON_PREF_PREFIX + "privacy.announcements.enabled";
     private static final String PREFS_DATA_REPORTING_PREFERENCES = NON_PREF_PREFIX + "datareporting.preferences";
-    private static final String PREFS_TELEMETRY_ENABLED = "datareporting.telemetry.enabled";
+    private static final String PREFS_TELEMETRY_ENABLED = "toolkit.telemetry.enabled";
     private static final String PREFS_CRASHREPORTER_ENABLED = "datareporting.crashreporter.submitEnabled";
     private static final String PREFS_MENU_CHAR_ENCODING = "browser.menu.showCharacterEncoding";
     private static final String PREFS_MP_ENABLED = "privacy.masterpassword.enabled";
@@ -122,6 +122,9 @@ public class GeckoPreferences
         // Fragments because of an Android bug in ActionBar (described in bug 866352 and
         // fixed in bug 833625).
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.HONEYCOMB) {
+            // Write prefs to our custom GeckoSharedPrefs file.
+            getPreferenceManager().setSharedPreferencesName(GeckoSharedPrefs.APP_PREFS_NAME);
+
             int res = 0;
             if (intentExtras != null && intentExtras.containsKey(INTENT_EXTRA_RESOURCES)) {
                 // Fetch resource id from intent.
@@ -502,7 +505,7 @@ public class GeckoPreferences
                                            final boolean value) {
         final Intent intent = new Intent(action)
                 .putExtra("pref", pref)
-                .putExtra("branch", GeckoApp.PREFS_NAME)
+                .putExtra("branch", GeckoSharedPrefs.APP_PREFS_NAME)
                 .putExtra("enabled", value);
         broadcastAction(context, intent);
     }
@@ -577,7 +580,7 @@ public class GeckoPreferences
      * @return        the value of the preference, or the default.
      */
     public static boolean getBooleanPref(final Context context, final String name, boolean def) {
-        final SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        final SharedPreferences prefs = GeckoSharedPrefs.forApp(context);
         return prefs.getBoolean(name, def);
     }
 
@@ -636,7 +639,6 @@ public class GeckoPreferences
         inputtype |= InputType.TYPE_TEXT_VARIATION_PASSWORD | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
         input.setInputType(inputtype);
 
-        String hint = getResources().getString(aHintText);
         input.setHint(aHintText);
         return input;
     }

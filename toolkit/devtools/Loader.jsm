@@ -22,7 +22,7 @@ let SourceMap = {};
 Cu.import("resource://gre/modules/devtools/SourceMap.jsm", SourceMap);
 
 let loader = Cu.import("resource://gre/modules/commonjs/toolkit/loader.js", {}).Loader;
-let promise = Cu.import("resource://gre/modules/commonjs/sdk/core/promise.js", {}).Promise;
+let promise = Cu.import("resource://gre/modules/Promise.jsm", {}).Promise;
 
 this.EXPORTED_SYMBOLS = ["DevToolsLoader", "devtools", "BuiltinProvider",
                          "SrcdirProvider"];
@@ -34,6 +34,7 @@ this.EXPORTED_SYMBOLS = ["DevToolsLoader", "devtools", "BuiltinProvider",
 let loaderGlobals = {
   btoa: btoa,
   console: console,
+  promise: promise,
   _Iterator: Iterator,
   ChromeWorker: ChromeWorker,
   loader: {
@@ -70,6 +71,7 @@ BuiltinProvider.prototype = {
         "devtools/client": "resource://gre/modules/devtools/client",
         "devtools/pretty-fast": "resource://gre/modules/devtools/pretty-fast.js",
         "devtools/async-utils": "resource://gre/modules/devtools/async-utils",
+        "devtools/content-observer": "resource://gre/modules/devtools/content-observer",
         "gcli": "resource://gre/modules/devtools/gcli",
         "acorn": "resource://gre/modules/devtools/acorn",
         "acorn/util/walk": "resource://gre/modules/devtools/acorn/walk.js",
@@ -119,6 +121,7 @@ SrcdirProvider.prototype = {
     let clientURI = this.fileURI(OS.Path.join(toolkitDir, "client"));
     let prettyFastURI = this.fileURI(OS.Path.join(toolkitDir), "pretty-fast.js");
     let asyncUtilsURI = this.fileURI(OS.Path.join(toolkitDir), "async-utils.js");
+    let contentObserverURI = this.fileURI(OS.Path.join(toolkitDir), "content-observer.js");
     let gcliURI = this.fileURI(OS.Path.join(toolkitDir, "gcli", "source", "lib", "gcli"));
     let acornURI = this.fileURI(OS.Path.join(toolkitDir, "acorn"));
     let acornWalkURI = OS.Path.join(acornURI, "walk.js");
@@ -143,6 +146,7 @@ SrcdirProvider.prototype = {
         "devtools/client": clientURI,
         "devtools/pretty-fast": prettyFastURI,
         "devtools/async-utils": asyncUtilsURI,
+        "devtools/content-observer": contentObserverURI,
         "gcli": gcliURI,
         "acorn": acornURI,
         "acorn/util/walk": acornWalkURI
@@ -278,6 +282,11 @@ DevToolsLoader.prototype = {
    * can be ignored.
    */
   main: function(id) {
+    // Ensure the main module isn't loaded twice, because it may have observable
+    // side-effects.
+    if (this._mainid) {
+      return;
+    }
     this._mainid = id;
     this._main = loader.main(this.provider.loader, id);
 

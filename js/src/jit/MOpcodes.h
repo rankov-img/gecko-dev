@@ -38,6 +38,7 @@ namespace jit {
     _(GetArgumentsObjectArg)                                                \
     _(SetArgumentsObjectArg)                                                \
     _(ComputeThis)                                                          \
+    _(LoadArrowThis)                                                        \
     _(Call)                                                                 \
     _(ApplyArgs)                                                            \
     _(Bail)                                                                 \
@@ -90,6 +91,7 @@ namespace jit {
     _(NewObject)                                                            \
     _(NewDeclEnvObject)                                                     \
     _(NewCallObject)                                                        \
+    _(NewRunOnceCallObject)                                                 \
     _(NewStringObject)                                                      \
     _(InitElem)                                                             \
     _(InitElemGetterSetter)                                                 \
@@ -133,6 +135,7 @@ namespace jit {
     _(TypedArrayLength)                                                     \
     _(TypedArrayElements)                                                   \
     _(TypedObjectElements)                                                  \
+    _(SetTypedObjectOffset)                                                 \
     _(InitializedLength)                                                    \
     _(SetInitializedLength)                                                 \
     _(Not)                                                                  \

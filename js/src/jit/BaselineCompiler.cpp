@@ -1105,6 +1105,17 @@ BaselineCompiler::emit_JSOP_NULL()
 bool
 BaselineCompiler::emit_JSOP_THIS()
 {
+    if (function() && function()->isArrow()) {
+        // Arrow functions store their (lexical) |this| value in an
+        // extended slot.
+        frame.syncStack(0);
+        Register scratch = R0.scratchReg();
+        masm.loadPtr(frame.addressOfCallee(), scratch);
+        masm.loadValue(Address(scratch, FunctionExtended::offsetOfArrowThisSlot()), R0);
+        frame.push(R0);
+        return true;
+    }
+
     // Keep this value in R0
     frame.pushThis();
 
@@ -1268,6 +1279,33 @@ BaselineCompiler::emit_JSOP_LAMBDA()
     pushArg(ImmGCPtr(fun));
 
     if (!callVM(LambdaInfo))
+        return false;
+
+    // Box and push return value.
+    masm.tagValue(JSVAL_TYPE_OBJECT, ReturnReg, R0);
+    frame.push(R0);
+    return true;
+}
+
+typedef JSObject *(*LambdaArrowFn)(JSContext *, HandleFunction, HandleObject, HandleValue);
+static const VMFunction LambdaArrowInfo = FunctionInfo<LambdaArrowFn>(js::LambdaArrow);
+
+bool
+BaselineCompiler::emit_JSOP_LAMBDA_ARROW()
+{
+    // Keep pushed |this| in R0.
+    frame.popRegsAndSync(1);
+
+    RootedFunction fun(cx, script->getFunction(GET_UINT32_INDEX(pc)));
+
+    prepareVMCall();
+    masm.loadPtr(frame.addressOfScopeChain(), R1.scratchReg());
+
+    pushArg(R0);
+    pushArg(R1.scratchReg());
+    pushArg(ImmGCPtr(fun));
+
+    if (!callVM(LambdaArrowInfo))
         return false;
 
     // Box and push return value.
@@ -1731,6 +1769,24 @@ bool
 BaselineCompiler::emit_JSOP_ENDINIT()
 {
     return true;
+}
+
+typedef bool (*NewbornArrayPushFn)(JSContext *, HandleObject, const Value &);
+static const VMFunction NewbornArrayPushInfo = FunctionInfo<NewbornArrayPushFn>(NewbornArrayPush);
+
+bool
+BaselineCompiler::emit_JSOP_ARRAYPUSH()
+{
+    // Keep value in R0, object in R1.
+    frame.popRegsAndSync(2);
+    masm.unboxObject(R1, R1.scratchReg());
+
+    prepareVMCall();
+
+    pushArg(R0);
+    pushArg(R1.scratchReg());
+
+    return callVM(NewbornArrayPushInfo);
 }
 
 bool

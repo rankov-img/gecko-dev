@@ -810,6 +810,8 @@ let CustomizableUIInternal = {
 
       aWindow.addEventListener("unload", this);
       aWindow.addEventListener("command", this, true);
+
+      this.notifyListeners("onWindowOpened", aWindow);
     }
   },
 
@@ -850,6 +852,8 @@ let CustomizableUIInternal = {
         areaMap.delete(toDelete);
       }
     }
+
+    this.notifyListeners("onWindowClosed", aWindow);
   },
 
   setLocationAttributes: function(aNode, aArea) {
@@ -2041,6 +2045,13 @@ let CustomizableUIInternal = {
   destroyWidget: function(aWidgetId) {
     let widget = gPalette.get(aWidgetId);
     if (!widget) {
+      gGroupWrapperCache.delete(aWidgetId);
+      for (let [window, ] of gBuildWindows) {
+        let windowCache = gSingleWrapperCache.get(window);
+        if (windowCache) {
+          windowCache.delete(aWidgetId);
+        }
+      }
       return;
     }
 
@@ -2146,15 +2157,15 @@ let CustomizableUIInternal = {
   },
 
   _resetExtraToolbars: function(aFilter = null) {
-    let firstWindow = true; // Only need to persist once
+    let firstWindow = true; // Only need to unregister and persist once
     for (let [win, ] of gBuildWindows) {
       let toolbox = win.gNavToolbox;
       for (let child of toolbox.children) {
         let matchesFilter = !aFilter || aFilter == child.id;
         if (child.hasAttribute("customindex") && matchesFilter) {
+          let toolbarId = "toolbar" + child.getAttribute("customindex");
+          toolbox.toolbarset.removeAttribute(toolbarId);
           if (firstWindow) {
-            let toolbarId = "toolbar" + child.getAttribute("customindex");
-            toolbox.toolbarset.removeAttribute(toolbarId);
             win.document.persist(toolbox.toolbarset.id, toolbarId);
             // We have to unregister it properly to ensure we don't kill
             // XUL widgets which might be in here
@@ -2170,6 +2181,7 @@ let CustomizableUIInternal = {
   _rebuildRegisteredAreas: function() {
     for (let [areaId, areaNodes] of gBuildAreas) {
       let placements = gPlacements.get(areaId);
+      let isFirstChangedToolbar = true;
       for (let areaNode of areaNodes) {
         this.buildArea(areaId, placements, areaNode);
 
@@ -2178,9 +2190,10 @@ let CustomizableUIInternal = {
           let defaultCollapsed = area.get("defaultCollapsed");
           let win = areaNode.ownerDocument.defaultView;
           if (defaultCollapsed !== null) {
-            win.setToolbarVisibility(areaNode, !defaultCollapsed);
+            win.setToolbarVisibility(areaNode, !defaultCollapsed, isFirstChangedToolbar);
           }
         }
+        isFirstChangedToolbar = false;
       }
     }
   },
@@ -2377,7 +2390,25 @@ let CustomizableUIInternal = {
     }
 
     return true;
-  }
+  },
+
+  setToolbarVisibility: function(aToolbarId, aIsVisible) {
+    let area = gAreas.get(aToolbarId);
+    if (area.get("type") != CustomizableUI.TYPE_TOOLBAR) {
+      return;
+    }
+    let areaNodes = gBuildAreas.get(aToolbarId);
+    if (!areaNodes) {
+      return;
+    }
+    // We only persist the attribute the first time.
+    let isFirstChangedToolbar = true;
+    for (let areaNode of areaNodes) {
+      let window = areaNode.ownerDocument.defaultView;
+      window.setToolbarVisibility(areaNode, aIsVisible, isFirstChangedToolbar);
+      isFirstChangedToolbar = false;
+    }
+  },
 };
 Object.freeze(CustomizableUIInternal);
 
@@ -2448,6 +2479,18 @@ this.CustomizableUI = {
    * The (constant) number of columns in the menu panel.
    */
   get PANEL_COLUMN_COUNT() 3,
+
+  /**
+   * An iteratable property of windows managed by CustomizableUI.
+   * Note that this can *only* be used as an iterator. ie:
+   *     for (let window of CustomizableUI.windows) { ... }
+   */
+  windows: {
+    "@@iterator": function*() {
+      for (let [window,] of gBuildWindows)
+        yield window;
+    }
+  },
 
   /**
    * Add a listener object that will get fired for various events regarding
@@ -2532,6 +2575,12 @@ this.CustomizableUI = {
    *   - onWidgetUnderflow(aNode, aContainer)
    *     Fired when a widget's DOM node is *not* overflowing its container, a
    *     toolbar, anymore.
+   *   - onWindowOpened(aWindow)
+   *     Fired when a window has been opened that is managed by CustomizableUI,
+   *     once all of the prerequisite setup has been done.
+   *   - onWindowClosed(aWindow)
+   *     Fired when a window that has been managed by CustomizableUI has been
+   *     closed.
    */
   addListener: function(aListener) {
     CustomizableUIInternal.addListener(aListener);
@@ -3095,6 +3144,16 @@ this.CustomizableUI = {
   get inDefaultState() {
     return CustomizableUIInternal.inDefaultState;
   },
+
+  /**
+   * Set a toolbar's visibility state in all windows.
+   * @param aToolbarId    the toolbar whose visibility should be adjusted
+   * @param aIsVisible    whether the toolbar should be visible
+   */
+  setToolbarVisibility: function(aToolbarId, aIsVisible) {
+    CustomizableUIInternal.setToolbarVisibility(aToolbarId, aIsVisible);
+  },
+
   /**
    * Get a localized property off a (widget?) object.
    *
@@ -3237,7 +3296,7 @@ this.CustomizableUI = {
   }
 };
 Object.freeze(this.CustomizableUI);
-
+Object.freeze(this.CustomizableUI.windows);
 
 /**
  * All external consumers of widgets are really interacting with these wrappers
@@ -3400,7 +3459,7 @@ function XULWidgetGroupWrapper(aWidgetId) {
       instance = aWindow.gNavToolbox.palette.getElementsByAttribute("id", aWidgetId)[0];
     }
 
-    let wrapper = new XULWidgetSingleWrapper(aWidgetId, instance);
+    let wrapper = new XULWidgetSingleWrapper(aWidgetId, instance, aWindow.document);
     wrapperMap.set(aWidgetId, wrapper);
     return wrapper;
   };
@@ -3426,14 +3485,47 @@ function XULWidgetGroupWrapper(aWidgetId) {
  * A XULWidgetSingleWrapper is a wrapper around a single instance of a XUL 
  * widget in a particular window.
  */
-function XULWidgetSingleWrapper(aWidgetId, aNode) {
+function XULWidgetSingleWrapper(aWidgetId, aNode, aDocument) {
   this.isGroup = false;
 
   this.id = aWidgetId;
   this.type = "custom";
   this.provider = CustomizableUI.PROVIDER_XUL;
 
-  this.node = aNode;
+  let weakDoc = Cu.getWeakReference(aDocument);
+  // If we keep a strong ref, the weak ref will never die, so null it out:
+  aDocument = null;
+
+  this.__defineGetter__("node", function() {
+    // If we've set this to null (further down), we're sure there's nothing to
+    // be gotten here, so bail out early:
+    if (!weakDoc) {
+      return null;
+    }
+    if (aNode) {
+      // Return the last known node if it's still in the DOM...
+      if (aNode.ownerDocument.contains(aNode)) {
+        return aNode;
+      }
+      // ... or the toolbox
+      let toolbox = aNode.ownerDocument.defaultView.gNavToolbox;
+      if (toolbox && toolbox.palette && aNode.parentNode == toolbox.palette) {
+        return aNode;
+      }
+      // If it isn't, clear the cached value and fall through to the "slow" case:
+      aNode = null;
+    }
+
+    let doc = weakDoc.get();
+    if (doc) {
+      // Store locally so we can cache the result:
+      aNode = CustomizableUIInternal.findWidgetInWindow(aWidgetId, doc.defaultView);
+      return aNode;
+    }
+    // The weakref to the document is dead, we're done here forever more:
+    weakDoc = null;
+    return null;
+  });
 
   this.__defineGetter__("anchor", function() {
     let anchorId;
@@ -3442,16 +3534,21 @@ function XULWidgetSingleWrapper(aWidgetId, aNode) {
     if (placement) {
       anchorId = gAreas.get(placement.area).get("anchor");
     }
-    if (!anchorId) {
-      anchorId = aNode.getAttribute("cui-anchorid");
+
+    let node = this.node;
+    if (!anchorId && node) {
+      anchorId = node.getAttribute("cui-anchorid");
     }
 
-    return anchorId ? aNode.ownerDocument.getElementById(anchorId)
-                    : aNode;
+    return (anchorId && node) ? node.ownerDocument.getElementById(anchorId) : node;
   });
 
   this.__defineGetter__("overflowed", function() {
-    return aNode.getAttribute("overflowedItem") == "true";
+    let node = this.node;
+    if (!node) {
+      return false;
+    }
+    return node.getAttribute("overflowedItem") == "true";
   });
 
   Object.freeze(this);

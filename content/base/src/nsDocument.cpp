@@ -43,6 +43,7 @@
 #include "mozilla/AsyncEventDispatcher.h"
 #include "mozilla/BasicEvents.h"
 #include "mozilla/EventListenerManager.h"
+#include "mozilla/EventStateManager.h"
 #include "nsIDOMNodeFilter.h"
 
 #include "nsIDOMStyleSheet.h"
@@ -121,6 +122,7 @@
 #include "nsDateTimeFormatCID.h"
 #include "nsIDateTimeFormat.h"
 #include "mozilla/EventDispatcher.h"
+#include "mozilla/EventStates.h"
 #include "mozilla/InternalMutationEvent.h"
 #include "nsDOMCID.h"
 
@@ -158,7 +160,6 @@
 #include "mozilla/dom/EncodingUtils.h"
 #include "mozilla/dom/quota/QuotaManager.h"
 #include "nsDOMNavigationTiming.h"
-#include "nsEventStateManager.h"
 
 #include "nsSMILAnimationController.h"
 #include "imgIContainer.h"
@@ -317,6 +318,111 @@ struct FireChangeArgs {
 
 namespace mozilla {
 namespace dom {
+
+static PLDHashOperator
+CustomDefinitionsTraverse(CustomElementHashKey* aKey,
+                          CustomElementDefinition* aDefinition,
+                          void* aArg)
+{
+  nsCycleCollectionTraversalCallback* cb =
+    static_cast<nsCycleCollectionTraversalCallback*>(aArg);
+
+  nsAutoPtr<LifecycleCallbacks>& callbacks = aDefinition->mCallbacks;
+
+  if (callbacks->mAttributeChangedCallback.WasPassed()) {
+    NS_CYCLE_COLLECTION_NOTE_EDGE_NAME(*cb,
+      "mCustomDefinitions->mCallbacks->mAttributeChangedCallback");
+    cb->NoteXPCOMChild(aDefinition->mCallbacks->mAttributeChangedCallback.Value());
+  }
+
+  if (callbacks->mCreatedCallback.WasPassed()) {
+    NS_CYCLE_COLLECTION_NOTE_EDGE_NAME(*cb,
+      "mCustomDefinitions->mCallbacks->mCreatedCallback");
+    cb->NoteXPCOMChild(aDefinition->mCallbacks->mCreatedCallback.Value());
+  }
+
+  if (callbacks->mAttachedCallback.WasPassed()) {
+    NS_CYCLE_COLLECTION_NOTE_EDGE_NAME(*cb,
+      "mCustomDefinitions->mCallbacks->mAttachedCallback");
+    cb->NoteXPCOMChild(aDefinition->mCallbacks->mAttachedCallback.Value());
+  }
+
+  if (callbacks->mDetachedCallback.WasPassed()) {
+    NS_CYCLE_COLLECTION_NOTE_EDGE_NAME(*cb,
+      "mCustomDefinitions->mCallbacks->mDetachedCallback");
+    cb->NoteXPCOMChild(aDefinition->mCallbacks->mDetachedCallback.Value());
+  }
+
+  return PL_DHASH_NEXT;
+}
+
+static PLDHashOperator
+CandidatesTraverse(CustomElementHashKey* aKey,
+                   nsTArray<nsRefPtr<Element>>* aData,
+                   void* aArg)
+{
+  nsCycleCollectionTraversalCallback *cb =
+    static_cast<nsCycleCollectionTraversalCallback*>(aArg);
+  for (size_t i = 0; i < aData->Length(); ++i) {
+    NS_CYCLE_COLLECTION_NOTE_EDGE_NAME(*cb, "mCandidatesMap->Element");
+    cb->NoteXPCOMChild(aData->ElementAt(i));
+  }
+  return PL_DHASH_NEXT;
+}
+
+struct CustomDefinitionTraceArgs
+{
+  const TraceCallbacks& callbacks;
+  void* closure;
+};
+
+static PLDHashOperator
+CustomDefinitionTrace(CustomElementHashKey *aKey,
+                      CustomElementDefinition *aData,
+                      void *aArg)
+{
+  CustomDefinitionTraceArgs* traceArgs = static_cast<CustomDefinitionTraceArgs*>(aArg);
+  MOZ_ASSERT(aData, "Definition must not be null");
+  traceArgs->callbacks.Trace(&aData->mPrototype, "mCustomDefinitions prototype",
+                             traceArgs->closure);
+  return PL_DHASH_NEXT;
+}
+
+NS_IMPL_CYCLE_COLLECTION_CLASS(Registry)
+
+NS_IMPL_CYCLE_COLLECTION_TRACE_BEGIN(Registry)
+  CustomDefinitionTraceArgs customDefinitionArgs = { aCallbacks, aClosure };
+  tmp->mCustomDefinitions.EnumerateRead(CustomDefinitionTrace,
+                                        &customDefinitionArgs);
+NS_IMPL_CYCLE_COLLECTION_TRACE_END
+
+NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(Registry)
+  tmp->mCustomDefinitions.EnumerateRead(CustomDefinitionsTraverse, &cb);
+  tmp->mCandidatesMap.EnumerateRead(CandidatesTraverse, &cb);
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_SCRIPT_OBJECTS
+NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
+
+NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(Registry)
+  tmp->mCustomDefinitions.Clear();
+  tmp->mCandidatesMap.Clear();
+NS_IMPL_CYCLE_COLLECTION_UNLINK_END
+
+NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(Registry)
+  NS_INTERFACE_MAP_ENTRY(nsISupports)
+NS_INTERFACE_MAP_END
+
+NS_IMPL_CYCLE_COLLECTING_ADDREF(Registry)
+NS_IMPL_CYCLE_COLLECTING_RELEASE(Registry)
+
+Registry::Registry()
+{
+  mozilla::HoldJSObjects(this);
+}
+
+Registry::~Registry()
+{
+  mozilla::DropJSObjects(this);
+}
 
 void
 CustomElementCallback::Call()
@@ -1559,9 +1665,7 @@ nsDocument::~nsDocument()
   mInDestructor = true;
   mInUnlinkOrDeletion = true;
 
-  if (mRegistry) {
-    mRegistry->Clear();
-  }
+  mRegistry = nullptr;
 
   mozilla::DropJSObjects(this);
 
@@ -1680,7 +1784,7 @@ NS_INTERFACE_MAP_END
 
 
 NS_IMPL_CYCLE_COLLECTING_ADDREF(nsDocument)
-NS_IMETHODIMP_(nsrefcnt)
+NS_IMETHODIMP_(MozExternalRefCountType)
 nsDocument::Release()
 {
   NS_PRECONDITION(0 != mRefCnt, "dup release");
@@ -1729,57 +1833,6 @@ NS_IMPL_CYCLE_COLLECTION_CAN_SKIP_IN_CC_END
 NS_IMPL_CYCLE_COLLECTION_CAN_SKIP_THIS_BEGIN(nsDocument)
   return Element::CanSkipThis(tmp);
 NS_IMPL_CYCLE_COLLECTION_CAN_SKIP_THIS_END
-
-static PLDHashOperator
-CustomDefinitionsTraverse(CustomElementHashKey* aKey,
-                          CustomElementDefinition* aDefinition,
-                          void* aArg)
-{
-  nsCycleCollectionTraversalCallback* cb =
-    static_cast<nsCycleCollectionTraversalCallback*>(aArg);
-
-  nsAutoPtr<LifecycleCallbacks>& callbacks = aDefinition->mCallbacks;
-
-  if (callbacks->mAttributeChangedCallback.WasPassed()) {
-    NS_CYCLE_COLLECTION_NOTE_EDGE_NAME(*cb,
-      "mCustomDefinitions->mCallbacks->mAttributeChangedCallback");
-    cb->NoteXPCOMChild(aDefinition->mCallbacks->mAttributeChangedCallback.Value());
-  }
-
-  if (callbacks->mCreatedCallback.WasPassed()) {
-    NS_CYCLE_COLLECTION_NOTE_EDGE_NAME(*cb,
-      "mCustomDefinitions->mCallbacks->mCreatedCallback");
-    cb->NoteXPCOMChild(aDefinition->mCallbacks->mCreatedCallback.Value());
-  }
-
-  if (callbacks->mAttachedCallback.WasPassed()) {
-    NS_CYCLE_COLLECTION_NOTE_EDGE_NAME(*cb,
-      "mCustomDefinitions->mCallbacks->mAttachedCallback");
-    cb->NoteXPCOMChild(aDefinition->mCallbacks->mAttachedCallback.Value());
-  }
-
-  if (callbacks->mDetachedCallback.WasPassed()) {
-    NS_CYCLE_COLLECTION_NOTE_EDGE_NAME(*cb,
-      "mCustomDefinitions->mCallbacks->mDetachedCallback");
-    cb->NoteXPCOMChild(aDefinition->mCallbacks->mDetachedCallback.Value());
-  }
-
-  return PL_DHASH_NEXT;
-}
-
-static PLDHashOperator
-CandidatesTraverse(CustomElementHashKey* aKey,
-                   nsTArray<nsRefPtr<Element>>* aData,
-                   void* aArg)
-{
-  nsCycleCollectionTraversalCallback *cb =
-    static_cast<nsCycleCollectionTraversalCallback*>(aArg);
-  for (size_t i = 0; i < aData->Length(); ++i) {
-    NS_CYCLE_COLLECTION_NOTE_EDGE_NAME(*cb, "mCandidatesMap->Element");
-    cb->NoteXPCOMChild(aData->ElementAt(i));
-  }
-  return PL_DHASH_NEXT;
-}
 
 static PLDHashOperator
 SubDocTraverser(PLDHashTable *table, PLDHashEntryHdr *hdr, uint32_t number,
@@ -1931,6 +1984,7 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INTERNAL(nsDocument)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mUndoManager)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mTemplateContentsOwner)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mChildrenCollection)
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mRegistry)
 
   // Traverse all our nsCOMArrays.
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mStyleSheets)
@@ -1947,11 +2001,6 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INTERNAL(nsDocument)
     tmp->mAnimationController->Traverse(&cb);
   }
 
-  if (tmp->mRegistry) {
-    tmp->mRegistry->mCustomDefinitions.EnumerateRead(CustomDefinitionsTraverse, &cb);
-    tmp->mRegistry->mCandidatesMap.EnumerateRead(CandidatesTraverse, &cb);
-  }
-
   if (tmp->mSubDocuments && tmp->mSubDocuments->ops) {
     PL_DHashTableEnumerate(tmp->mSubDocuments, SubDocTraverser, &cb);
   }
@@ -1965,32 +2014,9 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INTERNAL(nsDocument)
   }
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
-struct CustomDefinitionTraceArgs
-{
-  const TraceCallbacks& callbacks;
-  void* closure;
-};
-
-static PLDHashOperator
-CustomDefinitionTrace(CustomElementHashKey *aKey,
-                      CustomElementDefinition *aData,
-                      void *aArg)
-{
-  CustomDefinitionTraceArgs* traceArgs = static_cast<CustomDefinitionTraceArgs*>(aArg);
-  MOZ_ASSERT(aData, "Definition must not be null");
-  traceArgs->callbacks.Trace(&aData->mPrototype, "mCustomDefinitions prototype",
-                             traceArgs->closure);
-  return PL_DHASH_NEXT;
-}
-
 NS_IMPL_CYCLE_COLLECTION_CLASS(nsDocument)
 
 NS_IMPL_CYCLE_COLLECTION_TRACE_BEGIN(nsDocument)
-  CustomDefinitionTraceArgs customDefinitionArgs = { aCallbacks, aClosure };
-  if (tmp->mRegistry) {
-    tmp->mRegistry->mCustomDefinitions.EnumerateRead(CustomDefinitionTrace,
-                                                     &customDefinitionArgs);
-  }
   if (tmp->PreservingWrapper()) {
     NS_IMPL_CYCLE_COLLECTION_TRACE_JSVAL_MEMBER_CALLBACK(mExpandoAndGeneration.expando);
   }
@@ -2027,6 +2053,7 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsDocument)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mUndoManager)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mTemplateContentsOwner)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mChildrenCollection)
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mRegistry)
 
   tmp->mParentDocument = nullptr;
 
@@ -2067,10 +2094,6 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsDocument)
 
   tmp->mIdentifierMap.Clear();
   tmp->mExpandoAndGeneration.Unlink();
-
-  if (tmp->mRegistry) {
-    tmp->mRegistry->Clear();
-  }
 
   if (tmp->mAnimationController) {
     tmp->mAnimationController->Unlink();
@@ -2217,6 +2240,7 @@ nsDocument::Reset(nsIChannel* aChannel, nsILoadGroup* aLoadGroup)
                                 NS_GET_IID(nsIURI), getter_AddRefs(baseURI));
     if (baseURI) {
       mDocumentBaseURI = baseURI;
+      mChromeXHRDocBaseURI = baseURI;
     }
   }
 
@@ -2274,9 +2298,7 @@ nsDocument::ResetToURI(nsIURI *aURI, nsILoadGroup *aLoadGroup,
   }
   mInUnlinkOrDeletion = oldVal;
 
-  if (mRegistry) {
-    mRegistry->Clear();
-  }
+  mRegistry = nullptr;
 
   // Reset our stylesheets
   ResetStylesheetsToURI(aURI);
@@ -2300,9 +2322,11 @@ nsDocument::ResetToURI(nsIURI *aURI, nsILoadGroup *aLoadGroup,
   mOriginalURI = nullptr;
 
   SetDocumentURI(aURI);
+  mChromeXHRDocURI = aURI;
   // If mDocumentBaseURI is null, nsIDocument::GetBaseURI() returns
   // mDocumentURI.
   mDocumentBaseURI = nullptr;
+  mChromeXHRDocBaseURI = nullptr;
 
   if (aLoadGroup) {
     mDocumentLoadGroup = do_GetWeakReference(aLoadGroup);
@@ -2925,6 +2949,18 @@ nsDocument::SetDocumentURI(nsIURI* aURI)
   }
 }
 
+void
+nsDocument::SetChromeXHRDocURI(nsIURI* aURI)
+{
+  mChromeXHRDocURI = aURI;
+}
+
+void
+nsDocument::SetChromeXHRDocBaseURI(nsIURI* aURI)
+{
+  mChromeXHRDocBaseURI = aURI;
+}
+
 NS_IMETHODIMP
 nsDocument::GetLastModified(nsAString& aLastModified)
 {
@@ -3400,9 +3436,15 @@ nsIDocument::ReleaseCapture() const
 }
 
 already_AddRefed<nsIURI>
-nsIDocument::GetBaseURI() const
+nsIDocument::GetBaseURI(bool aTryUseXHRDocBaseURI) const
 {
-  nsCOMPtr<nsIURI> uri = GetDocBaseURI();
+  nsCOMPtr<nsIURI> uri;
+  if (aTryUseXHRDocBaseURI && mChromeXHRDocBaseURI) {
+    uri = mChromeXHRDocBaseURI;
+  } else {
+    uri = GetDocBaseURI();
+  }
+
   return uri.forget();
 }
 
@@ -4916,7 +4958,7 @@ nsDocument::EndLoad()
 }
 
 void
-nsDocument::ContentStateChanged(nsIContent* aContent, nsEventStates aStateMask)
+nsDocument::ContentStateChanged(nsIContent* aContent, EventStates aStateMask)
 {
   NS_PRECONDITION(!nsContentUtils::IsSafeToRunScript(),
                   "Someone forgot a scriptblocker");
@@ -4925,7 +4967,7 @@ nsDocument::ContentStateChanged(nsIContent* aContent, nsEventStates aStateMask)
 }
 
 void
-nsDocument::DocumentStatesChanged(nsEventStates aStateMask)
+nsDocument::DocumentStatesChanged(EventStates aStateMask)
 {
   // Invalidate our cached state.
   mGotDocumentState &= ~aStateMask;
@@ -5444,9 +5486,10 @@ nsDocument::CustomElementConstructor(JSContext* aCx, unsigned aArgc, JS::Value* 
   }
 
   nsCOMPtr<nsIAtom> typeAtom(do_GetAtom(elemName));
-  CustomElementHashKey key(kNameSpaceID_None, typeAtom);
+  CustomElementHashKey key(kNameSpaceID_Unknown, typeAtom);
   CustomElementDefinition* definition;
-  if (!document->mRegistry->mCustomDefinitions.Get(&key, &definition)) {
+  if (!document->mRegistry ||
+      !document->mRegistry->mCustomDefinitions.Get(&key, &definition)) {
     return true;
   }
 
@@ -5770,7 +5813,7 @@ nsDocument::RegisterElement(JSContext* aCx, const nsAString& aType,
   // If there already exists a definition with the same TYPE, set ERROR to
   // DuplicateDefinition and stop.
   // Note that we need to find existing custom elements from either namespace.
-  CustomElementHashKey duplicateFinder(kNameSpaceID_None, typeAtom);
+  CustomElementHashKey duplicateFinder(kNameSpaceID_Unknown, typeAtom);
   if (definitions.Get(&duplicateFinder)) {
     rv.Throw(NS_ERROR_DOM_NOT_SUPPORTED_ERR);
     return nullptr;
@@ -5959,6 +6002,14 @@ nsDocument::RegisterElement(JSContext* aCx, const nsAString& aType,
                                            NS_ConvertUTF16toUTF8(lcType).get());
   JSObject* constructorObject = JS_GetFunctionObject(constructor);
   return constructorObject;
+}
+
+void
+nsDocument::UseRegistryFromDocument(nsIDocument* aDocument)
+{
+  nsDocument* doc = static_cast<nsDocument*>(aDocument);
+  MOZ_ASSERT(!mRegistry, "There should be no existing registry.");
+  mRegistry = doc->mRegistry;
 }
 
 NS_IMETHODIMP
@@ -7124,6 +7175,29 @@ nsIDocument::GetURL(nsString& aURL) const
 {
   return GetDocumentURI(aURL);
 }
+
+void
+nsIDocument::GetDocumentURIFromJS(nsString& aDocumentURI) const
+{
+  if (!mChromeXHRDocURI || !nsContentUtils::IsCallerChrome()) {
+    return GetDocumentURI(aDocumentURI);
+  }
+
+  nsAutoCString uri;
+  mChromeXHRDocURI->GetSpec(uri);
+  CopyUTF8toUTF16(uri, aDocumentURI);
+}
+
+nsIURI*
+nsIDocument::GetDocumentURIObject() const
+{
+  if (!mChromeXHRDocURI) {
+    return GetDocumentURI();
+  }
+
+  return mChromeXHRDocURI;
+}
+
 
 // readonly attribute DOMString compatMode;
 // Returns "BackCompat" if we are in quirks mode, "CSS1Compat" if we are
@@ -8432,9 +8506,7 @@ nsDocument::Destroy()
   // tearing down all those frame trees right now is the right thing to do.
   mExternalResourceMap.Shutdown();
 
-  if (mRegistry) {
-    mRegistry->Clear();
-  }
+  mRegistry = nullptr;
 
   // XXX We really should let cycle collection do this, but that currently still
   //     leaks (see https://bugzilla.mozilla.org/show_bug.cgi?id=406684).
@@ -8997,9 +9069,11 @@ nsDocument::CloneDocHelper(nsDocument* clone) const
 
   // Set URI/principal
   clone->nsDocument::SetDocumentURI(nsIDocument::GetDocumentURI());
+  clone->SetChromeXHRDocURI(mChromeXHRDocURI);
   // Must set the principal first, since SetBaseURI checks it.
   clone->SetPrincipal(NodePrincipal());
   clone->mDocumentBaseURI = mDocumentBaseURI;
+  clone->SetChromeXHRDocBaseURI(mChromeXHRDocBaseURI);
 
   if (mCreatingStaticClone) {
     nsCOMPtr<nsILoadGroup> loadGroup;
@@ -9224,7 +9298,7 @@ nsDocument::MaybePreLoadImage(nsIURI* uri, const nsAString &aCrossOriginAttr)
   }
 }
 
-nsEventStates
+EventStates
 nsDocument::GetDocumentState()
 {
   if (!mGotDocumentState.HasState(NS_DOCUMENT_STATE_RTL_LOCALE)) {
@@ -9837,23 +9911,6 @@ nsDocument::AddImage(imgIRequest* aImage)
   }
 
   return rv;
-}
-
-static void
-NotifyAudioAvailableListener(nsIContent *aContent, void *aUnused)
-{
-  nsCOMPtr<nsIDOMHTMLMediaElement> domMediaElem(do_QueryInterface(aContent));
-  if (domMediaElem) {
-    HTMLMediaElement* mediaElem = static_cast<HTMLMediaElement*>(aContent);
-    mediaElem->NotifyAudioAvailableListener();
-  }
-}
-
-void
-nsDocument::NotifyAudioAvailableListener()
-{
-  mHasAudioAvailableListener = true;
-  EnumerateFreezableElements(::NotifyAudioAvailableListener, nullptr);
 }
 
 nsresult
@@ -10566,7 +10623,7 @@ nsDocument::ExitFullscreen(nsIDocument* aDoc)
 {
   // Unlock the pointer, if it's locked.
   nsCOMPtr<Element> pointerLockedElement =
-    do_QueryReferent(nsEventStateManager::sPointerLockedElement);
+    do_QueryReferent(EventStateManager::sPointerLockedElement);
   if (pointerLockedElement) {
     UnlockPointer();
   }
@@ -10631,7 +10688,7 @@ nsDocument::RestorePreviousFullScreenState()
 
   // If fullscreen mode is updated the pointer should be unlocked
   nsCOMPtr<Element> pointerLockedElement =
-    do_QueryReferent(nsEventStateManager::sPointerLockedElement);
+    do_QueryReferent(EventStateManager::sPointerLockedElement);
   if (pointerLockedElement) {
     UnlockPointer();
   }
@@ -10830,7 +10887,7 @@ nsDocument::CleanupFullscreenState()
     Element* top = FullScreenStackTop();
     NS_ASSERTION(top, "Should have a top when full-screen stack isn't empty");
     if (top) {
-      nsEventStateManager::SetFullScreenState(top, false);
+      EventStateManager::SetFullScreenState(top, false);
     }
     mFullScreenStack.Clear();
   }
@@ -10851,9 +10908,9 @@ nsDocument::FullScreenStackPush(Element* aElement)
     // We're pushing a new element onto the full-screen stack, so we must
     // remove the ancestor and full-screen styles from the former top of the
     // stack.
-    nsEventStateManager::SetFullScreenState(top, false);
+    EventStateManager::SetFullScreenState(top, false);
   }
-  nsEventStateManager::SetFullScreenState(aElement, true);
+  EventStateManager::SetFullScreenState(aElement, true);
   nsWeakPtr weakElement = do_GetWeakReference(aElement);
   mFullScreenStack.AppendElement(weakElement);
   NS_ASSERTION(GetFullScreenElement() == aElement, "Should match");
@@ -10869,7 +10926,7 @@ nsDocument::FullScreenStackPop()
 
   // Remove styles from existing top element.
   Element* top = FullScreenStackTop();
-  nsEventStateManager::SetFullScreenState(top, false);
+  EventStateManager::SetFullScreenState(top, false);
 
   // Remove top element. Note the remaining top element in the stack
   // will not have full-screen style bits set, so we will need to restore
@@ -10890,7 +10947,7 @@ nsDocument::FullScreenStackPop()
     } else {
       // The top element of the stack is now an in-doc element. Apply the
       // full-screen styles and return.
-      nsEventStateManager::SetFullScreenState(element, true);
+      EventStateManager::SetFullScreenState(element, true);
       break;
     }
   }
@@ -11067,7 +11124,7 @@ nsDocument::RequestFullScreen(Element* aElement,
   // If a document is already in fullscreen, then unlock the mouse pointer
   // before setting a new document to fullscreen
   nsCOMPtr<Element> pointerLockedElement =
-    do_QueryReferent(nsEventStateManager::sPointerLockedElement);
+    do_QueryReferent(EventStateManager::sPointerLockedElement);
   if (pointerLockedElement) {
     UnlockPointer();
   }
@@ -11461,7 +11518,7 @@ nsPointerLockPermissionRequest::Allow(JS::HandleValue aChoices)
   Handled();
 
   nsCOMPtr<Element> pointerLockedElement =
-    do_QueryReferent(nsEventStateManager::sPointerLockedElement);
+    do_QueryReferent(EventStateManager::sPointerLockedElement);
   if (e == pointerLockedElement) {
     DispatchPointerLockChange(d);
     return NS_OK;
@@ -11480,10 +11537,10 @@ nsPointerLockPermissionRequest::Allow(JS::HandleValue aChoices)
 
   d->mCancelledPointerLockRequests = 0;
   e->SetPointerLock();
-  nsEventStateManager::sPointerLockedElement = do_GetWeakReference(e);
-  nsEventStateManager::sPointerLockedDoc = do_GetWeakReference(doc);
-  NS_ASSERTION(nsEventStateManager::sPointerLockedElement &&
-               nsEventStateManager::sPointerLockedDoc,
+  EventStateManager::sPointerLockedElement = do_GetWeakReference(e);
+  EventStateManager::sPointerLockedDoc = do_GetWeakReference(doc);
+  NS_ASSERTION(EventStateManager::sPointerLockedElement &&
+               EventStateManager::sPointerLockedDoc,
                "aElement and this should support weak references!");
 
   DispatchPointerLockChange(d);
@@ -11536,7 +11593,7 @@ nsDocument::RequestPointerLock(Element* aElement)
     "Must pass non-null element to nsDocument::RequestPointerLock");
 
   nsCOMPtr<Element> pointerLockedElement =
-    do_QueryReferent(nsEventStateManager::sPointerLockedElement);
+    do_QueryReferent(EventStateManager::sPointerLockedElement);
   if (aElement == pointerLockedElement) {
     DispatchPointerLockChange(this);
     return;
@@ -11547,7 +11604,7 @@ nsDocument::RequestPointerLock(Element* aElement)
     return;
   }
 
-  bool userInputOrChromeCaller = nsEventStateManager::IsHandlingUserInput() ||
+  bool userInputOrChromeCaller = EventStateManager::IsHandlingUserInput() ||
                                  nsContentUtils::IsCallerChrome();
 
   gPendingPointerLockRequest =
@@ -11667,7 +11724,7 @@ nsDocument::SetPointerLock(Element* aElement, int aCursorStyle)
   }
 
   // Hide the cursor and set pointer lock for future mouse events
-  nsRefPtr<nsEventStateManager> esm = presContext->EventStateManager();
+  nsRefPtr<EventStateManager> esm = presContext->EventStateManager();
   esm->SetCursor(aCursorStyle, nullptr, false,
                  0.0f, 0.0f, widget, true);
   esm->SetPointerLock(widget, aElement);
@@ -11678,12 +11735,12 @@ nsDocument::SetPointerLock(Element* aElement, int aCursorStyle)
 void
 nsDocument::UnlockPointer(nsIDocument* aDoc)
 {
-  if (!nsEventStateManager::sIsPointerLocked) {
+  if (!EventStateManager::sIsPointerLocked) {
     return;
   }
 
   nsCOMPtr<nsIDocument> pointerLockedDoc =
-    do_QueryReferent(nsEventStateManager::sPointerLockedDoc);
+    do_QueryReferent(EventStateManager::sPointerLockedDoc);
   if (!pointerLockedDoc || (aDoc && aDoc != pointerLockedDoc)) {
     return;
   }
@@ -11693,13 +11750,13 @@ nsDocument::UnlockPointer(nsIDocument* aDoc)
   }
 
   nsCOMPtr<Element> pointerLockedElement =
-    do_QueryReferent(nsEventStateManager::sPointerLockedElement);
+    do_QueryReferent(EventStateManager::sPointerLockedElement);
   if (pointerLockedElement) {
     pointerLockedElement->ClearPointerLock();
   }
 
-  nsEventStateManager::sPointerLockedElement = nullptr;
-  nsEventStateManager::sPointerLockedDoc = nullptr;
+  EventStateManager::sPointerLockedElement = nullptr;
+  EventStateManager::sPointerLockedDoc = nullptr;
   static_cast<nsDocument*>(pointerLockedDoc.get())->mAllowRelocking = !!aDoc;
   gPendingPointerLockRequest = nullptr;
   DispatchPointerLockChange(pointerLockedDoc);
@@ -11731,14 +11788,14 @@ Element*
 nsIDocument::GetMozPointerLockElement()
 {
   nsCOMPtr<Element> pointerLockedElement =
-    do_QueryReferent(nsEventStateManager::sPointerLockedElement);
+    do_QueryReferent(EventStateManager::sPointerLockedElement);
   if (!pointerLockedElement) {
     return nullptr;
   }
 
   // Make sure pointer locked element is in the same document.
   nsCOMPtr<nsIDocument> pointerLockedDoc =
-    do_QueryReferent(nsEventStateManager::sPointerLockedDoc);
+    do_QueryReferent(EventStateManager::sPointerLockedDoc);
   if (pointerLockedDoc != this) {
     return nullptr;
   }
@@ -12220,3 +12277,4 @@ nsAutoSyncOperation::~nsAutoSyncOperation()
   }
   nsContentUtils::SetMicroTaskLevel(mMicroTaskLevel);
 }
+

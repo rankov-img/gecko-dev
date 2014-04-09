@@ -2133,6 +2133,8 @@ public:
         }
     }
 
+    static void Trace(JSTracer *trc, JSObject *obj);
+
     void AutoTrace(JSTracer *trc) {
         TraceSelf(trc);
     }
@@ -2767,6 +2769,7 @@ public:
     XPCJSContextStack(XPCJSRuntime *aRuntime)
       : mRuntime(aRuntime)
       , mSafeJSContext(nullptr)
+      , mSafeJSContextGlobal(nullptr)
     { }
 
     virtual ~XPCJSContextStack();
@@ -2783,6 +2786,7 @@ public:
 
     JSContext *InitSafeJSContext();
     JSContext *GetSafeJSContext();
+    JSObject *GetSafeJSContextGlobal();
     bool HasJSContext(JSContext *cx);
 
     const InfallibleTArray<XPCJSContextInfo>* GetStack()
@@ -2801,6 +2805,7 @@ private:
     AutoInfallibleTArray<XPCJSContextInfo, 16> mStack;
     XPCJSRuntime* mRuntime;
     JSContext*  mSafeJSContext;
+    JSObject* mSafeJSContextGlobal;
 };
 
 /***************************************************************************/
@@ -3286,9 +3291,13 @@ nsresult
 ThrowAndFail(nsresult errNum, JSContext *cx, bool *retval);
 
 struct GlobalProperties {
-    GlobalProperties() { mozilla::PodZero(this); }
+    GlobalProperties(bool aPromise) {
+      mozilla::PodZero(this);
+      Promise = true;
+    }
     bool Parse(JSContext *cx, JS::HandleObject obj);
     bool Define(JSContext *cx, JS::HandleObject obj);
+    bool Promise : 1;
     bool indexedDB : 1;
     bool XMLHttpRequest : 1;
     bool TextDecoder : 1;
@@ -3339,6 +3348,7 @@ public:
         , proto(cx)
         , sameZoneAs(cx)
         , invisibleToDebugger(false)
+        , globalProperties(true)
         , metadata(cx)
     { }
 
@@ -3436,7 +3446,11 @@ EvalInWindow(JSContext *cx, const nsAString &source, JS::HandleObject scope,
 
 bool
 ExportFunction(JSContext *cx, JS::HandleValue vscope, JS::HandleValue vfunction,
-               JS::HandleValue vname, JS::MutableHandleValue rval);
+               JS::HandleValue voptions, JS::MutableHandleValue rval);
+
+bool
+CloneInto(JSContext *cx, JS::HandleValue vobj, JS::HandleValue vscope,
+          JS::HandleValue voptions, JS::MutableHandleValue rval);
 
 } /* namespace xpc */
 

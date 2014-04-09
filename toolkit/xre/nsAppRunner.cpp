@@ -617,13 +617,13 @@ NS_INTERFACE_MAP_BEGIN(nsXULAppInfo)
                                      XRE_GetProcessType() == GeckoProcessType_Content)
 NS_INTERFACE_MAP_END
 
-NS_IMETHODIMP_(nsrefcnt)
+NS_IMETHODIMP_(MozExternalRefCountType)
 nsXULAppInfo::AddRef()
 {
   return 1;
 }
 
-NS_IMETHODIMP_(nsrefcnt)
+NS_IMETHODIMP_(MozExternalRefCountType)
 nsXULAppInfo::Release()
 {
   return 1;
@@ -787,6 +787,17 @@ nsXULAppInfo::GetProcessType(uint32_t* aResult)
 {
   NS_ENSURE_ARG_POINTER(aResult);
   *aResult = XRE_GetProcessType();
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetProcessID(uint32_t* aResult)
+{
+#ifdef XP_WIN
+  *aResult = GetCurrentProcessId();
+#else
+  *aResult = getpid();
+#endif
   return NS_OK;
 }
 

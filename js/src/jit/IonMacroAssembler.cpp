@@ -270,7 +270,7 @@ StoreToTypedFloatArray(MacroAssembler &masm, int arrayType, const S &value, cons
             masm.storeFloat32(value, dest);
         } else {
 #ifdef JS_MORE_DETERMINISTIC
-            // See the comment in ToDoubleForTypedArray.
+            // See the comment in TypedArrayObjectTemplate::doubleToNative.
             masm.canonicalizeDouble(value);
 #endif
             masm.convertDoubleToFloat32(value, ScratchFloatReg);
@@ -279,7 +279,7 @@ StoreToTypedFloatArray(MacroAssembler &masm, int arrayType, const S &value, cons
         break;
       case ScalarTypeDescr::TYPE_FLOAT64:
 #ifdef JS_MORE_DETERMINISTIC
-        // See the comment in ToDoubleForTypedArray.
+        // See the comment in TypedArrayObjectTemplate::doubleToNative.
         masm.canonicalizeDouble(value);
 #endif
         masm.storeDouble(value, dest);
@@ -486,9 +486,9 @@ MacroAssembler::newGCString(Register result, Register temp, Label *fail)
 }
 
 void
-MacroAssembler::newGCShortString(Register result, Register temp, Label *fail)
+MacroAssembler::newGCFatInlineString(Register result, Register temp, Label *fail)
 {
-    newGCThing(result, temp, js::gc::FINALIZE_SHORT_STRING, fail);
+    newGCThing(result, temp, js::gc::FINALIZE_FAT_INLINE_STRING, fail);
 }
 
 void
@@ -556,10 +556,10 @@ MacroAssembler::newGCStringPar(Register result, Register cx, Register tempReg1, 
 }
 
 void
-MacroAssembler::newGCShortStringPar(Register result, Register cx, Register tempReg1,
-                                    Register tempReg2, Label *fail)
+MacroAssembler::newGCFatInlineStringPar(Register result, Register cx, Register tempReg1,
+                                        Register tempReg2, Label *fail)
 {
-    newGCThingPar(result, cx, tempReg1, tempReg2, js::gc::FINALIZE_SHORT_STRING, fail);
+    newGCThingPar(result, cx, tempReg1, tempReg2, js::gc::FINALIZE_FAT_INLINE_STRING, fail);
 }
 
 void
@@ -787,7 +787,7 @@ MacroAssembler::generateBailoutTail(Register scratch, Register bailoutInfo)
         // Enter exit frame for the FinishBailoutToBaseline call.
         loadPtr(Address(bailoutInfo, offsetof(BaselineBailoutInfo, resumeFramePtr)), temp);
         load32(Address(temp, BaselineFrame::reverseOffsetOfFrameSize()), temp);
-        makeFrameDescriptor(temp, IonFrame_BaselineJS);
+        makeFrameDescriptor(temp, JitFrame_BaselineJS);
         push(temp);
         push(Address(bailoutInfo, offsetof(BaselineBailoutInfo, resumeAddr)));
         enterFakeExitFrame();
@@ -1420,9 +1420,8 @@ MacroAssembler::convertValueToInt(ValueOperand value, MDefinition *maybeInput,
                           behavior == IntConversion_ClampToUint8) &&
                          handleStringEntry &&
                          handleStringRejoin;
-    bool zeroObjects = behavior == IntConversion_ClampToUint8;
 
-    JS_ASSERT_IF(handleStrings || zeroObjects, conversion == IntConversion_Any);
+    JS_ASSERT_IF(handleStrings, conversion == IntConversion_Any);
 
     Label done, isInt32, isBool, isDouble, isNull, isString;
 
@@ -1445,8 +1444,7 @@ MacroAssembler::convertValueToInt(ValueOperand value, MDefinition *maybeInput,
             branchEqualTypeIfNeeded(MIRType_Null, maybeInput, tag, &isNull);
             if (handleStrings)
                 branchEqualTypeIfNeeded(MIRType_String, maybeInput, tag, &isString);
-            if (zeroObjects)
-                branchEqualTypeIfNeeded(MIRType_Object, maybeInput, tag, &isNull);
+            branchEqualTypeIfNeeded(MIRType_Object, maybeInput, tag, fail);
             branchTestUndefined(Assembler::NotEqual, tag, fail);
             break;
         }
@@ -1505,7 +1503,6 @@ MacroAssembler::convertValueToInt(JSContext *cx, const Value &v, Register output
 {
     bool handleStrings = (behavior == IntConversion_Truncate ||
                           behavior == IntConversion_ClampToUint8);
-    bool zeroObjects = behavior == IntConversion_ClampToUint8;
 
     if (v.isNumber() || (handleStrings && v.isString())) {
         double d;
@@ -1548,10 +1545,7 @@ MacroAssembler::convertValueToInt(JSContext *cx, const Value &v, Register output
 
     JS_ASSERT(v.isObject());
 
-    if (zeroObjects)
-        move32(Imm32(0), output);
-    else
-        jump(fail);
+    jump(fail);
     return true;
 }
 
@@ -1633,7 +1627,7 @@ MacroAssembler::branchIfNotInterpretedConstructor(Register fun, Register scratch
     // Emit code for the following test:
     //
     // bool isInterpretedConstructor() const {
-    //     return isInterpreted() && !isFunctionPrototype() &&
+    //     return isInterpreted() && !isFunctionPrototype() && !isArrow() &&
     //         (!isSelfHostedBuiltin() || isSelfHostedConstructor());
     // }
 
@@ -1641,16 +1635,15 @@ MacroAssembler::branchIfNotInterpretedConstructor(Register fun, Register scratch
     load32(Address(fun, JSFunction::offsetOfNargs()), scratch);
     branchTest32(Assembler::Zero, scratch, Imm32(JSFunction::INTERPRETED << 16), label);
 
-    // Common case: if both IS_FUN_PROTO and SELF_HOSTED are not set,
-    // we're done.
+    // Common case: if IS_FUN_PROTO, ARROW and SELF_HOSTED are not set,
+    // the function is an interpreted constructor and we're done.
     Label done;
-    uint32_t bits = (JSFunction::IS_FUN_PROTO | JSFunction::SELF_HOSTED) << 16;
+    uint32_t bits = (JSFunction::IS_FUN_PROTO | JSFunction::ARROW | JSFunction::SELF_HOSTED) << 16;
     branchTest32(Assembler::Zero, scratch, Imm32(bits), &done);
     {
-        // The callee is either Function.prototype or self-hosted. Fail if
-        // SELF_HOSTED_CTOR is not set. This means the callee must be
-        // Function.prototype or a self-hosted function that's not a
-        // constructor.
+        // The callee is either Function.prototype, an arrow function or
+        // self-hosted. None of these are constructible, except self-hosted
+        // constructors, so branch to |label| if SELF_HOSTED_CTOR is not set.
         branchTest32(Assembler::Zero, scratch, Imm32(JSFunction::SELF_HOSTED_CTOR << 16), label);
 
 #ifdef DEBUG
@@ -1690,4 +1683,55 @@ MacroAssembler::branchEqualTypeIfNeeded(MIRType type, MDefinition *maybeDef, Reg
             MOZ_ASSUME_UNREACHABLE("Unsupported type");
         }
     }
+}
+
+
+// If a pseudostack frame has this as its label, its stack pointer
+// field points to the registers saved on entry to JIT code.  A native
+// stack unwinder could use that information to continue unwinding
+// past that point.
+const char MacroAssembler::enterJitLabel[] = "EnterJIT";
+
+// Creates an enterJIT pseudostack frame, as described above.  Pushes
+// a word to the stack to indicate whether this was done.  |framePtr| is
+// the pointer to the machine-dependent saved state.
+void
+MacroAssembler::spsMarkJit(SPSProfiler *p, Register framePtr, Register temp)
+{
+    Label spsNotEnabled;
+    uint32_t *enabledAddr = p->addressOfEnabled();
+    load32(AbsoluteAddress(enabledAddr), temp);
+    push(temp); // +4: Did we push an sps frame.
+    branchTest32(Assembler::Equal, temp, temp, &spsNotEnabled);
+
+    Label stackFull;
+    // We always need the "safe" versions, because these are used in trampolines
+    // and won't be regenerated when SPS state changes.
+    spsProfileEntryAddressSafe(p, 0, temp, &stackFull);
+
+    storePtr(ImmPtr(enterJitLabel), Address(temp, ProfileEntry::offsetOfString()));
+    storePtr(framePtr,              Address(temp, ProfileEntry::offsetOfStackAddress()));
+    storePtr(ImmWord(uintptr_t(0)), Address(temp, ProfileEntry::offsetOfScript()));
+    store32(Imm32(ProfileEntry::NullPCIndex), Address(temp, ProfileEntry::offsetOfPCIdx()));
+
+    /* Always increment the stack size, whether or not we actually pushed. */
+    bind(&stackFull);
+    loadPtr(AbsoluteAddress(p->addressOfSizePointer()), temp);
+    add32(Imm32(1), Address(temp, 0));
+
+    bind(&spsNotEnabled);
+}
+
+// Pops the word pushed by spsMarkJit and, if spsMarkJit pushed an SPS
+// frame, pops it.
+void
+MacroAssembler::spsUnmarkJit(SPSProfiler *p, Register temp)
+{
+    Label spsNotEnabled;
+    pop(temp); // -4: Was the profiler enabled.
+    branchTest32(Assembler::Equal, temp, temp, &spsNotEnabled);
+
+    spsPopFrameSafe(p, temp);
+
+    bind(&spsNotEnabled);
 }

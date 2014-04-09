@@ -201,7 +201,35 @@ LIRGenerator::visitNewCallObject(MNewCallObject *ins)
     else
         slots = LConstantIndex::Bogus();
 
-    LNewCallObject *lir = new(alloc()) LNewCallObject(slots, temp());
+    LInstruction *lir;
+    if (ins->templateObject()->hasSingletonType()) {
+        LNewSingletonCallObject *singletonLir = new(alloc()) LNewSingletonCallObject(slots);
+        if (!define(singletonLir, ins))
+            return false;
+        lir = singletonLir;
+    } else {
+        LNewCallObject *normalLir = new(alloc()) LNewCallObject(slots, temp());
+        if (!define(normalLir, ins))
+            return false;
+        lir = normalLir;
+    }
+
+    if (!assignSafepoint(lir, ins))
+        return false;
+
+    return true;
+}
+
+bool
+LIRGenerator::visitNewRunOnceCallObject(MNewRunOnceCallObject *ins)
+{
+    LAllocation slots;
+    if (ins->slots()->type() == MIRType_Slots)
+        slots = useRegister(ins->slots());
+    else
+        slots = LConstantIndex::Bogus();
+
+    LNewSingletonCallObject *lir = new(alloc()) LNewSingletonCallObject(slots);
     if (!define(lir, ins))
         return false;
 
@@ -384,6 +412,16 @@ LIRGenerator::visitComputeThis(MComputeThis *ins)
         return false;
 
     return define(lir, ins) && assignSafepoint(lir, ins);
+}
+
+bool
+LIRGenerator::visitLoadArrowThis(MLoadArrowThis *ins)
+{
+    JS_ASSERT(ins->type() == MIRType_Value);
+    JS_ASSERT(ins->callee()->type() == MIRType_Object);
+
+    LLoadArrowThis *lir = new(alloc()) LLoadArrowThis(useRegister(ins->callee()));
+    return defineBox(lir, ins);
 }
 
 bool
@@ -2338,6 +2376,16 @@ LIRGenerator::visitTypedObjectElements(MTypedObjectElements *ins)
 {
     JS_ASSERT(ins->type() == MIRType_Elements);
     return define(new(alloc()) LTypedObjectElements(useRegisterAtStart(ins->object())), ins);
+}
+
+bool
+LIRGenerator::visitSetTypedObjectOffset(MSetTypedObjectOffset *ins)
+{
+    return add(new(alloc()) LSetTypedObjectOffset(
+                   useRegister(ins->object()),
+                   useRegister(ins->offset()),
+                   temp()),
+               ins);
 }
 
 bool

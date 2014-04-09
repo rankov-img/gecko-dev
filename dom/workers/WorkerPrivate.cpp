@@ -426,9 +426,10 @@ struct WorkerStructuredCloneCallbacks
 
         // Write the internals to the stream.
         JSAutoCompartment ac(aCx, dataArray);
+        JS::Rooted<JS::Value> arrayValue(aCx, JS::ObjectValue(*dataArray));
         return JS_WriteUint32Pair(aWriter, SCTAG_DOM_IMAGEDATA, 0) &&
                JS_WriteUint32Pair(aWriter, width, height) &&
-               JS_WriteTypedArray(aWriter, JS::ObjectValue(*dataArray));
+               JS_WriteTypedArray(aWriter, arrayValue);
       }
     }
 
@@ -446,7 +447,10 @@ struct WorkerStructuredCloneCallbacks
 JSStructuredCloneCallbacks gWorkerStructuredCloneCallbacks = {
   WorkerStructuredCloneCallbacks::Read,
   WorkerStructuredCloneCallbacks::Write,
-  WorkerStructuredCloneCallbacks::Error
+  WorkerStructuredCloneCallbacks::Error,
+  nullptr,
+  nullptr,
+  nullptr
 };
 
 struct MainThreadWorkerStructuredCloneCallbacks
@@ -605,7 +609,10 @@ struct MainThreadWorkerStructuredCloneCallbacks
 JSStructuredCloneCallbacks gMainThreadWorkerStructuredCloneCallbacks = {
   MainThreadWorkerStructuredCloneCallbacks::Read,
   MainThreadWorkerStructuredCloneCallbacks::Write,
-  MainThreadWorkerStructuredCloneCallbacks::Error
+  MainThreadWorkerStructuredCloneCallbacks::Error,
+  nullptr,
+  nullptr,
+  nullptr
 };
 
 struct ChromeWorkerStructuredCloneCallbacks
@@ -635,7 +642,10 @@ struct ChromeWorkerStructuredCloneCallbacks
 JSStructuredCloneCallbacks gChromeWorkerStructuredCloneCallbacks = {
   ChromeWorkerStructuredCloneCallbacks::Read,
   ChromeWorkerStructuredCloneCallbacks::Write,
-  ChromeWorkerStructuredCloneCallbacks::Error
+  ChromeWorkerStructuredCloneCallbacks::Error,
+  nullptr,
+  nullptr,
+  nullptr
 };
 
 struct MainThreadChromeWorkerStructuredCloneCallbacks
@@ -693,7 +703,10 @@ struct MainThreadChromeWorkerStructuredCloneCallbacks
 JSStructuredCloneCallbacks gMainThreadChromeWorkerStructuredCloneCallbacks = {
   MainThreadChromeWorkerStructuredCloneCallbacks::Read,
   MainThreadChromeWorkerStructuredCloneCallbacks::Write,
-  MainThreadChromeWorkerStructuredCloneCallbacks::Error
+  MainThreadChromeWorkerStructuredCloneCallbacks::Error,
+  nullptr,
+  nullptr,
+  nullptr
 };
 
 class MainThreadReleaseRunnable MOZ_FINAL : public nsRunnable
@@ -967,7 +980,7 @@ public:
 
   bool
   DispatchDOMEvent(JSContext* aCx, WorkerPrivate* aWorkerPrivate,
-                   nsDOMEventTargetHelper* aTarget, bool aIsMainThread)
+                   DOMEventTargetHelper* aTarget, bool aIsMainThread)
   {
     // Release reference to objects that were AddRef'd for
     // cloning into worker when array goes out of scope.
@@ -3460,18 +3473,18 @@ WorkerPrivateParent<Derived>::StealHostObjectURIs(nsTArray<nsCString>& aArray)
 }
 
 template <class Derived>
-NS_IMPL_ADDREF_INHERITED(WorkerPrivateParent<Derived>, nsDOMEventTargetHelper)
+NS_IMPL_ADDREF_INHERITED(WorkerPrivateParent<Derived>, DOMEventTargetHelper)
 
 template <class Derived>
-NS_IMPL_RELEASE_INHERITED(WorkerPrivateParent<Derived>, nsDOMEventTargetHelper)
+NS_IMPL_RELEASE_INHERITED(WorkerPrivateParent<Derived>, DOMEventTargetHelper)
 
 template <class Derived>
 NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION_INHERITED(WorkerPrivateParent<Derived>)
-NS_INTERFACE_MAP_END_INHERITING(nsDOMEventTargetHelper)
+NS_INTERFACE_MAP_END_INHERITING(DOMEventTargetHelper)
 
 template <class Derived>
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(WorkerPrivateParent<Derived>,
-                                                  nsDOMEventTargetHelper)
+                                                  DOMEventTargetHelper)
   tmp->AssertIsOnParentThread();
 
   // The WorkerPrivate::mSelfRef has a reference to itself, which is really
@@ -3492,13 +3505,13 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
 template <class Derived>
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN_INHERITED(WorkerPrivateParent<Derived>,
-                                                nsDOMEventTargetHelper)
+                                                DOMEventTargetHelper)
   tmp->Terminate(nullptr);
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 
 template <class Derived>
 NS_IMPL_CYCLE_COLLECTION_TRACE_BEGIN_INHERITED(WorkerPrivateParent<Derived>,
-                                               nsDOMEventTargetHelper)
+                                               DOMEventTargetHelper)
   tmp->AssertIsOnParentThread();
 NS_IMPL_CYCLE_COLLECTION_TRACE_END
 
@@ -5428,8 +5441,7 @@ WorkerPrivate::RunExpiredTimeouts(JSContext* aCx)
       options.setFileAndLine(info->mFilename.get(), info->mLineNumber);
 
       if ((expression.IsEmpty() ||
-           !JS::Evaluate(aCx, global, options, expression.get(),
-                         expression.Length(), nullptr)) &&
+           !JS::Evaluate(aCx, global, options, expression.get(), expression.Length())) &&
           !JS_ReportPendingException(aCx)) {
         retval = false;
         break;

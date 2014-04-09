@@ -509,7 +509,6 @@ CodeGenerator::testValueTruthyKernel(const ValueOperand &value,
                                      OutOfLineTestObject *ool)
 {
     Register tag = masm.splitTagForTest(value);
-    Assembler::Condition cond;
 
     // Eventually we will want some sort of type filter here. For now, just
     // emit all easy cases. For speed we use the cached tag for all comparison,
@@ -1736,14 +1735,11 @@ class OutOfLineCallPostWriteBarrier : public OutOfLineCodeBase<CodeGenerator>
 bool
 CodeGenerator::visitOutOfLineCallPostWriteBarrier(OutOfLineCallPostWriteBarrier *ool)
 {
-    saveLive(ool->lir());
+    saveLiveVolatile(ool->lir());
 
     const LAllocation *obj = ool->object();
 
-    GeneralRegisterSet regs;
-    regs.add(CallTempReg0);
-    regs.add(CallTempReg1);
-    regs.add(CallTempReg2);
+    GeneralRegisterSet regs = GeneralRegisterSet::Volatile();
 
     Register objreg;
     bool isGlobal = false;
@@ -1766,7 +1762,7 @@ CodeGenerator::visitOutOfLineCallPostWriteBarrier(OutOfLineCallPostWriteBarrier 
     masm.passABIArg(objreg);
     masm.callWithABI(JS_FUNC_TO_DATA_PTR(void *, fun));
 
-    restoreLive(ool->lir());
+    restoreLiveVolatile(ool->lir());
 
     masm.jump(ool->rejoin());
     return true;
@@ -2108,7 +2104,7 @@ CodeGenerator::visitCallGeneric(LCallGeneric *call)
     masm.freeStack(unusedStack);
 
     // Construct the IonFramePrefix.
-    uint32_t descriptor = MakeFrameDescriptor(masm.framePushed(), IonFrame_OptimizedJS);
+    uint32_t descriptor = MakeFrameDescriptor(masm.framePushed(), JitFrame_IonJS);
     masm.Push(Imm32(call->numActualArgs()));
     masm.Push(calleereg);
     masm.Push(Imm32(descriptor));
@@ -2227,7 +2223,7 @@ CodeGenerator::visitCallKnown(LCallKnown *call)
     masm.freeStack(unusedStack);
 
     // Construct the IonFramePrefix.
-    uint32_t descriptor = MakeFrameDescriptor(masm.framePushed(), IonFrame_OptimizedJS);
+    uint32_t descriptor = MakeFrameDescriptor(masm.framePushed(), JitFrame_IonJS);
     masm.Push(Imm32(call->numActualArgs()));
     masm.Push(calleereg);
     masm.Push(Imm32(descriptor));
@@ -2435,7 +2431,7 @@ CodeGenerator::visitApplyArgsGeneric(LApplyArgsGeneric *apply)
         // Create the frame descriptor.
         unsigned pushed = masm.framePushed();
         masm.addPtr(Imm32(pushed), copyreg);
-        masm.makeFrameDescriptor(copyreg, IonFrame_OptimizedJS);
+        masm.makeFrameDescriptor(copyreg, JitFrame_IonJS);
 
         masm.Push(argcreg);
         masm.Push(calleereg);
@@ -3529,8 +3525,7 @@ CodeGenerator::visitNewDeclEnvObject(LNewDeclEnvObject *lir)
     return true;
 }
 
-typedef JSObject *(*NewCallObjectFn)(JSContext *, HandleScript, HandleShape,
-                                     HandleTypeObject, HeapSlot *);
+typedef JSObject *(*NewCallObjectFn)(JSContext *, HandleShape, HandleTypeObject, HeapSlot *);
 static const VMFunction NewCallObjectInfo =
     FunctionInfo<NewCallObjectFn>(NewCallObject);
 
@@ -3542,45 +3537,75 @@ CodeGenerator::visitNewCallObject(LNewCallObject *lir)
 
     JSObject *templateObj = lir->mir()->templateObject();
 
-    // If we have a template object, we can inline call object creation.
     OutOfLineCode *ool;
     if (lir->slots()->isRegister()) {
         ool = oolCallVM(NewCallObjectInfo, lir,
-                        (ArgList(), ImmGCPtr(lir->mir()->block()->info().script()),
-                                    ImmGCPtr(templateObj->lastProperty()),
-                                    ImmGCPtr(templateObj->hasSingletonType() ? nullptr : templateObj->type()),
+                        (ArgList(), ImmGCPtr(templateObj->lastProperty()),
+                                    ImmGCPtr(templateObj->type()),
                                     ToRegister(lir->slots())),
                         StoreRegisterTo(objReg));
     } else {
         ool = oolCallVM(NewCallObjectInfo, lir,
-                        (ArgList(), ImmGCPtr(lir->mir()->block()->info().script()),
-                                    ImmGCPtr(templateObj->lastProperty()),
-                                    ImmGCPtr(templateObj->hasSingletonType() ? nullptr : templateObj->type()),
+                        (ArgList(), ImmGCPtr(templateObj->lastProperty()),
+                                    ImmGCPtr(templateObj->type()),
                                     ImmPtr(nullptr)),
                         StoreRegisterTo(objReg));
     }
     if (!ool)
         return false;
 
-    if (lir->mir()->needsSingletonType()
 #ifdef JSGC_GENERATIONAL
-        // Slot initialization is not barriered in this case, so we must either
+    if (templateObj->hasDynamicSlots()) {
+        // Slot initialization is unbarriered in this case, so we must either
         // allocate in the nursery or bail if that is not possible.
-        || lir->mir()->templateObject()->hasDynamicSlots()
-#endif
-       )
-    {
-        // Objects can only be given singleton types in VM calls.
         masm.jump(ool->entry());
-    } else {
+    } else
+#endif
+    {
+        // Inline call object creation, using the OOL path only for tricky cases.
         masm.newGCThing(objReg, tempReg, templateObj, ool->entry(), gc::DefaultHeap);
         masm.initGCThing(objReg, tempReg, templateObj);
-
-        if (lir->slots()->isRegister())
-            masm.storePtr(ToRegister(lir->slots()), Address(objReg, JSObject::offsetOfSlots()));
     }
 
+    if (lir->slots()->isRegister())
+        masm.storePtr(ToRegister(lir->slots()), Address(objReg, JSObject::offsetOfSlots()));
+
     masm.bind(ool->rejoin());
+    return true;
+}
+
+typedef JSObject *(*NewSingletonCallObjectFn)(JSContext *, HandleShape, HeapSlot *);
+static const VMFunction NewSingletonCallObjectInfo =
+    FunctionInfo<NewSingletonCallObjectFn>(NewSingletonCallObject);
+
+bool
+CodeGenerator::visitNewSingletonCallObject(LNewSingletonCallObject *lir)
+{
+    Register objReg = ToRegister(lir->output());
+
+    JSObject *templateObj = lir->mir()->templateObject();
+
+    OutOfLineCode *ool;
+    if (lir->slots()->isRegister()) {
+        ool = oolCallVM(NewSingletonCallObjectInfo, lir,
+                        (ArgList(), ImmGCPtr(templateObj->lastProperty()),
+                                    ToRegister(lir->slots())),
+                        StoreRegisterTo(objReg));
+    } else {
+        ool = oolCallVM(NewSingletonCallObjectInfo, lir,
+                        (ArgList(), ImmGCPtr(templateObj->lastProperty()),
+                                    ImmPtr(nullptr)),
+                        StoreRegisterTo(objReg));
+    }
+    if (!ool)
+        return false;
+
+    // Objects can only be given singleton types in VM calls.  We make the call
+    // out of line to not bloat inline code, even if (naively) this seems like
+    // extra work.
+    masm.jump(ool->entry());
+    masm.bind(ool->rejoin());
+
     return true;
 }
 
@@ -4025,6 +4050,15 @@ CodeGenerator::visitComputeThis(LComputeThis *lir)
 }
 
 bool
+CodeGenerator::visitLoadArrowThis(LLoadArrowThis *lir)
+{
+    Register callee = ToRegister(lir->callee());
+    ValueOperand output = ToOutValue(lir);
+    masm.loadValue(Address(callee, FunctionExtended::offsetOfArrowThisSlot()), output);
+    return true;
+}
+
+bool
 CodeGenerator::visitArrayLength(LArrayLength *lir)
 {
     Address length(ToRegister(lir->elements()), ObjectElements::offsetOfLength());
@@ -4069,7 +4103,7 @@ CodeGenerator::visitNeuterCheck(LNeuterCheck *lir)
     Register obj = ToRegister(lir->object());
     Register temp = ToRegister(lir->temp());
 
-    masm.extractObject(Address(obj, TypedObject::ownerOffset()), temp);
+    masm.extractObject(Address(obj, TypedObject::offsetOfOwnerSlot()), temp);
     masm.unboxInt32(Address(temp, ArrayBufferObject::flagsOffset()), temp);
 
     Imm32 flag(ArrayBufferObject::neuteredFlag());
@@ -4084,7 +4118,56 @@ CodeGenerator::visitTypedObjectElements(LTypedObjectElements *lir)
 {
     Register obj = ToRegister(lir->object());
     Register out = ToRegister(lir->output());
-    masm.loadPtr(Address(obj, TypedObject::dataOffset()), out);
+    masm.loadPtr(Address(obj, TypedObject::offsetOfDataSlot()), out);
+    return true;
+}
+
+bool
+CodeGenerator::visitSetTypedObjectOffset(LSetTypedObjectOffset *lir)
+{
+    Register object = ToRegister(lir->object());
+    Register offset = ToRegister(lir->offset());
+    Register temp0 = ToRegister(lir->temp0());
+
+    // `offset` is an absolute offset into the base buffer. One way
+    // to implement this instruction would be load the base address
+    // from the buffer and add `offset`. But that'd be an extra load.
+    // We can instead load the current base pointer and current
+    // offset, compute the difference with `offset`, and then adjust
+    // the current base pointer. This is two loads but to adjacent
+    // fields in the same object, which should come in the same cache
+    // line.
+    //
+    // The C code I would probably write is the following:
+    //
+    // void SetTypedObjectOffset(TypedObject *obj, int32_t offset) {
+    //     int32_t temp0 = obj->byteOffset;
+    //     obj->pointer = obj->pointer - temp0 + offset;
+    //     obj->byteOffset = offset;
+    // }
+    //
+    // But what we actually compute is more like this, because it
+    // saves us a temporary to do it this way:
+    //
+    // void SetTypedObjectOffset(TypedObject *obj, int32_t offset) {
+    //     int32_t temp0 = obj->byteOffset;
+    //     obj->pointer = obj->pointer - (temp0 - offset);
+    //     obj->byteOffset = offset;
+    // }
+
+    // temp0 = typedObj->byteOffset;
+    masm.unboxInt32(Address(object, TypedObject::offsetOfByteOffsetSlot()), temp0);
+
+    // temp0 -= offset;
+    masm.subPtr(offset, temp0);
+
+    // obj->pointer -= temp0;
+    masm.subPtr(temp0, Address(object, TypedObject::offsetOfDataSlot()));
+
+    // obj->byteOffset = offset;
+    masm.storeValue(JSVAL_TYPE_INT32, offset,
+                    Address(object, TypedObject::offsetOfByteOffsetSlot()));
+
     return true;
 }
 
@@ -4858,10 +4941,10 @@ JitCompartment::generateStringConcatStub(JSContext *cx, ExecutionMode mode)
 
     masm.add32(temp1, temp2);
 
-    // Check if we can use a JSShortString.
-    Label isShort;
-    masm.branch32(Assembler::BelowOrEqual, temp2, Imm32(JSShortString::MAX_SHORT_LENGTH),
-                  &isShort);
+    // Check if we can use a JSFatInlineString.
+    Label isFatInline;
+    masm.branch32(Assembler::BelowOrEqual, temp2, Imm32(JSFatInlineString::MAX_FAT_INLINE_LENGTH),
+                  &isFatInline);
 
     // Ensure result length <= JSString::MAX_LENGTH.
     masm.branch32(Assembler::Above, temp2, Imm32(JSString::MAX_LENGTH), &failure);
@@ -4900,7 +4983,7 @@ JitCompartment::generateStringConcatStub(JSContext *cx, ExecutionMode mode)
     masm.mov(lhs, output);
     masm.ret();
 
-    masm.bind(&isShort);
+    masm.bind(&isFatInline);
 
     // State: lhs length in temp1, result length in temp2.
 
@@ -4911,15 +4994,15 @@ JitCompartment::generateStringConcatStub(JSContext *cx, ExecutionMode mode)
     masm.branchTestPtr(Assembler::Zero, Address(rhs, JSString::offsetOfLengthAndFlags()),
                        Imm32(JSString::FLAGS_MASK), &failure);
 
-    // Allocate a JSShortString.
+    // Allocate a JSFatInlineString.
     switch (mode) {
       case SequentialExecution:
-        masm.newGCShortString(output, temp3, &failure);
+        masm.newGCFatInlineString(output, temp3, &failure);
         break;
       case ParallelExecution:
         masm.push(temp1);
         masm.push(temp2);
-        masm.newGCShortStringPar(output, forkJoinContext, temp1, temp2, &failurePopTemps);
+        masm.newGCFatInlineStringPar(output, forkJoinContext, temp1, temp2, &failurePopTemps);
         masm.pop(temp2);
         masm.pop(temp1);
         break;
@@ -4933,8 +5016,8 @@ JitCompartment::generateStringConcatStub(JSContext *cx, ExecutionMode mode)
     masm.storePtr(temp2, Address(output, JSString::offsetOfLengthAndFlags()));
 
     // Set chars pointer, keep in temp2 for copy loop below.
-    masm.computeEffectiveAddress(Address(output, JSShortString::offsetOfInlineStorage()), temp2);
-    masm.storePtr(temp2, Address(output, JSShortString::offsetOfChars()));
+    masm.computeEffectiveAddress(Address(output, JSFatInlineString::offsetOfInlineStorage()), temp2);
+    masm.storePtr(temp2, Address(output, JSFatInlineString::offsetOfChars()));
 
     {
         // We use temp3 in this block, which in parallel execution also holds
@@ -6085,6 +6168,7 @@ CodeGenerator::generateAsmJS()
     // every step in CodeGenerator::link must be a nop, as asserted here:
     JS_ASSERT(snapshots_.listSize() == 0);
     JS_ASSERT(snapshots_.RVATableSize() == 0);
+    JS_ASSERT(recovers_.size() == 0);
     JS_ASSERT(bailouts_.empty());
     JS_ASSERT(graph.numConstants() == 0);
     JS_ASSERT(safepointIndices_.empty());
@@ -6208,7 +6292,7 @@ CodeGenerator::link(JSContext *cx, types::CompilerConstraintList *constraints)
       IonScript::New(cx, recompileInfo,
                      graph.totalSlotCount(), scriptFrameSize,
                      snapshots_.listSize(), snapshots_.RVATableSize(),
-                     bailouts_.length(), graph.numConstants(),
+                     recovers_.size(), bailouts_.length(), graph.numConstants(),
                      safepointIndices_.length(), osiIndices_.length(),
                      cacheList_.length(), runtimeData_.length(),
                      safepoints_.size(), callTargets.length(),
@@ -6318,6 +6402,9 @@ CodeGenerator::link(JSContext *cx, types::CompilerConstraintList *constraints)
         ionScript->copyOsiIndices(&osiIndices_[0], masm);
     if (snapshots_.listSize())
         ionScript->copySnapshots(&snapshots_);
+    MOZ_ASSERT_IF(snapshots_.listSize(), recovers_.size());
+    if (recovers_.size())
+        ionScript->copyRecovers(&recovers_);
     if (graph.numConstants())
         ionScript->copyConstants(graph.constantPool());
     if (callTargets.length() > 0)

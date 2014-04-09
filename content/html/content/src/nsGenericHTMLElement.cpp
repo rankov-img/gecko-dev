@@ -7,6 +7,8 @@
 #include "mozilla/ArrayUtils.h"
 #include "mozilla/EventDispatcher.h"
 #include "mozilla/EventListenerManager.h"
+#include "mozilla/EventStateManager.h"
+#include "mozilla/EventStates.h"
 #include "mozilla/MouseEvents.h"
 #include "mozilla/Likely.h"
 
@@ -60,7 +62,6 @@
 #include "nsString.h"
 #include "nsUnicharUtils.h"
 #include "nsGkAtoms.h"
-#include "nsEventStateManager.h"
 #include "nsIDOMEvent.h"
 #include "nsDOMCSSDeclaration.h"
 #include "nsITextControlFrame.h"
@@ -507,10 +508,10 @@ nsGenericHTMLElement::UpdateEditableState(bool aNotify)
   nsStyledElement::UpdateEditableState(aNotify);
 }
 
-nsEventStates
+EventStates
 nsGenericHTMLElement::IntrinsicState() const
 {
-  nsEventStates state = nsGenericHTMLElementBase::IntrinsicState();
+  EventStates state = nsGenericHTMLElementBase::IntrinsicState();
 
   if (GetDirectionality() == eDir_RTL) {
     state |= NS_EVENT_STATE_RTL;
@@ -766,7 +767,7 @@ nsGenericHTMLElement::GetEventListenerManagerForAttr(nsIAtom* aAttrName,
 #define FORWARDED_EVENT(name_, id_, type_, struct_) \
        || nsGkAtoms::on##name_ == aAttrName
 #define WINDOW_EVENT FORWARDED_EVENT
-#include "nsEventNameList.h" // IWYU pragma: keep
+#include "mozilla/EventNameList.h" // IWYU pragma: keep
 #undef WINDOW_EVENT
 #undef FORWARDED_EVENT
 #undef EVENT
@@ -872,7 +873,7 @@ nsGenericHTMLElement::SetOn##name_(EventHandlerNonNull* handler)              \
                                                                               \
   return nsINode::SetOn##name_(handler);                                      \
 }
-#include "nsEventNameList.h" // IWYU pragma: keep
+#include "mozilla/EventNameList.h" // IWYU pragma: keep
 #undef ERROR_EVENT
 #undef FORWARDED_EVENT
 #undef EVENT
@@ -2300,13 +2301,13 @@ nsGenericHTMLFormElement::IsHTMLFocusable(bool aWithMouse,
   return false;
 }
 
-nsEventStates
+EventStates
 nsGenericHTMLFormElement::IntrinsicState() const
 {
   // If you add attribute-dependent states here, you need to add them them to
   // AfterSetAttr too.  And add them to AfterSetAttr for all subclasses that
   // implement IntrinsicState() and are affected by that attribute.
-  nsEventStates state = nsGenericHTMLElement::IntrinsicState();
+  EventStates state = nsGenericHTMLElement::IntrinsicState();
 
   if (CanBeDisabled()) {
     // :enabled/:disabled
@@ -2711,7 +2712,7 @@ nsGenericHTMLElement::RegUnRegAccessKey(bool aDoReg)
   nsPresContext *presContext = GetPresContext();
 
   if (presContext) {
-    nsEventStateManager *esm = presContext->EventStateManager();
+    EventStateManager* esm = presContext->EventStateManager();
 
     // Register or unregister as appropriate.
     if (aDoReg) {
@@ -3142,13 +3143,42 @@ nsDOMSettableTokenListPropertyDestructor(void *aObject, nsIAtom *aProperty,
 {
   nsDOMSettableTokenList* list =
     static_cast<nsDOMSettableTokenList*>(aPropertyValue);
-  list->DropReference();
   NS_RELEASE(list);
+}
+
+static nsIAtom** sPropertiesToTraverseAndUnlink[] =
+  {
+    &nsGkAtoms::microdataProperties,
+    &nsGkAtoms::itemtype,
+    &nsGkAtoms::itemref,
+    &nsGkAtoms::itemprop,
+    &nsGkAtoms::sandbox,
+    nullptr
+  };
+
+// static
+nsIAtom***
+nsGenericHTMLElement::PropertiesToTraverseAndUnlink()
+{
+  return sPropertiesToTraverseAndUnlink;
 }
 
 nsDOMSettableTokenList*
 nsGenericHTMLElement::GetTokenList(nsIAtom* aAtom)
 {
+#ifdef DEBUG
+    nsIAtom*** props =
+      nsGenericHTMLElement::PropertiesToTraverseAndUnlink();
+    bool found = false;
+    for (uint32_t i = 0; props[i]; ++i) {
+      if (*props[i] == aAtom) {
+        found = true;
+        break;
+      }
+    }
+    MOZ_ASSERT(found, "Trying to use an unknown tokenlist!");
+#endif
+
   nsDOMSettableTokenList* list = nullptr;
   if (HasProperties()) {
     list = static_cast<nsDOMSettableTokenList*>(GetProperty(aAtom));
@@ -3211,7 +3241,7 @@ nsGenericHTMLElement::GetProperties(nsISupports** aProperties)
 }
 
 nsSize
-nsGenericHTMLElement::GetWidthHeightForImage(imgIRequest *aImageRequest)
+nsGenericHTMLElement::GetWidthHeightForImage(nsRefPtr<imgRequestProxy>& aImageRequest)
 {
   nsSize size(0,0);
 

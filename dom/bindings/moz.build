@@ -52,7 +52,6 @@ LOCAL_INCLUDES += [
     '/dom/battery',
     '/dom/bluetooth',
     '/dom/camera',
-    '/dom/events',
     '/dom/file',
     '/dom/indexedDB',
     '/dom/src/geolocation',
@@ -90,3 +89,7 @@ FINAL_LIBRARY = 'xul'
 
 SPHINX_TREES['webidl'] = 'docs'
 SPHINX_PYTHON_PACKAGE_DIRS += ['mozwebidlcodegen']
+
+if CONFIG['MOZ_BUILD_APP'] in ['browser', 'mobile/android', 'xulrunner']:
+    # This is needed for Window.webidl
+    DEFINES['HAVE_SIDEBAR'] = True

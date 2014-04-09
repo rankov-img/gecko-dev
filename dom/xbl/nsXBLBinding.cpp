@@ -114,6 +114,12 @@ nsXBLJSClass::nsXBLJSClass(const nsAFlatCString& aClassName,
   finalize = XBLFinalize;
 }
 
+bool
+nsXBLJSClass::IsXBLJSClass(const JSClass* aClass)
+{
+  return aClass->finalize == XBLFinalize;
+}
+
 nsrefcnt
 nsXBLJSClass::Destroy()
 {
@@ -159,6 +165,7 @@ nsXBLBinding::nsXBLBinding(nsXBLPrototypeBinding* aBinding)
 // Constructor used by web components.
 nsXBLBinding::nsXBLBinding(ShadowRoot* aShadowRoot, nsXBLPrototypeBinding* aBinding)
   : mMarkedForDeath(false),
+    mUsingXBLScope(false),
     mPrototypeBinding(aBinding),
     mContent(aShadowRoot)
 {
@@ -987,7 +994,7 @@ nsXBLBinding::DoInitJSClass(JSContext *cx,
   if (!::JS_LookupPropertyWithFlags(cx, global, className.get(), 0, &val))
     return NS_ERROR_OUT_OF_MEMORY;
 
-  if (val.isObject()) {
+  if (val.isObject() && nsXBLJSClass::IsXBLJSClass(JS_GetClass(&val.toObject()))) {
     *aNew = false;
     proto = &val.toObject();
   } else {

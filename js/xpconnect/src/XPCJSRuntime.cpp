@@ -587,6 +587,12 @@ GetJunkScopeGlobal()
     return GetNativeForGlobal(junkScope);
 }
 
+JSObject *
+GetSafeJSContextGlobal()
+{
+    return XPCJSRuntime::Get()->GetJSContextStack()->GetSafeJSContextGlobal();
+}
+
 nsGlobalWindow*
 WindowOrNull(JSObject *aObj)
 {
@@ -1052,7 +1058,7 @@ class Watchdog
             AutoLockWatchdog lock(this);
 
             mThread = PR_CreateThread(PR_USER_THREAD, WatchdogMain, this,
-                                      PR_PRIORITY_NORMAL, PR_LOCAL_THREAD,
+                                      PR_PRIORITY_NORMAL, PR_GLOBAL_THREAD,
                                       PR_UNJOINABLE_THREAD, 0);
             if (!mThread)
                 NS_RUNTIMEABORT("PR_CreateThread failed!");
@@ -2349,6 +2355,11 @@ ReportJSRuntimeExplicitTreeStats(const JS::RuntimeStats &rtStats,
         KIND_NONHEAP, rtStats.runtime.gc.nurseryCommitted,
         "Memory being used by the GC's nursery.");
 
+    RREPORT_BYTES(rtPath + NS_LITERAL_CSTRING("runtime/gc/nursery-huge-slots"),
+        KIND_NONHEAP, rtStats.runtime.gc.nurseryHugeSlots,
+        "Out-of-line slots and elements belonging to objects in the "
+        "nursery.");
+
     RREPORT_BYTES(rtPath + NS_LITERAL_CSTRING("runtime/gc/store-buffer/vals"),
         KIND_HEAP, rtStats.runtime.gc.storeBufferVals,
         "Values in the store buffer.");
@@ -2987,7 +2998,6 @@ class XPCJSSourceHook: public js::SourceHook {
 
 static const JSWrapObjectCallbacks WrapObjectCallbacks = {
     xpc::WrapperFactory::Rewrap,
-    xpc::WrapperFactory::WrapForSameCompartment,
     xpc::WrapperFactory::PrepareForWrapping
 };
 

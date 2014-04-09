@@ -22,6 +22,9 @@ XPCOMUtils.defineLazyModuleGetter(this, "AddonManager",
 XPCOMUtils.defineLazyModuleGetter(this, "ContentClick",
                                   "resource:///modules/ContentClick.jsm");
 
+XPCOMUtils.defineLazyModuleGetter(this, "DirectoryLinksProvider",
+                                  "resource://gre/modules/DirectoryLinksProvider.jsm");
+
 XPCOMUtils.defineLazyModuleGetter(this, "NetUtil",
                                   "resource://gre/modules/NetUtil.jsm");
 
@@ -77,6 +80,9 @@ XPCOMUtils.defineLazyModuleGetter(this, "PlacesBackups",
 
 XPCOMUtils.defineLazyModuleGetter(this, "OS",
                                   "resource://gre/modules/osfile.jsm");
+
+ XPCOMUtils.defineLazyModuleGetter(this, "RemotePrompt",
+                                   "resource:///modules/RemotePrompt.jsm");
 
 XPCOMUtils.defineLazyModuleGetter(this, "SessionStore",
                                   "resource:///modules/sessionstore/SessionStore.jsm");
@@ -475,6 +481,8 @@ BrowserGlue.prototype = {
     WebappManager.init();
     PageThumbs.init();
     NewTabUtils.init();
+    DirectoryLinksProvider.init();
+    NewTabUtils.links.addProvider(DirectoryLinksProvider);
     BrowserNewTabPreloader.init();
 #ifdef NIGHTLY_BUILD
     if (Services.prefs.getBoolPref("dom.identity.enabled")) {
@@ -490,8 +498,10 @@ BrowserGlue.prototype = {
     SessionStore.init();
     BrowserUITelemetry.init();
 
-    if (Services.appinfo.browserTabsRemote)
+    if (Services.appinfo.browserTabsRemote) {
       ContentClick.init();
+      RemotePrompt.init();
+    }
 
     Services.obs.notifyObservers(null, "browser-ui-startup-complete", "");
   },
@@ -1075,6 +1085,19 @@ BrowserGlue.prototype = {
         importBookmarks = true;
     } catch(ex) {}
 
+    // Support legacy bookmarks.html format for apps that depend on that format.
+    let autoExportHTML = false;
+    try {
+      autoExportHTML = Services.prefs.getBoolPref("browser.bookmarks.autoExportHTML");
+    } catch (ex) {} // Do not export.
+    if (autoExportHTML) {
+      // Sqlite.jsm and Places shutdown happen at profile-before-change, thus,
+      // to be on the safe side, this should run earlier.
+      AsyncShutdown.profileChangeTeardown.addBlocker(
+        "Places: export bookmarks.html",
+        () => BookmarkHTMLUtils.exportToFile(BookmarkHTMLUtils.defaultPath));
+    }
+
     Task.spawn(function() {
       // Check if Safe Mode or the user has required to restore bookmarks from
       // default profile's bookmarks.html
@@ -1132,10 +1155,6 @@ BrowserGlue.prototype = {
         // An import operation is about to run.
         // Don't try to recreate smart bookmarks if autoExportHTML is true or
         // smart bookmarks are disabled.
-        let autoExportHTML = false;
-        try {
-          autoExportHTML = Services.prefs.getBoolPref("browser.bookmarks.autoExportHTML");
-        } catch(ex) {}
         let smartBookmarksVersion = 0;
         try {
           smartBookmarksVersion = Services.prefs.getIntPref("browser.places.smartBookmarksVersion");
@@ -1238,19 +1257,6 @@ BrowserGlue.prototype = {
       this._idleService.removeIdleObserver(this, this._bookmarksBackupIdleTime);
       delete this._bookmarksBackupIdleTime;
     }
-
-    // Support legacy bookmarks.html format for apps that depend on that format.
-    try {
-      if (Services.prefs.getBoolPref("browser.bookmarks.autoExportHTML")) {
-        // places-shutdown happens at profile-change-teardown, so here we
-        // can safely add a profile-before-change blocker.
-        AsyncShutdown.profileBeforeChange.addBlocker(
-          "Places: bookmarks.html",
-          () => BookmarkHTMLUtils.exportToFile(BookmarkHTMLUtils.defaultPath)
-                                 .then(null, Cu.reportError)
-        );
-      }
-    } catch (ex) {} // Do not export.
   },
 
   /**

@@ -10,7 +10,6 @@
 #include "nsGenericHTMLElement.h"
 #include "nsAttrValue.h"
 #include "nsAttrValueInlines.h"
-#include "nsEventStateManager.h"
 #include "nsAlgorithm.h"
 #include <algorithm>
 
@@ -23,7 +22,7 @@ public:
   HTMLMeterElement(already_AddRefed<nsINodeInfo>& aNodeInfo);
   virtual ~HTMLMeterElement();
 
-  virtual nsEventStates IntrinsicState() const MOZ_OVERRIDE;
+  virtual EventStates IntrinsicState() const MOZ_OVERRIDE;
 
   nsresult Clone(nsINodeInfo* aNodeInfo, nsINode** aResult) const MOZ_OVERRIDE;
 
@@ -92,7 +91,7 @@ private:
    *
    * @return the optimum state of the element.
    */
-  nsEventStates GetOptimumState() const;
+  EventStates GetOptimumState() const;
 };
 
 } // namespace dom

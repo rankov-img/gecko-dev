@@ -296,6 +296,18 @@
     "n_buckets": 50,
     "description": "Time spent sweeping slowest compartment SCC (ms)"
   },
+  "GEOLOCATION_ACCURACY": {
+    "expires_in_version": "never",
+    "kind": "linear",
+    "high": "18000",
+    "n_buckets": 200,  
+    "description": "Location accuracy"
+  },
+  "GEOLOCATION_ERROR": {
+    "expires_in_version": "never",
+    "kind": "flag",
+    "description": "Has seen location error"
+  },
   "TELEMETRY_PING": {
     "expires_in_version": "never",
     "kind": "exponential",
@@ -1209,6 +1221,12 @@
     "n_buckets": 200,
     "extended_statistics_ok": true,
     "description": "ms elapsed time of OCSP etc.. that failed"
+  },
+  "CERT_VALIDATION_LIBRARY": {
+    "expires_in_version": "never",
+    "kind": "enumerated",
+    "n_values": 4,
+    "description": "Which certificate validation library is in use? (1=classic, 2=libpkix, 3=mozilla::pkix)"
   },
   "SSL_KEY_EXCHANGE_ALGORITHM_FULL": {
     "expires_in_version": "never",
@@ -2222,6 +2240,34 @@
       "expires_in_version": "never",
       "kind": "boolean",
       "description": "Whether or not we actually try the cleanup method when we think about it"
+  },
+  "SEER_LOAD_COUNT_IS_ZERO": {
+      "expires_in_version": "never",
+      "kind": "linear",
+      "high": "100",
+      "n_buckets": 50,
+      "description": "Number of times load count is zero"
+  },
+  "SEER_LOAD_COUNT_OVERFLOWS": {
+      "expires_in_version": "never",
+      "kind": "linear",
+      "high": "100",
+      "n_buckets": 50,
+      "description": "Number of times load count overflowed"
+  },
+  "SEER_STARTUP_COUNT_IS_ZERO": {
+      "expires_in_version": "never",
+      "kind": "linear",
+      "high": "100",
+      "n_buckets": 50,
+      "description": "Number of times startup count is zero"
+  },
+  "SEER_STARTUP_COUNT_OVERFLOWS": {
+      "expires_in_version": "never",
+      "kind": "linear",
+      "high": "100",
+      "n_buckets": 50,
+      "description": "Number of times startup count overflowed"
   },
   "FIND_PLUGINS": {
     "expires_in_version": "never",
@@ -3249,6 +3295,11 @@
     "extended_statistics_ok": true,
     "description": "Firefox: Time taken to load a page (ms)"
   },
+  "FX_TOTAL_TOP_VISITS": {
+    "expires_in_version": "never",
+    "kind": "boolean",
+    "description": "Count the number of times a new top page was starting to load"
+  },
   "FX_THUMBNAILS_CAPTURE_TIME_MS": {
     "expires_in_version": "never",
     "kind": "exponential",
@@ -4034,6 +4085,30 @@
     "kind": "enumerated",
     "n_values": 10,
     "description": "Track click count on about:newtab tiles per index (0-8). For non-default row or column configurations all clicks into the '9' bucket."
+  },
+  "NEWTAB_PAGE_DIRECTORY_AFFILIATE_SHOWN": {
+    "expires_in_version": "35",
+    "kind": "enumerated",
+    "n_values": 11,
+    "description": "Number of affiliate directory links shown on about:newtab. For non-default row or column configurations, extra links fall into the '10' bucket."
+  },
+  "NEWTAB_PAGE_DIRECTORY_ORGANIC_SHOWN": {
+    "expires_in_version": "35",
+    "kind": "enumerated",
+    "n_values": 11,
+    "description": "Number of organic directory links shown on about:newtab. For non-default row or column configurations, extra links fall into the '10' bucket."
+  },
+  "NEWTAB_PAGE_DIRECTORY_SPONSORED_SHOWN": {
+    "expires_in_version": "35",
+    "kind": "enumerated",
+    "n_values": 11,
+    "description": "Number of sponsored directory links shown on about:newtab. For non-default row or column configurations, extra links fall into the '10' bucket."
+  },
+  "NEWTAB_PAGE_DIRECTORY_TYPE_CLICKED": {
+    "expires_in_version": "35",
+    "kind": "enumerated",
+    "n_values": 3,
+    "description": "Track click count on about:newtab directory links per type (sponsored, affiliate, organic)."
   },
   "PANORAMA_INITIALIZATION_TIME_MS": {
     "expires_in_version": "never",

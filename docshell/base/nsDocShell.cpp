@@ -15,6 +15,7 @@
 #include "mozilla/dom/ContentChild.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/TabChild.h"
+#include "mozilla/EventStateManager.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/Services.h"
 #include "mozilla/StartupTimeline.h"
@@ -149,8 +150,6 @@
 #include "nsISelectionDisplay.h"
 
 #include "nsIGlobalHistory2.h"
-
-#include "nsEventStateManager.h"
 
 #include "nsIFrame.h"
 #include "nsSubDocumentFrame.h"
@@ -930,7 +929,7 @@ nsDocShell::Init()
 
     // We want to hold a strong ref to the loadgroup, so it better hold a weak
     // ref to us...  use an InterfaceRequestorProxy to do this.
-    nsCOMPtr<InterfaceRequestorProxy> proxy =
+    nsCOMPtr<nsIInterfaceRequestor> proxy =
         new InterfaceRequestorProxy(static_cast<nsIInterfaceRequestor*>
                                                (this));
     NS_ENSURE_TRUE(proxy, NS_ERROR_OUT_OF_MEMORY);
@@ -12782,7 +12781,7 @@ bool
 nsDocShell::ShouldBlockLoadingForBackButton()
 {
   if (!(mLoadType & LOAD_CMD_HISTORY) ||
-      nsEventStateManager::IsHandlingUserInput() ||
+      EventStateManager::IsHandlingUserInput() ||
       !Preferences::GetBool("accessibility.blockjsredirection")) {
     return false;
   }

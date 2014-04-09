@@ -123,14 +123,17 @@ class MacroAssemblerX86Shared : public Assembler
     void neg32(const Register &reg) {
         negl(reg);
     }
-    void cmp32(const Register &lhs, const Imm32 &rhs) {
-        cmpl(lhs, rhs);
-    }
     void test32(const Register &lhs, const Register &rhs) {
         testl(lhs, rhs);
     }
     void test32(const Address &addr, Imm32 imm) {
         testl(Operand(addr), imm);
+    }
+    void test32(const Register &lhs, const Imm32 &rhs) {
+        testl(lhs, rhs);
+    }
+    void cmp32(const Register &lhs, const Imm32 &rhs) {
+        cmpl(lhs, rhs);
     }
     void cmp32(Register a, Register b) {
         cmpl(a, b);
@@ -679,28 +682,9 @@ class MacroAssemblerX86Shared : public Assembler
 
     // Builds an exit frame on the stack, with a return address to an internal
     // non-function. Returns offset to be passed to markSafepointAt().
-    bool buildFakeExitFrame(const Register &scratch, uint32_t *offset) {
-        mozilla::DebugOnly<uint32_t> initialDepth = framePushed();
+    bool buildFakeExitFrame(const Register &scratch, uint32_t *offset);
+    void callWithExitFrame(JitCode *target);
 
-        CodeLabel cl;
-        mov(cl.dest(), scratch);
-
-        uint32_t descriptor = MakeFrameDescriptor(framePushed(), IonFrame_OptimizedJS);
-        Push(Imm32(descriptor));
-        Push(scratch);
-
-        bind(cl.src());
-        *offset = currentOffset();
-
-        JS_ASSERT(framePushed() == initialDepth + IonExitFrameLayout::Size());
-        return addCodeLabel(cl);
-    }
-
-    void callWithExitFrame(JitCode *target) {
-        uint32_t descriptor = MakeFrameDescriptor(framePushed(), IonFrame_OptimizedJS);
-        Push(Imm32(descriptor));
-        call(target);
-    }
     void callIon(const Register &callee) {
         call(callee);
     }
@@ -718,12 +702,7 @@ class MacroAssemblerX86Shared : public Assembler
     }
 
   protected:
-    bool buildOOLFakeExitFrame(void *fakeReturnAddr) {
-        uint32_t descriptor = MakeFrameDescriptor(framePushed(), IonFrame_OptimizedJS);
-        Push(Imm32(descriptor));
-        Push(ImmPtr(fakeReturnAddr));
-        return true;
-    }
+    bool buildOOLFakeExitFrame(void *fakeReturnAddr);
 };
 
 } // namespace jit

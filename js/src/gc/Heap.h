@@ -18,6 +18,7 @@
 #include "jsutil.h"
 
 #include "ds/BitArray.h"
+#include "gc/Memory.h"
 #include "js/HeapAPI.h"
 
 struct JSCompartment;
@@ -71,7 +72,7 @@ enum AllocKind {
     FINALIZE_SHAPE,
     FINALIZE_BASE_SHAPE,
     FINALIZE_TYPE_OBJECT,
-    FINALIZE_SHORT_STRING,
+    FINALIZE_FAT_INLINE_STRING,
     FINALIZE_STRING,
     FINALIZE_EXTERNAL_STRING,
     FINALIZE_JITCODE,
@@ -287,6 +288,7 @@ struct FreeSpan
             return nullptr;
         }
         checkSpan();
+        JS_POISON(reinterpret_cast<void *>(thing), JS_ALLOCATED_TENURED_PATTERN, thingSize);
         return reinterpret_cast<void *>(thing);
     }
 
@@ -807,6 +809,16 @@ struct Chunk
     void recycleArena(ArenaHeader *aheader, ArenaList &dest, AllocKind thingKind);
 
     static Chunk *allocate(JSRuntime *rt);
+
+    void decommitAllArenas(JSRuntime *rt) {
+        decommittedArenas.clear(true);
+        MarkPagesUnused(rt, &arenas[0], ArenasPerChunk * ArenaSize);
+
+        info.freeArenasHead = nullptr;
+        info.lastDecommittedArenaOffset = 0;
+        info.numArenasFree = ArenasPerChunk;
+        info.numArenasFreeCommitted = 0;
+    }
 
     /* Must be called with the GC lock taken. */
     static inline void release(JSRuntime *rt, Chunk *chunk);

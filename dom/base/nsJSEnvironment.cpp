@@ -191,7 +191,6 @@ static uint32_t sPreviousSuspectedCount = 0;
 static uint32_t sCleanupsSinceLastGC = UINT32_MAX;
 static bool sNeedsFullCC = false;
 static bool sNeedsGCAfterCC = false;
-static nsJSContext *sContextList = nullptr;
 static bool sIncrementalCC = false;
 
 static nsScriptNameSpaceManager *gNameSpaceManager;
@@ -767,13 +766,6 @@ nsJSContext::nsJSContext(bool aGCOnDestruction,
 {
   EnsureStatics();
 
-  mNext = sContextList;
-  mPrev = &sContextList;
-  if (sContextList) {
-    sContextList->mPrev = &mNext;
-  }
-  sContextList = this;
-
   ++sContextCount;
 
   mContext = ::JS_NewContext(sRuntime, gStackSize);
@@ -795,11 +787,6 @@ nsJSContext::nsJSContext(bool aGCOnDestruction,
 
 nsJSContext::~nsJSContext()
 {
-  *mPrev = mNext;
-  if (mNext) {
-    mNext->mPrev = mPrev;
-  }
-
   mGlobalObjectRef = nullptr;
 
   DestroyJSContext();
@@ -2806,9 +2793,10 @@ NS_DOMWriteStructuredClone(JSContext* cx,
 
   // Write the internals to the stream.
   JSAutoCompartment ac(cx, dataArray);
+  JS::Rooted<JS::Value> arrayValue(cx, JS::ObjectValue(*dataArray));
   return JS_WriteUint32Pair(writer, SCTAG_DOM_IMAGEDATA, 0) &&
          JS_WriteUint32Pair(writer, width, height) &&
-         JS_WriteTypedArray(writer, JS::ObjectValue(*dataArray));
+         JS_WriteTypedArray(writer, arrayValue);
 }
 
 void
@@ -2893,7 +2881,10 @@ nsJSContext::EnsureStatics()
   static JSStructuredCloneCallbacks cloneCallbacks = {
     NS_DOMReadStructuredClone,
     NS_DOMWriteStructuredClone,
-    NS_DOMStructuredCloneError
+    NS_DOMStructuredCloneError,
+    nullptr,
+    nullptr,
+    nullptr
   };
   JS_SetStructuredCloneCallbacks(sRuntime, &cloneCallbacks);
 

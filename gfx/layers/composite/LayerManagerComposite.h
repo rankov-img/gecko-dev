@@ -216,8 +216,6 @@ public:
     return mCompositor;
   }
 
-  bool PlatformDestroySharedSurface(SurfaceDescriptor* aSurface);
-
   /**
    * LayerManagerComposite provides sophisticated debug overlays
    * that can request a next frame.
@@ -278,6 +276,7 @@ private:
   bool mDebugOverlayWantsNextFrame;
 
   RefPtr<TextRenderer> mTextRenderer;
+  bool mGeometryChanged;
 };
 
 /**

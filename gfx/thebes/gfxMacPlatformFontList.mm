@@ -61,6 +61,7 @@
 #include "nsDirectoryServiceDefs.h"
 #include "nsISimpleEnumerator.h"
 #include "nsCharTraits.h"
+#include "nsCocoaFeatures.h"
 #include "gfxFontConstants.h"
 
 #include "mozilla/MemoryReporting.h"
@@ -611,7 +612,9 @@ class gfxSingleFaceMacFontFamily : public gfxFontFamily
 public:
     gfxSingleFaceMacFontFamily(nsAString& aName) :
         gfxFontFamily(aName)
-    {}
+    {
+        mFaceNamesInitialized = true; // omit from face name lists
+    }
 
     virtual ~gfxSingleFaceMacFontFamily() {}
 
@@ -1059,7 +1062,10 @@ public:
 
     virtual void Load() {
         nsAutoreleasePool localPool;
-        FontInfoData::Load();
+        // bug 975460 - async font loader crashes sometimes under 10.6, disable
+        if (nsCocoaFeatures::OnLionOrLater()) {
+            FontInfoData::Load();
+        }
     }
 
     // loads font data for all members of a given family
@@ -1123,7 +1129,8 @@ MacFontInfo::LoadFontFamilyData(const nsAString& aFamilyName)
             // load the cmap data
             FontFaceData fontData;
             CFDataRef cmapTable = CTFontCopyTable(fontRef, kCTFontTableCmap,
-                                                 kCTFontTableOptionNoOptions);
+                                                  kCTFontTableOptionNoOptions);
+
             if (cmapTable) {
                 bool unicodeFont = false, symbolFont = false; // ignored
                 const uint8_t *cmapData =
@@ -1151,6 +1158,7 @@ MacFontInfo::LoadFontFamilyData(const nsAString& aFamilyName)
         if (mLoadOtherNames && hasOtherFamilyNames) {
             CFDataRef nameTable = CTFontCopyTable(fontRef, kCTFontTableName,
                                                   kCTFontTableOptionNoOptions);
+
             if (nameTable) {
                 const char *nameData = (const char*)CFDataGetBytePtr(nameTable);
                 uint32_t nameLen = CFDataGetLength(nameTable);

@@ -10,17 +10,15 @@
 #include "mozilla/BasicEvents.h"
 #include "mozilla/EventDispatcher.h"
 #include "mozilla/EventListenerManager.h"
+#include "mozilla/JSEventHandler.h"
 #include "mozilla/Maybe.h"
 #include "nsCOMArray.h"
 #include "nsCxPusher.h"
 #include "nsDOMClassInfoID.h"
-#include "nsIJSEventListener.h"
 #include "nsIXPConnect.h"
 #include "nsJSUtils.h"
 #include "nsMemory.h"
 #include "nsServiceManagerUtils.h"
-
-DOMCI_DATA(EventListenerInfo, mozilla::EventListenerInfo)
 
 namespace mozilla {
 
@@ -35,7 +33,6 @@ NS_IMPL_CYCLE_COLLECTION_1(EventListenerInfo, mListener)
 NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(EventListenerInfo)
   NS_INTERFACE_MAP_ENTRY(nsIEventListenerInfo)
   NS_INTERFACE_MAP_ENTRY(nsISupports)
-  NS_DOM_INTERFACE_MAP_ENTRY_CLASSINFO(EventListenerInfo)
 NS_INTERFACE_MAP_END
 
 NS_IMPL_CYCLE_COLLECTING_ADDREF(EventListenerInfo)
@@ -101,9 +98,10 @@ EventListenerInfo::GetJSVal(JSContext* aCx,
     return true;
   }
 
-  nsCOMPtr<nsIJSEventListener> jsl = do_QueryInterface(mListener);
-  if (jsl && jsl->GetHandler().HasEventHandler()) {
-    JS::Handle<JSObject*> handler(jsl->GetHandler().Ptr()->Callable());
+  nsCOMPtr<JSEventHandler> jsHandler = do_QueryInterface(mListener);
+  if (jsHandler && jsHandler->GetTypedEventHandler().HasEventHandler()) {
+    JS::Handle<JSObject*> handler =
+      jsHandler->GetTypedEventHandler().Ptr()->Callable();
     if (handler) {
       aAc.construct(aCx, handler);
       aJSVal.setObject(*handler);

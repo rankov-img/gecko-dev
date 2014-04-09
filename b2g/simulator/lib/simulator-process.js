@@ -141,12 +141,14 @@ exports.SimulatorProcess = Class({
     let bin = URL.toFilename(BIN_URL);
     let executables = {
       WINNT: "b2g-bin.exe",
-      Darwin: "Contents/MacOS/b2g-bin",
+      Darwin: "B2G.app/Contents/MacOS/b2g-bin",
       Linux: "b2g-bin",
     };
 
-    console.log("bin url: "+bin+"/"+executables[Runtime.OS]);
-    let path = bin + "/" + executables[Runtime.OS];
+    let path = bin;
+    path += Runtime.OS == "WINNT" ? "\\" : "/";
+    path += executables[Runtime.OS];
+    console.log("simulator path: " + path);
 
     let executable = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
     executable.initWithPath(path);
@@ -171,7 +173,7 @@ exports.SimulatorProcess = Class({
     Cu.reportError(profile);
 
     // NOTE: push dbgport option on the b2g-desktop commandline
-    args.push("-dbgport", "" + this.remoteDebuggerPort);
+    args.push("-start-debugger-server", "" + this.remoteDebuggerPort);
 
     // Ignore eventual zombie instances of b2g that are left over
     args.push("-no-remote");

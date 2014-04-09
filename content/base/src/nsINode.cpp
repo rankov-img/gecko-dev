@@ -40,7 +40,6 @@
 #include "nsDOMMutationObserver.h"
 #include "nsDOMString.h"
 #include "nsDOMTokenList.h"
-#include "nsEventStateManager.h"
 #include "nsFocusManager.h"
 #include "nsFrameManager.h"
 #include "nsFrameSelection.h"
@@ -366,6 +365,16 @@ nsINode::CheckNotNativeAnonymous() const
 }
 #endif
 
+bool
+nsINode::IsInAnonymousSubtree() const
+{
+  if (!IsContent()) {
+    return false;
+  }
+
+  return AsContent()->IsInAnonymousSubtree();
+}
+
 nsresult
 nsINode::GetParentNode(nsIDOMNode** aParentNode)
 {
@@ -597,6 +606,23 @@ nsINode::GetBaseURI(nsAString &aURI) const
   }
 
   CopyUTF8toUTF16(spec, aURI);
+}
+
+void
+nsINode::GetBaseURIFromJS(nsAString& aURI) const
+{
+  nsCOMPtr<nsIURI> baseURI = GetBaseURI(nsContentUtils::IsCallerChrome());
+  nsAutoCString spec;
+  if (baseURI) {
+    baseURI->GetSpec(spec);
+  }
+  CopyUTF8toUTF16(spec, aURI);
+}
+
+already_AddRefed<nsIURI>
+nsINode::GetBaseURIObject() const
+{
+  return GetBaseURI(true);
 }
 
 void
@@ -1249,7 +1275,7 @@ bool
 nsINode::UnoptimizableCCNode() const
 {
   const uintptr_t problematicFlags = (NODE_IS_ANONYMOUS_ROOT |
-                                      NODE_IS_IN_ANONYMOUS_SUBTREE |
+                                      NODE_IS_IN_NATIVE_ANONYMOUS_SUBTREE |
                                       NODE_IS_NATIVE_ANONYMOUS_ROOT |
                                       NODE_MAY_BE_IN_BINDING_MNGR);
   return HasFlag(problematicFlags) ||
@@ -2186,15 +2212,6 @@ nsINode::IsEqualNode(nsIDOMNode* aOther, bool* aReturn)
   return NS_OK;
 }
 
-static void
-nsCOMArrayDeleter(void* aObject, nsIAtom* aPropertyName,
-                  void* aPropertyValue, void* aData)
-{
-  nsCOMArray<nsISupports>* objects =
-    static_cast<nsCOMArray<nsISupports>*>(aPropertyValue);
-  delete objects;
-}
-
 void
 nsINode::BindObject(nsISupports* aObject)
 {
@@ -2202,7 +2219,8 @@ nsINode::BindObject(nsISupports* aObject)
     static_cast<nsCOMArray<nsISupports>*>(GetProperty(nsGkAtoms::keepobjectsalive));
   if (!objects) {
     objects = new nsCOMArray<nsISupports>();
-    SetProperty(nsGkAtoms::keepobjectsalive, objects, nsCOMArrayDeleter, true);
+    SetProperty(nsGkAtoms::keepobjectsalive, objects,
+                nsINode::DeleteProperty< nsCOMArray<nsISupports> >, true);
   }
   objects->AppendObject(aObject);
 }
@@ -2268,7 +2286,7 @@ nsINode::SizeOfExcludingThis(MallocSizeOf aMallocSizeOf) const
   }
 #define TOUCH_EVENT EVENT
 #define DOCUMENT_ONLY_EVENT EVENT
-#include "nsEventNameList.h"
+#include "mozilla/EventNameList.h"
 #undef DOCUMENT_ONLY_EVENT
 #undef TOUCH_EVENT
 #undef EVENT

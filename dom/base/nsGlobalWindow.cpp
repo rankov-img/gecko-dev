@@ -56,12 +56,15 @@
 #include "nsLayoutStatics.h"
 #include "nsCCUncollectableMarker.h"
 #include "mozilla/dom/workers/Workers.h"
+#include "mozilla/dom/MessagePortList.h"
 #include "nsJSPrincipals.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/Debug.h"
 #include "mozilla/EventListenerManager.h"
+#include "mozilla/EventStates.h"
 #include "mozilla/MouseEvents.h"
 #include "AudioChannelService.h"
+#include "MessageEvent.h"
 
 // Interfaces Needed
 #include "nsIFrame.h"
@@ -81,7 +84,6 @@
 #include "nsIDOMDocument.h"
 #include "nsIDOMElement.h"
 #include "nsIDOMEvent.h"
-#include "nsIDOMMessageEvent.h"
 #include "nsIDOMPopupBlockedEvent.h"
 #include "nsIDOMPopStateEvent.h"
 #include "nsIDOMHashChangeEvent.h"
@@ -131,10 +133,10 @@
 #endif
 #include "nsCDefaultURIFixup.h"
 #include "mozilla/EventDispatcher.h"
+#include "mozilla/EventStateManager.h"
 #include "nsIObserverService.h"
 #include "nsFocusManager.h"
 #include "nsIXULWindow.h"
-#include "nsEventStateManager.h"
 #include "nsITimedChannel.h"
 #include "nsServiceManagerUtils.h"
 #ifdef MOZ_XUL
@@ -204,7 +206,7 @@
 #include "nsLocation.h"
 #include "nsHTMLDocument.h"
 #include "nsWrapperCacheInlines.h"
-#include "nsDOMEventTargetHelper.h"
+#include "mozilla/DOMEventTargetHelper.h"
 #include "prrng.h"
 #include "nsSandboxFlags.h"
 #include "TimeChangeObserver.h"
@@ -216,6 +218,9 @@
 #include "nsITabChild.h"
 #include "mozilla/dom/MediaQueryList.h"
 #include "mozilla/dom/ScriptSettings.h"
+#ifdef HAVE_SIDEBAR
+#include "mozilla/dom/ExternalBinding.h"
+#endif
 
 #ifdef MOZ_WEBSPEECH
 #include "mozilla/dom/SpeechSynthesis.h"
@@ -1222,10 +1227,10 @@ nsGlobalWindow::Init()
 }
 
 static PLDHashOperator
-DisconnectEventTargetObjects(nsPtrHashKey<nsDOMEventTargetHelper>* aKey,
+DisconnectEventTargetObjects(nsPtrHashKey<DOMEventTargetHelper>* aKey,
                              void* aClosure)
 {
-  nsRefPtr<nsDOMEventTargetHelper> target = aKey->GetKey();
+  nsRefPtr<DOMEventTargetHelper> target = aKey->GetKey();
   target->DisconnectFromOwner();
   return PL_DHASH_NEXT;
 }
@@ -1333,13 +1338,13 @@ nsGlobalWindow::~nsGlobalWindow()
 }
 
 void
-nsGlobalWindow::AddEventTargetObject(nsDOMEventTargetHelper* aObject)
+nsGlobalWindow::AddEventTargetObject(DOMEventTargetHelper* aObject)
 {
   mEventTargetObjects.PutEntry(aObject);
 }
 
 void
-nsGlobalWindow::RemoveEventTargetObject(nsDOMEventTargetHelper* aObject)
+nsGlobalWindow::RemoveEventTargetObject(DOMEventTargetHelper* aObject)
 {
   mEventTargetObjects.RemoveEntry(aObject);
 }
@@ -1445,6 +1450,8 @@ nsGlobalWindow::CleanUp()
   mIndexedDB = nullptr;
 
   mConsole = nullptr;
+
+  mExternal = nullptr;
 
   mPerformance = nullptr;
 
@@ -1761,6 +1768,7 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INTERNAL(nsGlobalWindow)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mScrollbars)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mCrypto)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mConsole)
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mExternal)
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsGlobalWindow)
@@ -1819,6 +1827,7 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsGlobalWindow)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mScrollbars)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mCrypto)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mConsole)
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mExternal)
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 
 #ifdef DEBUG
@@ -2135,27 +2144,6 @@ WindowStateHolder::~WindowStateHolder()
 
 NS_IMPL_ISUPPORTS1(WindowStateHolder, WindowStateHolder)
 
-nsresult
-nsGlobalWindow::CreateOuterObject(nsGlobalWindow* aNewInner)
-{
-  AutoPushJSContext cx(mContext->GetNativeContext());
-
-  JS::Rooted<JSObject*> global(cx, aNewInner->FastGetGlobalJSObject());
-  JS::Rooted<JSObject*> outer(cx, NewOuterWindowProxy(cx, global, IsChromeWindow()));
-  if (!outer) {
-    return NS_ERROR_FAILURE;
-  }
-
-  js::SetProxyExtra(outer, 0, js::PrivateValue(ToSupports(this)));
-
-  JSAutoCompartment ac(cx, outer);
-
-  // Inform the nsJSContext, which is the canonical holder of the outer.
-  MOZ_ASSERT(IsOuterWindow());
-  mContext->SetWindowProxy(outer);
-  return NS_OK;
-}
-
 // We need certain special behavior for remote XUL whitelisted domains, but we
 // don't want that behavior to take effect in automation, because we whitelist
 // all the mochitest domains. So we need to check a pref here.
@@ -2462,7 +2450,14 @@ nsGlobalWindow::SetNewDocument(nsIDocument* aDocument,
     mInnerWindow = newInnerWindow;
 
     if (!mJSObject) {
-      CreateOuterObject(newInnerWindow);
+      JS::Rooted<JSObject*> global(cx, newInnerWindow->FastGetGlobalJSObject());
+      JS::Rooted<JSObject*> outer(cx, NewOuterWindowProxy(cx, global, thisChrome));
+      NS_ENSURE_TRUE(outer, NS_ERROR_FAILURE);
+
+      js::SetProxyExtra(outer, 0, js::PrivateValue(ToSupports(this)));
+
+      // Inform the nsJSContext, which is the canonical holder of the outer.
+      mContext->SetWindowProxy(outer);
       mContext->DidInitializeContext();
 
       mJSObject = mContext->GetWindowProxy();
@@ -2494,18 +2489,18 @@ nsGlobalWindow::SetNewDocument(nsIDocument* aDocument,
       {
         JSAutoCompartment ac(cx, mJSObject);
 
-        JS_SetParent(cx, mJSObject, newInnerWindow->mJSObject);
-
         JS::Rooted<JSObject*> obj(cx, mJSObject);
+        JS::Rooted<JSObject*> newParent(cx, newInnerWindow->mJSObject);
+        JS_SetParent(cx, obj, newParent);
 
         // Inform the nsJSContext, which is the canonical holder of the outer.
         mContext->SetWindowProxy(obj);
 
         NS_ASSERTION(!JS_IsExceptionPending(cx),
                      "We might overwrite a pending exception!");
-        XPCWrappedNativeScope* scope = xpc::GetObjectScope(mJSObject);
+        XPCWrappedNativeScope* scope = xpc::GetObjectScope(obj);
         if (scope->mWaiverWrapperMap) {
-          scope->mWaiverWrapperMap->Reparent(cx, newInnerWindow->mJSObject);
+          scope->mWaiverWrapperMap->Reparent(cx, newParent);
         }
       }
     }
@@ -2921,21 +2916,6 @@ nsGlobalWindow::UpdateParentTarget()
   }
 
   mParentTarget = eventTarget;
-}
-
-bool
-nsGlobalWindow::GetIsTabModalPromptAllowed()
-{
-  MOZ_ASSERT(IsOuterWindow());
-
-  bool allowTabModal = true;
-  if (mDocShell) {
-    nsCOMPtr<nsIContentViewer> cv;
-    mDocShell->GetContentViewer(getter_AddRefs(cv));
-    cv->GetIsTabModalPromptAllowed(&allowTabModal);
-  }
-
-  return allowTabModal;
 }
 
 EventTarget*
@@ -5685,7 +5665,7 @@ nsGlobalWindow::DispatchResizeEvent(const nsIntSize& aSize)
   detail.mWidth = aSize.width;
   detail.mHeight = aSize.height;
   JS::Rooted<JS::Value> detailValue(cx);
-  if (!detail.ToObject(cx, JS::NullPtr(), &detailValue)) {
+  if (!detail.ToObject(cx, &detailValue)) {
     return false;
   }
 
@@ -6172,10 +6152,6 @@ nsGlobalWindow::AlertOrConfirm(bool aAlert,
   nsAutoString final;
   nsContentUtils::StripNullChars(aMessage, final);
 
-  // Check if we're being called at a point where we can't use tab-modal
-  // prompts, because something doesn't want reentrancy.
-  bool allowTabModal = GetIsTabModalPromptAllowed();
-
   nsresult rv;
   nsCOMPtr<nsIPromptFactory> promptFac =
     do_GetService("@mozilla.org/prompter;1", &rv);
@@ -6191,9 +6167,10 @@ nsGlobalWindow::AlertOrConfirm(bool aAlert,
     return false;
   }
 
-  nsCOMPtr<nsIWritablePropertyBag2> promptBag = do_QueryInterface(prompt);
-  if (promptBag)
-    promptBag->SetPropertyAsBool(NS_LITERAL_STRING("allowTabModal"), allowTabModal);
+  // Always allow tab modal prompts for alert and confirm.
+  if (nsCOMPtr<nsIWritablePropertyBag2> promptBag = do_QueryInterface(prompt)) {
+    promptBag->SetPropertyAsBool(NS_LITERAL_STRING("allowTabModal"), true);
+  }
 
   bool result = false;
   nsAutoSyncOperation sync(mDoc);
@@ -6287,10 +6264,6 @@ nsGlobalWindow::Prompt(const nsAString& aMessage, const nsAString& aInitial,
   nsContentUtils::StripNullChars(aMessage, fixedMessage);
   nsContentUtils::StripNullChars(aInitial, fixedInitial);
 
-  // Check if we're being called at a point where we can't use tab-modal
-  // prompts, because something doesn't want reentrancy.
-  bool allowTabModal = GetIsTabModalPromptAllowed();
-
   nsresult rv;
   nsCOMPtr<nsIPromptFactory> promptFac =
     do_GetService("@mozilla.org/prompter;1", &rv);
@@ -6306,9 +6279,10 @@ nsGlobalWindow::Prompt(const nsAString& aMessage, const nsAString& aInitial,
     return;
   }
 
-  nsCOMPtr<nsIWritablePropertyBag2> promptBag = do_QueryInterface(prompt);
-  if (promptBag)
-    promptBag->SetPropertyAsBool(NS_LITERAL_STRING("allowTabModal"), allowTabModal);
+  // Always allow tab modal prompts for prompt.
+  if (nsCOMPtr<nsIWritablePropertyBag2> promptBag = do_QueryInterface(prompt)) {
+    promptBag->SetPropertyAsBool(NS_LITERAL_STRING("allowTabModal"), true);
+  }
 
   // Pass in the default value, if any.
   char16_t *inoutValue = ToNewUnicode(fixedInitial);
@@ -7672,6 +7646,7 @@ struct StructuredCloneInfo {
   PostMessageEvent* event;
   bool subsumes;
   nsPIDOMWindow* window;
+  nsRefPtrHashtable<nsRefPtrHashKey<MessagePortBase>, MessagePortBase> ports;
 };
 
 static JSObject*
@@ -7681,9 +7656,6 @@ PostMessageReadStructuredClone(JSContext* cx,
                                uint32_t data,
                                void* closure)
 {
-  StructuredCloneInfo* scInfo = static_cast<StructuredCloneInfo*>(closure);
-  NS_ASSERTION(scInfo, "Must have scInfo!");
-
   if (tag == SCTAG_DOM_BLOB || tag == SCTAG_DOM_FILELIST) {
     NS_ASSERTION(!data, "Data should be empty");
 
@@ -7695,22 +7667,6 @@ PostMessageReadStructuredClone(JSContext* cx,
         if (NS_SUCCEEDED(nsContentUtils::WrapNative(cx, global, supports,
                                                     &val))) {
           return val.toObjectOrNull();
-        }
-      }
-    }
-  }
-
-  if (MessageChannel::PrefEnabled() && tag == SCTAG_DOM_MESSAGEPORT) {
-    NS_ASSERTION(!data, "Data should be empty");
-
-    MessagePortBase* port;
-    if (JS_ReadBytes(reader, &port, sizeof(port))) {
-      JS::Rooted<JSObject*> global(cx, JS::CurrentGlobalOrNull(cx));
-      if (global) {
-        JS::Rooted<JSObject*> obj(cx, port->WrapObject(cx, global));
-        if (JS_WrapObject(cx, &obj)) {
-          port->BindToOwner(scInfo->window);
-          return obj;
         }
       }
     }
@@ -7756,22 +7712,6 @@ PostMessageWriteStructuredClone(JSContext* cx,
              scInfo->event->StoreISupports(supports);
   }
 
-  if (MessageChannel::PrefEnabled()) {
-    MessagePortBase* port = nullptr;
-    nsresult rv = UNWRAP_OBJECT(MessagePort, obj, port);
-    if (NS_SUCCEEDED(rv) && scInfo->subsumes) {
-      nsRefPtr<MessagePortBase> newPort = port->Clone();
-
-      if (!newPort) {
-        return false;
-      }
-
-      return JS_WriteUint32Pair(writer, SCTAG_DOM_MESSAGEPORT, 0) &&
-             JS_WriteBytes(writer, &newPort, sizeof(newPort)) &&
-             scInfo->event->StoreISupports(newPort);
-    }
-  }
-
   const JSStructuredCloneCallbacks* runtimeCallbacks =
     js::GetContextStructuredCloneCallbacks(cx);
 
@@ -7782,13 +7722,107 @@ PostMessageWriteStructuredClone(JSContext* cx,
   return false;
 }
 
+static bool
+PostMessageReadTransferStructuredClone(JSContext* aCx,
+                                       JSStructuredCloneReader* reader,
+                                       uint32_t tag, void* aData,
+                                       uint64_t aExtraData,
+                                       void* aClosure,
+                                       JS::MutableHandle<JSObject*> returnObject)
+{
+  StructuredCloneInfo* scInfo = static_cast<StructuredCloneInfo*>(aClosure);
+  NS_ASSERTION(scInfo, "Must have scInfo!");
+
+  if (MessageChannel::PrefEnabled() && tag == SCTAG_DOM_MAP_MESSAGEPORT) {
+    MessagePort* port = static_cast<MessagePort*>(aData);
+    port->BindToOwner(scInfo->window);
+    scInfo->ports.Put(port, nullptr);
+
+    JS::Rooted<JSObject*> global(aCx, JS::CurrentGlobalOrNull(aCx));
+    if (global) {
+      JS::Rooted<JSObject*> obj(aCx, port->WrapObject(aCx, global));
+      if (JS_WrapObject(aCx, &obj)) {
+        MOZ_ASSERT(port->GetOwner() == scInfo->window);
+        returnObject.set(obj);
+      }
+    }
+
+    return true;
+  }
+
+  return false;
+}
+
+static bool
+PostMessageTransferStructuredClone(JSContext* aCx,
+                                   JS::Handle<JSObject*> aObj,
+                                   void* aClosure,
+                                   uint32_t* aTag,
+                                   JS::TransferableOwnership* aOwnership,
+                                   void** aContent,
+                                   uint64_t* aExtraData)
+{
+  StructuredCloneInfo* scInfo = static_cast<StructuredCloneInfo*>(aClosure);
+  NS_ASSERTION(scInfo, "Must have scInfo!");
+
+  if (MessageChannel::PrefEnabled()) {
+    MessagePortBase* port = nullptr;
+    nsresult rv = UNWRAP_OBJECT(MessagePort, aObj, port);
+    if (NS_SUCCEEDED(rv)) {
+      nsRefPtr<MessagePortBase> newPort;
+      if (scInfo->ports.Get(port, getter_AddRefs(newPort))) {
+        // No duplicate.
+        return false;
+      }
+
+      newPort = port->Clone();
+      scInfo->ports.Put(port, newPort);
+
+      *aTag = SCTAG_DOM_MAP_MESSAGEPORT;
+      *aOwnership = JS::SCTAG_TMO_CUSTOM;
+      *aContent = newPort;
+      *aExtraData = 0;
+
+      return true;
+    }
+  }
+
+  return false;
+}
+
+void
+PostMessageFreeTransferStructuredClone(uint32_t aTag, JS::TransferableOwnership aOwnership,
+                                       void *aContent, uint64_t aExtraData, void* aClosure)
+{
+  StructuredCloneInfo* scInfo = static_cast<StructuredCloneInfo*>(aClosure);
+  NS_ASSERTION(scInfo, "Must have scInfo!");
+
+  if (MessageChannel::PrefEnabled() && aTag == SCTAG_DOM_MAP_MESSAGEPORT) {
+    nsRefPtr<MessagePortBase> port(static_cast<MessagePort*>(aContent));
+    scInfo->ports.Remove(port);
+  }
+}
+
 JSStructuredCloneCallbacks kPostMessageCallbacks = {
   PostMessageReadStructuredClone,
   PostMessageWriteStructuredClone,
-  nullptr
+  nullptr,
+  PostMessageReadTransferStructuredClone,
+  PostMessageTransferStructuredClone,
+  PostMessageFreeTransferStructuredClone
 };
 
 } // anonymous namespace
+
+static PLDHashOperator
+PopulateMessagePortList(MessagePortBase* aKey, MessagePortBase* aValue, void* aClosure)
+{
+  nsTArray<nsRefPtr<MessagePortBase> > *array =
+    static_cast<nsTArray<nsRefPtr<MessagePortBase> > *>(aClosure);
+
+  array->AppendElement(aKey);
+  return PL_DHASH_NEXT;
+}
 
 NS_IMETHODIMP
 PostMessageEvent::Run()
@@ -7844,38 +7878,27 @@ PostMessageEvent::Run()
 
   // Deserialize the structured clone data
   JS::Rooted<JS::Value> messageData(cx);
-  {
-    StructuredCloneInfo scInfo;
-    scInfo.event = this;
-    scInfo.window = targetWindow;
+  StructuredCloneInfo scInfo;
+  scInfo.event = this;
+  scInfo.window = targetWindow;
 
-    if (!mBuffer.read(cx, &messageData, &kPostMessageCallbacks, &scInfo)) {
-      return NS_ERROR_DOM_DATA_CLONE_ERR;
-    }
+  if (!mBuffer.read(cx, &messageData, &kPostMessageCallbacks, &scInfo)) {
+    return NS_ERROR_DOM_DATA_CLONE_ERR;
   }
 
   // Create the event
-  nsIDocument* doc = targetWindow->mDoc;
-  if (!doc)
-    return NS_OK;
+  nsCOMPtr<mozilla::dom::EventTarget> eventTarget =
+    do_QueryInterface(static_cast<nsPIDOMWindow*>(targetWindow.get()));
+  nsRefPtr<MessageEvent> event =
+    new MessageEvent(eventTarget, nullptr, nullptr);
 
-  nsCOMPtr<nsIDOMDocument> domDoc = do_QueryInterface(doc);
-  nsCOMPtr<nsIDOMEvent> event;
-  domDoc->CreateEvent(NS_LITERAL_STRING("MessageEvent"), getter_AddRefs(event));
-  if (!event)
-    return NS_OK;
+  event->InitMessageEvent(NS_LITERAL_STRING("message"), false /*non-bubbling */,
+                          false /*cancelable */, messageData, mCallerOrigin,
+                          EmptyString(), mSource);
 
-  nsCOMPtr<nsIDOMMessageEvent> message = do_QueryInterface(event);
-  nsresult rv = message->InitMessageEvent(NS_LITERAL_STRING("message"),
-                                          false /* non-bubbling */,
-                                          true /* cancelable */,
-                                          messageData,
-                                          mCallerOrigin,
-                                          EmptyString(),
-                                          mSource);
-  if (NS_FAILED(rv))
-    return NS_OK;
-
+  nsTArray<nsRefPtr<MessagePortBase> > ports;
+  scInfo.ports.EnumerateRead(PopulateMessagePortList, &ports);
+  event->SetPorts(new MessagePortList(static_cast<dom::Event*>(event.get()), ports));
 
   // We can't simply call dispatchEvent on the window because doing so ends
   // up flipping the trusted bit on the event, and we don't want that to
@@ -7887,14 +7910,14 @@ PostMessageEvent::Run()
   if (shell)
     presContext = shell->GetPresContext();
 
-  message->SetTrusted(mTrustedCaller);
-  WidgetEvent* internalEvent = message->GetInternalNSEvent();
+  event->SetTrusted(mTrustedCaller);
+  WidgetEvent* internalEvent = event->GetInternalNSEvent();
 
   nsEventStatus status = nsEventStatus_eIgnore;
   EventDispatcher::Dispatch(static_cast<nsPIDOMWindow*>(mTargetWindow),
                             presContext,
                             internalEvent,
-                            message,
+                            static_cast<dom::Event*>(event.get()),
                             &status);
   return NS_OK;
 }
@@ -8347,14 +8370,15 @@ nsGlobalWindow::EnterModalState()
 
   // If there is an active ESM in this window, clear it. Otherwise, this can
   // cause a problem if a modal state is entered during a mouseup event.
-  nsEventStateManager* activeESM =
-    static_cast<nsEventStateManager*>(nsEventStateManager::GetActiveEventStateManager());
+  EventStateManager* activeESM =
+    static_cast<EventStateManager*>(
+      EventStateManager::GetActiveEventStateManager());
   if (activeESM && activeESM->GetPresContext()) {
     nsIPresShell* activeShell = activeESM->GetPresContext()->GetPresShell();
     if (activeShell && (
         nsContentUtils::ContentIsCrossDocDescendantOf(activeShell->GetDocument(), mDoc) ||
         nsContentUtils::ContentIsCrossDocDescendantOf(mDoc, activeShell->GetDocument()))) {
-      nsEventStateManager::ClearGlobalActiveContent(activeESM);
+      EventStateManager::ClearGlobalActiveContent(activeESM);
 
       activeShell->SetCapturingContent(nullptr, 0);
 
@@ -11860,9 +11884,8 @@ nsGlobalWindow::RunTimeoutHandler(nsTimeout* aTimeout,
     options.setFileAndLine(filename, lineNo)
            .setVersion(JSVERSION_DEFAULT);
     JS::Rooted<JSObject*> global(entryScript.cx(), FastGetGlobalJSObject());
-    nsJSUtils::EvaluateOptions evalOptions;
     nsJSUtils::EvaluateString(entryScript.cx(), nsDependentString(script),
-                              global, options, evalOptions, nullptr);
+                              global, options);
   } else {
     // Hold strong ref to ourselves while we call the callback.
     nsCOMPtr<nsISupports> me(static_cast<nsIDOMWindow *>(this));
@@ -12862,12 +12885,12 @@ nsGlobalWindow::DisableTimeChangeNotifications()
 
 static PLDHashOperator
 CollectSizeAndListenerCount(
-  nsPtrHashKey<nsDOMEventTargetHelper> *aEntry,
+  nsPtrHashKey<DOMEventTargetHelper>* aEntry,
   void *arg)
 {
   nsWindowSizes* windowSizes = static_cast<nsWindowSizes*>(arg);
 
-  nsDOMEventTargetHelper* et = aEntry->GetKey();
+  DOMEventTargetHelper* et = aEntry->GetKey();
 
   if (nsCOMPtr<nsISizeOfEventTarget> iSizeOf = do_QueryObject(et)) {
     windowSizes->mDOMEventTargetsSize +=
@@ -12910,7 +12933,7 @@ nsGlobalWindow::AddSizeOfIncludingThis(nsWindowSizes* aWindowSizes) const
     mEventTargetObjects.SizeOfExcludingThis(nullptr,
                                             aWindowSizes->mMallocSizeOf);
   aWindowSizes->mDOMEventTargetsCount +=
-    const_cast<nsTHashtable<nsPtrHashKey<nsDOMEventTargetHelper> >*>
+    const_cast<nsTHashtable<nsPtrHashKey<DOMEventTargetHelper> >*>
       (&mEventTargetObjects)->EnumerateEntries(CollectSizeAndListenerCount,
                                                aWindowSizes);
 }
@@ -13448,16 +13471,6 @@ nsGlobalModalWindow::SetReturnValue(nsIVariant *aRetVal)
   return NS_OK;
 }
 
-void
-nsGlobalWindow::SetHasAudioAvailableEventListeners()
-{
-  MOZ_ASSERT(IsInnerWindow());
-
-  if (mDoc) {
-    mDoc->NotifyAudioAvailableListener();
-  }
-}
-
 NS_IMETHODIMP
 nsGlobalWindow::GetConsole(JSContext* aCx,
                            JS::MutableHandle<JS::Value> aConsole)
@@ -13509,6 +13522,54 @@ nsGlobalWindow::GetConsole(ErrorResult& aRv)
   }
 
   return mConsole;
+}
+
+already_AddRefed<External>
+nsGlobalWindow::GetExternal(ErrorResult& aRv)
+{
+  FORWARD_TO_INNER_OR_THROW(GetExternal, (aRv), aRv, nullptr);
+
+#ifdef HAVE_SIDEBAR
+  if (!mExternal) {
+    AutoJSContext cx;
+    JS::Rooted<JSObject*> jsImplObj(cx);
+    ConstructJSImplementation(cx, "@mozilla.org/sidebar;1",
+                              this, &jsImplObj, aRv);
+    if (aRv.Failed()) {
+      return nullptr;
+    }
+    mExternal = new External(jsImplObj, this);
+  }
+
+  nsRefPtr<External> external = static_cast<External*>(mExternal.get());
+  return external.forget();
+#else
+  aRv.Throw(NS_ERROR_NOT_IMPLEMENTED);
+  return nullptr;
+#endif
+}
+
+void
+nsGlobalWindow::GetSidebar(OwningExternalOrWindowProxy& aResult,
+                           ErrorResult& aRv)
+{
+  FORWARD_TO_INNER_OR_THROW(GetSidebar, (aResult, aRv), aRv, );
+
+#ifdef HAVE_SIDEBAR
+  // First check for a named frame named "sidebar"
+  nsCOMPtr<nsIDOMWindow> domWindow = GetChildWindow(NS_LITERAL_STRING("sidebar"));
+  if (domWindow) {
+    aResult.SetAsWindowProxy() = domWindow.forget();
+    return;
+  }
+
+  nsRefPtr<External> external = GetExternal(aRv);
+  if (external) {
+    aResult.SetAsExternal() = external;
+  }
+#else
+  aRv.Throw(NS_ERROR_NOT_IMPLEMENTED);
+#endif
 }
 
 #ifdef MOZ_B2G
@@ -13662,7 +13723,7 @@ nsGlobalWindow::DisableNetworkEvent(uint32_t aType)
   }
 #define WINDOW_ONLY_EVENT EVENT
 #define TOUCH_EVENT EVENT
-#include "nsEventNameList.h"
+#include "mozilla/EventNameList.h"
 #undef TOUCH_EVENT
 #undef WINDOW_ONLY_EVENT
 #undef BEFOREUNLOAD_EVENT

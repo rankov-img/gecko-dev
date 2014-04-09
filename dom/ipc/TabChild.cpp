@@ -244,6 +244,8 @@ TabChildBase::HandlePossibleViewportChange()
   metrics.mCompositionBounds = ParentLayerIntRect(
       ParentLayerIntPoint(),
       ViewAs<ParentLayerPixel>(mInnerSize, PixelCastJustification::ScreenToParentLayerForRoot));
+  metrics.SetRootCompositionSize(
+      ScreenSize(mInnerSize) * ScreenToLayoutDeviceScale(1.0f) / metrics.mDevPixelsPerCSSPixel);
 
   // This change to the zoom accounts for all types of changes I can conceive:
   // 1. screen size changes, CSS viewport does not (pages with no meta viewport
@@ -286,7 +288,7 @@ TabChildBase::HandlePossibleViewportChange()
   metrics.mResolution = metrics.mCumulativeResolution / LayoutDeviceToParentLayerScale(1);
   utils->SetResolution(metrics.mResolution.scale, metrics.mResolution.scale);
 
-  CSSSize scrollPort = CSSSize(metrics.CalculateCompositedRectInCssPixels().Size());
+  CSSSize scrollPort = metrics.CalculateCompositedSizeInCssPixels();
   utils->SetScrollPositionClampingScrollPortSize(scrollPort.width, scrollPort.height);
 
   // The call to GetPageSize forces a resize event to content, so we need to
@@ -302,11 +304,12 @@ TabChildBase::HandlePossibleViewportChange()
 
   // Calculate a display port _after_ having a scrollable rect because the
   // display port is clamped to the scrollable rect.
-  metrics.mDisplayPort = AsyncPanZoomController::CalculatePendingDisplayPort(
+  metrics.SetDisplayPortMargins(AsyncPanZoomController::CalculatePendingDisplayPort(
     // The page must have been refreshed in some way such as a new document or
     // new CSS viewport, so we know that there's no velocity, acceleration, and
     // we have no idea how long painting will take.
-    metrics, ScreenPoint(0.0f, 0.0f), 0.0);
+    metrics, ScreenPoint(0.0f, 0.0f), 0.0));
+  metrics.SetUseDisplayPortMargins();
 
   // Force a repaint with these metrics. This, among other things, sets the
   // displayport, so we start with async painting.
@@ -421,7 +424,7 @@ TabChildBase::ProcessUpdateFrame(const FrameMetrics& aFrameMetrics)
     FrameMetrics newMetrics = aFrameMetrics;
     APZCCallbackHelper::UpdateRootFrame(utils, newMetrics);
 
-    CSSRect cssCompositedRect = CSSRect(newMetrics.CalculateCompositedRectInCssPixels());
+    CSSSize cssCompositedSize = newMetrics.CalculateCompositedSizeInCssPixels();
     // The BrowserElementScrolling helper must know about these updated metrics
     // for other functions it performs, such as double tap handling.
     // Note, %f must not be used because it is locale specific!
@@ -450,9 +453,9 @@ TabChildBase::ProcessUpdateFrame(const FrameMetrics& aFrameMetrics)
         data.AppendPrintf(" }");
     data.AppendLiteral(", \"cssCompositedRect\" : ");
         data.AppendLiteral("{ \"width\" : ");
-        data.AppendFloat(cssCompositedRect.width);
+        data.AppendFloat(cssCompositedSize.width);
         data.AppendLiteral(", \"height\" : ");
-        data.AppendFloat(cssCompositedRect.height);
+        data.AppendFloat(cssCompositedSize.height);
         data.AppendLiteral(" }");
     data.AppendLiteral(" }");
 
@@ -963,7 +966,7 @@ NS_INTERFACE_MAP_BEGIN(TabChild)
   NS_INTERFACE_MAP_ENTRY(nsIWebProgressListener)
   NS_INTERFACE_MAP_ENTRY(nsITabChild)
   NS_INTERFACE_MAP_ENTRY(nsIObserver)
-  NS_INTERFACE_MAP_ENTRY(nsSupportsWeakReference)
+  NS_INTERFACE_MAP_ENTRY(nsISupportsWeakReference)
   NS_INTERFACE_MAP_ENTRY(nsITooltipListener)
 NS_INTERFACE_MAP_END
 
@@ -1344,7 +1347,7 @@ TabChild::SetProcessNameToAppName()
     return;
   }
 
-  ContentChild::GetSingleton()->SetProcessName(appName);
+  ContentChild::GetSingleton()->SetProcessName(appName, true);
 }
 
 bool
@@ -1700,11 +1703,9 @@ bool
 TabChild::RecvNotifyTransformBegin(const ViewID& aViewId)
 {
   nsIScrollableFrame* sf = nsLayoutUtils::FindScrollableFrameFor(aViewId);
-  if (sf) {
-    nsIScrollbarOwner* scrollbarOwner = do_QueryFrame(sf);
-    if (scrollbarOwner) {
-      scrollbarOwner->ScrollbarActivityStarted();
-    }
+  nsIScrollbarOwner* scrollbarOwner = do_QueryFrame(sf);
+  if (scrollbarOwner) {
+    scrollbarOwner->ScrollbarActivityStarted();
   }
   return true;
 }
@@ -1713,11 +1714,9 @@ bool
 TabChild::RecvNotifyTransformEnd(const ViewID& aViewId)
 {
   nsIScrollableFrame* sf = nsLayoutUtils::FindScrollableFrameFor(aViewId);
-  if (sf) {
-    nsIScrollbarOwner* scrollbarOwner = do_QueryFrame(sf);
-    if (scrollbarOwner) {
-      scrollbarOwner->ScrollbarActivityStopped();
-    }
+  nsIScrollbarOwner* scrollbarOwner = do_QueryFrame(sf);
+  if (scrollbarOwner) {
+    scrollbarOwner->ScrollbarActivityStopped();
   }
   return true;
 }
@@ -2613,7 +2612,7 @@ TabChildGlobal::Init()
                                               MM_CHILD);
 }
 
-NS_IMPL_CYCLE_COLLECTION_INHERITED_1(TabChildGlobal, nsDOMEventTargetHelper,
+NS_IMPL_CYCLE_COLLECTION_INHERITED_1(TabChildGlobal, DOMEventTargetHelper,
                                      mMessageManager)
 
 NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION_INHERITED(TabChildGlobal)
@@ -2624,10 +2623,10 @@ NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION_INHERITED(TabChildGlobal)
   NS_INTERFACE_MAP_ENTRY(nsIScriptObjectPrincipal)
   NS_INTERFACE_MAP_ENTRY(nsIGlobalObject)
   NS_DOM_INTERFACE_MAP_ENTRY_CLASSINFO(ContentFrameMessageManager)
-NS_INTERFACE_MAP_END_INHERITING(nsDOMEventTargetHelper)
+NS_INTERFACE_MAP_END_INHERITING(DOMEventTargetHelper)
 
-NS_IMPL_ADDREF_INHERITED(TabChildGlobal, nsDOMEventTargetHelper)
-NS_IMPL_RELEASE_INHERITED(TabChildGlobal, nsDOMEventTargetHelper)
+NS_IMPL_ADDREF_INHERITED(TabChildGlobal, DOMEventTargetHelper)
+NS_IMPL_RELEASE_INHERITED(TabChildGlobal, DOMEventTargetHelper)
 
 /* [notxpcom] boolean markForCC (); */
 // This method isn't automatically forwarded safely because it's notxpcom, so

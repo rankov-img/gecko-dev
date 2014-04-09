@@ -105,7 +105,6 @@ PerThreadData::init()
 
 static const JSWrapObjectCallbacks DefaultWrapObjectCallbacks = {
     TransparentObjectWrapper,
-    nullptr,
     nullptr
 };
 
@@ -319,7 +318,7 @@ JSRuntime::JSRuntime(JSRuntime *parentRuntime, JSUseHelperThreads useHelperThrea
     PodZero(&asmJSCacheOps);
 
 #if JS_STACK_GROWTH_DIRECTION > 0
-    nativeStackLimit = UINTPTR_MAX;
+    mainThread.nativeStackLimit = UINTPTR_MAX;
 #endif
 }
 
@@ -630,6 +629,7 @@ JSRuntime::addSizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf, JS::Runtim
 #ifdef JSGC_GENERATIONAL
     rtSizes->gc.nurseryCommitted += gcNursery.sizeOfHeapCommitted();
     rtSizes->gc.nurseryDecommitted += gcNursery.sizeOfHeapDecommitted();
+    rtSizes->gc.nurseryHugeSlots += gcNursery.sizeOfHugeSlots(mallocSizeOf);
     gcStoreBuffer.addSizeOfExcludingThis(mallocSizeOf, &rtSizes->gc);
 #endif
 }

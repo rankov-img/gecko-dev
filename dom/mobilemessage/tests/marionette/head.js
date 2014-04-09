@@ -104,26 +104,42 @@ function sendSmsWithSuccess(aReceiver, aText) {
  * otherwise.
  *
  * Fulfill params:
- *   message -- the failed MmsMessage
+ *   {
+ *     message,  -- the failed MmsMessage
+ *     error,    -- error of the send request
+ *   }
  *
  * Reject params: (none)
  *
  * @param aMmsParameters a MmsParameters instance.
  *
+ * @param aSendParameters a MmsSendParameters instance.
+ *
  * @return A deferred promise.
  */
-function sendMmsWithFailure(aMmsParameters) {
+function sendMmsWithFailure(aMmsParameters, aSendParameters) {
   let deferred = Promise.defer();
 
-  manager.onfailed = function(event) {
-    manager.onfailed = null;
-    deferred.resolve(event.message);
-  };
+  let result = { message: null, error: null };
+  function got(which, value) {
+    result[which] = value;
+    if (result.message != null && result.error != null) {
+      deferred.resolve(result);
+    }
+  }
 
-  let request = manager.sendMMS(aMmsParameters);
+  manager.addEventListener("failed", function onfailed(event) {
+    manager.removeEventListener("failed", onfailed);
+    got("message", event.message);
+  });
+
+  let request = manager.sendMMS(aMmsParameters, aSendParameters);
   request.onsuccess = function(event) {
     deferred.reject();
   };
+  request.onerror = function(event) {
+    got("error", event.target.error);
+  }
 
   return deferred.promise;
 }
@@ -373,6 +389,33 @@ function sendRawSmsToEmulator(aPdu) {
 }
 
 /**
+ * Send multiple raw SMS TPDU to emulator and wait
+ *
+ * @param: aPdus
+ *         A array of hex strings. Each represents a SMS T-PDU.
+ *
+ * Fulfill params:
+ *   result -- array of resolved Promise, where
+ *             result[0].message representing the received message.
+ *             result[1-n] represents the response of sent emulator command.
+ *
+ * Reject params:
+ *   result -- an array of emulator response lines.
+ *
+ * @return A deferred promise.
+ */
+function sendMultipleRawSmsToEmulatorAndWait(aPdus) {
+  let promises = [];
+
+  promises.push(waitForManagerEvent("received"));
+  for (let pdu of aPdus) {
+    promises.push(sendRawSmsToEmulator(pdu));
+  }
+
+  return Promise.all(promises);
+}
+
+/**
  * Create a new array of id attribute of input messages.
  *
  * @param aMessages an array of {Sms,Mms}Message instances.
@@ -436,4 +479,27 @@ function startTestCommon(aTestCaseMain) {
       .then(aTestCaseMain)
       .then(deleteAllMessages);
   });
+}
+
+/**
+ * Helper to run the test case only needed in Multi-SIM environment.
+ *
+ * @param  aTest
+ *         A function which will be invoked w/o parameter.
+ * @return a Promise object.
+ */
+function runIfMultiSIM(aTest) {
+  let numRIL;
+  try {
+    numRIL = SpecialPowers.getIntPref("ril.numRadioInterfaces");
+  } catch (ex) {
+    numRIL = 1;  // Pref not set.
+  }
+
+  if (numRIL > 1) {
+    return aTest();
+  } else {
+    log("Not a Multi-SIM environment. Test is skipped.");
+    return Promise.resolve();
+  }
 }

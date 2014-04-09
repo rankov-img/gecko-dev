@@ -16,6 +16,7 @@ import org.mozilla.gecko.background.fxa.FxAccountClient20.LoginResponse;
 import org.mozilla.gecko.background.fxa.FxAccountClientException.FxAccountClientRemoteException;
 import org.mozilla.gecko.background.fxa.FxAccountUtils;
 import org.mozilla.gecko.background.fxa.PasswordStretcher;
+import org.mozilla.gecko.fxa.FirefoxAccounts;
 import org.mozilla.gecko.fxa.FxAccountConstants;
 import org.mozilla.gecko.fxa.activities.FxAccountSetupTask.FxAccountSignInTask;
 import org.mozilla.gecko.fxa.authenticator.AndroidFxAccount;
@@ -115,7 +116,14 @@ public class FxAccountUpdateCredentialsActivity extends FxAccountAbstractSetupAc
 
     @Override
     public void handleFailure(FxAccountClientRemoteException e) {
-      // TODO On isUpgradeRequired, transition to Doghouse state.
+      if (e.isUpgradeRequired()) {
+        Logger.error(LOG_TAG, "Got upgrade required from remote server; transitioning Firefox Account to Doghouse state.");
+        final State state = fxAccount.getState();
+        fxAccount.setState(state.makeDoghouseState());
+        // The status activity will say that the user needs to upgrade.
+        redirectToActivity(FxAccountStatusActivity.class);
+        return;
+      }
       showRemoteError(e, R.string.fxaccount_update_credentials_unknown_error);
     }
 
@@ -142,6 +150,7 @@ public class FxAccountUpdateCredentialsActivity extends FxAccountAbstractSetupAc
         return;
       }
       fxAccount.setState(new Engaged(email, result.uid, result.verified, unwrapkB, result.sessionToken, result.keyFetchToken));
+      fxAccount.requestSync(FirefoxAccounts.FORCE);
 
       // For great debugging.
       if (FxAccountConstants.LOG_PERSONAL_INFORMATION) {

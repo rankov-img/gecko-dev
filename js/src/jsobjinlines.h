@@ -351,25 +351,6 @@ JSObject::getDenseOrTypedArrayElement(uint32_t idx)
     return getDenseElement(idx);
 }
 
-inline bool
-JSObject::setDenseOrTypedArrayElementIfHasType(js::ThreadSafeContext *cx, uint32_t index,
-                                               const js::Value &val)
-{
-    if (is<js::TypedArrayObject>())
-        return as<js::TypedArrayObject>().setElement(cx, index, val);
-    return setDenseElementIfHasType(index, val);
-}
-
-inline bool
-JSObject::setDenseOrTypedArrayElementWithType(js::ExclusiveContext *cx, uint32_t index,
-                                              const js::Value &val)
-{
-    if (is<js::TypedArrayObject>())
-        return as<js::TypedArrayObject>().setElement(cx, index, val);
-    setDenseElementWithType(cx, index, val);
-    return true;
-}
-
 /* static */ inline bool
 JSObject::setSingletonType(js::ExclusiveContext *cx, js::HandleObject obj)
 {
@@ -452,7 +433,16 @@ JSObject::setProto(JSContext *cx, JS::HandleObject obj, JS::HandleObject proto, 
     }
 
     /*
-     * Explicityly disallow mutating the [[Prototype]] of Location objects
+     * Disallow mutating the [[Prototype]] on Typed Objects, per the spec.
+     */
+    if (obj->is<js::TypedObject>()) {
+        JS_ReportErrorNumber(cx, js_GetErrorMessage, nullptr, JSMSG_SETPROTOTYPEOF_FAIL,
+                             "incompatible TypedObject");
+        return false;
+    }
+
+    /*
+     * Explicitly disallow mutating the [[Prototype]] of Location objects
      * for flash-related security reasons.
      */
     if (!strcmp(obj->getClass()->name, "Location")) {
@@ -485,7 +475,8 @@ JSObject::setProto(JSContext *cx, JS::HandleObject obj, JS::HandleObject proto, 
     return SetClassAndProto(cx, obj, obj->getClass(), proto, succeeded);
 }
 
-inline bool JSObject::isVarObj()
+inline bool
+JSObject::isVarObj()
 {
     if (is<js::DebugScopeObject>())
         return as<js::DebugScopeObject>().scope().isVarObj();
@@ -505,7 +496,7 @@ JSObject::create(js::ExclusiveContext *cx, js::gc::AllocKind kind, js::gc::Initi
     JS_ASSERT(shape && type);
     JS_ASSERT(type->clasp() == shape->getObjectClass());
     JS_ASSERT(type->clasp() != &js::ArrayObject::class_);
-    JS_ASSERT_IF(type->clasp() != &js::ArrayBufferObject::class_,
+    JS_ASSERT_IF(!ClassCanHaveFixedData(type->clasp()),
                  js::gc::GetGCKindSlots(kind, type->clasp()) == shape->numFixedSlots());
     JS_ASSERT_IF(type->clasp()->flags & JSCLASS_BACKGROUND_FINALIZE, IsBackgroundFinalized(kind));
     JS_ASSERT_IF(type->clasp()->finalize, heap == js::gc::TenuredHeap);
@@ -659,6 +650,12 @@ JSObject::global() const
     return *compartment()->maybeGlobal();
 }
 
+inline bool
+JSObject::isOwnGlobal() const
+{
+    return &global() == this;
+}
+
 namespace js {
 
 PropDesc::PropDesc(const Value &getter, const Value &setter,
@@ -795,7 +792,7 @@ class AutoPropDescArrayRooter : private AutoGCRooter
 {
   public:
     AutoPropDescArrayRooter(JSContext *cx)
-      : AutoGCRooter(cx, DESCRIPTORS), descriptors(cx), skip(cx, &descriptors)
+      : AutoGCRooter(cx, DESCRIPTORS), descriptors(cx)
     { }
 
     PropDesc *append() {
@@ -817,7 +814,6 @@ class AutoPropDescArrayRooter : private AutoGCRooter
 
   private:
     PropDescArray descriptors;
-    SkipRoot skip;
 };
 
 /*

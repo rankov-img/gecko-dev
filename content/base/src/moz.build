@@ -213,7 +213,6 @@ LOCAL_INCLUDES += [
     '/content/xul/document/src',
     '/docshell/base',
     '/dom/base',
-    '/dom/events',
     '/dom/ipc',
     '/dom/workers',
     '/dom/xbl',
@@ -229,3 +228,7 @@ LOCAL_INCLUDES += [
     '/layout/xul',
     '/netwerk/base/src',
 ]
+
+if CONFIG['GNU_CC'] and CONFIG['MOZ_WIDGET_TOOLKIT'] == 'android':
+    # Work around bug 986928
+    CXXFLAGS += ['-Wno-error=format']

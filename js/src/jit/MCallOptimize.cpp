@@ -7,6 +7,7 @@
 #include "jsmath.h"
 
 #include "builtin/TestingFunctions.h"
+#include "builtin/TypedObject.h"
 #include "jit/BaselineInspector.h"
 #include "jit/IonBuilder.h"
 #include "jit/Lowering.h"
@@ -177,6 +178,8 @@ IonBuilder::inlineNativeCall(CallInfo &callInfo, JSNative native)
         return inlineHasClass(callInfo, &SizedArrayTypeDescr::class_);
     if (native == intrinsic_TypeDescrIsUnsizedArrayType)
         return inlineHasClass(callInfo, &UnsizedArrayTypeDescr::class_);
+    if (native == intrinsic_SetTypedObjectOffset)
+        return inlineSetTypedObjectOffset(callInfo);
 
     // Testing Functions
     if (native == testingFunc_inParallelSection)
@@ -270,6 +273,12 @@ IonBuilder::inlineArray(CallInfo &callInfo)
         // Negative lengths generate a RangeError, unhandled by the inline path.
         initLength = arg->toConstant()->value().toInt32();
         if (initLength >= JSObject::NELEMENTS_LIMIT)
+            return InliningStatus_NotInlined;
+
+        // Make sure initLength matches the template object's length. This is
+        // not guaranteed to be the case, for instance if we're inlining the
+        // MConstant may come from an outer script.
+        if (initLength != templateObject->as<ArrayObject>().length())
             return InliningStatus_NotInlined;
 
         if (initLength <= ArrayObject::EagerAllocationMaxLength)
@@ -1640,6 +1649,48 @@ IonBuilder::inlineObjectIsTypeDescr(CallInfo &callInfo)
     pushConstant(BooleanValue(result));
 
     callInfo.setImplicitlyUsedUnchecked();
+    return InliningStatus_Inlined;
+}
+
+IonBuilder::InliningStatus
+IonBuilder::inlineSetTypedObjectOffset(CallInfo &callInfo)
+{
+    if (callInfo.argc() != 2 || callInfo.constructing())
+        return InliningStatus_NotInlined;
+
+    MDefinition *typedObj = callInfo.getArg(0);
+    MDefinition *offset = callInfo.getArg(1);
+
+    // Return type should be undefined or something wacky is going on.
+    if (getInlineReturnType() != MIRType_Undefined)
+        return InliningStatus_NotInlined;
+
+    // Check typedObj is a, well, typed object. Go ahead and use TI
+    // data. If this check should fail, that is almost certainly a bug
+    // in self-hosted code -- either because it's not being careful
+    // with TI or because of something else -- but we'll just let it
+    // fall through to the SetTypedObjectOffset intrinsic in such
+    // cases.
+    types::TemporaryTypeSet *types = typedObj->resultTypeSet();
+    if (typedObj->type() != MIRType_Object || !types)
+        return InliningStatus_NotInlined;
+    switch (types->forAllClasses(IsTypedObjectClass)) {
+      case types::TemporaryTypeSet::ForAllResult::ALL_FALSE:
+      case types::TemporaryTypeSet::ForAllResult::EMPTY:
+      case types::TemporaryTypeSet::ForAllResult::MIXED:
+        return InliningStatus_NotInlined;
+      case types::TemporaryTypeSet::ForAllResult::ALL_TRUE:
+        break;
+    }
+
+    // Check type of offset argument is an integer.
+    if (offset->type() != MIRType_Int32)
+        return InliningStatus_NotInlined;
+
+    callInfo.setImplicitlyUsedUnchecked();
+    MInstruction *ins = MSetTypedObjectOffset::New(alloc(), typedObj, offset);
+    current->add(ins);
+    current->push(ins);
     return InliningStatus_Inlined;
 }
 

@@ -685,7 +685,9 @@ const JSClass ThreadLocalJSRuntime::sGlobalClass = {
   "IndexedDBTransactionThreadGlobal",
   JSCLASS_GLOBAL_FLAGS,
   JS_PropertyStub, JS_DeletePropertyStub, JS_PropertyStub, JS_StrictPropertyStub,
-  JS_EnumerateStub, JS_ResolveStub, JS_ConvertStub
+  JS_EnumerateStub, JS_ResolveStub, JS_ConvertStub,
+  nullptr, nullptr, nullptr, nullptr,
+  JS_GlobalObjectTraceHook
 };
 
 inline
@@ -1341,6 +1343,9 @@ IDBObjectStore::DeserializeValue(JSContext* aCx,
   JSStructuredCloneCallbacks callbacks = {
     IDBObjectStore::StructuredCloneReadCallback<MainThreadDeserializationTraits>,
     nullptr,
+    nullptr,
+    nullptr,
+    nullptr,
     nullptr
   };
 
@@ -1362,6 +1367,9 @@ IDBObjectStore::SerializeValue(JSContext* aCx,
   JSStructuredCloneCallbacks callbacks = {
     nullptr,
     StructuredCloneWriteCallback,
+    nullptr,
+    nullptr,
+    nullptr,
     nullptr
   };
 
@@ -2991,7 +2999,7 @@ CopyData(nsIInputStream* aInputStream, nsIOutputStream* aOutputStream)
 
     uint32_t numRead;
     rv = aInputStream->Read(copyBuffer, sizeof(copyBuffer), &numRead);
-    IDB_ENSURE_SUCCESS(rv, NS_ERROR_DOM_INDEXEDDB_UNKNOWN_ERR);
+    NS_ENSURE_SUCCESS(rv, rv);
 
     if (!numRead) {
       break;
@@ -2999,16 +3007,16 @@ CopyData(nsIInputStream* aInputStream, nsIOutputStream* aOutputStream)
 
     uint32_t numWrite;
     rv = aOutputStream->Write(copyBuffer, numRead, &numWrite);
-    IDB_ENSURE_SUCCESS(rv, NS_ERROR_DOM_INDEXEDDB_UNKNOWN_ERR);
-
-    if (numWrite < numRead) {
-      // Must have hit the quota limit.
-      return NS_ERROR_DOM_INDEXEDDB_QUOTA_ERR;
+    if (rv == NS_ERROR_FILE_NO_DEVICE_SPACE) {
+      rv = NS_ERROR_DOM_INDEXEDDB_QUOTA_ERR;
     }
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    NS_ENSURE_TRUE(numWrite == numRead, NS_ERROR_FAILURE);
   } while (true);
 
   rv = aOutputStream->Flush();
-  IDB_ENSURE_SUCCESS(rv, NS_ERROR_DOM_INDEXEDDB_UNKNOWN_ERR);
+  NS_ENSURE_SUCCESS(rv, rv);
 
   return NS_OK;
 }
@@ -3251,6 +3259,11 @@ AddHelper::DoDatabaseWork(mozIStorageConnection* aConnection)
         IDB_ENSURE_TRUE(outputStream, NS_ERROR_DOM_INDEXEDDB_UNKNOWN_ERR);
 
         rv = CopyData(inputStream, outputStream);
+        if (NS_FAILED(rv) &&
+            NS_ERROR_GET_MODULE(rv) != NS_ERROR_MODULE_DOM_INDEXEDDB) {
+          IDB_REPORT_INTERNAL_ERR();
+          rv = NS_ERROR_DOM_INDEXEDDB_UNKNOWN_ERR;
+        }
         NS_ENSURE_SUCCESS(rv, rv);
 
         cloneFile.mFile->AddFileInfo(fileInfo);
@@ -4521,6 +4534,9 @@ CreateIndexHelper::InsertDataFromObjectStore(mozIStorageConnection* aConnection)
 
     JSStructuredCloneCallbacks callbacks = {
       IDBObjectStore::StructuredCloneReadCallback<CreateIndexDeserializationTraits>,
+      nullptr,
+      nullptr,
+      nullptr,
       nullptr,
       nullptr
     };

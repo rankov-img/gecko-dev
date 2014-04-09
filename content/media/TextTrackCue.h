@@ -7,28 +7,28 @@
 #ifndef mozilla_dom_TextTrackCue_h
 #define mozilla_dom_TextTrackCue_h
 
+#include "mozilla/DOMEventTargetHelper.h"
 #include "mozilla/dom/DocumentFragment.h"
 #include "mozilla/dom/VTTCueBinding.h"
 #include "nsCycleCollectionParticipant.h"
-#include "nsDOMEventTargetHelper.h"
 #include "nsIWebVTTParserWrapper.h"
 #include "mozilla/StaticPtr.h"
 #include "nsIDocument.h"
 #include "mozilla/dom/HTMLDivElement.h"
 #include "mozilla/dom/UnionTypes.h"
+#include "mozilla/dom/TextTrack.h"
 
 namespace mozilla {
 namespace dom {
 
 class HTMLTrackElement;
-class TextTrack;
 class TextTrackRegion;
 
-class TextTrackCue MOZ_FINAL : public nsDOMEventTargetHelper
+class TextTrackCue MOZ_FINAL : public DOMEventTargetHelper
 {
 public:
   NS_DECL_ISUPPORTS_INHERITED
-  NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED(TextTrackCue, nsDOMEventTargetHelper)
+  NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED(TextTrackCue, DOMEventTargetHelper)
 
   // TextTrackCue WebIDL
   // See bug 868509 about splitting out the WebVTT-specific interfaces.
@@ -315,6 +315,11 @@ public:
   const nsAString& Id() const
   {
     return mId;
+  }
+
+  void SetTrack(TextTrack* aTextTrack)
+  {
+    mTrack = aTextTrack;
   }
 
   /**

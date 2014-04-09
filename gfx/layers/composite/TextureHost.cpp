@@ -14,6 +14,7 @@
 #include "mozilla/layers/ISurfaceAllocator.h"  // for ISurfaceAllocator
 #include "mozilla/layers/ImageDataSerializer.h"
 #include "mozilla/layers/LayersSurfaces.h"  // for SurfaceDescriptor, etc
+#include "mozilla/layers/TextureHostOGL.h"  // for TextureHostOGL
 #ifdef MOZ_X11
 #include "mozilla/layers/X11TextureHost.h"
 #endif
@@ -114,62 +115,6 @@ TextureHost::GetIPDLActor()
   return mActor;
 }
 
-// implemented in TextureOGL.cpp
-TemporaryRef<DeprecatedTextureHost> CreateDeprecatedTextureHostOGL(SurfaceDescriptorType aDescriptorType,
-                                                           uint32_t aDeprecatedTextureHostFlags,
-                                                           uint32_t aTextureFlags);
-// implemented in BasicCompositor.cpp
-TemporaryRef<DeprecatedTextureHost> CreateBasicDeprecatedTextureHost(SurfaceDescriptorType aDescriptorType,
-                                                             uint32_t aDeprecatedTextureHostFlags,
-                                                             uint32_t aTextureFlags);
-
-#ifdef XP_WIN
-TemporaryRef<DeprecatedTextureHost> CreateDeprecatedTextureHostD3D9(SurfaceDescriptorType aDescriptorType,
-                                                            uint32_t aDeprecatedTextureHostFlags,
-                                                            uint32_t aTextureFlags);
-
-TemporaryRef<DeprecatedTextureHost> CreateDeprecatedTextureHostD3D11(SurfaceDescriptorType aDescriptorType,
-                                                             uint32_t aDeprecatedTextureHostFlags,
-                                                             uint32_t aTextureFlags);
-#endif
-
-/* static */ TemporaryRef<DeprecatedTextureHost>
-DeprecatedTextureHost::CreateDeprecatedTextureHost(SurfaceDescriptorType aDescriptorType,
-                                           uint32_t aDeprecatedTextureHostFlags,
-                                           uint32_t aTextureFlags,
-                                           CompositableHost* aCompositableHost)
-{
-  switch (Compositor::GetBackend()) {
-    case LayersBackend::LAYERS_OPENGL:
-      {
-      RefPtr<DeprecatedTextureHost> result;
-      result = CreateDeprecatedTextureHostOGL(aDescriptorType,
-                                        aDeprecatedTextureHostFlags,
-                                        aTextureFlags);
-      if (aCompositableHost) {
-        result->SetCompositableBackendSpecificData(aCompositableHost->GetCompositableBackendSpecificData());
-      }
-      return result;
-      }
-#ifdef XP_WIN
-    case LayersBackend::LAYERS_D3D9:
-      return CreateDeprecatedTextureHostD3D9(aDescriptorType,
-                                         aDeprecatedTextureHostFlags,
-                                         aTextureFlags);
-    case LayersBackend::LAYERS_D3D11:
-      return CreateDeprecatedTextureHostD3D11(aDescriptorType,
-                                          aDeprecatedTextureHostFlags,
-                                          aTextureFlags);
-#endif
-    case LayersBackend::LAYERS_BASIC:
-      return CreateBasicDeprecatedTextureHost(aDescriptorType,
-                                          aDeprecatedTextureHostFlags,
-                                          aTextureFlags);
-    default:
-      MOZ_CRASH("Couldn't create texture host");
-  }
-}
-
 // implemented in TextureHostOGL.cpp
 TemporaryRef<TextureHost> CreateTextureHostOGL(const SurfaceDescriptor& aDesc,
                                                ISurfaceAllocator* aDeallocator,
@@ -201,7 +146,6 @@ TextureHost::Create(const SurfaceDescriptor& aDesc,
     case SurfaceDescriptor::TSurfaceDescriptorMemory:
       return CreateBackendIndependentTextureHost(aDesc, aDeallocator, aFlags);
     case SurfaceDescriptor::TSharedTextureDescriptor:
-    case SurfaceDescriptor::TSurfaceDescriptorGralloc:
     case SurfaceDescriptor::TNewSurfaceDescriptorGralloc:
     case SurfaceDescriptor::TSurfaceStreamDescriptor:
       return CreateTextureHostOGL(aDesc, aDeallocator, aFlags);
@@ -223,7 +167,11 @@ TextureHost::Create(const SurfaceDescriptor& aDesc,
     case SurfaceDescriptor::TSurfaceDescriptorDIB:
       return CreateTextureHostD3D9(aDesc, aDeallocator, aFlags);
     case SurfaceDescriptor::TSurfaceDescriptorD3D10:
-      return CreateTextureHostD3D11(aDesc, aDeallocator, aFlags);
+      if (Compositor::GetBackend() == LayersBackend::LAYERS_D3D9) {
+        return CreateTextureHostD3D9(aDesc, aDeallocator, aFlags);
+      } else {
+        return CreateTextureHostD3D11(aDesc, aDeallocator, aFlags);
+      }
 #endif
     default:
       MOZ_CRASH("Unsupported Surface type");
@@ -257,6 +205,15 @@ CreateBackendIndependentTextureHost(const SurfaceDescriptor& aDesc,
     }
   }
   return result;
+}
+
+void
+TextureHost::CompositorRecycle()
+{
+  if (!mActor) {
+    return;
+  }
+  static_cast<TextureParent*>(mActor)->CompositorRecycle();
 }
 
 void
@@ -311,80 +268,6 @@ TextureSource::TextureSource()
 TextureSource::~TextureSource()
 {
     MOZ_COUNT_DTOR(TextureSource);
-}
-
-DeprecatedTextureHost::DeprecatedTextureHost()
-  : mFlags(0)
-  , mBuffer(nullptr)
-  , mDeAllocator(nullptr)
-  , mFormat(gfx::SurfaceFormat::UNKNOWN)
-{
-  MOZ_COUNT_CTOR(DeprecatedTextureHost);
-}
-
-DeprecatedTextureHost::~DeprecatedTextureHost()
-{
-  if (mBuffer) {
-    if (!(mFlags & TEXTURE_DEALLOCATE_CLIENT)) {
-      if (mDeAllocator) {
-        mDeAllocator->DestroySharedSurface(mBuffer);
-      } else {
-        MOZ_ASSERT(mBuffer->type() == SurfaceDescriptor::Tnull_t);
-      }
-    }
-    delete mBuffer;
-  }
-  MOZ_COUNT_DTOR(DeprecatedTextureHost);
-}
-
-void
-DeprecatedTextureHost::Update(const SurfaceDescriptor& aImage,
-                          nsIntRegion* aRegion,
-                          nsIntPoint* aOffset)
-{
-  UpdateImpl(aImage, aRegion, aOffset);
-}
-
-void
-DeprecatedTextureHost::SwapTextures(const SurfaceDescriptor& aImage,
-                                SurfaceDescriptor* aResult,
-                                nsIntRegion* aRegion)
-{
-  SwapTexturesImpl(aImage, aRegion);
-
-  MOZ_ASSERT(mBuffer, "trying to swap a non-buffered texture host?");
-  if (aResult) {
-    *aResult = *mBuffer;
-  }
-  *mBuffer = aImage;
-  SetBuffer(mBuffer, mDeAllocator);
-}
-
-void
-DeprecatedTextureHost::OnShutdown()
-{
-  if (ISurfaceAllocator::IsShmem(mBuffer)) {
-    *mBuffer = SurfaceDescriptor();
-    mBuffer = nullptr;
-  }
-}
-
-void
-DeprecatedTextureHost::PrintInfo(nsACString& aTo, const char* aPrefix)
-{
-  aTo += aPrefix;
-  aTo += nsPrintfCString("%s (0x%p)", Name(), this);
-  AppendToString(aTo, GetSize(), " [size=", "]");
-  AppendToString(aTo, GetFormat(), " [format=", "]");
-  AppendToString(aTo, mFlags, " [flags=", "]");
-}
-
-void
-DeprecatedTextureHost::SetBuffer(SurfaceDescriptor* aBuffer, ISurfaceAllocator* aAllocator)
-{
-  MOZ_ASSERT(!mBuffer || mBuffer == aBuffer, "Will leak the old mBuffer");
-  mBuffer = aBuffer;
-  mDeAllocator = aAllocator;
 }
 
 BufferTextureHost::BufferTextureHost(gfx::SurfaceFormat aFormat,
@@ -745,7 +628,20 @@ void
 TextureParent::CompositorRecycle()
 {
   mTextureHost->ClearRecycleCallback();
-  mozilla::unused << SendCompositorRecycle();
+
+  MaybeFenceHandle handle = null_t();
+#if defined(MOZ_WIDGET_GONK) && ANDROID_VERSION >= 17
+  if (mTextureHost) {
+    TextureHostOGL* hostOGL = mTextureHost->AsHostOGL();
+    android::sp<android::Fence> fence = hostOGL->GetAndResetReleaseFence();
+    if (fence.get() && fence->isValid()) {
+      handle = FenceHandle(fence);
+      // HWC might not provide Fence.
+      // In this case, HWC implicitly handles buffer's fence.
+    }
+  }
+#endif
+  mozilla::unused << SendCompositorRecycle(handle);
 
   // Don't forget to prepare for the next reycle
   mWaitForClientRecycle = mTextureHost;
@@ -820,6 +716,10 @@ TextureParent::ActorDestroy(ActorDestroyReason why)
   if (mTextureHost->GetFlags() & TEXTURE_DEALLOCATE_CLIENT) {
     mTextureHost->ForgetSharedData();
   }
+
+  // Clear recycle callback.
+  mTextureHost->ClearRecycleCallback();
+  mWaitForClientRecycle = nullptr;
 
   mTextureHost->mActor = nullptr;
   mTextureHost = nullptr;

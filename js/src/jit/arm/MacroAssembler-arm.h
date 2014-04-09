@@ -693,6 +693,9 @@ class MacroAssemblerARMCompat : public MacroAssemblerARM
     void test32(Register lhs, Register rhs) {
         ma_tst(lhs, rhs);
     }
+    void test32(Register lhs, Imm32 imm) {
+        ma_tst(lhs, imm);
+    }
     void test32(const Address &address, Imm32 imm) {
         ma_ldr(Operand(address.base, address.offset), ScratchRegister);
         ma_tst(ScratchRegister, imm);
@@ -1378,6 +1381,7 @@ class MacroAssemblerARMCompat : public MacroAssemblerARM
     void subPtr(Imm32 imm, const Register dest);
     void subPtr(const Address &addr, const Register dest);
     void subPtr(const Register &src, const Register &dest);
+    void subPtr(const Register &src, const Address &dest);
     void addPtr(Imm32 imm, const Register dest);
     void addPtr(Imm32 imm, const Address &dest);
     void addPtr(ImmWord imm, const Register dest) {
@@ -1509,7 +1513,6 @@ class MacroAssemblerARMCompat : public MacroAssemblerARM
         ma_b(handleNotAnInt, Above);
     }
 
-    void enterOsr(Register calleeToken, Register code);
     void memIntToValue(Address Source, Address Dest) {
         load32(Source, lr);
         storeValue(JSVAL_TYPE_INT32, lr, Dest);

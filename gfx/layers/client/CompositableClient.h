@@ -22,7 +22,6 @@ namespace mozilla {
 namespace layers {
 
 class CompositableClient;
-class DeprecatedTextureClient;
 class TextureClient;
 class BufferTextureClient;
 class ImageBridgeChild;
@@ -80,10 +79,6 @@ public:
   virtual TextureInfo GetTextureInfo() const = 0;
 
   LayersBackend GetCompositorBackendType() const;
-
-  TemporaryRef<DeprecatedTextureClient>
-  CreateDeprecatedTextureClient(DeprecatedTextureClientType aDeprecatedTextureClientType,
-                                gfxContentType aContentType = gfxContentType::SENTINEL);
 
   TemporaryRef<BufferTextureClient>
   CreateBufferTextureClient(gfx::SurfaceFormat aFormat,

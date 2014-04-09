@@ -174,7 +174,6 @@ public:
   {
     InitLog();
   }
-  virtual ~LayerManager() {}
 
   /**
    * Release layers and resources held by this layer manager, and mark
@@ -421,6 +420,13 @@ public:
   virtual LayersBackend GetBackendType() = 0;
 
   /**
+   * Type of layers backend that will be used to composite this layer tree.
+   * When compositing is done remotely, then this returns the layers type
+   * of the compositor.
+   */
+  virtual LayersBackend GetCompositorBackendType() { return GetBackendType(); }
+
+  /**
    * Creates a surface which is optimized for inter-operating with this layer
    * manager.
    */
@@ -609,6 +615,9 @@ protected:
 
   nsIntRegion mRegionToClear;
 
+  // Protected destructor, to discourage deletion outside of Release():
+  virtual ~LayerManager() {}
+
   // Print interesting information about this into aTo.  Internally
   // used to implement Dump*() and Log*().
   virtual nsACString& PrintInfo(nsACString& aTo, const char* aPrefix);
@@ -665,8 +674,6 @@ public:
     TYPE_SHADOW,
     TYPE_THEBES
   };
-
-  virtual ~Layer();
 
   /**
    * Returns the LayerManager this Layer belongs to. Note that the layer
@@ -1357,6 +1364,9 @@ public:
 
 protected:
   Layer(LayerManager* aManager, void* aImplData);
+
+  // Protected destructor, to discourage deletion outside of Release():
+  virtual ~Layer();
 
   /**
    * We can snap layer transforms for two reasons:

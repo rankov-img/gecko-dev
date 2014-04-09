@@ -676,7 +676,7 @@ RTCPeerConnection.prototype = {
   _processIdentity: function(message) {
     if (message) {
       this._peerIdentity = new this._win.RTCIdentityAssertion(
-          this._remoteIdp.provider, message.identity.name);
+          this._remoteIdp.provider, message.identity);
 
       let args = { peerIdentity: this._peerIdentity };
       this.dispatchEvent(new this._win.Event("peeridentity"));
@@ -779,6 +779,9 @@ RTCPeerConnection.prototype = {
   },
 
   close: function() {
+    if (this._closed) {
+      return;
+    }
     this._queueOrRun({ func: this._close, args: [false], wait: false });
     this._closed = true;
     this.changeIceConnectionState("closed");

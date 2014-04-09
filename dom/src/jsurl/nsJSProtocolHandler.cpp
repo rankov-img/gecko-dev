@@ -280,7 +280,8 @@ nsresult nsJSThunk::EvaluateScript(nsIChannel *aChannel,
         nsIXPConnect *xpc = nsContentUtils::XPConnect();
 
         nsCOMPtr<nsIXPConnectJSObjectHolder> sandbox;
-        rv = xpc->CreateSandbox(cx, principal, getter_AddRefs(sandbox));
+        // Important: Use a null principal here
+        rv = xpc->CreateSandbox(cx, nullptr, getter_AddRefs(sandbox));
         NS_ENSURE_SUCCESS(rv, rv);
 
         // The nsXPConnect sandbox API gives us a wrapper to the sandbox for
@@ -314,8 +315,7 @@ nsresult nsJSThunk::EvaluateScript(nsIChannel *aChannel,
         nsJSUtils::EvaluateOptions evalOptions;
         evalOptions.setCoerceToString(true);
         rv = nsJSUtils::EvaluateString(cx, NS_ConvertUTF8toUTF16(script),
-                                       globalJSObject, options, evalOptions,
-                                       v.address());
+                                       globalJSObject, options, evalOptions, &v);
 
         // If there's an error on cx as a result of that call, report
         // it now -- either we're just running under the event loop,

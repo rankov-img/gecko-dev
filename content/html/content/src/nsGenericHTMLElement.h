@@ -34,6 +34,7 @@ class EventChainPostVisitor;
 class EventChainPreVisitor;
 class EventChainVisitor;
 class EventListenerManager;
+class EventStates;
 namespace dom {
 class HTMLFormElement;
 class HTMLPropertiesCollection;
@@ -250,7 +251,7 @@ public:
   using nsINode::SetOn##name_;                                                \
   already_AddRefed<mozilla::dom::EventHandlerNonNull> GetOn##name_();         \
   void SetOn##name_(mozilla::dom::EventHandlerNonNull* handler);
-#include "nsEventNameList.h" // IWYU pragma: keep
+#include "mozilla/EventNameList.h" // IWYU pragma: keep
 #undef ERROR_EVENT
 #undef FORWARDED_EVENT
 #undef EVENT
@@ -296,6 +297,7 @@ public:
     return rcFrame.height;
   }
 
+  static nsIAtom*** PropertiesToTraverseAndUnlink();
 protected:
   // These methods are used to implement element-specific behavior of Get/SetItemValue
   // when an element has @itemprop but no @itemscope.
@@ -313,8 +315,10 @@ public:
 
   /**
    * Get width and height, using given image request if attributes are unset.
+   * Pass a reference to the image request, since the method may change the
+   * value and we want to use the updated value.
    */
-  nsSize GetWidthHeightForImage(imgIRequest *aImageRequest);
+  nsSize GetWidthHeightForImage(nsRefPtr<imgRequestProxy>& aImageRequest);
 
   // XPIDL methods
   NS_FORWARD_NSIDOMNODE_TO_NSINODE
@@ -592,7 +596,7 @@ public:
 
   virtual void UpdateEditableState(bool aNotify) MOZ_OVERRIDE;
 
-  virtual nsEventStates IntrinsicState() const MOZ_OVERRIDE;
+  virtual mozilla::EventStates IntrinsicState() const MOZ_OVERRIDE;
 
   // Helper for setting our editable flag and notifying
   void DoSetEditableFlag(bool aEditable, bool aNotify) {
@@ -1318,7 +1322,7 @@ public:
   virtual void UnbindFromTree(bool aDeep = true,
                               bool aNullParent = true) MOZ_OVERRIDE;
   virtual IMEState GetDesiredIMEState() MOZ_OVERRIDE;
-  virtual nsEventStates IntrinsicState() const MOZ_OVERRIDE;
+  virtual mozilla::EventStates IntrinsicState() const MOZ_OVERRIDE;
 
   virtual nsresult PreHandleEvent(
                      mozilla::EventChainPreVisitor& aVisitor) MOZ_OVERRIDE;

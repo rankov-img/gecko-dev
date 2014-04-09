@@ -26,8 +26,11 @@ const Ci = Components.interfaces;
 
 let SharedAll = {};
 Cu.import("resource://gre/modules/osfile/osfile_shared_allthreads.jsm", SharedAll);
-Cu.import("resource://gre/modules/Deprecated.jsm", this);
+Cu.import("resource://gre/modules/XPCOMUtils.jsm", this);
 Cu.import("resource://gre/modules/Timer.jsm", this);
+
+XPCOMUtils.defineLazyModuleGetter(this, 'Deprecated',
+  'resource://gre/modules/Deprecated.jsm');
 
 // Boilerplate, to simplify the transition to require()
 let LOG = SharedAll.LOG.bind(SharedAll, "Controller");
@@ -234,6 +237,9 @@ let Scheduler = {
    */
   resetTimer: null,
 
+  /**
+   * Prepare to kill the OS.File worker after a few seconds.
+   */
   restartTimer: function(arg) {
     let delay;
     try {
@@ -246,7 +252,98 @@ let Scheduler = {
     if (this.resetTimer) {
       clearTimeout(this.resetTimer);
     }
-    this.resetTimer = setTimeout(File.resetWorker, delay);
+    this.resetTimer = setTimeout(
+      () => Scheduler.kill({reset: true, shutdown: false}),
+      delay
+    );
+  },
+
+  /**
+   * Shutdown OS.File.
+   *
+   * @param {*} options
+   * - {boolean} shutdown If |true|, reject any further request. Otherwise,
+   *   further requests will resurrect the worker.
+   * - {boolean} reset If |true|, instruct the worker to shutdown if this
+   *   would not cause leaks. Otherwise, assume that the worker will be shutdown
+   *   through some other mean.
+   */
+  kill: function({shutdown, reset}) {
+    return Task.spawn(function*() {
+
+      yield this.queue;
+
+      if (!this.launched || this.shutdown || !worker) {
+        // Nothing to kill
+        this.shutdown = this.shutdown || shutdown;
+        worker = null;
+        return null;
+      }
+
+      // Deactivate the queue, to ensure that no message is sent
+      // to an obsolete worker (we reactivate it in the |finally|).
+      let deferred = Promise.defer();
+      this.queue = deferred.promise;
+
+      let message = ["Meta_shutdown", [reset]];
+
+      try {
+        Scheduler.latestReceived = [];
+        Scheduler.latestSent = [Date.now(), ...message];
+        let promise = worker.post(...message);
+
+        // Wait for result
+        let resources;
+        try {
+          resources = (yield promise).ok;
+
+          Scheduler.latestReceived = [Date.now(), message];
+        } catch (ex) {
+          LOG("Could not dispatch Meta_reset", ex);
+          // It's most likely a programmer error, but we'll assume that
+          // the worker has been shutdown, as it's less risky than the
+          // opposite stance.
+          resources = {openedFiles: [], openedDirectoryIterators: [], killed: true};
+
+          Scheduler.latestReceived = [Date.now(), message, ex];
+        }
+
+        let {openedFiles, openedDirectoryIterators, killed} = resources;
+        if (!reset
+          && (openedFiles && openedFiles.length
+            || ( openedDirectoryIterators && openedDirectoryIterators.length))) {
+          // The worker still holds resources. Report them.
+
+          let msg = "";
+          if (openedFiles.length > 0) {
+            msg += "The following files are still open:\n" +
+              openedFiles.join("\n");
+          }
+          if (openedDirectoryIterators.length > 0) {
+            msg += "The following directory iterators are still open:\n" +
+              openedDirectoryIterators.join("\n");
+          }
+
+          LOG("WARNING: File descriptors leaks detected.\n" + msg);
+        }
+
+        // Make sure that we do not leave an invalid |worker| around.
+        if (killed || shutdown) {
+          worker = null;
+        }
+
+        this.shutdown = shutdown;
+
+        return resources;
+
+      } finally {
+        // Resume accepting messages. If we have set |shutdown| to |true|,
+        // any pending/future request will be rejected. Otherwise, any
+        // pending/future request will spawn a new worker if necessary.
+        deferred.resolve();
+      }
+
+    }.bind(this));
   },
 
   /**
@@ -307,6 +404,11 @@ let Scheduler = {
       // expensive, we only keep a shortened version of it.
       Scheduler.Debugging.latestReceived = null;
       Scheduler.Debugging.latestSent = [Date.now(), method, summarizeObject(methodArgs)];
+
+      // Don't kill the worker just yet
+      Scheduler.restartTimer();
+
+
       let data;
       let reply;
       let isError = false;
@@ -343,11 +445,7 @@ let Scheduler = {
           Scheduler._updateTelemetry();
         }
 
-        // Don't restart the timer when reseting the worker, since that will
-        // lead to an endless "resetWorker()" loop.
-        if (method != "Meta_reset") {
-          Scheduler.restartTimer();
-        }
+        Scheduler.restartTimer();
       }
 
       // Check for duration and return result.
@@ -467,54 +565,9 @@ const WEB_WORKERS_SHUTDOWN_TOPIC = "web-workers-shutdown";
 const PREF_OSFILE_TEST_SHUTDOWN_OBSERVER =
   "toolkit.osfile.test.shutdown.observer";
 
-/**
- * A condition function meant to be used during phase
- * webWorkersShutdown, to warn about unclosed files and directories
- * and reconfigure the Scheduler to reject further requests.
- *
- * @param {bool=} shutdown If true or unspecified, reconfigure
- * the scheduler to reject further requests. Can be set to |false|
- * for testing purposes.
- * @return {promise} A promise satisfied once all pending messages
- * (including the shutdown warning message) have been answered.
- */
-function warnAboutUnclosedFiles(shutdown = true) {
-  if (!Scheduler.launched || !worker) {
-    // Don't launch the scheduler on our behalf. If no message has been
-    // sent to the worker, we can't have any leaking file/directory
-    // descriptor.
-    return null;
-  }
-  let promise = Scheduler.post("Meta_getUnclosedResources");
-
-  // Configure the worker to reject any further message.
-  if (shutdown) {
-    Scheduler.shutdown = true;
-  }
-
-  return promise.then(function onSuccess(opened) {
-    let msg = "";
-    if (opened.openedFiles.length > 0) {
-      msg += "The following files are still open:\n" +
-        opened.openedFiles.join("\n");
-    }
-    if (msg) {
-      msg += "\n";
-    }
-    if (opened.openedDirectoryIterators.length > 0) {
-      msg += "The following directory iterators are still open:\n" +
-        opened.openedDirectoryIterators.join("\n");
-    }
-    // Only log if file descriptors leaks detected.
-    if (msg) {
-      LOG("WARNING: File descriptors leaks detected.\n" + msg);
-    }
-  });
-};
-
 AsyncShutdown.webWorkersShutdown.addBlocker(
   "OS.File: flush pending requests, warn about unclosed files, shut down service.",
-  () => warnAboutUnclosedFiles(true)
+  () => Scheduler.kill({reset: false, shutdown: true})
 );
 
 
@@ -539,7 +592,7 @@ Services.prefs.addObserver(PREF_OSFILE_TEST_SHUTDOWN_OBSERVER,
       let phase = AsyncShutdown._getPhase(TOPIC);
       phase.addBlocker(
         "(for testing purposes) OS.File: warn about unclosed files",
-        () => warnAboutUnclosedFiles(false)
+        () => Scheduler.kill({shutdown: false, reset: false})
       );
     }
   }, false);
@@ -968,18 +1021,30 @@ File.remove = function remove(path) {
 
 
 /**
- * Create a directory.
+ * Create a directory and, optionally, its parent directories.
  *
  * @param {string} path The name of the directory.
  * @param {*=} options Additional options.
- * Implementations may interpret the following fields:
  *
- * - {C pointer} winSecurity If specified, security attributes
- * as per winapi function |CreateDirectory|. If unspecified,
- * use the default security descriptor, inherited from the
- * parent directory.
- * - {bool} ignoreExisting If |true|, do not fail if the
- * directory already exists.
+ * - {string} from If specified, the call to |makeDir| creates all the
+ * ancestors of |path| that are descendants of |from|. Note that |path|
+ * must be a descendant of |from|, and that |from| and its existing
+ * subdirectories present in |path|  must be user-writeable.
+ * Example:
+ *   makeDir(Path.join(profileDir, "foo", "bar"), { from: profileDir });
+ *  creates directories profileDir/foo, profileDir/foo/bar
+ * - {bool} ignoreExisting If |false|, throw an error if the directory
+ * already exists. |true| by default. Ignored if |from| is specified.
+ * - {number} unixMode Under Unix, if specified, a file creation mode,
+ * as per libc function |mkdir|. If unspecified, dirs are
+ * created with a default mode of 0700 (dir is private to
+ * the user, the user can read, write and execute). Ignored under Windows
+ * or if the file system does not support file creation modes.
+ * - {C pointer} winSecurity Under Windows, if specified, security
+ * attributes as per winapi function |CreateDirectory|. If
+ * unspecified, use the default security descriptor, inherited from
+ * the parent directory. Ignored under Unix or if the file system
+ * does not support security descriptors.
  */
 File.makeDir = function makeDir(path, options) {
   return Scheduler.post("makeDir",
@@ -1351,43 +1416,14 @@ DirectoryIterator.Entry.fromMsg = function fromMsg(value) {
   return new DirectoryIterator.Entry(value);
 };
 
-/**
- * Flush all operations currently queued, then kill the underlying
- * worker to save memory.
- *
- * @return {Promise}
- * @reject {Error} If at least one file or directory iterator instance
- * is still open and the worker cannot be killed safely.
- */
 File.resetWorker = function() {
-  if (!Scheduler.launched || Scheduler.shutdown) {
-    // No need to reset
-    return Promise.resolve();
-  }
-  return Scheduler.post("Meta_reset").then(
-    function(wouldLeak) {
-      if (!wouldLeak) {
-        // No resource would leak, the worker was stopped.
-        worker = null;
-        return;
-      }
-      // Otherwise, resetting would be unsafe and has been canceled.
-      // Turn this into an error
-      let msg = "Cannot reset worker: ";
-      let {openedFiles, openedDirectoryIterators} = wouldLeak;
-      if (openedFiles.length > 0) {
-        msg += "The following files are still open:\n" +
-          openedFiles.join("\n");
-      }
-      if (openedDirectoryIterators.length > 0) {
-        msg += "The following directory iterators are still open:\n" +
-          openedDirectoryIterators.join("\n");
-      }
-      throw new Error(msg);
+  return Task.spawn(function*() {
+    let resources = yield Scheduler.kill({shutdown: false, reset: true});
+    if (resources && !resources.killed) {
+        throw new Error("Could not reset worker, this would leak file descriptors: " + JSON.stringify(resources));
     }
-  );
+  });
 };
-
 
 // Constants
 File.POS_START = SysAll.POS_START;

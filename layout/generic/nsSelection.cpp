@@ -11,6 +11,7 @@
 #include "mozilla/Selection.h"
 
 #include "mozilla/Attributes.h"
+#include "mozilla/EventStates.h"
 
 #include "nsCOMPtr.h"
 #include "nsString.h"
@@ -3874,8 +3875,6 @@ Selection::GetPrimaryFrameForFocusNode(nsIFrame** aReturnFrame,
   if (!content || !mFrameSelection)
     return NS_ERROR_FAILURE;
   
-  nsIPresShell *presShell = mFrameSelection->GetShell();
-
   int32_t frameOffset = 0;
   *aReturnFrame = 0;
   if (!aOffsetUsed)
@@ -3884,6 +3883,10 @@ Selection::GetPrimaryFrameForFocusNode(nsIFrame** aReturnFrame,
   nsFrameSelection::HINT hint = mFrameSelection->GetHint();
 
   if (aVisual) {
+    nsIPresShell *presShell = mFrameSelection->GetShell();
+    if (!presShell)
+      return NS_ERROR_FAILURE;
+
     nsRefPtr<nsCaret> caret = presShell->GetCaret();
     if (!caret)
       return NS_ERROR_FAILURE;

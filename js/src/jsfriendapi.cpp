@@ -39,11 +39,8 @@ JS_STATIC_ASSERT(offsetof(JSRuntime, mainThread) ==
 PerThreadDataFriendFields::PerThreadDataFriendFields()
 {
     PodArrayZero(nativeStackLimit);
-#if defined(JSGC_ROOT_ANALYSIS) || defined(JSGC_USE_EXACT_ROOTING)
+#if defined(JSGC_USE_EXACT_ROOTING)
     PodArrayZero(thingGCRooters);
-#endif
-#if defined(DEBUG) && defined(JS_GC_ZEAL) && defined(JSGC_ROOT_ANALYSIS) && !defined(JS_THREADSAFE)
-    skipGCRooters = nullptr;
 #endif
 }
 
@@ -412,6 +409,8 @@ js::AssertSameCompartment(JSObject *objA, JSObject *objB)
 JS_FRIEND_API(JSObject *)
 js::DefaultObjectForContextOrNull(JSContext *cx)
 {
+    if (cx->options().noDefaultCompartmentObject())
+        return nullptr;
     return cx->maybeDefaultCompartmentObject();
 }
 
@@ -684,11 +683,9 @@ JS_SetAccumulateTelemetryCallback(JSRuntime *rt, JSAccumulateTelemetryDataCallba
 }
 
 JS_FRIEND_API(JSObject *)
-JS_CloneObject(JSContext *cx, JSObject *obj_, JSObject *proto_, JSObject *parent_)
+JS_CloneObject(JSContext *cx, HandleObject obj, HandleObject protoArg, HandleObject parent)
 {
-    RootedObject obj(cx, obj_);
-    Rooted<js::TaggedProto> proto(cx, proto_);
-    RootedObject parent(cx, parent_);
+    Rooted<js::TaggedProto> proto(cx, protoArg.get());
     return CloneObject(cx, obj, proto, parent);
 }
 

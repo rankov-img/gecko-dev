@@ -53,6 +53,7 @@
 #include "nsIMozBrowserFrame.h"
 #include "nsIPermissionManager.h"
 #include "nsISHistory.h"
+#include "nsNullPrincipal.h"
 
 #include "nsLayoutUtils.h"
 #include "nsView.h"
@@ -535,7 +536,17 @@ nsFrameLoader::ReallyStartLoadingInternal()
     NS_ENSURE_SUCCESS(rv, rv);
   }
 
-  loadInfo->SetReferrer(referrer);
+  // Use referrer as long as it is not an nsNullPrincipalURI.
+  // We could add a method such as GetReferrerURI to principals to make this
+  // cleaner, but given that we need to start using Source Browsing Context for
+  // referrer (see Bug 960639) this may be wasted effort at this stage.
+  if (referrer) {
+    bool isNullPrincipalScheme;
+    rv = referrer->SchemeIs(NS_NULLPRINCIPAL_SCHEME, &isNullPrincipalScheme);
+    if (NS_SUCCEEDED(rv) && !isNullPrincipalScheme) {
+      loadInfo->SetReferrer(referrer);
+    }
+  }
 
   // Default flags:
   int32_t flags = nsIWebNavigation::LOAD_FLAGS_NONE;
@@ -2003,16 +2014,14 @@ nsFrameLoader::SetClampScrollPosition(bool aClamp)
   // When turning clamping on, make sure the current position is clamped.
   if (aClamp) {
     nsIFrame* frame = GetPrimaryFrameOfOwningContent();
-    if (frame) {
-      nsSubDocumentFrame* subdocFrame = do_QueryFrame(frame);
-      if (subdocFrame) {
-        nsIFrame* subdocRootFrame = subdocFrame->GetSubdocumentRootFrame();
-        if (subdocRootFrame) {
-          nsIScrollableFrame* subdocRootScrollFrame = subdocRootFrame->PresContext()->PresShell()->
-            GetRootScrollFrameAsScrollable();
-          if (subdocRootScrollFrame) {
-            subdocRootScrollFrame->ScrollTo(subdocRootScrollFrame->GetScrollPosition(), nsIScrollableFrame::INSTANT);
-          }
+    nsSubDocumentFrame* subdocFrame = do_QueryFrame(frame);
+    if (subdocFrame) {
+      nsIFrame* subdocRootFrame = subdocFrame->GetSubdocumentRootFrame();
+      if (subdocRootFrame) {
+        nsIScrollableFrame* subdocRootScrollFrame = subdocRootFrame->PresContext()->PresShell()->
+          GetRootScrollFrameAsScrollable();
+        if (subdocRootScrollFrame) {
+          subdocRootScrollFrame->ScrollTo(subdocRootScrollFrame->GetScrollPosition(), nsIScrollableFrame::INSTANT);
         }
       }
     }

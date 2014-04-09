@@ -27,8 +27,8 @@ function sendMessageToJava(aMessage, aCallback) {
         Services.obs.removeObserver(obs, aMessage.type + ":Return", false);
         Services.obs.removeObserver(obs, aMessage.type + ":Error", false);
 
-        aCallback(aTopic == aMessage.type + ":Return" ? aData : null,
-                  aTopic == aMessage.type + ":Error"  ? aData : null)
+        aCallback(aTopic == aMessage.type + ":Return" ? data.response : null,
+                  aTopic == aMessage.type + ":Error"  ? data.response : null);
       }
     }
 
@@ -37,5 +37,5 @@ function sendMessageToJava(aMessage, aCallback) {
     Services.obs.addObserver(obs, aMessage.type + ":Error", false);
   }
 
-  return Services.androidBridge.handleGeckoMessage(JSON.stringify(aMessage));
+  return Services.androidBridge.handleGeckoMessage(aMessage);
 }

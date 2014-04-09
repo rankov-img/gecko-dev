@@ -296,6 +296,8 @@ WebConsoleActor.prototype =
   hasNativeConsoleAPI: function WCA_hasNativeConsoleAPI(aWindow) {
     let isNative = false;
     try {
+      // We are very explicitly examining the "console" property of
+      // the non-Xrayed object here.
       let console = aWindow.wrappedJSObject.console;
       isNative = console instanceof aWindow.Console;
     }
@@ -506,9 +508,8 @@ WebConsoleActor.prototype =
     let messageManager = null;
 
     if (this._parentIsContentActor) {
-      // Filter network requests by appId on Firefox OS devices.
       appId = this.parentActor.docShell.appId;
-      messageManager = this.parentActor._chromeGlobal;
+      messageManager = this.parentActor.messageManager;
     }
 
     while (aRequest.listeners.length > 0) {
@@ -532,9 +533,10 @@ WebConsoleActor.prototype =
           break;
         case "NetworkActivity":
           if (!this.networkMonitor) {
-            if (appId && messageManager) {
+            if (appId || messageManager) {
               this.networkMonitor =
-                new NetworkMonitorChild(appId, messageManager, this);
+                new NetworkMonitorChild(appId, messageManager,
+                                        this.parentActor.actorID, this);
             }
             else {
               this.networkMonitor = new NetworkMonitor({ window: window }, this);

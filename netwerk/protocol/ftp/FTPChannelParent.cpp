@@ -124,7 +124,8 @@ FTPChannelParent::DoAsyncOpen(const URIParams& aURI,
   if (NS_FAILED(rv))
     return SendFailedAsyncOpen(rv);
 
-  nsCOMPtr<nsIInputStream> upload = DeserializeInputStream(aUploadStream);
+  nsTArray<mozilla::ipc::FileDescriptor> fds;
+  nsCOMPtr<nsIInputStream> upload = DeserializeInputStream(aUploadStream, fds);
   if (upload) {
     // contentType and contentLength are ignored
     rv = mChannel->SetUploadStream(upload, EmptyCString(), 0);
@@ -311,8 +312,8 @@ FTPChannelParent::OnStartRequest(nsIRequest* aRequest, nsISupports* aContext)
   chan->GetURI(getter_AddRefs(uri));
   SerializeURI(uri, uriparam);
 
-  if (mIPCClosed || !SendOnStartRequest(contentLength, contentType,
-                                       lastModified, entityID, uriparam)) {
+  if (mIPCClosed || !SendOnStartRequest(mStatus, contentLength, contentType,
+                                        lastModified, entityID, uriparam)) {
     return NS_ERROR_UNEXPECTED;
   }
 
@@ -365,7 +366,7 @@ FTPChannelParent::OnDataAvailable(nsIRequest* aRequest,
   if (NS_FAILED(rv))
     return rv;
 
-  if (mIPCClosed || !SendOnDataAvailable(data, aOffset, aCount))
+  if (mIPCClosed || !SendOnDataAvailable(mStatus, data, aOffset, aCount))
     return NS_ERROR_UNEXPECTED;
 
   return NS_OK;
@@ -374,6 +375,13 @@ FTPChannelParent::OnDataAvailable(nsIRequest* aRequest,
 //-----------------------------------------------------------------------------
 // FTPChannelParent::nsIParentChannel
 //-----------------------------------------------------------------------------
+
+NS_IMETHODIMP
+FTPChannelParent::SetParentListener(HttpChannelParentListener* aListener)
+{
+  // Do not need ptr to HttpChannelParentListener.
+  return NS_OK;
+}
 
 NS_IMETHODIMP
 FTPChannelParent::Delete()

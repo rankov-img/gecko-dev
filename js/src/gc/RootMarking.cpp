@@ -186,21 +186,6 @@ IsAddressableGCThing(JSRuntime *rt, uintptr_t w,
     return CGCT_VALID;
 }
 
-#ifdef JSGC_ROOT_ANALYSIS
-void *
-js::gc::GetAddressableGCThing(JSRuntime *rt, uintptr_t w)
-{
-    void *thing;
-    ArenaHeader *aheader;
-    AllocKind thingKind;
-    ConservativeGCTest status =
-        IsAddressableGCThing(rt, w, false, &thingKind, &aheader, &thing);
-    if (status != CGCT_VALID)
-        return nullptr;
-    return thing;
-}
-#endif
-
 /*
  * Returns CGCT_VALID and mark it if the w can be a  live GC thing and sets
  * thingKind accordingly. Otherwise returns the reason for rejection.
@@ -329,7 +314,7 @@ MarkConservativeStackRoots(JSTracer *trc, bool useSavedRoots)
 
     uintptr_t *stackMin, *stackEnd;
 #if JS_STACK_GROWTH_DIRECTION > 0
-    stackMin = rt->nativeStackBase;
+    stackMin = reinterpret_cast<uintptr_t *>(rt->nativeStackBase);
     stackEnd = cgcd->nativeStackTop;
 #else
     stackMin = cgcd->nativeStackTop + 1;

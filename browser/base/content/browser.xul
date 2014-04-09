@@ -472,6 +472,9 @@
       <vbox id="bookmarked-notification-anchor">
         <vbox id="bookmarked-notification"/>
       </vbox>
+      <vbox id="bookmarked-notification-dropmarker-anchor">
+        <image id="bookmarked-notification-dropmarker-icon"/>
+      </vbox>
     </hbox>
 
     <tooltip id="dynamic-shortcut-tooltip"
@@ -544,7 +547,7 @@
              defaultset="tabbrowser-tabs,new-tab-button,alltabs-button,tabs-closebutton"
              collapsed="true">
 
-#ifdef XP_LINUX
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
       <hbox id="private-browsing-indicator"
             skipintoolbarset="true"/>
 #endif
@@ -700,6 +703,8 @@
                 <image id="webRTC-sharingMicrophone-notification-icon" class="notification-anchor-icon" role="button"/>
                 <image id="pointerLock-notification-icon" class="notification-anchor-icon" role="button"/>
                 <image id="servicesInstall-notification-icon" class="notification-anchor-icon" role="button"/>
+                <image id="translate-notification-icon" class="notification-anchor-icon" role="button"/>
+                <image id="translated-notification-icon" class="notification-anchor-icon" role="button"/>
               </box>
               <!-- Use onclick instead of normal popup= syntax since the popup
                    code fires onmousedown, and hence eats our favicon drag events.
@@ -1179,15 +1184,14 @@
   <svg:svg height="0">
 #include tab-shape.inc.svg
 
-#ifndef XP_UNIX
-    <svg:clipPath id="windows-keyhole-forward-clip-path" clipPathUnits="userSpaceOnUse">
+#ifndef XP_MACOSX
+    <svg:clipPath id="keyhole-forward-clip-path" clipPathUnits="userSpaceOnUse">
       <svg:path d="M 0,0 a 16 16 0 0 1 0,24 l 10000,0 l 0,-24 l -10000,0 z"/>
     </svg:clipPath>
-    <svg:clipPath id="windows-urlbar-back-button-clip-path" clipPathUnits="userSpaceOnUse">
+    <svg:clipPath id="urlbar-back-button-clip-path" clipPathUnits="userSpaceOnUse">
       <svg:path d="M -1,1 a 16 16 0 0 1 0,24 l 10000,0 l 0,-24 l -10000,0 z"/>
     </svg:clipPath>
-#endif
-#ifdef XP_MACOSX
+#else
     <svg:clipPath id="osx-keyhole-forward-clip-path" clipPathUnits="userSpaceOnUse">
       <svg:path d="M 0,0 a 16 16 0 0 1 0,24 l 10000,0 l 0,-24 l -10000,0 z"/>
     </svg:clipPath>

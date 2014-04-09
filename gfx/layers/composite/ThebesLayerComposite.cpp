@@ -54,8 +54,6 @@ bool
 ThebesLayerComposite::SetCompositableHost(CompositableHost* aHost)
 {
   switch (aHost->GetType()) {
-    case BUFFER_CONTENT:
-    case BUFFER_CONTENT_DIRECT:
     case BUFFER_CONTENT_INC:
     case BUFFER_TILED:
     case COMPOSITABLE_CONTENT_SINGLE:
@@ -91,7 +89,10 @@ ThebesLayerComposite::GetLayer()
 TiledLayerComposer*
 ThebesLayerComposite::GetTiledLayerComposer()
 {
-  MOZ_ASSERT(mBuffer && mBuffer->IsAttached());
+  if (!mBuffer) {
+    return nullptr;
+  }
+  MOZ_ASSERT(mBuffer->IsAttached());
   return mBuffer->AsTiledLayerComposer();
 }
 
@@ -149,7 +150,7 @@ ThebesLayerComposite::RenderLayer(const nsIntRect& aClipRect)
                      &visibleRegion,
                      mRequiresTiledProperties ? &tiledLayerProps
                                               : nullptr);
-
+  mBuffer->BumpFlashCounter();
 
   if (mRequiresTiledProperties) {
     mValidRegion = tiledLayerProps.mValidRegion;

@@ -52,6 +52,7 @@
 #include "nsIScrollPositionListener.h"
 #include "StickyScrollContainer.h"
 #include "nsIFrameInlines.h"
+#include "gfxPrefs.h"
 #include <algorithm>
 #include <cstdlib> // for std::abs(int/long)
 #include <cmath> // for std::abs(float/double)
@@ -1545,6 +1546,14 @@ public:
 
 static ScrollFrameActivityTracker *gScrollFrameActivityTracker = nullptr;
 
+// There are situations when a scroll frame is destroyed and then re-created
+// for the same content element. In this case we want to increment the scroll
+// generation between the old and new scrollframes. If the new one knew about
+// the old one then it could steal the old generation counter and increment it
+// but it doesn't have that reference so instead we use a static global to
+// ensure the new one gets a fresh value.
+static uint32_t sScrollGenerationCounter = 0;
+
 ScrollFrameHelper::ScrollFrameHelper(nsContainerFrame* aOuter,
                                              bool aIsRoot)
   : mHScrollbarBox(nullptr)
@@ -1555,7 +1564,7 @@ ScrollFrameHelper::ScrollFrameHelper(nsContainerFrame* aOuter,
   , mOuter(aOuter)
   , mAsyncScroll(nullptr)
   , mOriginOfLastScroll(nsGkAtoms::other)
-  , mScrollGeneration(0)
+  , mScrollGeneration(++sScrollGenerationCounter)
   , mDestination(0, 0)
   , mScrollPosAtLastPaint(0, 0)
   , mRestorePos(-1, -1)
@@ -2071,7 +2080,7 @@ ScrollFrameHelper::ScrollToImpl(nsPoint aPt, const nsRect& aRange, nsIAtom* aOri
   // Update frame position for scrolling
   mScrolledFrame->SetPosition(mScrollPort.TopLeft() - pt);
   mOriginOfLastScroll = aOrigin;
-  mScrollGeneration++;
+  mScrollGeneration = ++sScrollGenerationCounter;
 
   // We pass in the amount to move visually
   ScrollVisual(oldScrollFramePos);
@@ -2458,10 +2467,21 @@ ScrollFrameHelper::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
   nsRect dirtyRect = aDirtyRect.Intersect(mScrollPort);
 
   // Override the dirty rectangle if the displayport has been set.
-  nsRect displayPort;
   bool usingDisplayport =
-    nsLayoutUtils::GetDisplayPort(mOuter->GetContent(), &displayPort) &&
+    nsLayoutUtils::GetDisplayPort(mOuter->GetContent()) &&
     !aBuilder->IsForEventDelivery();
+
+  // don't set the display port base rect for root scroll frames,
+  // nsLayoutUtils::PaintFrame or nsSubDocumentFrame::BuildDisplayList
+  // does that for root scroll frames before it expands the dirty rect
+  // to the display port.
+  if (usingDisplayport && !mIsRoot) {
+    nsLayoutUtils::SetDisplayPortBase(mOuter->GetContent(), dirtyRect);
+  }
+
+  // now that we have an updated base rect we can get the display port
+  nsRect displayPort;
+  nsLayoutUtils::GetDisplayPort(mOuter->GetContent(), &displayPort);
   if (usingDisplayport && DisplayportExceedsMaxTextureSize(mOuter->PresContext(), displayPort)) {
     usingDisplayport = false;
   }
@@ -2566,10 +2586,10 @@ ScrollFrameHelper::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
     bool wantLayerV = isVScrollable && (mVScrollbarBox || isFocused);
     bool wantLayerH = isHScrollable && (mHScrollbarBox || isFocused);
     // TODO Turn this on for inprocess OMTC on all platforms
-    bool wantSubAPZC = (XRE_GetProcessType() == GeckoProcessType_Content);
-#ifdef XP_WIN
-    if (XRE_GetWindowsEnvironment() == WindowsEnvironmentType_Metro) {
-      wantSubAPZC = true;
+    bool wantSubAPZC = gfxPrefs::APZSubframeEnabled();
+#ifdef MOZ_WIDGET_GONK
+    if (XRE_GetProcessType() != GeckoProcessType_Content) {
+      wantSubAPZC = false;
     }
 #endif
     shouldBuildLayer =

@@ -11,11 +11,12 @@ import java.util.Set;
 import org.mozilla.gecko.R;
 import org.mozilla.gecko.background.common.log.Logger;
 import org.mozilla.gecko.background.preferences.PreferenceFragment;
-import org.mozilla.gecko.db.BrowserContract;
+import org.mozilla.gecko.fxa.FirefoxAccounts;
 import org.mozilla.gecko.fxa.FxAccountConstants;
 import org.mozilla.gecko.fxa.authenticator.AndroidFxAccount;
 import org.mozilla.gecko.fxa.login.Married;
 import org.mozilla.gecko.fxa.login.State;
+import org.mozilla.gecko.fxa.sync.FxAccountSyncStatusHelper;
 import org.mozilla.gecko.sync.SyncConfiguration;
 
 import android.content.ContentResolver;
@@ -51,6 +52,8 @@ public class FxAccountStatusFragment extends PreferenceFragment implements OnPre
   protected Preference needsPasswordPreference;
   protected Preference needsUpgradePreference;
   protected Preference needsVerificationPreference;
+  protected Preference needsMasterSyncAutomaticallyEnabledPreference;
+  protected Preference needsAccountEnabledPreference;
 
   protected PreferenceCategory syncCategory;
 
@@ -68,6 +71,8 @@ public class FxAccountStatusFragment extends PreferenceFragment implements OnPre
   // This Runnable references the fxAccount above, but it is not specific to a
   // single account. (That is, it does not capture a single account instance.)
   protected Runnable requestSyncRunnable;
+
+  protected final SyncStatusDelegate syncStatusDelegate = new SyncStatusDelegate();
 
   protected Preference ensureFindPreference(String key) {
     Preference preference = findPreference(key);
@@ -87,6 +92,8 @@ public class FxAccountStatusFragment extends PreferenceFragment implements OnPre
     needsPasswordPreference = ensureFindPreference("needs_credentials");
     needsUpgradePreference = ensureFindPreference("needs_upgrade");
     needsVerificationPreference = ensureFindPreference("needs_verification");
+    needsMasterSyncAutomaticallyEnabledPreference = ensureFindPreference("needs_master_sync_automatically_enabled");
+    needsAccountEnabledPreference = ensureFindPreference("needs_account_enabled");
 
     syncCategory = (PreferenceCategory) ensureFindPreference("sync_category");
 
@@ -103,6 +110,7 @@ public class FxAccountStatusFragment extends PreferenceFragment implements OnPre
 
     needsPasswordPreference.setOnPreferenceClickListener(this);
     needsVerificationPreference.setOnPreferenceClickListener(this);
+    needsAccountEnabledPreference.setOnPreferenceClickListener(this);
 
     bookmarksPreference.setOnPreferenceClickListener(this);
     historyPreference.setOnPreferenceClickListener(this);
@@ -143,6 +151,13 @@ public class FxAccountStatusFragment extends PreferenceFragment implements OnPre
       return true;
     }
 
+    if (preference == needsAccountEnabledPreference) {
+      fxAccount.enableSyncing();
+      refresh();
+
+      return true;
+    }
+
     if (preference == bookmarksPreference ||
         preference == historyPreference ||
         preference == passwordsPreference ||
@@ -171,7 +186,10 @@ public class FxAccountStatusFragment extends PreferenceFragment implements OnPre
     final Preference[] errorPreferences = new Preference[] {
         this.needsPasswordPreference,
         this.needsUpgradePreference,
-        this.needsVerificationPreference };
+        this.needsVerificationPreference,
+        this.needsMasterSyncAutomaticallyEnabledPreference,
+        this.needsAccountEnabledPreference,
+    };
     for (Preference errorPreference : errorPreferences) {
       final boolean currentlyShown = null != findPreference(errorPreference.getKey());
       final boolean shouldBeShown = errorPreference == errorPreferenceToShow;
@@ -204,10 +222,54 @@ public class FxAccountStatusFragment extends PreferenceFragment implements OnPre
     setCheckboxesEnabled(false);
   }
 
+  protected void showNeedsMasterSyncAutomaticallyEnabled() {
+    syncCategory.setTitle(R.string.fxaccount_status_sync);
+    showOnlyOneErrorPreference(needsMasterSyncAutomaticallyEnabledPreference);
+    setCheckboxesEnabled(false);
+  }
+
+  protected void showNeedsAccountEnabled() {
+    syncCategory.setTitle(R.string.fxaccount_status_sync);
+    showOnlyOneErrorPreference(needsAccountEnabledPreference);
+    setCheckboxesEnabled(false);
+  }
+
   protected void showConnected() {
     syncCategory.setTitle(R.string.fxaccount_status_sync_enabled);
     showOnlyOneErrorPreference(null);
     setCheckboxesEnabled(true);
+  }
+
+  protected class SyncStatusDelegate implements FxAccountSyncStatusHelper.Delegate {
+    protected final Runnable refreshRunnable = new Runnable() {
+      @Override
+      public void run() {
+        refresh();
+      }
+    };
+
+    @Override
+    public AndroidFxAccount getAccount() {
+      return fxAccount;
+    }
+
+    @Override
+    public void handleSyncStarted() {
+      if (fxAccount == null) {
+        return;
+      }
+      Logger.info(LOG_TAG, "Got sync started message; refreshing.");
+      getActivity().runOnUiThread(refreshRunnable);
+    }
+
+    @Override
+    public void handleSyncFinished() {
+      if (fxAccount == null) {
+        return;
+      }
+      Logger.info(LOG_TAG, "Got sync finished message; refreshing.");
+      getActivity().runOnUiThread(refreshRunnable);
+    }
   }
 
   /**
@@ -232,7 +294,21 @@ public class FxAccountStatusFragment extends PreferenceFragment implements OnPre
     // serviced very quickly, so this is not an issue.
     requestSyncRunnable = new RequestSyncRunnable();
 
+    // We would very much like register these status observers in bookended
+    // onResume/onPause calls, but because the Fragment gets onResume during the
+    // Activity's super.onResume, it hasn't yet been told its Firefox Account.
+    // So we register the observer here (and remove it in onPause), and open
+    // ourselves to the possibility that we don't have properly paired
+    // register/unregister calls.
+    FxAccountSyncStatusHelper.getInstance().startObserving(syncStatusDelegate);
+
     refresh();
+  }
+
+  @Override
+  public void onPause() {
+    super.onPause();
+    FxAccountSyncStatusHelper.getInstance().stopObserving(syncStatusDelegate);
   }
 
   protected void refresh() {
@@ -245,23 +321,49 @@ public class FxAccountStatusFragment extends PreferenceFragment implements OnPre
 
     emailPreference.setTitle(fxAccount.getEmail());
 
-    // Interrogate the Firefox Account's state.
-    State state = fxAccount.getState();
-    switch (state.getNeededAction()) {
-    case NeedsUpgrade:
-      showNeedsUpgrade();
-      break;
-    case NeedsPassword:
-      showNeedsPassword();
-      break;
-    case NeedsVerification:
-      showNeedsVerification();
-      break;
-    default:
-      showConnected();
-    }
+    try {
+      // There are error states determined by Android, not the login state
+      // machine, and we have a chance to present these states here.  We handle
+      // them specially, since we can't surface these states as part of syncing,
+      // because they generally stop syncs from happening regularly.
 
-    updateSelectedEngines();
+      // The action to enable syncing the Firefox Account doesn't require
+      // leaving this activity, so let's present it first.
+      final boolean isSyncing = fxAccount.isSyncing();
+      if (!isSyncing) {
+        showNeedsAccountEnabled();
+        return;
+      }
+
+      // Interrogate the Firefox Account's state.
+      State state = fxAccount.getState();
+      switch (state.getNeededAction()) {
+      case NeedsUpgrade:
+        showNeedsUpgrade();
+        break;
+      case NeedsPassword:
+        showNeedsPassword();
+        break;
+      case NeedsVerification:
+        showNeedsVerification();
+        break;
+      default:
+        showConnected();
+      }
+
+      // We check for the master setting last, since it is not strictly
+      // necessary for the user to address this error state: it's really a
+      // warning state. We surface it for the user's convenience, and to prevent
+      // confused folks wondering why Sync is not working at all.
+      final boolean masterSyncAutomatically = ContentResolver.getMasterSyncAutomatically();
+      if (!masterSyncAutomatically) {
+        showNeedsMasterSyncAutomaticallyEnabled();
+        return;
+      }
+    } finally {
+      // No matter our state, we should update the checkboxes.
+      updateSelectedEngines();
+    }
   }
 
   /**
@@ -387,9 +489,7 @@ public class FxAccountStatusFragment extends PreferenceFragment implements OnPre
         return;
       }
       Logger.info(LOG_TAG, "Requesting a sync sometime soon.");
-      // Request a sync, but not necessarily an immediate sync.
-      ContentResolver.requestSync(fxAccount.getAndroidAccount(), BrowserContract.AUTHORITY, Bundle.EMPTY);
-      // SyncAdapter.requestImmediateSync(fxAccount.getAndroidAccount(), null);
+      fxAccount.requestSync();
     }
   }
 
@@ -406,10 +506,8 @@ public class FxAccountStatusFragment extends PreferenceFragment implements OnPre
       } else if ("debug_dump".equals(key)) {
         fxAccount.dump();
       } else if ("debug_force_sync".equals(key)) {
-        Logger.info(LOG_TAG, "Syncing.");
-        final Bundle extras = new Bundle();
-        extras.putBoolean(ContentResolver.SYNC_EXTRAS_MANUAL, true);
-        fxAccount.requestSync(extras);
+        Logger.info(LOG_TAG, "Force syncing.");
+        fxAccount.requestSync(FirefoxAccounts.FORCE);
         // No sense refreshing, since the sync will complete in the future.
       } else if ("debug_forget_certificate".equals(key)) {
         State state = fxAccount.getState();

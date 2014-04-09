@@ -136,6 +136,7 @@ class ParallelSafetyVisitor : public MInstructionVisitor
     UNSAFE_OP(GetArgumentsObjectArg)
     UNSAFE_OP(SetArgumentsObjectArg)
     UNSAFE_OP(ComputeThis)
+    UNSAFE_OP(LoadArrowThis)
     CUSTOM_OP(Call)
     UNSAFE_OP(ApplyArgs)
     UNSAFE_OP(Bail)
@@ -183,6 +184,7 @@ class ParallelSafetyVisitor : public MInstructionVisitor
     CUSTOM_OP(NewArray)
     CUSTOM_OP(NewObject)
     CUSTOM_OP(NewCallObject)
+    CUSTOM_OP(NewRunOnceCallObject)
     CUSTOM_OP(NewDerivedTypedObject)
     UNSAFE_OP(InitElem)
     UNSAFE_OP(InitElemGetterSetter)
@@ -221,6 +223,7 @@ class ParallelSafetyVisitor : public MInstructionVisitor
     SAFE_OP(TypedArrayLength)
     SAFE_OP(TypedArrayElements)
     SAFE_OP(TypedObjectElements)
+    SAFE_OP(SetTypedObjectOffset)
     SAFE_OP(InitializedLength)
     WRITE_GUARDED_OP(SetInitializedLength, elements)
     SAFE_OP(Not)
@@ -526,6 +529,13 @@ ParallelSafetyVisitor::visitCreateThisWithTemplate(MCreateThisWithTemplate *ins)
 
 bool
 ParallelSafetyVisitor::visitNewCallObject(MNewCallObject *ins)
+{
+    replace(ins, MNewCallObjectPar::New(alloc(), ForkJoinContext(), ins));
+    return true;
+}
+
+bool
+ParallelSafetyVisitor::visitNewRunOnceCallObject(MNewRunOnceCallObject *ins)
 {
     replace(ins, MNewCallObjectPar::New(alloc(), ForkJoinContext(), ins));
     return true;

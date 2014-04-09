@@ -61,6 +61,7 @@ class CodeGeneratorShared : public LInstructionVisitor
     LIRGraph &graph;
     LBlock *current;
     SnapshotWriter snapshots_;
+    RecoverWriter recovers_;
     JitCode *deoptTable_;
 #ifdef DEBUG
     uint32_t pushedArgs_;
@@ -257,6 +258,7 @@ class CodeGeneratorShared : public LInstructionVisitor
   protected:
     // Encodes an LSnapshot into the compressed snapshot buffer, returning
     // false on failure.
+    bool encode(LRecoverInfo *recover);
     bool encode(LSnapshot *snapshot);
     bool encodeAllocations(LSnapshot *snapshot, MResumePoint *resumePoint, uint32_t *startIndex);
 
@@ -348,6 +350,10 @@ class CodeGeneratorShared : public LInstructionVisitor
     inline void saveLive(LInstruction *ins);
     inline void restoreLive(LInstruction *ins);
     inline void restoreLiveIgnore(LInstruction *ins, RegisterSet reg);
+
+    // Save/restore all registers that are both live and volatile.
+    inline void saveLiveVolatile(LInstruction *ins);
+    inline void restoreLiveVolatile(LInstruction *ins);
 
     template <typename T>
     void pushArg(const T &t) {

@@ -14,6 +14,7 @@
 #include "mozilla/AutoRestore.h"
 #include "mozilla/DebugOnly.h"
 #include "mozilla/dom/HTMLSelectElement.h"
+#include "mozilla/EventStates.h"
 #include "mozilla/Likely.h"
 #include "mozilla/LinkedList.h"
 #include "nsAbsoluteContainingBlock.h"
@@ -30,7 +31,6 @@
 #include "nsUnicharUtils.h"
 #include "nsStyleSet.h"
 #include "nsViewManager.h"
-#include "nsEventStates.h"
 #include "nsStyleConsts.h"
 #include "nsIDOMXULElement.h"
 #include "nsContainerFrame.h"
@@ -1510,15 +1510,6 @@ struct nsGenConInitializer {
     : mNode(aNode), mList(aList), mDirtyAll(aDirtyAll) {}
 };
 
-static void
-DestroyGenConInitializer(void*    aFrame,
-                         nsIAtom* aPropertyName,
-                         void*    aPropertyValue,
-                         void*    aDtorData)
-{
-  delete static_cast<nsGenConInitializer*>(aPropertyValue);
-}
-
 already_AddRefed<nsIContent>
 nsCSSFrameConstructor::CreateGenConTextNode(nsFrameConstructorState& aState,
                                             const nsString& aString,
@@ -1532,7 +1523,7 @@ nsCSSFrameConstructor::CreateGenConTextNode(nsFrameConstructorState& aState,
   }
   if (aInitializer) {
     content->SetProperty(nsGkAtoms::genConInitializerProperty, aInitializer,
-                         DestroyGenConInitializer);
+                         nsINode::DeleteProperty<nsGenConInitializer>);
     aState.mGeneratedTextNodesWithInitializer.AppendObject(content);
   }
   return content.forget();

@@ -8,7 +8,7 @@
 #define MediaRecorder_h
 
 #include "mozilla/dom/MediaRecorderBinding.h"
-#include "nsDOMEventTargetHelper.h"
+#include "mozilla/DOMEventTargetHelper.h"
 
 // Max size for allowing queue encoded data in memory
 #define MAX_ALLOW_MEMORY_BUFFER 1024000
@@ -35,7 +35,7 @@ namespace dom {
  * Also extract the encoded data and create blobs on every timeslice passed from start function or RequestData function called by UA.
  */
 
-class MediaRecorder : public nsDOMEventTargetHelper
+class MediaRecorder : public DOMEventTargetHelper
 {
   class Session;
   friend class CreateAndDispatchBlobEventRunnable;
@@ -52,7 +52,7 @@ public:
 
   NS_DECL_ISUPPORTS_INHERITED
   NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED(MediaRecorder,
-                                           nsDOMEventTargetHelper)
+                                           DOMEventTargetHelper)
 
   // WebIDL
   // Start recording. If timeSlice has been provided, mediaRecorder will
@@ -100,13 +100,14 @@ protected:
   void SetMimeType(const nsString &aMimeType);
 
   MediaRecorder(const MediaRecorder& x) MOZ_DELETE; // prevent bad usage
-
+  // Remove session pointer.
+  void RemoveSession(Session* aSession);
   // MediaStream passed from js context
   nsRefPtr<DOMMediaStream> mStream;
   // The current state of the MediaRecorder object.
   RecordingState mState;
-  // Current recording session.
-  nsRefPtr<Session> mSession;
+  // Hold the sessions pointer in media recorder and clean in the destructor of recorder.
+  nsTArray<Session*> mSessions;
   // Thread safe for mMimeType.
   Mutex mMutex;
   // It specifies the container format as well as the audio and video capture formats.

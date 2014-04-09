@@ -35,6 +35,12 @@ const CALL_WAKELOCK_TIMEOUT = 5000;
 // Index of the CDMA second call which isn't held in RIL but only in TelephoyProvider.
 const CDMA_SECOND_CALL_INDEX = 2;
 
+const DIAL_ERROR_INVALID_STATE_ERROR = "InvalidStateError";
+const DIAL_ERROR_OTHER_CONNECTION_IN_USE = "OtherConnectionInUse";
+
+// Should match the value we set in dom/telephony/TelephonyCommon.h
+const OUTGOING_PLACEHOLDER_CALL_INDEX = 0xffffffff;
+
 let DEBUG;
 function debug(s) {
   dump("TelephonyProvider: " + s + "\n");
@@ -420,7 +426,25 @@ TelephonyProvider.prototype = {
 
     if (this.isDialing) {
       if (DEBUG) debug("Already has a dialing call. Drop.");
-      aTelephonyCallback.notifyDialError("InvalidStateError");
+      aTelephonyCallback.notifyDialError(DIAL_ERROR_INVALID_STATE_ERROR);
+      return;
+    }
+
+    // For DSDS, if there is aleady a call on SIM X, we cannot place any new
+    // call on other SIM.
+    let callOnOtherSim = false;
+    for (let cid = 0; cid < this._numClients; ++cid) {
+      if (cid === aClientId) {
+        continue;
+      }
+      if (Object.keys(this._currentCalls[cid]).length !== 0) {
+        callOnOtherSim = true;
+        break;
+      }
+    }
+    if (callOnOtherSim) {
+      if (DEBUG) debug("Already has a call on other sim. Drop.");
+      aTelephonyCallback.notifyDialError(DIAL_ERROR_OTHER_CONNECTION_IN_USE);
       return;
     }
 
@@ -800,6 +824,14 @@ TelephonyProvider.prototype = {
                           aCall.isSwitchable : true;
       call.isMergeable = aCall.isMergeable != null ?
                          aCall.isMergeable : true;
+
+      // Get the actual call for pending outgoing call. Remove the original one.
+      if (this._currentCalls[aClientId][OUTGOING_PLACEHOLDER_CALL_INDEX] &&
+          call.callIndex != OUTGOING_PLACEHOLDER_CALL_INDEX &&
+          call.isOutgoing) {
+        delete this._currentCalls[aClientId][OUTGOING_PLACEHOLDER_CALL_INDEX];
+      }
+
       this._currentCalls[aClientId][aCall.callIndex] = call;
     }
 

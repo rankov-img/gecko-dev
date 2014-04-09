@@ -7,8 +7,11 @@ package org.mozilla.gecko;
 
 import org.mozilla.gecko.gfx.InputConnectionHandler;
 import org.mozilla.gecko.gfx.LayerView;
+import org.mozilla.gecko.util.GeckoEventListener;
 import org.mozilla.gecko.util.ThreadUtils;
 import org.mozilla.gecko.util.ThreadUtils.AssertBehavior;
+
+import org.json.JSONObject;
 
 import android.os.Build;
 import android.os.Handler;
@@ -75,7 +78,7 @@ interface GeckoEditableListener {
 */
 final class GeckoEditable
         implements InvocationHandler, Editable,
-                   GeckoEditableClient, GeckoEditableListener {
+                   GeckoEditableClient, GeckoEditableListener, GeckoEventListener {
 
     private static final boolean DEBUG = false;
     private static final String LOGTAG = "GeckoEditable";
@@ -100,7 +103,9 @@ final class GeckoEditable
     private int mIcUpdateSeqno;
     private int mLastIcUpdateSeqno;
     private boolean mUpdateGecko;
-    private boolean mFocused;
+    private boolean mFocused; // Used by IC thread
+    private boolean mGeckoFocused; // Used by Gecko thread
+    private volatile boolean mSuppressCompositions;
     private volatile boolean mSuppressKeyUp;
 
     /* An action that alters the Editable
@@ -396,7 +401,10 @@ final class GeckoEditable
 
     private void icUpdateGecko(boolean force) {
 
-        if (!force && mIcUpdateSeqno == mLastIcUpdateSeqno) {
+        // Skip if receiving a repeated request, or
+        // if suppressing compositions during text selection.
+        if ((!force && mIcUpdateSeqno == mLastIcUpdateSeqno) ||
+            mSuppressCompositions) {
             if (DEBUG) {
                 Log.d(LOGTAG, "icUpdateGecko() skipped");
             }
@@ -750,6 +758,22 @@ final class GeckoEditable
                 mListener.notifyIME(type);
             }
         });
+
+        // Register/unregister Gecko-side text selection listeners
+        // and update the mGeckoFocused flag.
+        if (type == NOTIFY_IME_OF_BLUR && mGeckoFocused) {
+            // Check for focus here because Gecko may send us a blur before a focus in some
+            // cases, and we don't want to unregister an event that was not registered.
+            mGeckoFocused = false;
+            mSuppressCompositions = false;
+            GeckoAppShell.getEventDispatcher().
+                unregisterEventListener("TextSelection:IMECompositions", this);
+        } else if (type == NOTIFY_IME_OF_FOCUS) {
+            mGeckoFocused = true;
+            mSuppressCompositions = false;
+            GeckoAppShell.getEventDispatcher().
+                registerEventListener("TextSelection:IMECompositions", this);
+        }
     }
 
     @Override
@@ -1198,6 +1222,17 @@ final class GeckoEditable
     @Override
     public String toString() {
         throw new UnsupportedOperationException("method must be called through mProxy");
+    }
+
+    // GeckoEventListener implementation
+
+    @Override
+    public void handleMessage(String event, JSONObject message) {
+        if (!"TextSelection:IMECompositions".equals(event)) {
+            return;
+        }
+
+        mSuppressCompositions = message.optBoolean("suppress", false);
     }
 }
 

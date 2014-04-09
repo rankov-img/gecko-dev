@@ -21,18 +21,6 @@ let gHttpRoot   = null;
 let gReporter   = null;
 let gPolicy     = null;
 
-let gGlobalScope = this;
-function loadAddonManager() {
-  let ns = {};
-  Cu.import("resource://gre/modules/Services.jsm", ns);
-  let head = "../../../../toolkit/mozapps/extensions/test/xpcshell/head_addons.js";
-  let file = do_get_file(head);
-  let uri = ns.Services.io.newFileURI(file);
-  ns.Services.scriptloader.loadSubScript(uri.spec, gGlobalScope);
-  createAppInfo("xpcshell@tests.mozilla.org", "XPCShell", "1", "1.9.2");
-  startupManager();
-}
-
 function ManifestEntry(data) {
   this.id        = data.id        || EXPERIMENT1_ID;
   this.xpiURL    = data.xpiURL    || gHttpRoot + EXPERIMENT1_XPI_NAME;
@@ -63,6 +51,7 @@ add_task(function* test_setup() {
   gReporter = yield getReporter("json_payload_simple");
   yield gReporter.collectMeasurements();
   let payload = yield gReporter.getJSONPayload(true);
+  do_register_cleanup(() => gReporter._shutdown());
 
   patchPolicy(gPolicy, {
     updatechannel: () => "nightly",
@@ -97,6 +86,12 @@ add_task(function* test_startStop() {
   });
   let experiment = new Experiments.ExperimentEntry(gPolicy);
   experiment.initFromManifestData(manifestData);
+
+  // We need to associate it with the singleton so the onInstallStarted
+  // Addon Manager listener will know about it.
+  Experiments.instance()._experiments = new Map();
+  Experiments.instance()._experiments.set(experiment.id, experiment);
+
   let result;
 
   defineNow(gPolicy, baseDate);
@@ -104,25 +99,43 @@ add_task(function* test_startStop() {
   Assert.equal(result.applicable, false, "Experiment should not be applicable.");
   Assert.equal(experiment.enabled, false, "Experiment should not be enabled.");
 
+  let addons = yield getExperimentAddons();
+  Assert.equal(addons.length, 0, "No experiment add-ons are installed.");
+
   defineNow(gPolicy, futureDate(startDate, 5 * MS_IN_ONE_DAY));
   result = yield isApplicable(experiment);
   Assert.equal(result.applicable, true, "Experiment should now be applicable.");
   Assert.equal(experiment.enabled, false, "Experiment should not be enabled.");
 
   yield experiment.start();
+  addons = yield getExperimentAddons();
   Assert.equal(experiment.enabled, true, "Experiment should now be enabled.");
+  Assert.equal(addons.length, 1, "1 experiment add-on is installed.");
+  Assert.equal(addons[0].id, experiment._addonId, "The add-on is the one we expect.");
+  Assert.equal(addons[0].userDisabled, false, "The add-on is not userDisabled.");
+  Assert.ok(addons[0].isActive, "The add-on is active.");
 
   yield experiment.stop();
+  addons = yield getExperimentAddons();
   Assert.equal(experiment.enabled, false, "Experiment should not be enabled.");
+  Assert.equal(addons.length, 0, "Experiment should be uninstalled from the Addon Manager.");
 
   yield experiment.start();
+  addons = yield getExperimentAddons();
   Assert.equal(experiment.enabled, true, "Experiment should now be enabled.");
+  Assert.equal(addons.length, 1, "1 experiment add-on is installed.");
+  Assert.equal(addons[0].id, experiment._addonId, "The add-on is the one we expect.");
+  Assert.equal(addons[0].userDisabled, false, "The add-on is not userDisabled.");
+  Assert.ok(addons[0].isActive, "The add-on is active.");
 
   let result = yield experiment._shouldStop();
   Assert.equal(result.shouldStop, false, "shouldStop should be false.");
   let maybeStop = yield experiment.maybeStop();
   Assert.equal(maybeStop, false, "Experiment should not have been stopped.");
   Assert.equal(experiment.enabled, true, "Experiment should be enabled.");
+  addons = yield getExperimentAddons();
+  Assert.equal(addons.length, 1, "Experiment still in add-ons manager.");
+  Assert.ok(addons[0].isActive, "The add-on is still active.");
 
   defineNow(gPolicy, futureDate(endDate, MS_IN_ONE_DAY));
   result = yield experiment._shouldStop();
@@ -130,9 +143,6 @@ add_task(function* test_startStop() {
   maybeStop = yield experiment.maybeStop();
   Assert.equal(maybeStop, true, "Experiment should have been stopped.");
   Assert.equal(experiment.enabled, false, "Experiment should be disabled.");
-});
-
-add_task(function* shutdown() {
-  yield gReporter._shutdown();
-  yield removeCacheFile();
+  addons = yield getExperimentAddons();
+  Assert.equal(addons.length, 0, "Experiment add-on is uninstalled.");
 });

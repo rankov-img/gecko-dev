@@ -30,6 +30,8 @@
 
 #include "jsgcinlines.h"
 
+#include "vm/ObjectImpl-inl.h"
+
 using namespace js;
 using namespace gc;
 using namespace mozilla;
@@ -52,19 +54,6 @@ js::Nursery::init()
         return false;
 
     void *heap = MapAlignedPages(runtime(), NurserySize, Alignment);
-#ifdef JSGC_ROOT_ANALYSIS
-    // Our poison pointers are not guaranteed to be invalid on 64-bit
-    // architectures, and often are valid. We can't just reserve the full
-    // poison range, because it might already have been taken up by something
-    // else (shared library, previous allocation). So we'll just loop and
-    // discard poison pointers until we get something valid.
-    //
-    // This leaks all of these poisoned pointers. It would be better if they
-    // were marked as uncommitted, but it's a little complicated to avoid
-    // clobbering pre-existing unrelated mappings.
-    while (IsPoisonedPtr(heap) || IsPoisonedPtr((void*)(uintptr_t(heap) + NurserySize)))
-        heap = MapAlignedPages(runtime(), NurserySize, Alignment);
-#endif
     if (!heap)
         return false;
 
@@ -73,9 +62,7 @@ js::Nursery::init()
     currentStart_ = start();
     rt->gcNurseryEnd_ = chunk(LastNurseryChunk).end();
     numActiveChunks_ = 1;
-#ifdef JS_GC_ZEAL
-    JS_POISON(heap, FreshNursery, NurserySize);
-#endif
+    JS_POISON(heap, JS_FRESH_NURSERY_PATTERN, NurserySize);
     setCurrentChunk(0);
     updateDecommittedRegion();
 
@@ -181,9 +168,7 @@ js::Nursery::allocate(size_t size)
     void *thing = (void *)position();
     position_ = position() + size;
 
-#ifdef JS_GC_ZEAL
-    JS_POISON(thing, AllocatedThing, size);
-#endif
+    JS_POISON(thing, JS_ALLOCATED_NURSERY_PATTERN, size);
     return thing;
 }
 
@@ -377,6 +362,15 @@ GetObjectAllocKindForCopy(JSRuntime *rt, JSObject *obj)
 
     if (obj->is<JSFunction>())
         return obj->as<JSFunction>().getAllocKind();
+
+    /*
+     * Typed arrays in the nursery may have a lazily allocated buffer, make
+     * sure there is room for the array's fixed data when moving the array.
+     */
+    if (obj->is<TypedArrayObject>() && !obj->as<TypedArrayObject>().buffer()) {
+        size_t nbytes = obj->as<TypedArrayObject>().byteLength();
+        return GetBackgroundAllocKind(TypedArrayObject::AllocKindForLazyBuffer(nbytes));
+    }
 
     AllocKind kind = GetGCObjectFixedSlotsKind(obj->numFixedSlots());
     JS_ASSERT(!IsBackgroundFinalized(kind));
@@ -574,6 +568,9 @@ js::Nursery::moveObjectToTenured(JSObject *dst, JSObject *src, AllocKind dstKind
     tenuredSize += moveSlotsToTenured(dst, src, dstKind);
     tenuredSize += moveElementsToTenured(dst, src, dstKind);
 
+    if (src->is<TypedArrayObject>())
+        dst->setPrivate(dst->fixedData(TypedArrayObject::FIXED_DATA_START));
+
     /* The shape's list head may point into the old object. */
     if (&src->shape_ == dst->shape_->listp)
         dst->shape_->listp = &dst->shape_;
@@ -699,6 +696,8 @@ js::Nursery::collect(JSRuntime *rt, JS::gcreason::Reason reason, TypeObjectList 
 
     if (isEmpty())
         return;
+
+    rt->gcStats.count(gcstats::STAT_MINOR_GC);
 
     TIME_START(total);
 
@@ -876,7 +875,7 @@ js::Nursery::sweep(JSRuntime *rt)
 {
 #ifdef JS_GC_ZEAL
     /* Poison the nursery contents so touching a freed object will crash. */
-    JS_POISON((void *)start(), SweptNursery, NurserySize - sizeof(JSRuntime *));
+    JS_POISON((void *)start(), JS_SWEPT_NURSERY_PATTERN, NurserySize);
     for (int i = 0; i < NumNurseryChunks; ++i)
         chunk(i).trailer.runtime = runtime();
 
@@ -889,6 +888,11 @@ js::Nursery::sweep(JSRuntime *rt)
     } else
 #endif
     {
+#ifdef JS_CRASH_DIAGNOSTICS
+        JS_POISON((void *)start(), JS_SWEPT_NURSERY_PATTERN, allocationEnd() - start());
+        for (int i = 0; i < numActiveChunks_; ++i)
+            chunk(i).trailer.runtime = runtime();
+#endif
         setCurrentChunk(0);
     }
 
@@ -899,7 +903,9 @@ js::Nursery::sweep(JSRuntime *rt)
 void
 js::Nursery::growAllocableSpace()
 {
+#ifdef JS_GC_ZEAL
     MOZ_ASSERT_IF(runtime()->gcZeal_ == ZealGenerationalGCValue, numActiveChunks_ == NumNurseryChunks);
+#endif
     numActiveChunks_ = Min(numActiveChunks_ * 2, NumNurseryChunks);
 }
 

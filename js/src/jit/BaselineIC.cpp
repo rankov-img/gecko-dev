@@ -705,6 +705,29 @@ ICStubCompiler::guardProfilingEnabled(MacroAssembler &masm, Register scratch, La
     masm.branch32(Assembler::Equal, AbsoluteAddress(enabledAddr), Imm32(0), skip);
 }
 
+void
+ICStubCompiler::emitProfilingUpdate(MacroAssembler &masm, Register pcIdx, Register scratch,
+                                    uint32_t stubPcOffset)
+{
+    Label skipProfilerUpdate;
+
+    // Check if profiling is enabled.
+    guardProfilingEnabled(masm, scratch, &skipProfilerUpdate);
+
+    // Update profiling entry before leaving function.
+    masm.load32(Address(BaselineStubReg, stubPcOffset), pcIdx);
+    masm.spsUpdatePCIdx(&cx->runtime()->spsProfiler, pcIdx, scratch);
+
+    masm.bind(&skipProfilerUpdate);
+}
+
+void
+ICStubCompiler::emitProfilingUpdate(MacroAssembler &masm, GeneralRegisterSet regs,
+                                    uint32_t stubPcOffset)
+{
+    emitProfilingUpdate(masm, regs.takeAny(), regs.takeAny(), stubPcOffset);
+}
+
 #ifdef JSGC_GENERATIONAL
 inline bool
 ICStubCompiler::emitPostWriteBarrierSlot(MacroAssembler &masm, Register obj, ValueOperand val,
@@ -751,10 +774,10 @@ IsTopFrameConstructing(JSContext *cx)
     JS_ASSERT(cx->currentlyRunningInJit());
     JitActivationIterator activations(cx->runtime());
     IonFrameIterator iter(activations);
-    JS_ASSERT(iter.type() == IonFrame_Exit);
+    JS_ASSERT(iter.type() == JitFrame_Exit);
 
     ++iter;
-    JS_ASSERT(iter.type() == IonFrame_BaselineStub);
+    JS_ASSERT(iter.type() == JitFrame_BaselineStub);
 
     ++iter;
     JS_ASSERT(iter.isBaselineJS());
@@ -4074,22 +4097,7 @@ ICGetElemNativeCompiler::emitCallNative(MacroAssembler &masm, Register objReg)
     regs.add(objReg);
 
     // Profiler hook.
-    {
-        Label skipProfilerUpdate;
-        Register scratch = regs.takeAny();
-        Register pcIdx = regs.takeAny();
-
-        // Check if profiling is enabled.
-        guardProfilingEnabled(masm, scratch, &skipProfilerUpdate);
-
-        // Update profiling entry before leaving function.
-        masm.load32(Address(BaselineStubReg, ICGetElemNativeGetterStub::offsetOfPCOffset()), pcIdx);
-        masm.spsUpdatePCIdx(&cx->runtime()->spsProfiler, pcIdx, scratch);
-
-        masm.bind(&skipProfilerUpdate);
-        regs.add(scratch);
-        regs.add(pcIdx);
-    }
+    emitProfilingUpdate(masm, regs, ICGetElemNativeGetterStub::offsetOfPCOffset());
 
     // Call helper.
     if (!callVM(DoCallNativeGetterInfo, masm))
@@ -4160,25 +4168,12 @@ ICGetElemNativeCompiler::emitCallScripted(MacroAssembler &masm, Register objReg)
     // If needed, update SPS Profiler frame entry.  At this point, callee and scratch can
     // be clobbered.
     {
-        Label skipProfilerUpdate;
-
-        // Need to avoid using ArgumentsRectifierReg and code register.
         GeneralRegisterSet availRegs = availableGeneralRegs(0);
         availRegs.take(ArgumentsRectifierReg);
         availRegs.take(code);
-        Register scratch = availRegs.takeAny();
-        Register pcIdx = availRegs.takeAny();
-
-        // Check if profiling is enabled.
-        guardProfilingEnabled(masm, scratch, &skipProfilerUpdate);
-
-        // Update profiling entry before leaving function.
-        masm.load32(Address(BaselineStubReg, ICGetElemNativeGetterStub::offsetOfPCOffset()),
-                    pcIdx);
-        masm.spsUpdatePCIdx(&cx->runtime()->spsProfiler, pcIdx, scratch);
-
-        masm.bind(&skipProfilerUpdate);
+        emitProfilingUpdate(masm, availRegs, ICGetElemNativeGetterStub::offsetOfPCOffset());
     }
+
     masm.callIon(code);
 
     leaveStubFrame(masm, true);
@@ -6711,6 +6706,7 @@ ICGetProp_CallScripted::Compiler::generateStubCode(MacroAssembler &masm)
     }
     Register code = regs.takeAny();
     masm.loadPtr(Address(BaselineStubReg, ICGetProp_CallScripted::offsetOfGetter()), callee);
+    masm.branchIfFunctionHasNoScript(callee, &failureLeaveStubFrame);
     masm.loadPtr(Address(callee, JSFunction::offsetOfNativeOrScript()), code);
     masm.loadBaselineOrIonRaw(code, code, SequentialExecution, &failureLeaveStubFrame);
 
@@ -6744,24 +6740,12 @@ ICGetProp_CallScripted::Compiler::generateStubCode(MacroAssembler &masm)
     // If needed, update SPS Profiler frame entry.  At this point, callee and scratch can
     // be clobbered.
     {
-        Label skipProfilerUpdate;
-
-        // Need to avoid using ArgumentsRectifierReg and code register.
         GeneralRegisterSet availRegs = availableGeneralRegs(0);
         availRegs.take(ArgumentsRectifierReg);
         availRegs.take(code);
-        Register scratch = availRegs.takeAny();
-        Register pcIdx = availRegs.takeAny();
-
-        // Check if profiling is enabled.
-        guardProfilingEnabled(masm, scratch, &skipProfilerUpdate);
-
-        // Update profiling entry before leaving function.
-        masm.load32(Address(BaselineStubReg, ICGetProp_CallScripted::offsetOfPCOffset()), pcIdx);
-        masm.spsUpdatePCIdx(&cx->runtime()->spsProfiler, pcIdx, scratch);
-
-        masm.bind(&skipProfilerUpdate);
+        emitProfilingUpdate(masm, availRegs, ICGetProp_CallScripted::offsetOfPCOffset());
     }
+
     masm.callIon(code);
 
     leaveStubFrame(masm, true);
@@ -6812,22 +6796,7 @@ ICGetProp_CallNative::Compiler::generateStubCode(MacroAssembler &masm)
         regs.add(R0);
 
     // If needed, update SPS Profiler frame entry.
-    {
-        Label skipProfilerUpdate;
-        Register scratch = regs.takeAny();
-        Register pcIdx = regs.takeAny();
-
-        // Check if profiling is enabled.
-        guardProfilingEnabled(masm, scratch, &skipProfilerUpdate);
-
-        // Update profiling entry before leaving function.
-        masm.load32(Address(BaselineStubReg, ICGetProp_CallNative::offsetOfPCOffset()), pcIdx);
-        masm.spsUpdatePCIdx(&cx->runtime()->spsProfiler, pcIdx, scratch);
-
-        masm.bind(&skipProfilerUpdate);
-        regs.add(scratch);
-        regs.add(pcIdx);
-    }
+    emitProfilingUpdate(masm, regs, ICGetProp_CallNative::offsetOfPCOffset());
 
     if (!callVM(DoCallNativeGetterInfo, masm))
         return false;
@@ -6877,22 +6846,8 @@ ICGetProp_CallNativePrototype::Compiler::generateStubCode(MacroAssembler &masm)
     regs.add(R0);
 
     // If needed, update SPS Profiler frame entry.
-    {
-        Label skipProfilerUpdate;
-        Register scratch = regs.takeAny();
-        Register pcIdx = regs.takeAny();
+    emitProfilingUpdate(masm, regs, ICGetProp_CallNativePrototype::offsetOfPCOffset());
 
-        // Check if profiling is enabled.
-        guardProfilingEnabled(masm, scratch, &skipProfilerUpdate);
-
-        // Update profiling entry before leaving function.
-        masm.load32(Address(BaselineStubReg, ICGetProp_CallNativePrototype::offsetOfPCOffset()), pcIdx);
-        masm.spsUpdatePCIdx(&cx->runtime()->spsProfiler, pcIdx, scratch);
-
-        masm.bind(&skipProfilerUpdate);
-        regs.add(scratch);
-        regs.add(pcIdx);
-    }
     if (!callVM(DoCallNativeGetterInfo, masm))
         return false;
     leaveStubFrame(masm);
@@ -6964,23 +6919,8 @@ ICGetPropCallDOMProxyNativeCompiler::generateStubCode(MacroAssembler &masm,
     regs.add(R0);
 
     // If needed, update SPS Profiler frame entry.
-    {
-        Label skipProfilerUpdate;
-        Register scratch = regs.takeAny();
-        Register pcIdx = regs.takeAny();
+    emitProfilingUpdate(masm, regs, ICGetProp_CallDOMProxyNative::offsetOfPCOffset());
 
-        // Check if profiling is enabled.
-        guardProfilingEnabled(masm, scratch, &skipProfilerUpdate);
-
-        // Update profiling entry before leaving function.
-        masm.load32(Address(BaselineStubReg, ICGetProp_CallDOMProxyNative::offsetOfPCOffset()),
-                    pcIdx);
-        masm.spsUpdatePCIdx(&cx->runtime()->spsProfiler, pcIdx, scratch);
-
-        masm.bind(&skipProfilerUpdate);
-        regs.add(scratch);
-        regs.add(pcIdx);
-    }
     if (!callVM(DoCallNativeGetterInfo, masm))
         return false;
     leaveStubFrame(masm);
@@ -7114,22 +7054,8 @@ ICGetProp_DOMProxyShadowed::Compiler::generateStubCode(MacroAssembler &masm)
     regs.add(R0);
 
     // If needed, update SPS Profiler frame entry.
-    {
-        Label skipProfilerUpdate;
-        Register scratch = regs.takeAny();
-        Register pcIdx = regs.takeAny();
+    emitProfilingUpdate(masm, regs, ICGetProp_DOMProxyShadowed::offsetOfPCOffset());
 
-        // Check if profiling is enabled.
-        guardProfilingEnabled(masm, scratch, &skipProfilerUpdate);
-
-        // Update profiling entry before leaving function.
-        masm.load32(Address(BaselineStubReg, ICGetProp_DOMProxyShadowed::offsetOfPCOffset()), pcIdx);
-        masm.spsUpdatePCIdx(&cx->runtime()->spsProfiler, pcIdx, scratch);
-
-        masm.bind(&skipProfilerUpdate);
-        regs.add(scratch);
-        regs.add(pcIdx);
-    }
     if (!callVM(ProxyGetInfo, masm))
         return false;
     leaveStubFrame(masm);
@@ -7675,6 +7601,7 @@ ICSetProp_CallScripted::Compiler::generateStubCode(MacroAssembler &masm)
     }
     Register code = regs.takeAny();
     masm.loadPtr(Address(BaselineStubReg, ICSetProp_CallScripted::offsetOfSetter()), callee);
+    masm.branchIfFunctionHasNoScript(callee, &failureLeaveStubFrame);
     masm.loadPtr(Address(callee, JSFunction::offsetOfNativeOrScript()), code);
     masm.loadBaselineOrIonRaw(code, code, SequentialExecution, &failureLeaveStubFrame);
 
@@ -7713,24 +7640,12 @@ ICSetProp_CallScripted::Compiler::generateStubCode(MacroAssembler &masm)
     // If needed, update SPS Profiler frame entry.  At this point, callee and scratch can
     // be clobbered.
     {
-        Label skipProfilerUpdate;
-
-        // Need to avoid using ArgumentsRectifierReg and code register.
         GeneralRegisterSet availRegs = availableGeneralRegs(0);
         availRegs.take(ArgumentsRectifierReg);
         availRegs.take(code);
-        Register scratch = availRegs.takeAny();
-        Register pcIdx = availRegs.takeAny();
-
-        // Check if profiling is enabled.
-        guardProfilingEnabled(masm, scratch, &skipProfilerUpdate);
-
-        // Update profiling entry before leaving function.
-        masm.load32(Address(BaselineStubReg, ICSetProp_CallScripted::offsetOfPCOffset()), pcIdx);
-        masm.spsUpdatePCIdx(&cx->runtime()->spsProfiler, pcIdx, scratch);
-
-        masm.bind(&skipProfilerUpdate);
+        emitProfilingUpdate(masm, availRegs, ICSetProp_CallScripted::offsetOfPCOffset());
     }
+
     masm.callIon(code);
 
     leaveStubFrame(masm, true);
@@ -7817,22 +7732,8 @@ ICSetProp_CallNative::Compiler::generateStubCode(MacroAssembler &masm)
     regs.add(R0);
 
     // If needed, update SPS Profiler frame entry.
-    {
-        Label skipProfilerUpdate;
-        Register scratch = regs.takeAny();
-        Register pcIdx = regs.takeAny();
+    emitProfilingUpdate(masm, regs, ICSetProp_CallNative::offsetOfPCOffset());
 
-        // Check if profiling is enabled.
-        guardProfilingEnabled(masm, scratch, &skipProfilerUpdate);
-
-        // Update profiling entry before leaving function.
-        masm.load32(Address(BaselineStubReg, ICSetProp_CallNative::offsetOfPCOffset()), pcIdx);
-        masm.spsUpdatePCIdx(&cx->runtime()->spsProfiler, pcIdx, scratch);
-
-        masm.bind(&skipProfilerUpdate);
-        regs.add(scratch);
-        regs.add(pcIdx);
-    }
     if (!callVM(DoCallNativeSetterInfo, masm))
         return false;
     leaveStubFrame(masm);
@@ -8701,27 +8602,13 @@ ICCallScriptedCompiler::generateStubCode(MacroAssembler &masm)
 
     // If needed, update SPS Profiler frame entry before and after call.
     {
-        Label skipProfilerUpdate;
-
-        // Need to avoid using ArgumentsRectifierReg and code register.
+        JS_ASSERT(kind == ICStub::Call_Scripted || kind == ICStub::Call_AnyScripted);
         GeneralRegisterSet availRegs = availableGeneralRegs(0);
         availRegs.take(ArgumentsRectifierReg);
         availRegs.take(code);
-        Register scratch = availRegs.takeAny();
-        Register pcIdx = availRegs.takeAny();
-
-        // Check if profiling is enabled.
-        guardProfilingEnabled(masm, scratch, &skipProfilerUpdate);
-
-        // Update profiling entry before leaving function.
-        JS_ASSERT(kind == ICStub::Call_Scripted || kind == ICStub::Call_AnyScripted);
-        if (kind == ICStub::Call_Scripted)
-            masm.load32(Address(BaselineStubReg, ICCall_Scripted::offsetOfPCOffset()), pcIdx);
-        else
-            masm.load32(Address(BaselineStubReg, ICCall_AnyScripted::offsetOfPCOffset()), pcIdx);
-        masm.spsUpdatePCIdx(&cx->runtime()->spsProfiler, pcIdx, scratch);
-
-        masm.bind(&skipProfilerUpdate);
+        emitProfilingUpdate(masm, availRegs, kind == ICStub::Call_Scripted ?
+                                                ICCall_Scripted::offsetOfPCOffset()
+                                              : ICCall_AnyScripted::offsetOfPCOffset());
     }
 
     masm.callIon(code);
@@ -8836,16 +8723,8 @@ ICCall_Native::Compiler::generateStubCode(MacroAssembler &masm)
 
     // If needed, update SPS Profiler frame entry.  At this point, BaselineTailCallReg
     // and scratch can be clobbered.
-    {
-        Label skipProfilerUpdate;
-        Register pcIdx = BaselineTailCallReg;
-        guardProfilingEnabled(masm, scratch, &skipProfilerUpdate);
+    emitProfilingUpdate(masm, BaselineTailCallReg, scratch, ICCall_Native::offsetOfPCOffset());
 
-        masm.load32(Address(BaselineStubReg, ICCall_Native::offsetOfPCOffset()), pcIdx);
-        masm.spsUpdatePCIdx(&cx->runtime()->spsProfiler, pcIdx, scratch);
-
-        masm.bind(&skipProfilerUpdate);
-    }
     // Execute call.
     masm.setupUnalignedABICall(3, scratch);
     masm.loadJSContext(scratch);
@@ -8970,19 +8849,9 @@ ICCall_ScriptedApplyArray::Compiler::generateStubCode(MacroAssembler &masm)
 
     // If needed, update SPS Profiler frame entry.  At this point, BaselineTailCallReg
     // and scratch can be clobbered.
-    {
-        Label skipProfilerUpdate;
-        Register pcIdx = regs.getAny();
-        JS_ASSERT(pcIdx != ArgumentsRectifierReg);
-        JS_ASSERT(pcIdx != target);
-        guardProfilingEnabled(masm, scratch, &skipProfilerUpdate);
+    emitProfilingUpdate(masm, regs.getAny(), scratch,
+                        ICCall_ScriptedApplyArguments::offsetOfPCOffset());
 
-        masm.load32(Address(BaselineStubReg, ICCall_ScriptedApplyArguments::offsetOfPCOffset()),
-                    pcIdx);
-        masm.spsUpdatePCIdx(&cx->runtime()->spsProfiler, pcIdx, scratch);
-
-        masm.bind(&skipProfilerUpdate);
-    }
     // Do call
     masm.callIon(target);
     leaveStubFrame(masm, true);
@@ -9081,19 +8950,9 @@ ICCall_ScriptedApplyArguments::Compiler::generateStubCode(MacroAssembler &masm)
 
     // If needed, update SPS Profiler frame entry.  At this point, BaselineTailCallReg
     // and scratch can be clobbered.
-    {
-        Label skipProfilerUpdate;
-        Register pcIdx = regs.getAny();
-        JS_ASSERT(pcIdx != ArgumentsRectifierReg);
-        JS_ASSERT(pcIdx != target);
-        guardProfilingEnabled(masm, scratch, &skipProfilerUpdate);
+    emitProfilingUpdate(masm, regs.getAny(), scratch,
+                        ICCall_ScriptedApplyArguments::offsetOfPCOffset());
 
-        masm.load32(Address(BaselineStubReg, ICCall_ScriptedApplyArguments::offsetOfPCOffset()),
-                    pcIdx);
-        masm.spsUpdatePCIdx(&cx->runtime()->spsProfiler, pcIdx, scratch);
-
-        masm.bind(&skipProfilerUpdate);
-    }
     // Do call
     masm.callIon(target);
     leaveStubFrame(masm, true);
@@ -9213,23 +9072,11 @@ ICCall_ScriptedFunCall::Compiler::generateStubCode(MacroAssembler &masm)
 
     // If needed, update SPS Profiler frame entry.
     {
-        Label skipProfilerUpdate;
-
         // Need to avoid using ArgumentsRectifierReg and code register.
         GeneralRegisterSet availRegs = availableGeneralRegs(0);
         availRegs.take(ArgumentsRectifierReg);
         availRegs.take(code);
-        Register scratch = availRegs.takeAny();
-        Register pcIdx = availRegs.takeAny();
-
-        // Check if profiling is enabled.
-        guardProfilingEnabled(masm, scratch, &skipProfilerUpdate);
-
-        // Update profiling entry before leaving function.
-        masm.load32(Address(BaselineStubReg, ICCall_ScriptedFunCall::offsetOfPCOffset()), pcIdx);
-        masm.spsUpdatePCIdx(&cx->runtime()->spsProfiler, pcIdx, scratch);
-
-        masm.bind(&skipProfilerUpdate);
+        emitProfilingUpdate(masm, availRegs, ICCall_ScriptedFunCall::offsetOfPCOffset());
     }
 
     masm.callIon(code);

@@ -672,7 +672,7 @@ class ABIArgIter
 typedef js::Vector<MIRType, 8> MIRTypeVector;
 typedef ABIArgIter<MIRTypeVector> ABIArgMIRTypeIter;
 
-typedef js::Vector<VarType, 8> VarTypeVector;
+typedef js::Vector<VarType, 8, LifoAllocPolicy> VarTypeVector;
 typedef ABIArgIter<VarTypeVector> ABIArgTypeIter;
 
 class Signature
@@ -681,10 +681,10 @@ class Signature
     RetType retType_;
 
   public:
-    Signature(ExclusiveContext *cx)
-      : argTypes_(cx) {}
-    Signature(ExclusiveContext *cx, RetType retType)
-      : argTypes_(cx), retType_(retType) {}
+    Signature(LifoAlloc &alloc)
+      : argTypes_(alloc) {}
+    Signature(LifoAlloc &alloc, RetType retType)
+      : argTypes_(alloc), retType_(retType) {}
     Signature(VarTypeVector &&argTypes, RetType retType)
       : argTypes_(Move(argTypes)), retType_(Move(retType)) {}
     Signature(Signature &&rhs)
@@ -829,19 +829,29 @@ class MOZ_STACK_CLASS ModuleCompiler
         PropertyName *name_;
         bool defined_;
         uint32_t srcOffset_;
+        uint32_t endOffset_;
         Signature sig_;
         Label *code_;
         unsigned compileTime_;
 
       public:
         Func(PropertyName *name, Signature &&sig, Label *code)
-          : name_(name), defined_(false), srcOffset_(0), sig_(Move(sig)), code_(code), compileTime_(0)
+          : name_(name), defined_(false), srcOffset_(0), endOffset_(0), sig_(Move(sig)),
+            code_(code), compileTime_(0)
         {}
 
         PropertyName *name() const { return name_; }
+
         bool defined() const { return defined_; }
-        void define(uint32_t so) { JS_ASSERT(!defined_); defined_ = true; srcOffset_ = so; }
+        void finish(uint32_t start, uint32_t end) {
+            JS_ASSERT(!defined_);
+            defined_ = true;
+            srcOffset_ = start;
+            endOffset_ = end;
+        }
+
         uint32_t srcOffset() const { JS_ASSERT(defined_); return srcOffset_; }
+        uint32_t endOffset() const { JS_ASSERT(defined_); return endOffset_; }
         Signature &sig() { return sig_; }
         const Signature &sig() const { return sig_; }
         Label *code() const { return code_; }
@@ -1141,7 +1151,9 @@ class MOZ_STACK_CLASS ModuleCompiler
             return false;
         }
 
-        module_ = cx_->new_<AsmJSModule>(parser_.ss, parser_.offsetOfCurrentAsmJSModule());
+        uint32_t funcStart = parser_.pc->maybeFunction->pn_body->pn_pos.begin;
+        uint32_t offsetToEndOfUseAsm = parser_.tokenStream.currentToken().pos.end;
+        module_ = cx_->new_<AsmJSModule>(parser_.ss, funcStart, offsetToEndOfUseAsm);
         if (!module_)
             return false;
 
@@ -1221,6 +1233,7 @@ class MOZ_STACK_CLASS ModuleCompiler
     Label &interruptLabel() { return interruptLabel_; }
     bool hasError() const { return errorString_ != nullptr; }
     const AsmJSModule &module() const { return *module_.get(); }
+    uint32_t moduleStart() const { return module_->funcStart(); }
 
     ParseNode *moduleFunctionNode() const { return moduleFunctionNode_; }
     PropertyName *moduleFunctionName() const { return moduleFunctionName_; }
@@ -1390,7 +1403,8 @@ class MOZ_STACK_CLASS ModuleCompiler
         AsmJSModule::ReturnType retType = func->sig().retType().toModuleReturnType();
         uint32_t line, column;
         parser_.tokenStream.srcCoords.lineNumAndColumnIndex(func->srcOffset(), &line, &column);
-        return module_->addExportedFunction(func->name(), line, column, maybeFieldName,
+        return module_->addExportedFunction(func->name(), line, column,
+                                            func->srcOffset(), func->endOffset(), maybeFieldName,
                                             Move(argCoercions), retType);
     }
     bool addExit(unsigned ffiIndex, PropertyName *name, Signature &&sig, unsigned *exitIndex) {
@@ -1416,6 +1430,9 @@ class MOZ_STACK_CLASS ModuleCompiler
     uint32_t minHeapLength() const {
         return module_->minHeapLength();
     }
+    LifoAlloc &lifo() {
+        return moduleLifo_;
+    }
 
     bool collectAccesses(MIRGenerator &gen) {
         if (!module_->addHeapAccesses(gen.heapAccesses()))
@@ -1425,21 +1442,17 @@ class MOZ_STACK_CLASS ModuleCompiler
         return true;
     }
 
-#ifdef MOZ_VTUNE
+#if defined(MOZ_VTUNE) || defined(JS_ION_PERF)
     bool trackProfiledFunction(const Func &func, unsigned endCodeOffset) {
-        unsigned startCodeOffset = func.code()->offset();
-        return module_->trackProfiledFunction(func.name(), startCodeOffset, endCodeOffset);
-    }
-#endif
-#ifdef JS_ION_PERF
-    bool trackPerfProfiledFunction(const Func &func, unsigned endCodeOffset) {
         unsigned lineno = 0U, columnIndex = 0U;
         parser().tokenStream.srcCoords.lineNumAndColumnIndex(func.srcOffset(), &lineno, &columnIndex);
         unsigned startCodeOffset = func.code()->offset();
-        return module_->trackPerfProfiledFunction(func.name(), startCodeOffset, endCodeOffset,
-                                                  lineno, columnIndex);
+        return module_->trackProfiledFunction(func.name(), startCodeOffset, endCodeOffset,
+                                              lineno, columnIndex);
     }
+#endif
 
+#ifdef JS_ION_PERF
     bool trackPerfProfiledBlocks(AsmJSPerfSpewer &perfSpewer, const Func &func, unsigned endCodeOffset) {
         unsigned startCodeOffset = func.code()->offset();
         perfSpewer.noteBlocksOffsets();
@@ -1448,6 +1461,7 @@ class MOZ_STACK_CLASS ModuleCompiler
                                                 endCodeOffset, perfSpewer.basicBlocks());
     }
 #endif
+
     bool addFunctionCounts(IonScriptCounts *counts) {
         return module_->addFunctionCounts(counts);
     }
@@ -1508,7 +1522,8 @@ class MOZ_STACK_CLASS ModuleCompiler
 
     bool finish(ScopedJSDeletePtr<AsmJSModule> *module)
     {
-        module_->initCharsEnd(parser_.tokenStream.currentToken().pos.end);
+        module_->initFuncEnd(parser_.tokenStream.currentToken().pos.end,
+                             parser_.tokenStream.peekTokenPos().end);
 
         masm_.finish();
         if (masm_.oom())
@@ -1533,18 +1548,20 @@ class MOZ_STACK_CLASS ModuleCompiler
         JS_ASSERT(masm_.preBarrierTableBytes() == 0);
         JS_ASSERT(!masm_.hasEnteredExitFrame());
 
-#ifdef JS_ION_PERF
+#if defined(MOZ_VTUNE) || defined(JS_ION_PERF)
         // Fix up the code offsets.  Note the endCodeOffset should not be
         // filtered through 'actualOffset' as it is generated using 'size()'
         // rather than a label.
-        for (unsigned i = 0; i < module_->numPerfFunctions(); i++) {
-            AsmJSModule::ProfiledFunction &func = module_->perfProfiledFunction(i);
-            func.startCodeOffset = masm_.actualOffset(func.startCodeOffset);
+        for (unsigned i = 0; i < module_->numProfiledFunctions(); i++) {
+            AsmJSModule::ProfiledFunction &func = module_->profiledFunction(i);
+            func.pod.startCodeOffset = masm_.actualOffset(func.pod.startCodeOffset);
         }
+#endif
 
+#ifdef JS_ION_PERF
         for (unsigned i = 0; i < module_->numPerfBlocksFunctions(); i++) {
             AsmJSModule::ProfiledBlocksFunction &func = module_->perfProfiledBlocksFunction(i);
-            func.startCodeOffset = masm_.actualOffset(func.startCodeOffset);
+            func.pod.startCodeOffset = masm_.actualOffset(func.pod.startCodeOffset);
             func.endInlineCodeOffset = masm_.actualOffset(func.endInlineCodeOffset);
             BasicBlocksVector &basicBlocks = func.blocks;
             for (uint32_t i = 0; i < basicBlocks.length(); i++) {
@@ -2312,7 +2329,7 @@ class FunctionCompiler
           : prevMaxStackBytes_(0),
             maxChildStackBytes_(0),
             spIncrement_(0),
-            sig_(f.cx(), retType),
+            sig_(f.m().lifo(), retType),
             regArgs_(f.cx()),
             stackArgs_(f.cx()),
             childClobbers_(false)
@@ -5415,7 +5432,7 @@ CheckFunction(ModuleCompiler &m, LifoAlloc &lifo, MIRGenerator **mir, ModuleComp
 
     ParseNode *stmtIter = ListHead(FunctionStatementList(fn));
 
-    VarTypeVector argTypes(m.cx());
+    VarTypeVector argTypes(m.lifo());
     if (!CheckArguments(f, &stmtIter, &argTypes))
         return false;
 
@@ -5448,7 +5465,16 @@ CheckFunction(ModuleCompiler &m, LifoAlloc &lifo, MIRGenerator **mir, ModuleComp
     if (func->defined())
         return m.failName(fn, "function '%s' already defined", FunctionName(fn));
 
-    func->define(fn->pn_pos.begin);
+    uint32_t funcBegin = fn->pn_pos.begin;
+    uint32_t funcEnd = fn->pn_pos.end;
+    // The begin/end char range is relative to the beginning of the module,
+    // hence the assertions.
+    JS_ASSERT(funcBegin > m.moduleStart());
+    JS_ASSERT(funcEnd > m.moduleStart());
+    funcBegin -= m.moduleStart();
+    funcEnd -= m.moduleStart();
+    func->finish(funcBegin, funcEnd);
+
     func->accumulateCompileTime((PRMJ_Now() - before) / PRMJ_USEC_PER_MSEC);
 
     m.parser().release(mark);
@@ -5492,17 +5518,20 @@ GenerateCode(ModuleCompiler &m, ModuleCompiler::Func &func, MIRGenerator &mir, L
         return false;
     }
 
-#ifdef MOZ_VTUNE
-    if (IsVTuneProfilingActive() && !m.trackProfiledFunction(func, m.masm().size()))
+#if defined(MOZ_VTUNE) || defined(JS_ION_PERF)
+    // Profiling might not be active now, but it may be activated later (perhaps
+    // after the module has been cached and reloaded from the cache). Function
+    // profiling info isn't huge, so store it always (in --enable-profiling
+    // builds, which is only Nightly builds, but default).
+    if (!m.trackProfiledFunction(func, m.masm().size()))
         return false;
 #endif
 
 #ifdef JS_ION_PERF
+    // Per-block profiling info uses significantly more memory so only store
+    // this information if it is actively requested.
     if (PerfBlockEnabled()) {
         if (!m.trackPerfProfiledBlocks(mir.perfSpewer(), func, m.masm().size()))
-            return false;
-    } else if (PerfFuncEnabled()) {
-        if (!m.trackPerfProfiledFunction(func, m.masm().size()))
             return false;
     }
 #endif
@@ -5869,7 +5898,7 @@ CheckFuncPtrTable(ModuleCompiler &m, ParseNode *var)
             return false;
     }
 
-    Signature sig(m.cx());
+    Signature sig(m.lifo());
     if (!sig.copy(*firstSig))
         return false;
 
@@ -6575,7 +6604,7 @@ GenerateFFIIonExit(ModuleCompiler &m, const ModuleCompiler::ExitDescriptor &exit
     masm.reserveStack(stackDec - extraBytes);
 
     // 1. Descriptor
-    uint32_t descriptor = MakeFrameDescriptor(masm.framePushed() + extraBytes, IonFrame_Entry);
+    uint32_t descriptor = MakeFrameDescriptor(masm.framePushed() + extraBytes, JitFrame_Entry);
     masm.storePtr(ImmWord(uintptr_t(descriptor)), Address(StackPointer, 0));
 
     // 2. Callee
@@ -7083,6 +7112,9 @@ EstablishPreconditions(ExclusiveContext *cx, AsmJSParser &parser)
 
     if (parser.pc->isGenerator())
         return Warn(parser, JSMSG_USE_ASM_TYPE_FAIL, "Disabled by generator context");
+
+    if (parser.pc->isArrowFunction())
+        return Warn(parser, JSMSG_USE_ASM_TYPE_FAIL, "Disabled by arrow function context");
 
 #ifdef JS_THREADSAFE
     if (ParallelCompilationEnabled(cx)) {

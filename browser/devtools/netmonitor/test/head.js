@@ -34,6 +34,7 @@ const SORTING_URL = EXAMPLE_URL + "html_sorting-test-page.html";
 const FILTERING_URL = EXAMPLE_URL + "html_filter-test-page.html";
 const INFINITE_GET_URL = EXAMPLE_URL + "html_infinite-get-page.html";
 const CUSTOM_GET_URL = EXAMPLE_URL + "html_custom-get-page.html";
+const SINGLE_GET_URL = EXAMPLE_URL + "html_single-get-page.html";
 const STATISTICS_URL = EXAMPLE_URL + "html_statistics-test-page.html";
 const CURL_URL = EXAMPLE_URL + "html_copy-as-curl.html";
 const CURL_UTILS_URL = EXAMPLE_URL + "html_curl-utils.html";
@@ -54,9 +55,9 @@ SimpleTest.registerCleanupFunction(() => {
 // All tests are asynchronous.
 waitForExplicitFinish();
 
-// Enable logging for all the relevant tests.
 const gEnableLogging = Services.prefs.getBoolPref("devtools.debugger.log");
-Services.prefs.setBoolPref("devtools.debugger.log", true);
+// To enable logging for try runs, just set the pref to true.
+Services.prefs.setBoolPref("devtools.debugger.log", false);
 
 // Always reset some prefs to their original values after the test finishes.
 const gDefaultFilters = Services.prefs.getCharPref("devtools.netmonitor.filters");
@@ -210,7 +211,8 @@ function waitForNetworkEvents(aMonitor, aGetRequests, aPostRequests = 0) {
 
 function verifyRequestItemTarget(aRequestItem, aMethod, aUrl, aData = {}) {
   info("> Verifying: " + aMethod + " " + aUrl + " " + aData.toSource());
-  info("> Request: " + aRequestItem.attachment.toSource());
+  // This bloats log sizes significantly in automation (bug 992485)
+  //info("> Request: " + aRequestItem.attachment.toSource());
 
   let requestsMenu = aRequestItem.ownerView;
   let widgetIndex = requestsMenu.indexOfItem(aRequestItem);

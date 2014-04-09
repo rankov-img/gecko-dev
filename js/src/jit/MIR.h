@@ -1561,7 +1561,7 @@ class MAbortPar : public MAryControlInstruction<0, 0>
     MAbortPar()
       : MAryControlInstruction<0, 0>()
     {
-        setResultType(MIRType_Undefined);
+        setResultType(MIRType_None);
         setGuard();
     }
 
@@ -1992,6 +1992,9 @@ class MBail : public MNullaryInstruction
         return new(alloc) MBail();
     }
 
+    AliasSet getAliasSet() const {
+        return AliasSet::None();
+    }
 };
 
 class MAssertFloat32 : public MUnaryInstruction
@@ -4398,6 +4401,39 @@ class MComputeThis
     // effectful.
 };
 
+// Load an arrow function's |this| value.
+class MLoadArrowThis
+  : public MUnaryInstruction,
+    public SingleObjectPolicy
+{
+    MLoadArrowThis(MDefinition *callee)
+      : MUnaryInstruction(callee)
+    {
+        setResultType(MIRType_Value);
+        setMovable();
+    }
+
+  public:
+    INSTRUCTION_HEADER(LoadArrowThis)
+
+    static MLoadArrowThis *New(TempAllocator &alloc, MDefinition *callee) {
+        return new(alloc) MLoadArrowThis(callee);
+    }
+    MDefinition *callee() const {
+        return getOperand(0);
+    }
+    TypePolicy *typePolicy() {
+        return this;
+    }
+    bool congruentTo(MDefinition *ins) const {
+        return congruentIfOperandsEqual(ins);
+    }
+    AliasSet getAliasSet() const {
+        // An arrow function's lexical |this| value is immutable.
+        return AliasSet::None();
+    }
+};
+
 class MPhi MOZ_FINAL : public MDefinition, public InlineForwardListNode<MPhi>
 {
     js::Vector<MUse, 2, IonAllocPolicy> inputs_;
@@ -5554,6 +5590,44 @@ class MTypedObjectElements
     }
     AliasSet getAliasSet() const {
         return AliasSet::Load(AliasSet::ObjectFields);
+    }
+};
+
+// Inlined version of the js::SetTypedObjectOffset() intrinsic.
+class MSetTypedObjectOffset
+  : public MBinaryInstruction
+{
+  private:
+    MSetTypedObjectOffset(MDefinition *object, MDefinition *offset)
+      : MBinaryInstruction(object, offset)
+    {
+        JS_ASSERT(object->type() == MIRType_Object);
+        JS_ASSERT(offset->type() == MIRType_Int32);
+        setResultType(MIRType_None);
+    }
+
+  public:
+    INSTRUCTION_HEADER(SetTypedObjectOffset)
+
+    static MSetTypedObjectOffset *New(TempAllocator &alloc,
+                                      MDefinition *object,
+                                      MDefinition *offset)
+    {
+        return new(alloc) MSetTypedObjectOffset(object, offset);
+    }
+
+    MDefinition *object() const {
+        return getOperand(0);
+    }
+
+    MDefinition *offset() const {
+        return getOperand(1);
+    }
+
+    AliasSet getAliasSet() const {
+        // This affects the result of MTypedObjectElements,
+        // which is described as a load of ObjectFields.
+        return AliasSet::Store(AliasSet::ObjectFields);
     }
 };
 
@@ -8956,6 +9030,10 @@ class MPostWriteBarrier : public MBinaryInstruction, public ObjectPolicy<0>
         return getOperand(1);
     }
 
+    AliasSet getAliasSet() const {
+        return AliasSet::None();
+    }
+
 #ifdef DEBUG
     bool isConsistentFloat32Use(MUse *use) const {
         // During lowering, values that neither have object nor value MIR type
@@ -9018,39 +9096,59 @@ class MNewDeclEnvObject : public MNullaryInstruction
     }
 };
 
-class MNewCallObject : public MUnaryInstruction
+class MNewCallObjectBase : public MUnaryInstruction
 {
     CompilerRootObject templateObj_;
-    bool needsSingletonType_;
 
-    MNewCallObject(JSObject *templateObj, bool needsSingletonType, MDefinition *slots)
+  protected:
+    MNewCallObjectBase(JSObject *templateObj, MDefinition *slots)
       : MUnaryInstruction(slots),
-        templateObj_(templateObj),
-        needsSingletonType_(needsSingletonType)
+        templateObj_(templateObj)
     {
         setResultType(MIRType_Object);
     }
 
   public:
-    INSTRUCTION_HEADER(NewCallObject)
-
-    static MNewCallObject *New(TempAllocator &alloc, JSObject *templateObj, bool needsSingletonType,
-                               MDefinition *slots)
-    {
-        return new(alloc) MNewCallObject(templateObj, needsSingletonType, slots);
-    }
-
     MDefinition *slots() {
         return getOperand(0);
     }
     JSObject *templateObject() {
         return templateObj_;
     }
-    bool needsSingletonType() const {
-        return needsSingletonType_;
-    }
     AliasSet getAliasSet() const {
         return AliasSet::None();
+    }
+};
+
+class MNewCallObject : public MNewCallObjectBase
+{
+  public:
+    INSTRUCTION_HEADER(NewCallObject)
+
+    MNewCallObject(JSObject *templateObj, MDefinition *slots)
+      : MNewCallObjectBase(templateObj, slots)
+    {}
+
+    static MNewCallObject *
+    New(TempAllocator &alloc, JSObject *templateObj, MDefinition *slots)
+    {
+        return new(alloc) MNewCallObject(templateObj, slots);
+    }
+};
+
+class MNewRunOnceCallObject : public MNewCallObjectBase
+{
+  public:
+    INSTRUCTION_HEADER(NewRunOnceCallObject)
+
+    MNewRunOnceCallObject(JSObject *templateObj, MDefinition *slots)
+      : MNewCallObjectBase(templateObj, slots)
+    {}
+
+    static MNewRunOnceCallObject *
+    New(TempAllocator &alloc, JSObject *templateObj, MDefinition *slots)
+    {
+        return new(alloc) MNewRunOnceCallObject(templateObj, slots);
     }
 };
 
@@ -9068,7 +9166,7 @@ class MNewCallObjectPar : public MBinaryInstruction
   public:
     INSTRUCTION_HEADER(NewCallObjectPar);
 
-    static MNewCallObjectPar *New(TempAllocator &alloc, MDefinition *cx, MNewCallObject *callObj) {
+    static MNewCallObjectPar *New(TempAllocator &alloc, MDefinition *cx, MNewCallObjectBase *callObj) {
         return new(alloc) MNewCallObjectPar(cx, callObj->templateObject(), callObj->slots());
     }
 

@@ -6,7 +6,8 @@
 
 "use strict";
 
-let promise = Cu.import("resource://gre/modules/commonjs/sdk/core/promise.js", {}).Promise;
+let {Cu} = require("chrome");
+let {Promise: promise} = Cu.import("resource://gre/modules/Promise.jsm", {});
 XPCOMUtils.defineLazyModuleGetter(this, "AddonManager", "resource://gre/modules/AddonManager.jsm");
 
 /**
@@ -228,7 +229,7 @@ BrowserTabList.prototype.getList = function() {
     // For each tab in this XUL window, ensure that we have an actor for
     // it, reusing existing actors where possible. We actually iterate
     // over 'browser' XUL elements, and BrowserTabActor uses
-    // browser.contentWindow.wrappedJSObject as the debuggee global.
+    // browser.contentWindow as the debuggee global.
     for (let browser of this._getChildren(win)) {
       // Do we have an existing actor for this browser? If not, create one.
       let actor = this._actorByBrowser.get(browser);
@@ -525,6 +526,13 @@ TabActor.prototype = {
   },
 
   /**
+   * Getter for the nsIMessageManager associated to the tab.
+   */
+  get messageManager() {
+    return this._chromeEventHandler;
+  },
+
+  /**
    * Getter for the tab's doc shell.
    */
   get docShell() {
@@ -718,7 +726,7 @@ TabActor.prototype = {
     this.conn.removeActorPool(this._tabPool);
     this._tabPool = null;
     if (this._tabActorPool) {
-      this.conn.removeActorPool(this._tabActorPool, true);
+      this.conn.removeActorPool(this._tabActorPool);
       this._tabActorPool = null;
     }
 
@@ -912,7 +920,7 @@ TabActor.prototype = {
       this.threadActor.clearDebuggees();
       if (this.threadActor.dbg) {
         this.threadActor.dbg.enabled = true;
-        this.threadActor.global = evt.target.defaultView.wrappedJSObject;
+        this.threadActor.global = evt.target.defaultView;
         this.threadActor.maybePauseOnExceptions();
       }
     }
@@ -981,6 +989,14 @@ Object.defineProperty(BrowserTabActor.prototype, "docShell", {
   configurable: false
 });
 
+Object.defineProperty(BrowserTabActor.prototype, "messageManager", {
+  get: function() {
+    return this._browser.messageManager;
+  },
+  enumerable: true,
+  configurable: false
+});
+
 Object.defineProperty(BrowserTabActor.prototype, "title", {
   get: function() {
     let title = this.contentDocument.contentTitle;
@@ -1033,7 +1049,7 @@ function RemoteBrowserTabActor(aConnection, aBrowser)
 
 RemoteBrowserTabActor.prototype = {
   connect: function() {
-    return DebuggerServer.connectToChild(this._conn, this._browser.messageManager);
+    return DebuggerServer.connectToChild(this._conn, this._browser);
   },
 
   form: function() {
@@ -1125,6 +1141,7 @@ BrowserAddonActor.prototype = {
     return {
       actor: this.actorID,
       id: this.id,
+      name: this._addon.name,
       url: this.url
     };
   },

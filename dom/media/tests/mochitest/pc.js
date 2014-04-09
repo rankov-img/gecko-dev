@@ -341,9 +341,17 @@ function isNetworkReady() {
           SpecialPowers.Ci.nsINetworkInterfaceListService.LIST_NOT_INCLUDE_DUN_INTERFACES);
     var num = itfList.getNumberOfInterface();
     for (var i = 0; i < num; i++) {
-      if (itfList.getInterface(i).ip) {
-        info("Network interface is ready with address: " + itfList.getInterface(i).ip);
-        return true;
+      var ips = {};
+      var prefixLengths = {};
+      var length = itfList.getInterface(i).getAddresses(ips, prefixLengths);
+
+      for (var j = 0; j < length; j++) {
+        var ip = ips.value[j];
+        // skip IPv6 address
+        if (ip.indexOf(":") < 0) {
+          info("Network interface is ready with address: " + ip);
+          return true;
+        }
       }
     }
     // ip address is not available
@@ -560,7 +568,7 @@ function PCT_setLocalDescription(peer, desc, onSuccess) {
   }
 
   peer.onsignalingstatechange = function () {
-    info(peer + ": 'onsignalingstatechange' event registered for async check");
+    info(peer + ": 'onsignalingstatechange' event registered, signalingState: " + peer.signalingState);
 
     eventFired = true;
     check_next_test();
@@ -621,7 +629,7 @@ function PCT_setRemoteDescription(peer, desc, onSuccess) {
   }
 
   peer.onsignalingstatechange = function () {
-    info(peer + ": 'onsignalingstatechange' event registered for async check");
+    info(peer + ": 'onsignalingstatechange' event registered, signalingState: " + peer.signalingState);
 
     eventFired = true;
     check_next_test();
@@ -1274,7 +1282,7 @@ PeerConnectionWrapper.prototype = {
           self.attachMedia(stream, type, 'local');
 
           _getAllUserMedia(constraintsList, index + 1);
-        }, unexpectedCallbackAndFinish());
+        }, generateErrorCallback());
       } else {
         onSuccess();
       }
@@ -1323,7 +1331,7 @@ PeerConnectionWrapper.prototype = {
       info("Got offer: " + JSON.stringify(offer));
       self._last_offer = offer;
       onSuccess(offer);
-    }, unexpectedCallbackAndFinish(), this.offerConstraints);
+    }, generateErrorCallback(), this.offerConstraints);
   },
 
   /**
@@ -1339,7 +1347,7 @@ PeerConnectionWrapper.prototype = {
       info(self + ": Got answer: " + JSON.stringify(answer));
       self._last_answer = answer;
       onSuccess(answer);
-    }, unexpectedCallbackAndFinish());
+    }, generateErrorCallback());
   },
 
   /**
@@ -1355,7 +1363,7 @@ PeerConnectionWrapper.prototype = {
     this._pc.setLocalDescription(desc, function () {
       info(self + ": Successfully set the local description");
       onSuccess();
-    }, unexpectedCallbackAndFinish());
+    }, generateErrorCallback());
   },
 
   /**
@@ -1370,7 +1378,7 @@ PeerConnectionWrapper.prototype = {
   setLocalDescriptionAndFail : function PCW_setLocalDescriptionAndFail(desc, onFailure) {
     var self = this;
     this._pc.setLocalDescription(desc,
-      unexpectedCallbackAndFinish("setLocalDescription should have failed."),
+      generateErrorCallback("setLocalDescription should have failed."),
       function (err) {
         info(self + ": As expected, failed to set the local description");
         onFailure(err);
@@ -1390,7 +1398,7 @@ PeerConnectionWrapper.prototype = {
     this._pc.setRemoteDescription(desc, function () {
       info(self + ": Successfully set remote description");
       onSuccess();
-    }, unexpectedCallbackAndFinish());
+    }, generateErrorCallback());
   },
 
   /**
@@ -1405,7 +1413,7 @@ PeerConnectionWrapper.prototype = {
   setRemoteDescriptionAndFail : function PCW_setRemoteDescriptionAndFail(desc, onFailure) {
     var self = this;
     this._pc.setRemoteDescription(desc,
-      unexpectedCallbackAndFinish("setRemoteDescription should have failed."),
+      generateErrorCallback("setRemoteDescription should have failed."),
       function (err) {
         info(self + ": As expected, failed to set the remote description");
         onFailure(err);
@@ -1426,7 +1434,7 @@ PeerConnectionWrapper.prototype = {
     this._pc.addIceCandidate(candidate, function () {
       info(self + ": Successfully added an ICE candidate");
       onSuccess();
-    }, unexpectedCallbackAndFinish());
+    }, generateErrorCallback());
   },
 
   /**
@@ -1442,7 +1450,7 @@ PeerConnectionWrapper.prototype = {
     var self = this;
 
     this._pc.addIceCandidate(candidate,
-      unexpectedCallbackAndFinish("addIceCandidate should have failed."),
+      generateErrorCallback("addIceCandidate should have failed."),
       function (err) {
         info(self + ": As expected, failed to add an ICE candidate");
         onFailure(err);
@@ -1568,7 +1576,7 @@ PeerConnectionWrapper.prototype = {
       info(self + ": Got stats: " + JSON.stringify(stats));
       self._last_stats = stats;
       onSuccess(stats);
-    }, unexpectedCallbackAndFinish());
+    }, generateErrorCallback());
   },
 
   /**

@@ -34,7 +34,8 @@
 #include "nsIDOMXULSelectCntrlItemEl.h"
 #include "nsIDocument.h"
 #include "mozilla/EventListenerManager.h"
-#include "nsEventStateManager.h"
+#include "mozilla/EventStateManager.h"
+#include "mozilla/EventStates.h"
 #include "nsFocusManager.h"
 #include "nsHTMLStyleSheet.h"
 #include "nsIJSRuntimeService.h"
@@ -552,7 +553,7 @@ nsXULElement::IsFocusableInternal(int32_t *aTabIndex, bool aWithMouse)
   // the focus.
   if (aWithMouse &&
       IsNonList(mNodeInfo) && 
-      !nsEventStateManager::IsRemoteTarget(this))
+      !EventStateManager::IsRemoteTarget(this))
   {
     return false;
   }
@@ -1694,10 +1695,10 @@ nsXULElement::AddPopupListener(nsIAtom* aName)
     return NS_OK;
 }
 
-nsEventStates
+EventStates
 nsXULElement::IntrinsicState() const
 {
-    nsEventStates state = nsStyledElement::IntrinsicState();
+    EventStates state = nsStyledElement::IntrinsicState();
 
     if (IsReadWriteTextElement()) {
         state |= NS_EVENT_STATE_MOZ_READWRITE;

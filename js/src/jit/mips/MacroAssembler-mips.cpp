@@ -12,6 +12,7 @@
 #include "jit/Bailouts.h"
 #include "jit/BaselineFrame.h"
 #include "jit/BaselineRegisters.h"
+#include "jit/IonFrames.h"
 #include "jit/MoveEmitter.h"
 
 using namespace js;
@@ -1467,7 +1468,7 @@ MacroAssemblerMIPSCompat::buildFakeExitFrame(const Register &scratch, uint32_t *
     CodeLabel cl;
     ma_li(scratch, cl.dest());
 
-    uint32_t descriptor = MakeFrameDescriptor(framePushed(), IonFrame_OptimizedJS);
+    uint32_t descriptor = MakeFrameDescriptor(framePushed(), JitFrame_IonJS);
     Push(Imm32(descriptor));
     Push(scratch);
 
@@ -1482,7 +1483,7 @@ bool
 MacroAssemblerMIPSCompat::buildOOLFakeExitFrame(void *fakeReturnAddr)
 {
     mozilla::DebugOnly<uint32_t> initialDepth = framePushed();
-    uint32_t descriptor = MakeFrameDescriptor(framePushed(), IonFrame_OptimizedJS);
+    uint32_t descriptor = MakeFrameDescriptor(framePushed(), JitFrame_IonJS);
 
     Push(Imm32(descriptor)); // descriptor_
     Push(ImmPtr(fakeReturnAddr));
@@ -1493,7 +1494,7 @@ MacroAssemblerMIPSCompat::buildOOLFakeExitFrame(void *fakeReturnAddr)
 void
 MacroAssemblerMIPSCompat::callWithExitFrame(JitCode *target)
 {
-    uint32_t descriptor = MakeFrameDescriptor(framePushed(), IonFrame_OptimizedJS);
+    uint32_t descriptor = MakeFrameDescriptor(framePushed(), JitFrame_IonJS);
     Push(Imm32(descriptor)); // descriptor
 
     addPendingJump(m_buffer.nextOffset(), ImmPtr(target->raw()), Relocation::JITCODE);
@@ -1505,7 +1506,7 @@ void
 MacroAssemblerMIPSCompat::callWithExitFrame(JitCode *target, Register dynStack)
 {
     ma_addu(dynStack, dynStack, Imm32(framePushed()));
-    makeFrameDescriptor(dynStack, IonFrame_OptimizedJS);
+    makeFrameDescriptor(dynStack, JitFrame_IonJS);
     Push(dynStack); // descriptor
 
     addPendingJump(m_buffer.nextOffset(), ImmPtr(target->raw()), Relocation::JITCODE);

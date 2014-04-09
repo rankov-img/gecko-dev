@@ -14,12 +14,8 @@ namespace layers {
 
 /**
  * Drawing with a mask requires a mask surface and a transform.
- * Sometimes the mask surface is a direct gfxASurface, but other times
- * it's a SurfaceDescriptor.  For SurfaceDescriptor, we need to use a
- * scoped AutoOpenSurface to get a gfxASurface for the
- * SurfaceDescriptor.
  *
- * This helper class manages the gfxASurface-or-SurfaceDescriptor
+ * This helper class manages the gfxASurface
  * logic.
  */
 class MOZ_STACK_CLASS AutoMaskData {
@@ -37,9 +33,6 @@ public:
   void Construct(const gfx::Matrix& aTransform,
                  gfxASurface* aSurface);
 
-  void Construct(const gfx::Matrix& aTransform,
-                 const SurfaceDescriptor& aSurface);
-
   /** The returned surface can't escape the scope of |this|. */
   gfxASurface* GetSurface();
   const gfx::Matrix& GetTransform();
@@ -49,10 +42,47 @@ private:
 
   gfx::Matrix mTransform;
   nsRefPtr<gfxASurface> mSurface;
-  Maybe<AutoOpenSurface> mSurfaceOpener;
 
   AutoMaskData(const AutoMaskData&) MOZ_DELETE;
   AutoMaskData& operator=(const AutoMaskData&) MOZ_DELETE;
+};
+
+class MOZ_STACK_CLASS AutoMoz2DMaskData {
+public:
+  AutoMoz2DMaskData() { }
+  ~AutoMoz2DMaskData() { }
+
+  void Construct(const gfx::Matrix& aTransform,
+                 gfx::SourceSurface* aSurface)
+  {
+    MOZ_ASSERT(!IsConstructed());
+    mTransform = aTransform;
+    mSurface = aSurface;
+  }
+
+  gfx::SourceSurface* GetSurface()
+  {
+    MOZ_ASSERT(IsConstructed());
+    return mSurface.get();
+  }
+
+  const gfx::Matrix& GetTransform()
+  {
+    MOZ_ASSERT(IsConstructed());
+    return mTransform;
+  }
+
+private:
+  bool IsConstructed()
+  {
+    return !!mSurface;
+  }
+
+  gfx::Matrix mTransform;
+  RefPtr<gfx::SourceSurface> mSurface;
+
+  AutoMoz2DMaskData(const AutoMoz2DMaskData&) MOZ_DELETE;
+  AutoMoz2DMaskData& operator=(const AutoMoz2DMaskData&) MOZ_DELETE;
 };
 
 }

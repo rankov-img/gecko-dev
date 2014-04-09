@@ -10,7 +10,6 @@
 #include "mozilla/MemoryReporting.h"
 
 #include "builtin/TypedObject.h"
-#include "builtin/TypeRepresentation.h"
 #include "gc/Zone.h"
 #include "vm/GlobalObject.h"
 #include "vm/PIC.h"
@@ -207,9 +206,6 @@ struct JSCompartment
 
     js::RegExpCompartment        regExps;
 
-    /* Set of all currently living type representations. */
-    js::TypeRepresentationHash   typeReprs;
-
     /*
      * For generational GC, record whether a write barrier has added this
      * compartment's global to the store buffer since the last minor GC.
@@ -332,6 +328,7 @@ struct JSCompartment
         WrapperEnum(JSCompartment *c) : js::WrapperMap::Enum(c->crossCompartmentWrappers) {}
     };
 
+    void trace(JSTracer *trc);
     void markRoots(JSTracer *trc);
     bool isDiscardingJitCode(JSTracer *trc);
     void sweep(js::FreeOp *fop, bool releaseTypes);
@@ -525,6 +522,7 @@ ExclusiveContext::global() const
      * barrier on it. Once the compartment is popped, the handle is no longer
      * safe to use.
      */
+    MOZ_ASSERT(compartment_, "Caller needs to enter a compartment first");
     return Handle<GlobalObject*>::fromMarkedLocation(compartment_->global_.unsafeGet());
 }
 

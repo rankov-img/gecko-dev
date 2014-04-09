@@ -21,11 +21,15 @@
 #include "mozilla/layers/CompositorTypes.h"  // for TextureInfo, etc
 #include "mozilla/layers/LayersSurfaces.h"  // for SurfaceDescriptor
 #include "mozilla/layers/LayersTypes.h"  // for LayerRenderState, etc
-#include "mozilla/layers/TextureHost.h"  // for DeprecatedTextureHost
+#include "mozilla/layers/TextureHost.h"  // for TextureHost
 #include "mozilla/layers/TiledContentClient.h"
 #include "mozilla/mozalloc.h"           // for operator delete
 #include "nsRegion.h"                   // for nsIntRegion
 #include "nscore.h"                     // for nsACString
+
+#if defined(MOZ_WIDGET_GONK) && ANDROID_VERSION >= 17
+#include <ui/Fence.h>
+#endif
 
 class gfxReusableSurfaceWrapper;
 struct nsIntPoint;
@@ -133,6 +137,14 @@ public:
 
   bool IsValid() const { return !mUninitialized; }
 
+#if defined(MOZ_WIDGET_GONK) && ANDROID_VERSION >= 17
+  virtual void SetReleaseFence(const android::sp<android::Fence>& aReleaseFence);
+#endif
+
+  // Recycle callback for TextureHost.
+  // Used when TiledContentClient is present in client side.
+  static void RecycleCallback(TextureHost* textureHost, void* aClosure);
+
 protected:
   TileHost ValidateTile(TileHost aTile,
                         const nsIntPoint& aTileRect,
@@ -223,14 +235,6 @@ public:
 
   virtual TiledLayerComposer* AsTiledLayerComposer() MOZ_OVERRIDE { return this; }
 
-  virtual void EnsureDeprecatedTextureHost(TextureIdentifier aTextureId,
-                                 const SurfaceDescriptor& aSurface,
-                                 ISurfaceAllocator* aAllocator,
-                                 const TextureInfo& aTextureInfo) MOZ_OVERRIDE
-  {
-    MOZ_CRASH("Does nothing");
-  }
-
   virtual void Attach(Layer* aLayer,
                       Compositor* aCompositor,
                       AttachFlags aFlags = NO_FLAGS) MOZ_OVERRIDE;
@@ -243,15 +247,25 @@ public:
 
   virtual void PrintInfo(nsACString& aTo, const char* aPrefix);
 
+#if defined(MOZ_WIDGET_GONK) && ANDROID_VERSION >= 17
+  /**
+   * Store a fence that will signal when the current buffer is no longer being read.
+   * Similar to android's GLConsumer::setReleaseFence()
+   */
+  virtual void SetReleaseFence(const android::sp<android::Fence>& aReleaseFence)
+  {
+    mTiledBuffer.SetReleaseFence(aReleaseFence);
+    mLowPrecisionTiledBuffer.SetReleaseFence(aReleaseFence);
+  }
+#endif
+
 private:
   void RenderLayerBuffer(TiledLayerBufferComposite& aLayerBuffer,
-                         const nsIntRegion& aValidRegion,
                          EffectChain& aEffectChain,
                          float aOpacity,
                          const gfx::Filter& aFilter,
                          const gfx::Rect& aClipRect,
-                         const nsIntRegion& aMaskRegion,
-                         nsIntRect aVisibleRect,
+                         nsIntRegion aMaskRegion,
                          gfx::Matrix4x4 aTransform);
 
   void EnsureTileStore() {}

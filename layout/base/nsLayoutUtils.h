@@ -85,6 +85,21 @@ struct DisplayPortPropertyData {
   uint32_t mPriority;
 };
 
+struct DisplayPortMarginsPropertyData {
+  DisplayPortMarginsPropertyData(const LayerMargin& aMargins,
+                                 uint32_t aAlignmentX, uint32_t aAlignmentY,
+                                 uint32_t aPriority)
+    : mMargins(aMargins)
+    , mAlignmentX(aAlignmentX)
+    , mAlignmentY(aAlignmentY)
+    , mPriority(aPriority)
+  {}
+  LayerMargin mMargins;
+  uint32_t mAlignmentX;
+  uint32_t mAlignmentY;
+  uint32_t mPriority;
+};
+
 template <class AnimationsOrTransitions>
 extern AnimationsOrTransitions* HasAnimationOrTransition(nsIContent* aContent,
                                                          nsIAtom* aAnimationProperty,
@@ -105,6 +120,7 @@ class nsLayoutUtils
   typedef mozilla::ContainerLayerParameters ContainerLayerParameters;
   typedef mozilla::gfx::SourceSurface SourceSurface;
   typedef mozilla::gfx::DrawTarget DrawTarget;
+  typedef mozilla::gfx::Rect Rect;
 
 public:
   typedef mozilla::layers::FrameMetrics FrameMetrics;
@@ -137,6 +153,12 @@ public:
    * Get display port for the given element.
    */
   static bool GetDisplayPort(nsIContent* aContent, nsRect *aResult = nullptr);
+
+ /**
+  * Set the display port base rect for given element to be used with display
+  * port margins.
+  */
+ static void SetDisplayPortBase(nsIContent* aContent, const nsRect& aBase);
 
   /**
    * Get the critical display port for the given element.
@@ -780,6 +802,16 @@ public:
    * @param aFactor The number of app units per graphics unit.
    * @return The smallest rectangle in app space that contains aRect.
    */
+  static nsRect RoundGfxRectToAppRect(const Rect &aRect, float aFactor);
+
+  /**
+   * Given a graphics rectangle in graphics space, return a rectangle in
+   * app space that contains the graphics rectangle, rounding out as necessary.
+   *
+   * @param aRect The graphics rect to round outward.
+   * @param aFactor The number of app units per graphics unit.
+   * @return The smallest rectangle in app space that contains aRect.
+   */
   static nsRect RoundGfxRectToAppRect(const gfxRect &aRect, float aFactor);
 
   /**
@@ -1177,6 +1209,8 @@ public:
             nsRuleNode::ComputeCoordPercentCalc(aCoord, nscoord_MAX) == 0 &&
             nsRuleNode::ComputeCoordPercentCalc(aCoord, 0) == 0);
   }
+
+  static void MarkDescendantsDirty(nsIFrame *aSubtreeRoot);
 
   /*
    * Calculate the used values for 'width' and 'height' for a replaced element.
@@ -2053,6 +2087,29 @@ public:
    */
   static void
   UpdateImageVisibilityForFrame(nsIFrame* aImageFrame);
+
+ /**
+  * Calculate the compostion size for a frame. See FrameMetrics.h for
+  * defintion of composition size (or bounds).
+  */
+  static nsSize
+  CalculateCompositionSizeForFrame(nsIFrame* aFrame);
+
+ /**
+  * Calculate the scrollable rect for a frame. See FrameMetrics.h for
+  * defintion of scrollable rect. aScrollableFrame is the scroll frame to calculate
+  * the scrollable rect for. If it's null then we calculate the scrollable rect
+  * as the rect of the root frame.
+  */
+  static nsRect
+  CalculateScrollableRectForFrame(nsIScrollableFrame* aScrollableFrame, nsIFrame* aRootFrame);
+
+ /**
+  * Calculate the expanded scrollable rect for a frame. See FrameMetrics.h for
+  * defintion of expanded scrollable rect.
+  */
+  static nsRect
+  CalculateExpandedScrollableRect(nsIFrame* aFrame);
 
 private:
   static uint32_t sFontSizeInflationEmPerLine;

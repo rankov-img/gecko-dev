@@ -42,7 +42,6 @@
 #include "nsITextControlFrame.h"
 #include "nsIFrame.h"
 #include "nsRangeFrame.h"
-#include "nsEventStates.h"
 #include "nsIServiceManager.h"
 #include "nsError.h"
 #include "nsIEditor.h"
@@ -62,6 +61,7 @@
 #include "nsIDOMMutationEvent.h"
 #include "mozilla/ContentEvents.h"
 #include "mozilla/EventDispatcher.h"
+#include "mozilla/EventStates.h"
 #include "mozilla/InternalMutationEvent.h"
 #include "mozilla/TextEvents.h"
 #include "mozilla/TouchEvents.h"
@@ -272,8 +272,9 @@ class HTMLInputElementState MOZ_FINAL : public nsISupports
     bool mCheckedSet;
 };
 
-NS_IMPL_ISUPPORTS1(HTMLInputElementState, HTMLInputElementState)
 NS_DEFINE_STATIC_IID_ACCESSOR(HTMLInputElementState, NS_INPUT_ELEMENT_STATE_IID)
+
+NS_IMPL_ISUPPORTS1(HTMLInputElementState, HTMLInputElementState)
 
 HTMLInputElement::nsFilePickerShownCallback::nsFilePickerShownCallback(
   HTMLInputElement* aInput, nsIFilePicker* aFilePicker)
@@ -5064,26 +5065,23 @@ HTMLInputElement::SetSelectionRange(int32_t aSelectionStart,
                                     ErrorResult& aRv)
 {
   nsIFormControlFrame* formControlFrame = GetFormControlFrame(true);
+  nsITextControlFrame* textControlFrame = do_QueryFrame(formControlFrame);
+  if (textControlFrame) {
+    // Default to forward, even if not specified.
+    // Note that we don't currently support directionless selections, so
+    // "none" is treated like "forward".
+    nsITextControlFrame::SelectionDirection dir = nsITextControlFrame::eForward;
+    if (aDirection.WasPassed() && aDirection.Value().EqualsLiteral("backward")) {
+      dir = nsITextControlFrame::eBackward;
+    }
 
-  if (formControlFrame) {
-    nsITextControlFrame* textControlFrame = do_QueryFrame(formControlFrame);
-    if (textControlFrame) {
-      // Default to forward, even if not specified.
-      // Note that we don't currently support directionless selections, so
-      // "none" is treated like "forward".
-      nsITextControlFrame::SelectionDirection dir = nsITextControlFrame::eForward;
-      if (aDirection.WasPassed() && aDirection.Value().EqualsLiteral("backward")) {
-        dir = nsITextControlFrame::eBackward;
-      }
-
-      aRv = textControlFrame->SetSelectionRange(aSelectionStart, aSelectionEnd, dir);
-      if (!aRv.Failed()) {
-        aRv = textControlFrame->ScrollSelectionIntoView();
-        nsRefPtr<AsyncEventDispatcher> asyncDispatcher =
-          new AsyncEventDispatcher(this, NS_LITERAL_STRING("select"),
-                                   true, false);
-        asyncDispatcher->PostDOMEvent();
-      }
+    aRv = textControlFrame->SetSelectionRange(aSelectionStart, aSelectionEnd, dir);
+    if (!aRv.Failed()) {
+      aRv = textControlFrame->ScrollSelectionIntoView();
+      nsRefPtr<AsyncEventDispatcher> asyncDispatcher =
+        new AsyncEventDispatcher(this, NS_LITERAL_STRING("select"),
+                                 true, false);
+      asyncDispatcher->PostDOMEvent();
     }
   }
 }
@@ -5350,16 +5348,13 @@ nsresult
 HTMLInputElement::GetSelectionRange(int32_t* aSelectionStart,
                                     int32_t* aSelectionEnd)
 {
-  nsresult rv = NS_ERROR_FAILURE;
   nsIFormControlFrame* formControlFrame = GetFormControlFrame(true);
-
-  if (formControlFrame) {
-    nsITextControlFrame* textControlFrame = do_QueryFrame(formControlFrame);
-    if (textControlFrame)
-      rv = textControlFrame->GetSelectionRange(aSelectionStart, aSelectionEnd);
+  nsITextControlFrame* textControlFrame = do_QueryFrame(formControlFrame);
+  if (textControlFrame) {
+    return textControlFrame->GetSelectionRange(aSelectionStart, aSelectionEnd);
   }
 
-  return rv;
+  return NS_ERROR_FAILURE;
 }
 
 static void
@@ -5381,15 +5376,12 @@ HTMLInputElement::GetSelectionDirection(nsAString& aDirection, ErrorResult& aRv)
 {
   nsresult rv = NS_ERROR_FAILURE;
   nsIFormControlFrame* formControlFrame = GetFormControlFrame(true);
-
-  if (formControlFrame) {
-    nsITextControlFrame* textControlFrame = do_QueryFrame(formControlFrame);
-    if (textControlFrame) {
-      nsITextControlFrame::SelectionDirection dir;
-      rv = textControlFrame->GetSelectionRange(nullptr, nullptr, &dir);
-      if (NS_SUCCEEDED(rv)) {
-        DirectionToName(dir, aDirection);
-      }
+  nsITextControlFrame* textControlFrame = do_QueryFrame(formControlFrame);
+  if (textControlFrame) {
+    nsITextControlFrame::SelectionDirection dir;
+    rv = textControlFrame->GetSelectionRange(nullptr, nullptr, &dir);
+    if (NS_SUCCEEDED(rv)) {
+      DirectionToName(dir, aDirection);
     }
   }
 
@@ -5449,11 +5441,9 @@ HTMLInputElement::GetPhonetic(nsAString& aPhonetic)
 {
   aPhonetic.Truncate();
   nsIFormControlFrame* formControlFrame = GetFormControlFrame(true);
-
-  if (formControlFrame) {
-    nsITextControlFrame* textControlFrame = do_QueryFrame(formControlFrame);
-    if (textControlFrame)
-      textControlFrame->GetPhonetic(aPhonetic);
+  nsITextControlFrame* textControlFrame = do_QueryFrame(formControlFrame);
+  if (textControlFrame) {
+    textControlFrame->GetPhonetic(aPhonetic);
   }
 
   return NS_OK;
@@ -5737,13 +5727,13 @@ HTMLInputElement::DoneCreatingElement()
   mShouldInitChecked = false;
 }
 
-nsEventStates
+EventStates
 HTMLInputElement::IntrinsicState() const
 {
   // If you add states here, and they're type-dependent, you need to add them
   // to the type case in AfterSetAttr.
 
-  nsEventStates state = nsGenericHTMLFormElementWithState::IntrinsicState();
+  EventStates state = nsGenericHTMLFormElementWithState::IntrinsicState();
   if (mType == NS_FORM_INPUT_CHECKBOX || mType == NS_FORM_INPUT_RADIO) {
     // Check current checked state (:checked)
     if (mChecked) {
@@ -5815,11 +5805,11 @@ HTMLInputElement::IntrinsicState() const
 }
 
 void
-HTMLInputElement::AddStates(nsEventStates aStates)
+HTMLInputElement::AddStates(EventStates aStates)
 {
   if (mType == NS_FORM_INPUT_TEXT) {
-    nsEventStates focusStates(aStates & (NS_EVENT_STATE_FOCUS |
-                                         NS_EVENT_STATE_FOCUSRING));
+    EventStates focusStates(aStates & (NS_EVENT_STATE_FOCUS |
+                                       NS_EVENT_STATE_FOCUSRING));
     if (!focusStates.IsEmpty()) {
       HTMLInputElement* ownerNumberControl = GetOwnerNumberControl();
       if (ownerNumberControl) {
@@ -5831,11 +5821,11 @@ HTMLInputElement::AddStates(nsEventStates aStates)
 }
 
 void
-HTMLInputElement::RemoveStates(nsEventStates aStates)
+HTMLInputElement::RemoveStates(EventStates aStates)
 {
   if (mType == NS_FORM_INPUT_TEXT) {
-    nsEventStates focusStates(aStates & (NS_EVENT_STATE_FOCUS |
-                                         NS_EVENT_STATE_FOCUSRING));
+    EventStates focusStates(aStates & (NS_EVENT_STATE_FOCUS |
+                                       NS_EVENT_STATE_FOCUSRING));
     if (!focusStates.IsEmpty()) {
       HTMLInputElement* ownerNumberControl = GetOwnerNumberControl();
       if (ownerNumberControl) {

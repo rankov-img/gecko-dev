@@ -133,7 +133,8 @@ extern JS_FRIEND_API(JSObject *)
 JS_ObjectToOuterObject(JSContext *cx, JS::HandleObject obj);
 
 extern JS_FRIEND_API(JSObject *)
-JS_CloneObject(JSContext *cx, JSObject *obj, JSObject *proto, JSObject *parent);
+JS_CloneObject(JSContext *cx, JS::HandleObject obj, JS::HandleObject proto,
+               JS::HandleObject parent);
 
 extern JS_FRIEND_API(JSString *)
 JS_BasicObjectToString(JSContext *cx, JS::HandleObject obj);
@@ -1416,7 +1417,7 @@ JS_GetFloat64ArrayData(JSObject *obj);
  * as the object is live.
  */
 extern JS_FRIEND_API(uint8_t *)
-JS_GetStableArrayBufferData(JSContext *cx, JSObject *obj);
+JS_GetStableArrayBufferData(JSContext *cx, JS::HandleObject obj);
 
 /*
  * Same as above, but for any kind of ArrayBufferView. Prefer the type-specific
@@ -1431,7 +1432,7 @@ JS_GetArrayBufferViewData(JSObject *obj);
  * object that would return true for JS_IsArrayBufferViewObject().
  */
 extern JS_FRIEND_API(JSObject *)
-JS_GetArrayBufferViewBuffer(JSObject *obj);
+JS_GetArrayBufferViewBuffer(JSContext *cx, JSObject *obj);
 
 /*
  * Set an ArrayBuffer's length to 0 and neuter all of its views.
