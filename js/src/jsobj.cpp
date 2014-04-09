@@ -5516,8 +5516,18 @@ js::PrimitiveToObject(JSContext *cx, const Value &v)
         Rooted<JSString*> str(cx, v.toString());
         return StringObject::create(cx, str);
     }
+
+// Temporary fix until we fix the alignment of all arguments.
+#ifdef JS_CODEGEN_MIPS
+    if (v.isNumber()) {
+        Value val;
+        memcpy(&val, &v, sizeof(Value));
+        return NumberObject::create(cx, val.toNumber());
+    }
+#else
     if (v.isNumber())
         return NumberObject::create(cx, v.toNumber());
+#endif
 
     JS_ASSERT(v.isBoolean());
     return BooleanObject::create(cx, v.toBoolean());
