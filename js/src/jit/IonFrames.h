@@ -450,7 +450,15 @@ class IonExitFooterFrame
     T *outParam() {
         return reinterpret_cast<T *>(reinterpret_cast<char *>(this) - sizeof(T));
     }
+
 };
+
+// We need to specialize this for MIPS because the Value address is forced to
+// be alligned in JitRuntime::generateVMWrapper()
+#ifdef JS_CODEGEN_MIPS
+template <>
+Value *IonExitFooterFrame::outParam<Value>();
+#endif
 
 class IonNativeExitFrameLayout;
 class IonOOLNativeExitFrameLayout;

@@ -13,6 +13,7 @@
 #include "jit/BaselineFrame.h"
 #include "jit/BaselineRegisters.h"
 #include "jit/IonFrames.h"
+#include "jit/mips/Simulator-mips.h"
 #include "jit/MoveEmitter.h"
 
 using namespace js;
@@ -2989,6 +2990,7 @@ MacroAssemblerMIPSCompat::setupABICall(uint32_t args)
     inCall_ = true;
     args_ = args;
     passedArgs_ = 0;
+    passedArgTypes_ = 0;
 
     usedArgSlots_ = 0;
     firstArgType = MoveOp::GENERAL;
@@ -3046,6 +3048,7 @@ MacroAssemblerMIPSCompat::passABIArg(const MoveOperand &from, MoveOp::Type type)
             }
         }
         usedArgSlots_++;
+        passedArgTypes_ = (passedArgTypes_ << ArgType_Shift) | ArgType_Float32;
         break;
       case MoveOp::DOUBLE:
         if (!usedArgSlots_) {
@@ -3073,6 +3076,7 @@ MacroAssemblerMIPSCompat::passABIArg(const MoveOperand &from, MoveOp::Type type)
             enoughMemory_ = moveResolver_.addMove(from, MoveOperand(sp, disp), type);
             usedArgSlots_ += 2;
         }
+        passedArgTypes_ = (passedArgTypes_ << ArgType_Shift) | ArgType_Double;
         break;
       case MoveOp::GENERAL:
         Register destReg;
@@ -3087,6 +3091,7 @@ MacroAssemblerMIPSCompat::passABIArg(const MoveOperand &from, MoveOp::Type type)
             enoughMemory_ = moveResolver_.addMove(from, MoveOperand(sp, disp), type);
         }
         usedArgSlots_++;
+        passedArgTypes_ = (passedArgTypes_ << ArgType_Shift) | ArgType_General;
         break;
       default:
         MOZ_ASSUME_UNREACHABLE("Unexpected argument type");
@@ -3183,9 +3188,55 @@ MacroAssemblerMIPSCompat::callWithABIPost(uint32_t stackAdjust, MoveOp::Type res
     inCall_ = false;
 }
 
+#if defined(DEBUG) && defined(JS_MIPS_SIMULATOR)
+static void
+AssertValidABIFunctionType(uint32_t passedArgTypes)
+{
+    switch (passedArgTypes) {
+      case Args_General0:
+      case Args_General1:
+      case Args_General2:
+      case Args_General3:
+      case Args_General4:
+      case Args_General5:
+      case Args_General6:
+      case Args_General7:
+      case Args_General8:
+      case Args_Double_None:
+      case Args_Int_Double:
+      case Args_Float32_Float32:
+      case Args_Double_Double:
+      case Args_Double_Int:
+      case Args_Double_DoubleInt:
+      case Args_Double_DoubleDouble:
+      case Args_Double_IntDouble:
+      case Args_Int_IntDouble:
+        break;
+      default:
+        MOZ_ASSUME_UNREACHABLE("Unexpected type");
+    }
+}
+#endif
+
 void
 MacroAssemblerMIPSCompat::callWithABI(void *fun, MoveOp::Type result)
 {
+#ifdef JS_MIPS_SIMULATOR
+    MOZ_ASSERT(passedArgs_ <= 15);
+    passedArgTypes_ <<= ArgType_Shift;
+    switch (result) {
+      case MoveOp::GENERAL: passedArgTypes_ |= ArgType_General; break;
+      case MoveOp::DOUBLE:  passedArgTypes_ |= ArgType_Double;  break;
+      case MoveOp::FLOAT32: passedArgTypes_ |= ArgType_Float32; break;
+      default: MOZ_ASSUME_UNREACHABLE("Invalid return type");
+    }
+#ifdef DEBUG
+    AssertValidABIFunctionType(passedArgTypes_);
+#endif
+    ABIFunctionType type = ABIFunctionType(passedArgTypes_);
+    fun = Simulator::RedirectNativeFunction(fun, type);
+#endif
+
     uint32_t stackAdjust;
     callWithABIPre(&stackAdjust);
     ma_call(ImmPtr(fun));

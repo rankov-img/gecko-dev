@@ -330,6 +330,7 @@ class MacroAssemblerMIPSCompat : public MacroAssemblerMIPS
     // The actual number of arguments that were passed, used to assert that
     // the initial number of arguments declared was correct.
     uint32_t passedArgs_;
+    uint32_t passedArgTypes_;
 
     uint32_t usedArgSlots_;
     MoveOp::Type firstArgType;
@@ -819,12 +820,30 @@ public:
     void moveValue(const Value &val, const ValueOperand &dest);
 
     void moveValue(const ValueOperand &src, const ValueOperand &dest) {
-        MOZ_ASSERT(src.typeReg() != dest.payloadReg());
-        MOZ_ASSERT(src.payloadReg() != dest.typeReg());
-        if (src.typeReg() != dest.typeReg())
-            ma_move(dest.typeReg(), src.typeReg());
-        if (src.payloadReg() != dest.payloadReg())
-            ma_move(dest.payloadReg(), src.payloadReg());
+        Register s0 = src.typeReg(), d0 = dest.typeReg(),
+                 s1 = src.payloadReg(), d1 = dest.payloadReg();
+
+        // Either one or both of the source registers could be the same as a
+        // destination register.
+        if (s1 == d0) {
+            if (s0 == d1) {
+                // If both are, this is just a swap of two registers.
+                JS_ASSERT(d1 != ScratchRegister);
+                JS_ASSERT(d0 != ScratchRegister);
+                ma_move(ScratchRegister, d1);
+                ma_move(d1, d0);
+                ma_move(d0, ScratchRegister);
+                return;
+            }
+            // If only one is, copy that source first.
+            mozilla::Swap(s0, s1);
+            mozilla::Swap(d0, d1);
+        }
+
+        if (s0 != d0)
+            ma_move(d0, s0);
+        if (s1 != d1)
+            ma_move(d1, s1);
     }
 
     void storeValue(ValueOperand val, Operand dst);

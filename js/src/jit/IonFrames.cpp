@@ -1138,6 +1138,17 @@ MarkJitExitFrame(JSTracer *trc, const IonFrameIterator &frame)
     }
 }
 
+#ifdef JS_CODEGEN_MIPS
+template <>
+Value *
+IonExitFooterFrame::outParam<Value>()
+{
+    JS_ASSERT(sizeof(Value *) == sizeof(uint32_t));
+    uint32_t address = reinterpret_cast<uint32_t>(this);
+    return reinterpret_cast<Value *>((address - sizeof(Value)) & ~(StackAlignment - 1));
+}
+#endif
+
 static void
 MarkRectifierFrame(JSTracer *trc, const IonFrameIterator &frame)
 {

@@ -344,7 +344,7 @@ if CONFIG['ENABLE_ION']:
                 'jit/arm/Simulator-arm.cpp'
             ]
     elif CONFIG['JS_CODEGEN_MIPS']:
-        SOURCES += [
+        UNIFIED_SOURCES += [
             'jit/mips/Architecture-mips.cpp',
             'jit/mips/Assembler-mips.cpp',
             'jit/mips/Bailouts-mips.cpp',
@@ -356,6 +356,10 @@ if CONFIG['ENABLE_ION']:
             'jit/mips/MoveEmitter-mips.cpp',
             'jit/mips/Trampoline-mips.cpp',
         ]
+        if CONFIG['JS_MIPS_SIMULATOR']:
+            UNIFIED_SOURCES += [
+                'jit/mips/Simulator-mips.cpp'
+            ]
 
 if CONFIG['OS_ARCH'] == 'WINNT':
     SOURCES += [

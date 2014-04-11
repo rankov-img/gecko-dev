@@ -101,7 +101,7 @@ ExecutablePool::toggleAllCodeAsAccessible(bool accessible)
     if (size) {
         int flags = accessible
                     ? PROT_READ | PROT_WRITE | PROT_EXEC
-#ifdef JS_CPU_MIPS
+#if defined(JS_CPU_MIPS) || defined(JS_MIPS_SIMULATOR)
                     : PROT_NONE;
 #else
                     : PROT_READ | PROT_WRITE;
