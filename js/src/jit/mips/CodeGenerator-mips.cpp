@@ -99,9 +99,9 @@ CodeGeneratorMIPS::branchToBlock(Assembler::FloatFormat fmt, FloatRegister lhs, 
             MOZ_CRASH();
     } else {
         if (fmt == Assembler::DoubleFloat)
-            masm.ma_bc1d(lhs, rhs, mir->lir()->label(), cond);
+            masm.branchDouble(cond, lhs, rhs, mir->lir()->label());
         else
-            masm.ma_bc1s(lhs, rhs, mir->lir()->label(), cond);
+            masm.branchFloat(cond, lhs, rhs, mir->lir()->label());
     }
 }
 
@@ -230,7 +230,7 @@ bool
 CodeGeneratorMIPS::bailout(LSnapshot *snapshot)
 {
     Label label;
-    masm.ma_b(&label);
+    masm.jump(&label);
     return bailoutFrom(&label, snapshot);
 }
 
@@ -238,10 +238,10 @@ bool
 CodeGeneratorMIPS::visitOutOfLineBailout(OutOfLineBailout *ool)
 {
     // Push snapshotOffset and make sure stack is aligned.
-    masm.ma_subu(StackPointer, StackPointer, Imm32(2 * sizeof(void *)));
-    masm.ma_sw(Imm32(ool->snapshot()->snapshotOffset()), Address(StackPointer, 0));
+    masm.subPtr(Imm32(2 * sizeof(void *)), StackPointer);
+    masm.storePtr(ImmWord(ool->snapshot()->snapshotOffset()), Address(StackPointer, 0));
 
-    masm.ma_b(&deoptLabel_);
+    masm.jump(&deoptLabel_);
     return true;
 }
 
@@ -659,7 +659,7 @@ CodeGeneratorMIPS::visitModI(LModI *ins)
     MMod *mir = ins->mir();
     Label done, prevent;
 
-    masm.ma_move(callTemp, lhs);
+    masm.move32(lhs, callTemp);
 
     // Prevent INT_MIN % -1;
     // The integer division will give INT_MIN, but we want -(double)INT_MIN.
@@ -1036,7 +1036,7 @@ CodeGeneratorMIPS::emitTableSwitchDispatch(MTableSwitch *mir, const Register &in
 
     // Jump to default case if input is out of range
     int32_t cases = mir->numCases();
-    masm.ma_b(index, Imm32(cases), defaultcase, Assembler::AboveOrEqual);
+    masm.branchPtr(Assembler::AboveOrEqual, index, ImmWord(cases), defaultcase);
 
     // To fill in the CodeLabels for the case entries, we need to first
     // generate the case entries (we don't yet know their offsets in the
@@ -1230,7 +1230,7 @@ CodeGeneratorMIPS::visitRound(LRound *lir)
 
     // If input + 0.5 >= 0, input is a negative number >= -0.5 and the
     // result is -0.
-    masm.ma_bc1d(temp, scratch, &bail, Assembler::DoubleGreaterThanOrEqual);
+    masm.branchDouble(Assembler::DoubleGreaterThanOrEqual, temp, scratch, &bail);
     if (!bailoutFrom(&bail, lir->snapshot()))
         return false;
 
@@ -1296,7 +1296,7 @@ CodeGeneratorMIPS::visitRoundF(LRoundF *lir)
 
     // If input + 0.5 >= 0, input is a negative number >= -0.5 and the
     // result is -0.
-    masm.ma_bc1s(temp, scratch, &bail, Assembler::DoubleGreaterThanOrEqual);
+    masm.branchFloat(Assembler::DoubleGreaterThanOrEqual, temp, scratch, &bail);
     if (!bailoutFrom(&bail, lir->snapshot()))
         return false;
 
@@ -1583,9 +1583,9 @@ CodeGeneratorMIPS::visitCompareB(LCompareB *lir)
     masm.branchTestBoolean(Assembler::NotEqual, lhs, &notBoolean);
     {
         if (rhs->isConstant())
-            masm.ma_cmp_set(output, lhs.payloadReg(), Imm32(rhs->toConstant()->toBoolean()), cond);
+            masm.cmp32Set(cond, lhs.payloadReg(), Imm32(rhs->toConstant()->toBoolean()), output);
         else
-            masm.ma_cmp_set(output, lhs.payloadReg(), ToRegister(rhs), cond);
+            masm.cmp32Set(cond, lhs.payloadReg(), ToRegister(rhs), output);
         masm.jump(&done);
     }
 
@@ -1634,7 +1634,7 @@ CodeGeneratorMIPS::visitCompareV(LCompareV *lir)
     Label notEqual, done;
     masm.ma_b(lhs.typeReg(), rhs.typeReg(), &notEqual, Assembler::NotEqual, ShortJump);
     {
-        masm.ma_cmp_set(output, lhs.payloadReg(), rhs.payloadReg(), cond);
+        masm.cmp32Set(cond, lhs.payloadReg(), rhs.payloadReg(), output);
         masm.ma_b(&done, ShortJump);
     }
     masm.bind(&notEqual);
@@ -1694,8 +1694,8 @@ CodeGeneratorMIPS::visitAsmJSUInt32ToFloat32(LAsmJSUInt32ToFloat32 *lir)
 bool
 CodeGeneratorMIPS::visitNotI(LNotI *ins)
 {
-    masm.ma_cmp_set(ToRegister(ins->output()), ToRegister(ins->input()), Imm32(0),
-                    Assembler::Equal);
+    masm.cmp32Set(Assembler::Equal, ToRegister(ins->input()), Imm32(0),
+                  ToRegister(ins->output()));
     return true;
 }
 
