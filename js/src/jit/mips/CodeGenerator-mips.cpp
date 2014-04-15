@@ -1211,7 +1211,7 @@ CodeGeneratorMIPS::visitRound(LRound *lir)
 
     masm.bind(&skipCheck);
     masm.loadConstantDouble(0.5, scratch);
-    masm.as_addd(scratch, input, scratch);
+    masm.addDouble(input, scratch);
     masm.as_floorwd(scratch, scratch);
 
     masm.moveFromDoubleLo(scratch, output);
@@ -1226,7 +1226,7 @@ CodeGeneratorMIPS::visitRound(LRound *lir)
 
     // Input is negative, but isn't -0.
     masm.bind(&negative);
-    masm.as_addd(temp, input, temp);
+    masm.addDouble(input, temp);
 
     // If input + 0.5 >= 0, input is a negative number >= -0.5 and the
     // result is -0.

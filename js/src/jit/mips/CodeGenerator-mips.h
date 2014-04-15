@@ -306,4 +306,3 @@ class OutOfLineBailout : public OutOfLineCodeBase<CodeGeneratorMIPS>
 } // namespace js
 
 #endif /* jit_mips_CodeGenerator_mips_h */
-

@@ -1561,7 +1561,7 @@ MacroAssembler::PushRegsInMask(RegisterSet set)
         diffG -= sizeof(intptr_t);
         storePtr(*iter, Address(StackPointer, diffG));
     }
-    JS_ASSERT(diffG == 0);
+    MOZ_ASSERT(diffG == 0);
 
     // Double values have to be aligned. We reserve extra space so that we can
     // start writing from the first aligned location.
@@ -1579,7 +1579,7 @@ MacroAssembler::PushRegsInMask(RegisterSet set)
             as_sd(*iter, SecondScratchReg, -diffF);
         diffF -= sizeof(double);
     }
-    JS_ASSERT(diffF == 0);
+    MOZ_ASSERT(diffF == 0);
 }
 
 void
@@ -1605,7 +1605,7 @@ MacroAssembler::PopRegsInMaskIgnore(RegisterSet set, RegisterSet ignore)
         diffF -= sizeof(double);
     }
     freeStack(reservedF + sizeof(double));
-    JS_ASSERT(diffF == 0);
+    MOZ_ASSERT(diffF == 0);
 
     for (GeneralRegisterBackwardIterator iter(set.gprs()); iter.more(); iter++) {
         diffG -= sizeof(intptr_t);
@@ -1613,7 +1613,7 @@ MacroAssembler::PopRegsInMaskIgnore(RegisterSet set, RegisterSet ignore)
             loadPtr(Address(StackPointer, diffG), *iter);
     }
     freeStack(reservedG);
-    JS_ASSERT(diffG == 0);
+    MOZ_ASSERT(diffG == 0);
 }
 
 void
@@ -2086,9 +2086,9 @@ MacroAssemblerMIPSCompat::subPtr(Imm32 imm, const Register dest)
 void
 MacroAssemblerMIPSCompat::subPtr(const Register &src, const Address &dest)
 {
-    ma_lw(SecondScratchReg, dest);
-    ma_subu(SecondScratchReg, SecondScratchReg, src);
-    ma_sw(SecondScratchReg, dest);
+    loadPtr(dest, SecondScratchReg);
+    subPtr(src, SecondScratchReg);
+    storePtr(SecondScratchReg, dest);
 }
 
 void

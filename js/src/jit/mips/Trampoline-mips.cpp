@@ -51,7 +51,7 @@ struct EnterJITRegs
 struct EnterJITArgs
 {
     // First 4 argumet placeholders
-    void * jitcode; // <- sp points here when function is entered.
+    void *jitcode; // <- sp points here when function is entered.
     int maxArgc;
     Value *maxArgv;
     InterpreterFrame *fp;
@@ -133,15 +133,15 @@ JitRuntime::generateEnterJIT(JSContext *cx, EnterJitType type)
     const Register reg_argv = a2;
     const Register reg_frame = a3;
 
-    const Address slotToken(sp, sizeof(EnterJITRegs) + offsetof(EnterJITArgs, calleeToken));
-    const Address slotVp(sp, sizeof(EnterJITRegs) + offsetof(EnterJITArgs, vp));
-
     MOZ_ASSERT(OsrFrameReg == reg_frame);
 
     MacroAssembler masm(cx);
     AutoFlushCache afc("GenerateEnterJIT", cx->runtime()->jitRuntime());
 
     GeneratePrologue(masm);
+
+    const Address slotToken(sp, sizeof(EnterJITRegs) + offsetof(EnterJITArgs, calleeToken));
+    const Address slotVp(sp, sizeof(EnterJITRegs) + offsetof(EnterJITArgs, vp));
 
     // Save stack pointer into s4
     masm.movePtr(StackPointer, s4);
@@ -444,10 +444,10 @@ JitRuntime::generateArgumentsRectifier(JSContext *cx, ExecutionMode mode, void *
         MOZ_ASSERT(sizeof(Value) == 2 * sizeof(uint32_t));
         // Read argument and push to stack.
         masm.subPtr(Imm32(sizeof(Value)), StackPointer);
-        masm.load32(Address(t2, sizeof(Value) / 2), t0);
-        masm.store32(t0, Address(StackPointer, sizeof(Value) / 2));
-        masm.load32(Address(t2, 0), t0);
-        masm.store32(t0, Address(StackPointer, 0));
+        masm.load32(Address(t2, NUNBOX32_TYPE_OFFSET), t0);
+        masm.store32(t0, Address(StackPointer, NUNBOX32_TYPE_OFFSET));
+        masm.load32(Address(t2, NUNBOX32_PAYLOAD_OFFSET), t0);
+        masm.store32(t0, Address(StackPointer, NUNBOX32_PAYLOAD_OFFSET));
 
         masm.ma_b(s3, s3, &copyLoopTop, Assembler::NonZero, ShortJump);
     }

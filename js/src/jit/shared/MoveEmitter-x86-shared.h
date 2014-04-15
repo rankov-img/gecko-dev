@@ -11,10 +11,6 @@
 # include "jit/x86/MacroAssembler-x86.h"
 #elif defined(JS_CODEGEN_X64)
 # include "jit/x64/MacroAssembler-x64.h"
-#elif defined(JS_CODEGEN_ARM)
-# include "jit/arm/MacroAssembler-arm.h"
-#elif defined(JS_CODEGEN_MIPS)
-# include "jit/mips/MacroAssembler-mips.h"
 #endif
 #include "jit/MoveResolver.h"
 
