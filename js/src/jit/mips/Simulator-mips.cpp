@@ -207,14 +207,14 @@ public:
     inline int secondaryValue() const {
         Opcode op = opcodeFieldRaw();
         switch (op) {
-        case op_special:
-        case op_special2:
+          case op_special:
+          case op_special2:
             return functionValue();
-        case op_cop1:
+          case op_cop1:
             return rsValue();
-        case op_regimm:
+          case op_regimm:
             return rtValue();
-        default:
+          default:
             return ff_null;
         }
     }
@@ -289,24 +289,24 @@ SimInstruction::isLinkingInstruction() const
 {
     const int op = opcodeFieldRaw();
     switch (op) {
-    case op_jal:
+      case op_jal:
         return true;
-    case op_regimm:
+      case op_regimm:
         switch (rtFieldRaw()) {
-        case rt_bgezal:
-        case rt_bltzal:
+          case rt_bgezal:
+          case rt_bltzal:
             return true;
-        default:
+          default:
             return false;
         };
-    case op_special:
+      case op_special:
         switch (functionFieldRaw()) {
-        case ff_jalr:
+          case ff_jalr:
             return true;
-        default:
+          default:
             return false;
         };
-    default:
+      default:
         return false;
     };
 }
@@ -318,15 +318,15 @@ SimInstruction::isTrap() const
         return false;
     } else {
         switch (functionFieldRaw()) {
-        case ff_break:
-        case ff_tge:
-        case ff_tgeu:
-        case ff_tlt:
-        case ff_tltu:
-        case ff_teq:
-        case ff_tne:
+          case ff_break:
+          case ff_tge:
+          case ff_tgeu:
+          case ff_tlt:
+          case ff_tltu:
+          case ff_teq:
+          case ff_tne:
             return true;
-        default:
+          default:
             return false;
         };
     }
@@ -336,115 +336,115 @@ SimInstruction::Type
 SimInstruction::instructionType() const
 {
     switch (opcodeFieldRaw()) {
-    case op_special:
+      case op_special:
         switch (functionFieldRaw()) {
-        case ff_jr:
-        case ff_jalr:
-        case ff_break:
-        case ff_sll:
-        case ff_srl:
-        case ff_sra:
-        case ff_sllv:
-        case ff_srlv:
-        case ff_srav:
-        case ff_mfhi:
-        case ff_mflo:
-        case ff_mult:
-        case ff_multu:
-        case ff_div:
-        case ff_divu:
-        case ff_add:
-        case ff_addu:
-        case ff_sub:
-        case ff_subu:
-        case ff_and:
-        case ff_or:
-        case ff_xor:
-        case ff_nor:
-        case ff_slt:
-        case ff_sltu:
-        case ff_tge:
-        case ff_tgeu:
-        case ff_tlt:
-        case ff_tltu:
-        case ff_teq:
-        case ff_tne:
-        case ff_movz:
-        case ff_movn:
-        case ff_movci:
+          case ff_jr:
+          case ff_jalr:
+          case ff_break:
+          case ff_sll:
+          case ff_srl:
+          case ff_sra:
+          case ff_sllv:
+          case ff_srlv:
+          case ff_srav:
+          case ff_mfhi:
+          case ff_mflo:
+          case ff_mult:
+          case ff_multu:
+          case ff_div:
+          case ff_divu:
+          case ff_add:
+          case ff_addu:
+          case ff_sub:
+          case ff_subu:
+          case ff_and:
+          case ff_or:
+          case ff_xor:
+          case ff_nor:
+          case ff_slt:
+          case ff_sltu:
+          case ff_tge:
+          case ff_tgeu:
+          case ff_tlt:
+          case ff_tltu:
+          case ff_teq:
+          case ff_tne:
+          case ff_movz:
+          case ff_movn:
+          case ff_movci:
             return kRegisterType;
-        default:
+          default:
             return kUnsupported;
         };
         break;
-    case op_special2:
+      case op_special2:
         switch (functionFieldRaw()) {
-        case ff_mul:
-        case ff_clz:
+          case ff_mul:
+          case ff_clz:
             return kRegisterType;
-        default:
+          default:
             return kUnsupported;
         };
         break;
-    case op_special3:
+      case op_special3:
         switch (functionFieldRaw()) {
-        case ff_ins:
-        case ff_ext:
+          case ff_ins:
+          case ff_ext:
             return kRegisterType;
-        default:
+          default:
             return kUnsupported;
         };
         break;
-    case op_cop1:    // Coprocessor instructions.
+      case op_cop1:    // Coprocessor instructions.
         switch (rsFieldRawNoAssert()) {
-        case rs_bc1:   // Branch on coprocessor condition.
+          case rs_bc1:   // Branch on coprocessor condition.
             return kImmediateType;
-        default:
+          default:
             return kRegisterType;
         };
         break;
-    case op_cop1x:
+      case op_cop1x:
         return kRegisterType;
         // 16 bits Immediate type instructions. e.g.: addi dest, src, imm16.
-    case op_regimm:
-    case op_beq:
-    case op_bne:
-    case op_blez:
-    case op_bgtz:
-    case op_addi:
-    case op_addiu:
-    case op_slti:
-    case op_sltiu:
-    case op_andi:
-    case op_ori:
-    case op_xori:
-    case op_lui:
-    case op_beql:
-    case op_bnel:
-    case op_blezl:
-    case op_bgtzl:
-    case op_lb:
-    case op_lh:
-    case op_lwl:
-    case op_lw:
-    case op_lbu:
-    case op_lhu:
-    case op_lwr:
-    case op_sb:
-    case op_sh:
-    case op_swl:
-    case op_sw:
-    case op_swr:
-    case op_lwc1:
-    case op_ldc1:
-    case op_swc1:
-    case op_sdc1:
+      case op_regimm:
+      case op_beq:
+      case op_bne:
+      case op_blez:
+      case op_bgtz:
+      case op_addi:
+      case op_addiu:
+      case op_slti:
+      case op_sltiu:
+      case op_andi:
+      case op_ori:
+      case op_xori:
+      case op_lui:
+      case op_beql:
+      case op_bnel:
+      case op_blezl:
+      case op_bgtzl:
+      case op_lb:
+      case op_lh:
+      case op_lwl:
+      case op_lw:
+      case op_lbu:
+      case op_lhu:
+      case op_lwr:
+      case op_sb:
+      case op_sh:
+      case op_swl:
+      case op_sw:
+      case op_swr:
+      case op_lwc1:
+      case op_ldc1:
+      case op_swc1:
+      case op_sdc1:
         return kImmediateType;
         // 26 bits immediate type instructions. e.g.: j imm26.
-    case op_j:
-    case op_jal:
+      case op_j:
+      case op_jal:
         return kJumpType;
-    default:
+      default:
         return kUnsupported;
     };
     return kUnsupported;
@@ -2164,51 +2164,51 @@ Simulator::configureTypeRegister(SimInstruction *instr,
 
     // ---------- Configuration.
     switch (op) {
-    case op_cop1:    // Coprocessor instructions.
+      case op_cop1:    // Coprocessor instructions.
         switch (instr->rsFieldRaw()) {
-        case rs_bc1:   // Handled in DecodeTypeImmed, should never come here.
+          case rs_bc1:   // Handled in DecodeTypeImmed, should never come here.
             MOZ_CRASH();
             break;
-        case rs_cfc1:
+          case rs_cfc1:
             // At the moment only FCSR is supported.
             MOZ_ASSERT(fs_reg == kFCSRRegister);
             alu_out = FCSR_;
             break;
-        case rs_mfc1:
+          case rs_mfc1:
             alu_out = getFpuRegister(fs_reg);
             break;
-        case rs_mfhc1:
+          case rs_mfhc1:
             MOZ_CRASH();
             break;
-        case rs_ctc1:
-        case rs_mtc1:
-        case rs_mthc1:
+          case rs_ctc1:
+          case rs_mtc1:
+          case rs_mthc1:
             // Do the store in the execution step.
             break;
-        case rs_s:
-        case rs_d:
-        case rs_w:
-        case rs_l:
-        case rs_ps:
+          case rs_s:
+          case rs_d:
+          case rs_w:
+          case rs_l:
+          case rs_ps:
             // Do everything in the execution step.
             break;
-        default:
+          default:
             MOZ_CRASH();
         };
         break;
-    case op_cop1x:
+      case op_cop1x:
         break;
-    case op_special:
+      case op_special:
         switch (instr->functionFieldRaw()) {
-        case ff_jr:
-        case ff_jalr:
+          case ff_jr:
+          case ff_jalr:
             next_pc = getRegister(instr->rsValue());
             return_addr_reg = instr->rdValue();
             break;
-        case ff_sll:
+          case ff_sll:
             alu_out = rt << sa;
             break;
-        case ff_srl:
+          case ff_srl:
             if (rs_reg == 0) {
                 // Regular logical right shift of a word by a fixed number of
                 // bits instruction. RS field is always equal to 0.
@@ -2220,13 +2220,13 @@ Simulator::configureTypeRegister(SimInstruction *instr,
                 alu_out = (rt_u >> sa) | (rt_u << (32 - sa));
             }
             break;
-        case ff_sra:
+          case ff_sra:
             alu_out = rt >> sa;
             break;
-        case ff_sllv:
+          case ff_sllv:
             alu_out = rt << rs;
             break;
-        case ff_srlv:
+          case ff_srlv:
             if (sa == 0) {
                 // Regular logical right-shift of a word by a variable number of
                 // bits instruction. SA field is always equal to 0.
@@ -2238,22 +2238,22 @@ Simulator::configureTypeRegister(SimInstruction *instr,
                 alu_out = (rt_u >> rs_u) | (rt_u << (32 - rs_u));
             }
             break;
-        case ff_srav:
+          case ff_srav:
             alu_out = rt >> rs;
             break;
-        case ff_mfhi:
+          case ff_mfhi:
             alu_out = getRegister(HI);
             break;
-        case ff_mflo:
+          case ff_mflo:
             alu_out = getRegister(LO);
             break;
-        case ff_mult:
+          case ff_mult:
             i64hilo = static_cast<int64_t>(rs) * static_cast<int64_t>(rt);
             break;
-        case ff_multu:
+          case ff_multu:
             u64hilo = static_cast<uint64_t>(rs_u) * static_cast<uint64_t>(rt_u);
             break;
-        case ff_add:
+          case ff_add:
             if (HaveSameSign(rs, rt)) {
                 if (rs > 0) {
                     exceptions[kIntegerOverflow] = rs > (kRegisterskMaxValue - rt);
@@ -2263,10 +2263,10 @@ Simulator::configureTypeRegister(SimInstruction *instr,
             }
             alu_out = rs + rt;
             break;
-        case ff_addu:
+          case ff_addu:
             alu_out = rs + rt;
             break;
-        case ff_sub:
+          case ff_sub:
             if (!HaveSameSign(rs, rt)) {
                 if (rs > 0) {
                     exceptions[kIntegerOverflow] = rs > (kRegisterskMaxValue + rt);
@@ -2276,78 +2276,77 @@ Simulator::configureTypeRegister(SimInstruction *instr,
             }
             alu_out = rs - rt;
             break;
-        case ff_subu:
+          case ff_subu:
             alu_out = rs - rt;
             break;
-        case ff_and:
+          case ff_and:
             alu_out = rs & rt;
             break;
-        case ff_or:
+          case ff_or:
             alu_out = rs | rt;
             break;
-        case ff_xor:
+          case ff_xor:
             alu_out = rs ^ rt;
             break;
-        case ff_nor:
+          case ff_nor:
             alu_out = ~(rs | rt);
             break;
-        case ff_slt:
+          case ff_slt:
             alu_out = rs < rt ? 1 : 0;
             break;
-        case ff_sltu:
+          case ff_sltu:
             alu_out = rs_u < rt_u ? 1 : 0;
             break;
             // Break and trap instructions.
-        case ff_break:
-
+          case ff_break:
             do_interrupt = true;
             break;
-        case ff_tge:
+          case ff_tge:
             do_interrupt = rs >= rt;
             break;
-        case ff_tgeu:
+          case ff_tgeu:
             do_interrupt = rs_u >= rt_u;
             break;
-        case ff_tlt:
+          case ff_tlt:
             do_interrupt = rs < rt;
             break;
-        case ff_tltu:
+          case ff_tltu:
             do_interrupt = rs_u < rt_u;
             break;
-        case ff_teq:
+          case ff_teq:
             do_interrupt = rs == rt;
             break;
-        case ff_tne:
+          case ff_tne:
             do_interrupt = rs != rt;
             break;
-        case ff_movn:
-        case ff_movz:
-        case ff_movci:
+          case ff_movn:
+          case ff_movz:
+          case ff_movci:
             // No action taken on decode.
             break;
-        case ff_div:
-        case ff_divu:
+          case ff_div:
+          case ff_divu:
             // div and divu never raise exceptions.
             break;
-        default:
+          default:
             MOZ_CRASH();
         };
         break;
-    case op_special2:
+      case op_special2:
         switch (instr->functionFieldRaw()) {
-        case ff_mul:
+          case ff_mul:
             alu_out = rs_u * rt_u;  // Only the lower 32 bits are kept.
             break;
-        case ff_clz:
+          case ff_clz:
             alu_out = __builtin_clz(rs_u);
             break;
-        default:
+          default:
             MOZ_CRASH();
         };
         break;
-    case op_special3:
+      case op_special3:
         switch (instr->functionFieldRaw()) {
-        case ff_ins: {   // Mips32r2 instruction.
+          case ff_ins: {   // Mips32r2 instruction.
             // Interpret rd field as 5-bit msb of insert.
             uint16_t msb = rd_reg;
             // Interpret sa field as 5-bit lsb of insert.
@@ -2356,8 +2355,8 @@ Simulator::configureTypeRegister(SimInstruction *instr,
             uint32_t mask = (1 << size) - 1;
             alu_out = (rt_u & ~(mask << lsb)) | ((rs_u & mask) << lsb);
             break;
-        }
-        case ff_ext: {   // Mips32r2 instruction.
+          }
+          case ff_ext: {   // Mips32r2 instruction.
             // Interpret rd field as 5-bit msb of extract.
             uint16_t msb = rd_reg;
             // Interpret sa field as 5-bit lsb of extract.
@@ -2366,12 +2365,12 @@ Simulator::configureTypeRegister(SimInstruction *instr,
             uint32_t mask = (1 << size) - 1;
             alu_out = (rs_u & (mask << lsb)) >> lsb;
             break;
-        }
-        default:
+          }
+          default:
             MOZ_CRASH();
         };
         break;
-    default:
+      default:
         MOZ_CRASH();
     };
 }
@@ -2425,31 +2424,31 @@ Simulator::decodeTypeRegister(SimInstruction *instr)
 
     // ---------- Execution.
     switch (op) {
-    case op_cop1:
+      case op_cop1:
         switch (instr->rsFieldRaw()) {
-        case rs_bc1:   // Branch on coprocessor condition.
+          case rs_bc1:   // Branch on coprocessor condition.
             MOZ_CRASH();
             break;
-        case rs_cfc1:
+          case rs_cfc1:
             setRegister(rt_reg, alu_out);
-        case rs_mfc1:
+          case rs_mfc1:
             setRegister(rt_reg, alu_out);
             break;
-        case rs_mfhc1:
+          case rs_mfhc1:
             MOZ_CRASH();
             break;
-        case rs_ctc1:
+          case rs_ctc1:
             // At the moment only FCSR is supported.
             MOZ_ASSERT(fs_reg == kFCSRRegister);
             FCSR_ = registers_[rt_reg];
             break;
-        case rs_mtc1:
+          case rs_mtc1:
             FPUregisters_[fs_reg] = registers_[rt_reg];
             break;
-        case rs_mthc1:
+          case rs_mthc1:
             MOZ_CRASH();
             break;
-        case rs_s:
+          case rs_s:
             float f, ft_value, fs_value;
             uint32_t cc, fcsr_cc;
             int64_t  i64;
@@ -2458,63 +2457,63 @@ Simulator::decodeTypeRegister(SimInstruction *instr)
             cc = instr->fcccValue();
             fcsr_cc = GetFCSRConditionBit(cc);
             switch (instr->functionFieldRaw()) {
-            case ff_add_fmt:
+              case ff_add_fmt:
                 setFpuRegisterFloat(fd_reg, fs_value + ft_value);
                 break;
-            case ff_sub_fmt:
+              case ff_sub_fmt:
                 setFpuRegisterFloat(fd_reg, fs_value - ft_value);
                 break;
-            case ff_mul_fmt:
+              case ff_mul_fmt:
                 setFpuRegisterFloat(fd_reg, fs_value * ft_value);
                 break;
-            case ff_div_fmt:
+              case ff_div_fmt:
                 setFpuRegisterFloat(fd_reg, fs_value / ft_value);
                 break;
-            case ff_abs_fmt:
+              case ff_abs_fmt:
                 setFpuRegisterFloat(fd_reg, fabs(fs_value));
                 break;
-            case ff_mov_fmt:
+              case ff_mov_fmt:
                 setFpuRegisterFloat(fd_reg, fs_value);
                 break;
-            case ff_neg_fmt:
+              case ff_neg_fmt:
                 setFpuRegisterFloat(fd_reg, -fs_value);
                 break;
-            case ff_sqrt_fmt:
+              case ff_sqrt_fmt:
                 setFpuRegisterFloat(fd_reg, sqrt(fs_value));
                 break;
-            case ff_c_un_fmt:
+              case ff_c_un_fmt:
                 setFCSRBit(fcsr_cc, std::isnan(fs_value) || std::isnan(ft_value));
                 break;
-            case ff_c_eq_fmt:
+              case ff_c_eq_fmt:
                 setFCSRBit(fcsr_cc, (fs_value == ft_value));
                 break;
-            case ff_c_ueq_fmt:
+              case ff_c_ueq_fmt:
                 setFCSRBit(fcsr_cc,
-                             (fs_value == ft_value) || (std::isnan(fs_value) || std::isnan(ft_value)));
+                           (fs_value == ft_value) || (std::isnan(fs_value) || std::isnan(ft_value)));
                 break;
-            case ff_c_olt_fmt:
+              case ff_c_olt_fmt:
                 setFCSRBit(fcsr_cc, (fs_value < ft_value));
                 break;
-            case ff_c_ult_fmt:
+              case ff_c_ult_fmt:
                 setFCSRBit(fcsr_cc,
-                             (fs_value < ft_value) || (std::isnan(fs_value) || std::isnan(ft_value)));
+                           (fs_value < ft_value) || (std::isnan(fs_value) || std::isnan(ft_value)));
                 break;
-            case ff_c_ole_fmt:
+              case ff_c_ole_fmt:
                 setFCSRBit(fcsr_cc, (fs_value <= ft_value));
                 break;
-            case ff_c_ule_fmt:
+              case ff_c_ule_fmt:
                 setFCSRBit(fcsr_cc,
-                             (fs_value <= ft_value) || (std::isnan(fs_value) || std::isnan(ft_value)));
+                           (fs_value <= ft_value) || (std::isnan(fs_value) || std::isnan(ft_value)));
                 break;
-            case ff_cvt_d_fmt:
+              case ff_cvt_d_fmt:
                 f = getFpuRegisterFloat(fs_reg);
                 setFpuRegisterDouble(fd_reg, static_cast<double>(f));
                 break;
-            case ff_cvt_w_fmt:   // Convert float to word.
+              case ff_cvt_w_fmt:   // Convert float to word.
                 // Rounding modes are not yet supported.
                 MOZ_ASSERT((FCSR_ & 3) == 0);
                 // In rounding mode 0 it should behave like ROUND.
-            case ff_round_w_fmt: { // Round double to word (round half to even).
+              case ff_round_w_fmt: { // Round double to word (round half to even).
                 float rounded = std::floor(fs_value + 0.5);
                 int32_t result = static_cast<int32_t>(rounded);
                 if ((result & 1) != 0 && result - fs_value == 0.5) {
@@ -2526,136 +2525,135 @@ Simulator::decodeTypeRegister(SimInstruction *instr)
                 if (setFCSRRoundError(fs_value, rounded)) {
                     setFpuRegister(fd_reg, kFPUInvalidResult);
                 }
-            }
-            break;
-            case ff_trunc_w_fmt: { // Truncate float to word (round towards 0).
+                break;
+              }
+              case ff_trunc_w_fmt: { // Truncate float to word (round towards 0).
                 float rounded = trunc(fs_value);
                 int32_t result = static_cast<int32_t>(rounded);
                 setFpuRegister(fd_reg, result);
                 if (setFCSRRoundError(fs_value, rounded)) {
                     setFpuRegister(fd_reg, kFPUInvalidResult);
                 }
-            }
-            break;
-            case ff_floor_w_fmt: { // Round float to word towards negative infinity.
+                break;
+              }
+              case ff_floor_w_fmt: { // Round float to word towards negative infinity.
                 float rounded = std::floor(fs_value);
                 int32_t result = static_cast<int32_t>(rounded);
                 setFpuRegister(fd_reg, result);
                 if (setFCSRRoundError(fs_value, rounded)) {
                     setFpuRegister(fd_reg, kFPUInvalidResult);
                 }
-            }
-            break;
-            case ff_ceil_w_fmt: { // Round double to word towards positive infinity.
+                break;
+              }
+              case ff_ceil_w_fmt: { // Round double to word towards positive infinity.
                 float rounded = std::ceil(fs_value);
                 int32_t result = static_cast<int32_t>(rounded);
                 setFpuRegister(fd_reg, result);
                 if (setFCSRRoundError(fs_value, rounded)) {
                     setFpuRegister(fd_reg, kFPUInvalidResult);
                 }
-            }
-            break;
-            case ff_cvt_l_fmt: {  // Mips32r2: Truncate float to 64-bit long-word.
+                break;
+              }
+              case ff_cvt_l_fmt: {  // Mips32r2: Truncate float to 64-bit long-word.
                 float rounded = trunc(fs_value);
                 i64 = static_cast<int64_t>(rounded);
                 setFpuRegister(fd_reg, i64 & 0xffffffff);
                 setFpuRegister(fd_reg + 1, i64 >> 32);
                 break;
-            }
-            case ff_round_l_fmt: {  // Mips32r2 instruction.
+              }
+              case ff_round_l_fmt: {  // Mips32r2 instruction.
                 float rounded =
                     fs_value > 0 ? std::floor(fs_value + 0.5) : std::ceil(fs_value - 0.5);
                 i64 = static_cast<int64_t>(rounded);
                 setFpuRegister(fd_reg, i64 & 0xffffffff);
                 setFpuRegister(fd_reg + 1, i64 >> 32);
                 break;
-            }
-            case ff_trunc_l_fmt: {  // Mips32r2 instruction.
+              }
+              case ff_trunc_l_fmt: {  // Mips32r2 instruction.
                 float rounded = trunc(fs_value);
                 i64 = static_cast<int64_t>(rounded);
                 setFpuRegister(fd_reg, i64 & 0xffffffff);
                 setFpuRegister(fd_reg + 1, i64 >> 32);
                 break;
-            }
-            break;
-            case ff_floor_l_fmt:  // Mips32r2 instruction.
+              }
+              case ff_floor_l_fmt:  // Mips32r2 instruction.
                 i64 = static_cast<int64_t>(std::floor(fs_value));
                 setFpuRegister(fd_reg, i64 & 0xffffffff);
                 setFpuRegister(fd_reg + 1, i64 >> 32);
                 break;
-            case ff_ceil_l_fmt:  // Mips32r2 instruction.
+              case ff_ceil_l_fmt:  // Mips32r2 instruction.
                 i64 = static_cast<int64_t>(std::ceil(fs_value));
                 setFpuRegister(fd_reg, i64 & 0xffffffff);
                 setFpuRegister(fd_reg + 1, i64 >> 32);
                 break;
-            case ff_cvt_ps_s:
-            case ff_c_f_fmt:
+              case ff_cvt_ps_s:
+              case ff_c_f_fmt:
                 MOZ_CRASH();
                 break;
-            default:
+              default:
                 MOZ_CRASH();
             }
             break;
-        case rs_d:
+          case rs_d:
             double dt_value, ds_value;
             ds_value = getFpuRegisterDouble(fs_reg);
             dt_value = getFpuRegisterDouble(ft_reg);
             cc = instr->fcccValue();
             fcsr_cc = GetFCSRConditionBit(cc);
             switch (instr->functionFieldRaw()) {
-            case ff_add_fmt:
+              case ff_add_fmt:
                 setFpuRegisterDouble(fd_reg, ds_value + dt_value);
                 break;
-            case ff_sub_fmt:
+              case ff_sub_fmt:
                 setFpuRegisterDouble(fd_reg, ds_value - dt_value);
                 break;
-            case ff_mul_fmt:
+              case ff_mul_fmt:
                 setFpuRegisterDouble(fd_reg, ds_value * dt_value);
                 break;
-            case ff_div_fmt:
+              case ff_div_fmt:
                 setFpuRegisterDouble(fd_reg, ds_value / dt_value);
                 break;
-            case ff_abs_fmt:
+              case ff_abs_fmt:
                 setFpuRegisterDouble(fd_reg, fabs(ds_value));
                 break;
-            case ff_mov_fmt:
+              case ff_mov_fmt:
                 setFpuRegisterDouble(fd_reg, ds_value);
                 break;
-            case ff_neg_fmt:
+              case ff_neg_fmt:
                 setFpuRegisterDouble(fd_reg, -ds_value);
                 break;
-            case ff_sqrt_fmt:
+              case ff_sqrt_fmt:
                 setFpuRegisterDouble(fd_reg, sqrt(ds_value));
                 break;
-            case ff_c_un_fmt:
+              case ff_c_un_fmt:
                 setFCSRBit(fcsr_cc, std::isnan(ds_value) || std::isnan(dt_value));
                 break;
-            case ff_c_eq_fmt:
+              case ff_c_eq_fmt:
                 setFCSRBit(fcsr_cc, (ds_value == dt_value));
                 break;
-            case ff_c_ueq_fmt:
+              case ff_c_ueq_fmt:
                 setFCSRBit(fcsr_cc,
-                             (ds_value == dt_value) || (std::isnan(ds_value) || std::isnan(dt_value)));
+                            (ds_value == dt_value) || (std::isnan(ds_value) || std::isnan(dt_value)));
                 break;
-            case ff_c_olt_fmt:
+              case ff_c_olt_fmt:
                 setFCSRBit(fcsr_cc, (ds_value < dt_value));
                 break;
-            case ff_c_ult_fmt:
+              case ff_c_ult_fmt:
                 setFCSRBit(fcsr_cc,
-                             (ds_value < dt_value) || (std::isnan(ds_value) || std::isnan(dt_value)));
+                            (ds_value < dt_value) || (std::isnan(ds_value) || std::isnan(dt_value)));
                 break;
-            case ff_c_ole_fmt:
+              case ff_c_ole_fmt:
                 setFCSRBit(fcsr_cc, (ds_value <= dt_value));
                 break;
-            case ff_c_ule_fmt:
+              case ff_c_ule_fmt:
                 setFCSRBit(fcsr_cc,
-                             (ds_value <= dt_value) || (std::isnan(ds_value) || std::isnan(dt_value)));
+                            (ds_value <= dt_value) || (std::isnan(ds_value) || std::isnan(dt_value)));
                 break;
-            case ff_cvt_w_fmt:   // Convert double to word.
+              case ff_cvt_w_fmt:   // Convert double to word.
                 // Rounding modes are not yet supported.
                 MOZ_ASSERT((FCSR_ & 3) == 0);
                 // In rounding mode 0 it should behave like ROUND.
-            case ff_round_w_fmt: { // Round double to word (round half to even).
+              case ff_round_w_fmt: { // Round double to word (round half to even).
                 double rounded = std::floor(ds_value + 0.5);
                 int32_t result = static_cast<int32_t>(rounded);
                 if ((result & 1) != 0 && result - ds_value == 0.5) {
@@ -2667,144 +2665,144 @@ Simulator::decodeTypeRegister(SimInstruction *instr)
                 if (setFCSRRoundError(ds_value, rounded)) {
                     setFpuRegister(fd_reg, kFPUInvalidResult);
                 }
-            }
-            break;
-            case ff_trunc_w_fmt: { // Truncate double to word (round towards 0).
+              }
+              break;
+              case ff_trunc_w_fmt: { // Truncate double to word (round towards 0).
                 double rounded = trunc(ds_value);
                 int32_t result = static_cast<int32_t>(rounded);
                 setFpuRegister(fd_reg, result);
                 if (setFCSRRoundError(ds_value, rounded)) {
                     setFpuRegister(fd_reg, kFPUInvalidResult);
                 }
-            }
-            break;
-            case ff_floor_w_fmt: { // Round double to word towards negative infinity.
+              }
+              break;
+              case ff_floor_w_fmt: { // Round double to word towards negative infinity.
                 double rounded = std::floor(ds_value);
                 int32_t result = static_cast<int32_t>(rounded);
                 setFpuRegister(fd_reg, result);
                 if (setFCSRRoundError(ds_value, rounded)) {
                     setFpuRegister(fd_reg, kFPUInvalidResult);
                 }
-            }
-            break;
-            case ff_ceil_w_fmt: { // Round double to word towards positive infinity.
+              }
+              break;
+              case ff_ceil_w_fmt: { // Round double to word towards positive infinity.
                 double rounded = std::ceil(ds_value);
                 int32_t result = static_cast<int32_t>(rounded);
                 setFpuRegister(fd_reg, result);
                 if (setFCSRRoundError(ds_value, rounded)) {
                     setFpuRegister(fd_reg, kFPUInvalidResult);
                 }
-            }
-            break;
-            case ff_cvt_s_fmt:  // Convert double to float (single).
+              }
+              break;
+              case ff_cvt_s_fmt:  // Convert double to float (single).
                 setFpuRegisterFloat(fd_reg, static_cast<float>(ds_value));
                 break;
-            case ff_cvt_l_fmt: {  // Mips32r2: Truncate double to 64-bit long-word.
+              case ff_cvt_l_fmt: {  // Mips32r2: Truncate double to 64-bit long-word.
                 double rounded = trunc(ds_value);
                 i64 = static_cast<int64_t>(rounded);
                 setFpuRegister(fd_reg, i64 & 0xffffffff);
                 setFpuRegister(fd_reg + 1, i64 >> 32);
                 break;
-            }
-            case ff_trunc_l_fmt: {  // Mips32r2 instruction.
+              }
+              case ff_trunc_l_fmt: {  // Mips32r2 instruction.
                 double rounded = trunc(ds_value);
                 i64 = static_cast<int64_t>(rounded);
                 setFpuRegister(fd_reg, i64 & 0xffffffff);
                 setFpuRegister(fd_reg + 1, i64 >> 32);
                 break;
-            }
-            case ff_round_l_fmt: {  // Mips32r2 instruction.
+              }
+              case ff_round_l_fmt: {  // Mips32r2 instruction.
                 double rounded =
                     ds_value > 0 ? std::floor(ds_value + 0.5) : std::ceil(ds_value - 0.5);
                 i64 = static_cast<int64_t>(rounded);
                 setFpuRegister(fd_reg, i64 & 0xffffffff);
                 setFpuRegister(fd_reg + 1, i64 >> 32);
                 break;
-            }
-            case ff_floor_l_fmt:  // Mips32r2 instruction.
+              }
+              case ff_floor_l_fmt:  // Mips32r2 instruction.
                 i64 = static_cast<int64_t>(std::floor(ds_value));
                 setFpuRegister(fd_reg, i64 & 0xffffffff);
                 setFpuRegister(fd_reg + 1, i64 >> 32);
                 break;
-            case ff_ceil_l_fmt:  // Mips32r2 instruction.
+              case ff_ceil_l_fmt:  // Mips32r2 instruction.
                 i64 = static_cast<int64_t>(std::ceil(ds_value));
                 setFpuRegister(fd_reg, i64 & 0xffffffff);
                 setFpuRegister(fd_reg + 1, i64 >> 32);
                 break;
-            case ff_c_f_fmt:
+              case ff_c_f_fmt:
                 MOZ_CRASH();
                 break;
-            default:
+              default:
                 MOZ_CRASH();
             }
             break;
-        case rs_w:
+          case rs_w:
             switch (instr->functionFieldRaw()) {
-            case ff_cvt_s_fmt:   // Convert word to float (single).
+              case ff_cvt_s_fmt:   // Convert word to float (single).
                 alu_out = getFpuRegister(fs_reg);
                 setFpuRegisterFloat(fd_reg, static_cast<float>(alu_out));
                 break;
-            case ff_cvt_d_fmt:   // Convert word to double.
+              case ff_cvt_d_fmt:   // Convert word to double.
                 alu_out = getFpuRegister(fs_reg);
                 setFpuRegisterDouble(fd_reg, static_cast<double>(alu_out));
                 break;
-            default:
+              default:
                 MOZ_CRASH();
             };
             break;
-        case rs_l:
+          case rs_l:
             switch (instr->functionFieldRaw()) {
-            case ff_cvt_d_fmt:  // Mips32r2 instruction.
+              case ff_cvt_d_fmt:  // Mips32r2 instruction.
                 // Watch the signs here, we want 2 32-bit vals
                 // to make a sign-64.
                 i64 = static_cast<uint32_t>(getFpuRegister(fs_reg));
                 i64 |= static_cast<int64_t>(getFpuRegister(fs_reg + 1)) << 32;
                 setFpuRegisterDouble(fd_reg, static_cast<double>(i64));
                 break;
-            case ff_cvt_s_fmt:
+              case ff_cvt_s_fmt:
                 MOZ_CRASH();
                 break;
-            default:
+              default:
                 MOZ_CRASH();
             }
             break;
-        case rs_ps:
+          case rs_ps:
             break;
-        default:
+          default:
             MOZ_CRASH();
         };
         break;
-    case op_cop1x:
+      case op_cop1x:
         switch (instr->functionFieldRaw()) {
-        case ff_madd_s:
+          case ff_madd_s:
             float fr, ft, fs;
             fr = getFpuRegisterFloat(fr_reg);
             fs = getFpuRegisterFloat(fs_reg);
             ft = getFpuRegisterFloat(ft_reg);
             setFpuRegisterFloat(fd_reg, fs * ft + fr);
             break;
-        case ff_madd_d:
+          case ff_madd_d:
             double dr, dt, ds;
             dr = getFpuRegisterDouble(fr_reg);
             ds = getFpuRegisterDouble(fs_reg);
             dt = getFpuRegisterDouble(ft_reg);
             setFpuRegisterDouble(fd_reg, ds * dt + dr);
             break;
-        default:
+          default:
             MOZ_CRASH();
         };
         break;
-    case op_special:
+      case op_special:
         switch (instr->functionFieldRaw()) {
-        case ff_jr: {
+          case ff_jr: {
             SimInstruction *branch_delay_instr = reinterpret_cast<SimInstruction*>(
                     current_pc + SimInstruction::kInstrSize);
             branchDelayInstructionDecode(branch_delay_instr);
             set_pc(next_pc);
             pc_modified_ = true;
             break;
-        }
-        case ff_jalr: {
+          }
+          case ff_jalr: {
             SimInstruction *branch_delay_instr = reinterpret_cast<SimInstruction*>(
                     current_pc + SimInstruction::kInstrSize);
             setRegister(return_addr_reg, current_pc + 2 * SimInstruction::kInstrSize);
@@ -2812,17 +2810,17 @@ Simulator::decodeTypeRegister(SimInstruction *instr)
             set_pc(next_pc);
             pc_modified_ = true;
             break;
-        }
-        // Instructions using HI and LO registers.
-        case ff_mult:
+          }
+          // Instructions using HI and LO registers.
+          case ff_mult:
             setRegister(LO, static_cast<int32_t>(i64hilo & 0xffffffff));
             setRegister(HI, static_cast<int32_t>(i64hilo >> 32));
             break;
-        case ff_multu:
+          case ff_multu:
             setRegister(LO, static_cast<int32_t>(u64hilo & 0xffffffff));
             setRegister(HI, static_cast<int32_t>(u64hilo >> 32));
             break;
-        case ff_div:
+          case ff_div:
             // Divide by zero and overflow was not checked in the configuration
             // step - div and divu do not raise exceptions. On division by 0
             // the result will be UNPREDICTABLE. On overflow (INT_MIN/-1),
@@ -2835,29 +2833,29 @@ Simulator::decodeTypeRegister(SimInstruction *instr)
                 setRegister(HI, rs % rt);
             }
             break;
-        case ff_divu:
+          case ff_divu:
             if (rt_u != 0) {
                 setRegister(LO, rs_u / rt_u);
                 setRegister(HI, rs_u % rt_u);
             }
             break;
             // Break and trap instructions.
-        case ff_break:
-        case ff_tge:
-        case ff_tgeu:
-        case ff_tlt:
-        case ff_tltu:
-        case ff_teq:
-        case ff_tne:
+          case ff_break:
+          case ff_tge:
+          case ff_tgeu:
+          case ff_tlt:
+          case ff_tltu:
+          case ff_teq:
+          case ff_tne:
             if (do_interrupt) {
                 softwareInterrupt(instr);
             }
             break;
             // Conditional moves.
-        case ff_movn:
+          case ff_movn:
             if (rt) setRegister(rd_reg, rs);
             break;
-        case ff_movci: {
+          case ff_movci: {
             uint32_t cc = instr->fbccValue();
             uint32_t fcsr_cc = GetFCSRConditionBit(cc);
             if (instr->bit(16)) {  // Read Tf bit.
@@ -2866,46 +2864,46 @@ Simulator::decodeTypeRegister(SimInstruction *instr)
                 if (!testFCSRBit(fcsr_cc)) setRegister(rd_reg, rs);
             }
             break;
-        }
-        case ff_movz:
+          }
+          case ff_movz:
             if (!rt) setRegister(rd_reg, rs);
             break;
-        default:  // For other special opcodes we do the default operation.
+          default:  // For other special opcodes we do the default operation.
             setRegister(rd_reg, alu_out);
-        };
-        break;
-    case op_special2:
+          };
+          break;
+      case op_special2:
         switch (instr->functionFieldRaw()) {
-        case ff_mul:
+          case ff_mul:
             setRegister(rd_reg, alu_out);
             // HI and LO are UNPREDICTABLE after the operation.
             setRegister(LO, Unpredictable);
             setRegister(HI, Unpredictable);
             break;
-        default:  // For other special2 opcodes we do the default operation.
+          default:  // For other special2 opcodes we do the default operation.
             setRegister(rd_reg, alu_out);
         }
         break;
-    case op_special3:
+      case op_special3:
         switch (instr->functionFieldRaw()) {
-        case ff_ins:
+          case ff_ins:
             // Ins instr leaves result in Rt, rather than Rd.
             setRegister(rt_reg, alu_out);
             break;
-        case ff_ext:
+          case ff_ext:
             // Ext instr leaves result in Rt, rather than Rd.
             setRegister(rt_reg, alu_out);
             break;
-        default:
+          default:
             MOZ_CRASH();
         };
         break;
         // Unimplemented opcodes raised an error in the configuration step before,
         // so we can use the default here to set the destination register in common
         // cases.
-    default:
+      default:
         setRegister(rd_reg, alu_out);
-    };
+      };
 }
 
 // Type 2: instructions using a 16 bytes immediate. (e.g. addi, beq).
@@ -2949,10 +2947,10 @@ Simulator::decodeTypeImmediate(SimInstruction *instr)
 
     // ---------- Configuration (and execution for op_regimm).
     switch (op) {
-        // ------------- op_cop1. Coprocessor instructions.
-    case op_cop1:
+          // ------------- op_cop1. Coprocessor instructions.
+      case op_cop1:
         switch (instr->rsFieldRaw()) {
-        case rs_bc1:   // Branch on coprocessor condition.
+          case rs_bc1:   // Branch on coprocessor condition.
             cc = instr->fbccValue();
             fcsr_cc = GetFCSRConditionBit(cc);
             cc_value = testFCSRBit(fcsr_cc);
@@ -2965,33 +2963,33 @@ Simulator::decodeTypeImmediate(SimInstruction *instr)
                 next_pc = current_pc + kBranchReturnOffset;
             }
             break;
-        default:
+          default:
             MOZ_CRASH();
         };
         break;
         // ------------- op_regimm class.
-    case op_regimm:
+      case op_regimm:
         switch (instr->rtFieldRaw()) {
-        case rt_bltz:
+          case rt_bltz:
             do_branch = (rs  < 0);
             break;
-        case rt_bltzal:
+          case rt_bltzal:
             do_branch = rs  < 0;
             break;
-        case rt_bgez:
+          case rt_bgez:
             do_branch = rs >= 0;
             break;
-        case rt_bgezal:
+          case rt_bgezal:
             do_branch = rs >= 0;
             break;
-        default:
+          default:
             MOZ_CRASH();
         };
         switch (instr->rtFieldRaw()) {
-        case rt_bltz:
-        case rt_bltzal:
-        case rt_bgez:
-        case rt_bgezal:
+          case rt_bltz:
+          case rt_bltzal:
+          case rt_bgez:
+          case rt_bgezal:
             // Branch instructions common part.
             execute_branch_delay_instruction = true;
             // Set next_pc.
@@ -3003,27 +3001,27 @@ Simulator::decodeTypeImmediate(SimInstruction *instr)
             } else {
                 next_pc = current_pc + kBranchReturnOffset;
             }
-        default:
+          default:
             break;
         };
         break;  // case op_regimm.
         // ------------- Branch instructions.
         // When comparing to zero, the encoding of rt field is always 0, so we don't
         // need to replace rt with zero.
-    case op_beq:
+      case op_beq:
         do_branch = (rs == rt);
         break;
-    case op_bne:
+      case op_bne:
         do_branch = rs != rt;
         break;
-    case op_blez:
+      case op_blez:
         do_branch = rs <= 0;
         break;
-    case op_bgtz:
+      case op_bgtz:
         do_branch = rs  > 0;
         break;
         // ------------- Arithmetic instructions.
-    case op_addi:
+      case op_addi:
         if (HaveSameSign(rs, se_imm16)) {
             if (rs > 0) {
                 exceptions[kIntegerOverflow] = rs > (kRegisterskMaxValue - se_imm16);
@@ -3034,37 +3032,37 @@ Simulator::decodeTypeImmediate(SimInstruction *instr)
         }
         alu_out = rs + se_imm16;
         break;
-    case op_addiu:
+      case op_addiu:
         alu_out = rs + se_imm16;
         break;
-    case op_slti:
+      case op_slti:
         alu_out = (rs < se_imm16) ? 1 : 0;
         break;
-    case op_sltiu:
+      case op_sltiu:
         alu_out = (rs_u < static_cast<uint32_t>(se_imm16)) ? 1 : 0;
         break;
-    case op_andi:
+      case op_andi:
         alu_out = rs & oe_imm16;
         break;
-    case op_ori:
+      case op_ori:
         alu_out = rs | oe_imm16;
         break;
-    case op_xori:
+      case op_xori:
         alu_out = rs ^ oe_imm16;
         break;
-    case op_lui:
+      case op_lui:
         alu_out = (oe_imm16 << 16);
         break;
         // ------------- Memory instructions.
-    case op_lb:
+      case op_lb:
         addr = rs + se_imm16;
         alu_out = readB(addr);
         break;
-    case op_lh:
+      case op_lh:
         addr = rs + se_imm16;
         alu_out = readH(addr, instr);
         break;
-    case op_lwl: {
+      case op_lwl: {
         // al_offset is offset of the effective address within an aligned word.
         uint8_t al_offset = (rs + se_imm16) & kPointerAlignmentMask;
         uint8_t byte_shift = kPointerAlignmentMask - al_offset;
@@ -3074,20 +3072,20 @@ Simulator::decodeTypeImmediate(SimInstruction *instr)
         alu_out <<= byte_shift * 8;
         alu_out |= rt & mask;
         break;
-    }
-    case op_lw:
+      }
+      case op_lw:
         addr = rs + se_imm16;
         alu_out = readW(addr, instr);
         break;
-    case op_lbu:
+      case op_lbu:
         addr = rs + se_imm16;
         alu_out = readBU(addr);
         break;
-    case op_lhu:
+      case op_lhu:
         addr = rs + se_imm16;
         alu_out = readHU(addr, instr);
         break;
-    case op_lwr: {
+      case op_lwr: {
         // al_offset is offset of the effective address within an aligned word.
         uint8_t al_offset = (rs + se_imm16) & kPointerAlignmentMask;
         uint8_t byte_shift = kPointerAlignmentMask - al_offset;
@@ -3097,14 +3095,14 @@ Simulator::decodeTypeImmediate(SimInstruction *instr)
         alu_out = static_cast<uint32_t> (alu_out) >> al_offset * 8;
         alu_out |= rt & mask;
         break;
-    }
-    case op_sb:
+      }
+      case op_sb:
         addr = rs + se_imm16;
         break;
-    case op_sh:
+      case op_sh:
         addr = rs + se_imm16;
         break;
-    case op_swl: {
+      case op_swl: {
         uint8_t al_offset = (rs + se_imm16) & kPointerAlignmentMask;
         uint8_t byte_shift = kPointerAlignmentMask - al_offset;
         uint32_t mask = byte_shift ? (~0 << (al_offset + 1) * 8) : 0;
@@ -3112,31 +3110,31 @@ Simulator::decodeTypeImmediate(SimInstruction *instr)
         mem_value = readW(addr, instr) & mask;
         mem_value |= static_cast<uint32_t>(rt) >> byte_shift * 8;
         break;
-    }
-    case op_sw:
+      }
+      case op_sw:
         addr = rs + se_imm16;
         break;
-    case op_swr: {
+      case op_swr: {
         uint8_t al_offset = (rs + se_imm16) & kPointerAlignmentMask;
         uint32_t mask = (1 << al_offset * 8) - 1;
         addr = rs + se_imm16 - al_offset;
         mem_value = readW(addr, instr);
         mem_value = (rt << al_offset * 8) | (mem_value & mask);
         break;
-    }
-    case op_lwc1:
+      }
+      case op_lwc1:
         addr = rs + se_imm16;
         alu_out = readW(addr, instr);
         break;
-    case op_ldc1:
+      case op_ldc1:
         addr = rs + se_imm16;
         fp_out = readD(addr, instr);
         break;
-    case op_swc1:
-    case op_sdc1:
+      case op_swc1:
+      case op_sdc1:
         addr = rs + se_imm16;
         break;
-    default:
+      default:
         MOZ_CRASH();
     };
 
@@ -3145,11 +3143,11 @@ Simulator::decodeTypeImmediate(SimInstruction *instr)
 
     // ---------- Execution.
     switch (op) {
-        // ------------- Branch instructions.
-    case op_beq:
-    case op_bne:
-    case op_blez:
-    case op_bgtz:
+          // ------------- Branch instructions.
+      case op_beq:
+      case op_bne:
+      case op_blez:
+      case op_bgtz:
         // Branch instructions common part.
         execute_branch_delay_instruction = true;
         // Set next_pc.
@@ -3163,56 +3161,56 @@ Simulator::decodeTypeImmediate(SimInstruction *instr)
         }
         break;
         // ------------- Arithmetic instructions.
-    case op_addi:
-    case op_addiu:
-    case op_slti:
-    case op_sltiu:
-    case op_andi:
-    case op_ori:
-    case op_xori:
-    case op_lui:
+      case op_addi:
+      case op_addiu:
+      case op_slti:
+      case op_sltiu:
+      case op_andi:
+      case op_ori:
+      case op_xori:
+      case op_lui:
         setRegister(rt_reg, alu_out);
         break;
         // ------------- Memory instructions.
-    case op_lb:
-    case op_lh:
-    case op_lwl:
-    case op_lw:
-    case op_lbu:
-    case op_lhu:
-    case op_lwr:
+      case op_lb:
+      case op_lh:
+      case op_lwl:
+      case op_lw:
+      case op_lbu:
+      case op_lhu:
+      case op_lwr:
         setRegister(rt_reg, alu_out);
         break;
-    case op_sb:
+      case op_sb:
         writeB(addr, static_cast<int8_t>(rt));
         break;
-    case op_sh:
+      case op_sh:
         writeH(addr, static_cast<uint16_t>(rt), instr);
         break;
-    case op_swl:
+      case op_swl:
         writeW(addr, mem_value, instr);
         break;
-    case op_sw:
+      case op_sw:
         writeW(addr, rt, instr);
         break;
-    case op_swr:
+      case op_swr:
         writeW(addr, mem_value, instr);
         break;
-    case op_lwc1:
+      case op_lwc1:
         setFpuRegister(ft_reg, alu_out);
         break;
-    case op_ldc1:
+      case op_ldc1:
         setFpuRegisterDouble(ft_reg, fp_out);
         break;
-    case op_swc1:
+      case op_swc1:
         addr = rs + se_imm16;
         writeW(addr, getFpuRegister(ft_reg), instr);
         break;
-    case op_sdc1:
+      case op_sdc1:
         addr = rs + se_imm16;
         writeD(addr, getFpuRegisterDouble(ft_reg), instr);
         break;
-    default:
+      default:
         break;
     };
 
@@ -3269,29 +3267,17 @@ Simulator::instructionDecode(SimInstruction *instr)
     }
     pc_modified_ = false;
 
-    /*
-    if (::v8::internal::FLAG_trace_sim) {
-      disasm::NameConverter converter;
-      disasm::Disassembler dasm(converter);
-      // Use a reasonably large buffer.
-      v8::internal::EmbeddedVector<char, 256> buffer;
-      dasm.instructionDecode(buffer, reinterpret_cast<uint8_t*>(instr));
-      printf("  0x%08x  %s\n", reinterpret_cast<intptr_t>(instr),
-          buffer.start());
-    }
-    */
-
     switch (instr->instructionType()) {
-    case SimInstruction::kRegisterType:
+      case SimInstruction::kRegisterType:
         decodeTypeRegister(instr);
         break;
-    case SimInstruction::kImmediateType:
+      case SimInstruction::kImmediateType:
         decodeTypeImmediate(instr);
         break;
-    case SimInstruction::kJumpType:
+      case SimInstruction::kJumpType:
         decodeTypeJump(instr);
         break;
-    default:
+      default:
         UNSUPPORTED();
     }
     if (!pc_modified_) {
