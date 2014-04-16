@@ -19,6 +19,8 @@
 # include "jit/arm/MacroAssembler-arm.h"
 #elif defined(JS_CODEGEN_MIPS)
 # include "jit/mips/MacroAssembler-mips.h"
+#else
+# error "Unknown architecture!"
 #endif
 #include "jit/IonInstrumentation.h"
 #include "jit/JitCompartment.h"

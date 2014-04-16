@@ -21,7 +21,7 @@
 #elif defined(JS_CODEGEN_MIPS)
 # include "jit/mips/CodeGenerator-mips.h"
 #else
-#error "CPU Not Supported"
+#error "Unknown architecture!"
 #endif
 
 namespace js {

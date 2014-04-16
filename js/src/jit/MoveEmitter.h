@@ -14,7 +14,7 @@
 #elif defined(JS_CODEGEN_MIPS)
 # include "jit/mips/MoveEmitter-mips.h"
 #else
-# error "CPU Not Supported"
+# error "Unknown architecture!"
 #endif
 
 #endif /* jit_MoveEmitter_h */

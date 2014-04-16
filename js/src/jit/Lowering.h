@@ -20,7 +20,7 @@
 #elif defined(JS_CODEGEN_MIPS)
 # include "jit/mips/Lowering-mips.h"
 #else
-# error "CPU!"
+# error "Unknown architecture!"
 #endif
 
 namespace js {

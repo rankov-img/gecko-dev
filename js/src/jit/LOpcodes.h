@@ -307,6 +307,8 @@
 # include "jit/arm/LOpcodes-arm.h"
 #elif defined(JS_CODEGEN_MIPS)
 # include "jit/mips/LOpcodes-mips.h"
+#else
+# error "Unknown architecture!"
 #endif
 
 #define LIR_OPCODE_LIST(_)          \

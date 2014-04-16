@@ -18,7 +18,7 @@
 #elif defined(JS_CODEGEN_MIPS)
 # include "jit/mips/BaselineRegisters-mips.h"
 #else
-# error "Invalid architecture."
+# error "Unknown architecture!"
 #endif
 
 namespace js {
