@@ -48,6 +48,7 @@ class AFakePCObserver;
 class Fake_DOMMediaStream;
 #endif
 
+class nsGlobalWindow;
 class nsIDOMMediaStream;
 class nsDOMDataChannel;
 
@@ -217,7 +218,7 @@ public:
   NS_DECL_THREADSAFE_ISUPPORTS
 
 #ifdef MOZILLA_INTERNAL_API
-  virtual JSObject* WrapObject(JSContext* cx, JS::Handle<JSObject*> scope);
+  virtual JSObject* WrapObject(JSContext* cx);
 #endif
 
   static already_AddRefed<PeerConnectionImpl>
@@ -512,6 +513,8 @@ public:
   void SetSignalingState_m(mozilla::dom::PCImplSignalingState aSignalingState);
 
   bool IsClosed() const;
+
+  bool HasMedia() const;
 
 #ifdef MOZILLA_INTERNAL_API
   // initialize telemetry for when calls start

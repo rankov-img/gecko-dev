@@ -18,9 +18,7 @@ Cu.import("resource://gre/modules/Promise.jsm");
 Cu.import("resource://gre/modules/osfile.jsm");
 Cu.import("resource://gre/modules/Log.jsm");
 Cu.import("resource://gre/modules/Preferences.jsm");
-Cu.import("resource://services-common/utils.js");
 Cu.import("resource://gre/modules/AsyncShutdown.jsm");
-Cu.import("resource://gre/modules/Metrics.jsm");
 
 XPCOMUtils.defineLazyModuleGetter(this, "UpdateChannel",
                                   "resource://gre/modules/UpdateChannel.jsm");
@@ -30,6 +28,11 @@ XPCOMUtils.defineLazyModuleGetter(this, "TelemetryPing",
                                   "resource://gre/modules/TelemetryPing.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "TelemetryLog",
                                   "resource://gre/modules/TelemetryLog.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "CommonUtils",
+                                  "resource://services-common/utils.js");
+XPCOMUtils.defineLazyModuleGetter(this, "Metrics",
+                                  "resource://gre/modules/Metrics.jsm");
+
 // CertUtils.jsm doesn't expose a single "CertUtils" object like a normal .jsm
 // would.
 XPCOMUtils.defineLazyGetter(this, "CertUtils",
@@ -55,6 +58,7 @@ const MIN_EXPERIMENT_ACTIVE_SECONDS = 60;
 
 const PREF_BRANCH               = "experiments.";
 const PREF_ENABLED              = "enabled"; // experiments.enabled
+const PREF_ACTIVE_EXPERIMENT    = "activeExperiment"; // whether we have an active experiment
 const PREF_LOGGING              = "logging";
 const PREF_LOGGING_LEVEL        = PREF_LOGGING + ".level"; // experiments.logging.level
 const PREF_LOGGING_DUMP         = PREF_LOGGING + ".dump"; // experiments.logging.dump
@@ -353,6 +357,7 @@ Experiments.Experiments.prototype = {
   QueryInterface: XPCOMUtils.generateQI([Ci.nsITimerCallback, Ci.nsIObserver]),
 
   init: function () {
+    this._shutdown = false;
     configureLogging();
 
     gExperimentsEnabled = gPrefs.get(PREF_ENABLED, false);
@@ -383,10 +388,19 @@ Experiments.Experiments.prototype = {
   },
 
   /**
+   * Uninitialize this instance.
+   *
+   * This function is susceptible to race conditions. If it is called multiple
+   * times before the previous uninit() has completed or if it is called while
+   * an init() operation is being performed, the object may get in bad state
+   * and/or deadlock could occur.
+   *
    * @return Promise<>
    *         The promise is fulfilled when all pending tasks are finished.
    */
-  uninit: function () {
+  uninit: Task.async(function* () {
+    yield this._loadTask;
+
     if (!this._shutdown) {
       this._stopWatchingAddons();
 
@@ -403,10 +417,11 @@ Experiments.Experiments.prototype = {
 
     this._shutdown = true;
     if (this._mainTask) {
-      return this._mainTask;
+      yield this._mainTask;
     }
-    return Promise.resolve();
-  },
+
+    this._log.info("Completed uninitialization.");
+  }),
 
   _startWatchingAddons: function () {
     AddonManager.addAddonListener(this);
@@ -572,6 +587,10 @@ Experiments.Experiments.prototype = {
     do {
       this._log.trace("_main iteration");
       yield this._loadTask;
+      if (!gExperimentsEnabled) {
+        this._refresh = false;
+      }
+
       if (this._refresh) {
         yield this._loadManifest();
       }
@@ -865,7 +884,11 @@ Experiments.Experiments.prototype = {
     // Make sure we keep experiments that are or were running.
     // We remove them after KEEP_HISTORY_N_DAYS.
     for (let [id, entry] of this._experiments) {
-      if (experiments.has(id) || !entry.startDate || entry.shouldDiscard()) {
+      if (experiments.has(id)) {
+        continue;
+      }
+
+      if (!entry.startDate || entry.shouldDiscard()) {
         this._log.trace("updateExperiments() - discarding entry for " + id);
         continue;
       }
@@ -953,6 +976,11 @@ Experiments.Experiments.prototype = {
     let activeChanged = false;
     let now = this._policy.now();
 
+    if (!activeExperiment) {
+      // Avoid this pref staying out of sync if there were e.g. crashes.
+      gPrefs.set(PREF_ACTIVE_EXPERIMENT, false);
+    }
+
     if (activeExperiment) {
       this._pendingUninstall = activeExperiment._addonId;
       try {
@@ -969,6 +997,8 @@ Experiments.Experiments.prototype = {
                         + activeExperiment.id);
           activeExperiment = null;
           activeChanged = true;
+        } else if (!gExperimentsEnabled) {
+          // No further actions if the feature is disabled.
         } else if (activeExperiment.needsUpdate) {
           this._log.debug("evaluateExperiments() - updating experiment "
                         + activeExperiment.id);
@@ -991,7 +1021,7 @@ Experiments.Experiments.prototype = {
     }
     this._terminateReason = null;
 
-    if (!activeExperiment) {
+    if (!activeExperiment && gExperimentsEnabled) {
       for (let [id, experiment] of this._experiments) {
         let applicable;
         let reason = null;
@@ -1460,6 +1490,7 @@ Experiments.ExperimentEntry.prototype = {
       }
 
       yield this._installAddon();
+      gPrefs.set(PREF_ACTIVE_EXPERIMENT, true);
     }.bind(this));
   },
 
@@ -1580,6 +1611,8 @@ Experiments.ExperimentEntry.prototype = {
     }
 
     this._enabled = false;
+    gPrefs.set(PREF_ACTIVE_EXPERIMENT, false);
+
     let deferred = Promise.defer();
     let updateDates = () => {
       let now = this._policy.now();
@@ -1684,8 +1717,13 @@ Experiments.ExperimentEntry.prototype = {
    */
   maybeStop: function () {
     this._log.trace("maybeStop()");
+    return Task.spawn(function* ExperimentEntry_maybeStop_task() {
+      if (!gExperimentsEnabled) {
+        this._log.warn("maybeStop() - should not get here");
+        yield this.stop(TELEMETRY_LOG.TERMINATION.FROM_API);
+        return true;
+      }
 
-    return Task.spawn(function ExperimentEntry_maybeStop_task() {
       let result = yield this._shouldStop();
       if (result.shouldStop) {
         let expireReasons = ["endTime", "maxActiveSeconds"];
@@ -1696,7 +1734,7 @@ Experiments.ExperimentEntry.prototype = {
         }
       }
 
-      throw new Task.Result(result.shouldStop);
+      return result.shouldStop;
     }.bind(this));
   },
 
@@ -1822,8 +1860,6 @@ ExperimentsProvider.prototype = Object.freeze({
   ],
 
   postInit: function () {
-    this._experiments = Experiments.instance();
-
     for (let o of this._OBSERVERS) {
       Services.obs.addObserver(this, o, false);
     }
@@ -1852,6 +1888,14 @@ ExperimentsProvider.prototype = Object.freeze({
   },
 
   recordLastActiveExperiment: function () {
+    if (!gExperimentsEnabled) {
+      return Promise.resolve();
+    }
+
+    if (!this._experiments) {
+      this._experiments = Experiments.instance();
+    }
+
     let m = this.getMeasurement(ExperimentsLastActiveMeasurement1.prototype.name,
                                 ExperimentsLastActiveMeasurement1.prototype.version);
 

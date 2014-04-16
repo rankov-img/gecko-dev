@@ -376,10 +376,10 @@ DataTextureSourceD3D9::Update(gfx::DataSourceSurface* aSurface,
                               nsIntRegion* aDestRegion,
                               gfx::IntPoint* aSrcOffset)
 {
-  // Right now we only support null aDestRegion and aSrcOffset (which means
-  // full surface update). Incremental update is only used on Mac so it is
-  // not clear that we ever will need to support it for D3D.
-  MOZ_ASSERT(!aDestRegion && !aSrcOffset);
+  // Right now we only support full surface update. If aDestRegion is provided,
+  // It will be ignored. Incremental update with a source offset is only used
+  // on Mac so it is not clear that we ever will need to support it for D3D.
+  MOZ_ASSERT(!aSrcOffset);
 
   if (!mCompositor || !mCompositor->device()) {
     NS_WARNING("No D3D device to update the texture.");
@@ -645,6 +645,7 @@ CairoTextureClientD3D9::ToSurfaceDescriptor(SurfaceDescriptor& aOutDescriptor)
     return false;
   }
 
+  mTexture->AddRef(); // Release in TextureHostD3D9::TextureHostD3D9
   aOutDescriptor = SurfaceDescriptorD3D9(reinterpret_cast<uintptr_t>(mTexture.get()));
   return true;
 }
@@ -860,6 +861,7 @@ TextureHostD3D9::TextureHostD3D9(TextureFlags aFlags,
   , mIsLocked(false)
 {
   mTexture = reinterpret_cast<IDirect3DTexture9*>(aDescriptor.texture());
+  mTexture->Release(); // see AddRef in CairoTextureClientD3D9::ToSurfaceDescriptor
   MOZ_ASSERT(mTexture);
   D3DSURFACE_DESC desc;
   HRESULT hr = mTexture->GetLevelDesc(0, &desc);

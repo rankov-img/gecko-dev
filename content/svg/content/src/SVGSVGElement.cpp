@@ -50,9 +50,9 @@ namespace dom {
 class SVGAnimatedLength;
 
 JSObject*
-SVGSVGElement::WrapNode(JSContext *aCx, JS::Handle<JSObject*> aScope)
+SVGSVGElement::WrapNode(JSContext *aCx)
 {
-  return SVGSVGElementBinding::Wrap(aCx, aScope, this);
+  return SVGSVGElementBinding::Wrap(aCx, this);
 }
 
 NS_IMPL_CYCLE_COLLECTION_INHERITED_1(DOMSVGTranslatePoint, nsISVGPoint,
@@ -387,10 +387,10 @@ SVGSVGElement::CreateSVGNumber()
   return number.forget();
 }
 
-already_AddRefed<nsIDOMSVGLength>
+already_AddRefed<DOMSVGLength>
 SVGSVGElement::CreateSVGLength()
 {
-  nsCOMPtr<nsIDOMSVGLength> length = new DOMSVGLength();
+  nsCOMPtr<DOMSVGLength> length = new DOMSVGLength();
   return length.forget();
 }
 

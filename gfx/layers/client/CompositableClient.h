@@ -68,13 +68,15 @@ class TextureClientData;
  * where we have a different way of interfacing with the textures - in terms of
  * drawing into the compositable and/or passing its contents to the compostior.
  */
-class CompositableClient : public AtomicRefCounted<CompositableClient>
+class CompositableClient
 {
-public:
-  MOZ_DECLARE_REFCOUNTED_TYPENAME(CompositableClient)
-  CompositableClient(CompositableForwarder* aForwarder, TextureFlags aFlags = 0);
-
+protected:
   virtual ~CompositableClient();
+
+public:
+  NS_INLINE_DECL_THREADSAFE_REFCOUNTING(CompositableClient)
+
+  CompositableClient(CompositableForwarder* aForwarder, TextureFlags aFlags = 0);
 
   virtual TextureInfo GetTextureInfo() const = 0;
 
@@ -85,8 +87,6 @@ public:
                             TextureFlags aFlags = TEXTURE_FLAGS_DEFAULT,
                             gfx::BackendType aMoz2dBackend = gfx::BackendType::NONE);
 
-  // If we return a non-null TextureClient, then AsTextureClientDrawTarget will
-  // always be non-null.
   TemporaryRef<TextureClient>
   CreateTextureClientForDrawing(gfx::SurfaceFormat aFormat,
                                 TextureFlags aTextureFlags,

@@ -2444,10 +2444,6 @@ array_splice(JSContext *cx, unsigned argc, Value *vp)
 
             /* Steps 12(c)-(d). */
             obj->shrinkElements(cx, finalLength);
-
-            /* Fix running enumerators for the deleted items. */
-            if (!js_SuppressDeletedElements(cx, obj, finalLength, len))
-                return false;
         } else {
             /*
              * This is all very slow if the length is very large. We don't yet
@@ -2983,6 +2979,8 @@ static const JSFunctionSpec array_methods[] = {
     JS_SELF_HOSTED_FN("find",        "ArrayFind",        1,0),
     JS_SELF_HOSTED_FN("findIndex",   "ArrayFindIndex",   1,0),
 
+    JS_SELF_HOSTED_FN("fill",        "ArrayFill",        3,0),
+
     JS_SELF_HOSTED_FN("@@iterator",  "ArrayValues",      0,0),
     JS_SELF_HOSTED_FN("entries",     "ArrayEntries",     0,0),
     JS_SELF_HOSTED_FN("keys",        "ArrayKeys",        0,0),
@@ -3083,6 +3081,8 @@ js_InitArrayClass(JSContext *cx, HandleObject obj)
     RootedShape shape(cx, EmptyShape::getInitialShape(cx, &ArrayObject::class_, TaggedProto(proto),
                                                       proto->getParent(), metadata,
                                                       gc::FINALIZE_OBJECT0));
+    if (!shape)
+        return nullptr;
 
     RootedObject arrayProto(cx, JSObject::createArray(cx, gc::FINALIZE_OBJECT4, gc::TenuredHeap, shape, type, 0));
     if (!arrayProto || !JSObject::setSingletonType(cx, arrayProto) || !AddLengthProperty(cx, arrayProto))

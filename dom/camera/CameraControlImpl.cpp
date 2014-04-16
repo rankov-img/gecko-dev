@@ -38,6 +38,17 @@ CameraControlImpl::CameraControlImpl(uint32_t aCameraId)
     sCameraThread = do_GetWeakReference(mCameraThread);
   }
 
+  // Care must be taken with the mListenerLock read-write lock to prevent
+  // deadlocks. Currently this is handled by ensuring that any attempts to
+  // acquire the lock for writing (as in Add/RemoveListener()) happen in a
+  // runnable dispatched to the Camera Thread--even if the method is being
+  // called from that thread. This ensures that if a registered listener
+  // (which is invoked with a read-lock) tries to call Add/RemoveListener(),
+  // the lock-for-writing attempt won't happen until the listener has
+  // completed.
+  //
+  // Multiple parallel listeners being invoked are not a problem because
+  // the read-write lock allows multiple simultaneous read-locks.
   mListenerLock = PR_NewRWLock(PR_RWLOCK_RANK_NONE, "CameraControlImpl.Listeners.Lock");
 }
 
@@ -117,6 +128,31 @@ CameraControlImpl::OnAutoFocusComplete(bool aAutoFocusSucceeded)
   for (uint32_t i = 0; i < mListeners.Length(); ++i) {
     CameraControlListener* l = mListeners[i];
     l->OnAutoFocusComplete(aAutoFocusSucceeded);
+  }
+}
+
+void
+CameraControlImpl::OnAutoFocusMoving(bool aIsMoving)
+{
+  RwLockAutoEnterRead lock(mListenerLock);
+
+  for (uint32_t i = 0; i < mListeners.Length(); ++i) {
+    CameraControlListener* l = mListeners[i];
+    l->OnAutoFocusMoving(aIsMoving);
+  }
+}
+
+void
+CameraControlImpl::OnFacesDetected(const nsTArray<Face>& aFaces)
+{
+  // This callback can run on threads other than the Main Thread and
+  //  the Camera Thread. On Gonk, it is called from the camera
+  //  library's face detection thread.
+  RwLockAutoEnterRead lock(mListenerLock);
+
+  for (uint32_t i = 0; i < mListeners.Length(); ++i) {
+    CameraControlListener* l = mListeners[i];
+    l->OnFacesDetected(aFaces);
   }
 }
 
@@ -248,12 +284,15 @@ CameraControlImpl::OnError(CameraControlListener::CameraErrorContext aContext,
     "StartCamera",
     "StopCamera",
     "AutoFocus",
+    "StartFaceDetection",
+    "StopFaceDetection",
     "TakePicture",
     "StartRecording",
     "StopRecording",
     "SetConfiguration",
     "StartPreview",
     "StopPreview",
+    "ResumeContinuousFocus",
     "Unspecified"
   };
   if (static_cast<unsigned int>(aError) < sizeof(error) / sizeof(error[0]) &&
@@ -378,30 +417,69 @@ CameraControlImpl::SetConfiguration(const Configuration& aConfig)
 }
 
 nsresult
-CameraControlImpl::AutoFocus(bool aCancelExistingCall)
+CameraControlImpl::AutoFocus()
 {
   class Message : public ControlMessage
   {
   public:
     Message(CameraControlImpl* aCameraControl,
-            CameraControlListener::CameraErrorContext aContext,
-            bool aCancelExistingCall)
+            CameraControlListener::CameraErrorContext aContext)
       : ControlMessage(aCameraControl, aContext)
-      , mCancelExistingCall(aCancelExistingCall)
     { }
 
     nsresult
     RunImpl() MOZ_OVERRIDE
     {
-      return mCameraControl->AutoFocusImpl(mCancelExistingCall);
+      return mCameraControl->AutoFocusImpl();
     }
-
-  protected:
-    bool mCancelExistingCall;
   };
 
   return mCameraThread->Dispatch(
-    new Message(this, CameraControlListener::kInAutoFocus, aCancelExistingCall), NS_DISPATCH_NORMAL);
+    new Message(this, CameraControlListener::kInAutoFocus), NS_DISPATCH_NORMAL);
+}
+
+nsresult
+CameraControlImpl::StartFaceDetection()
+{
+  class Message : public ControlMessage
+  {
+  public:
+    Message(CameraControlImpl* aCameraControl,
+            CameraControlListener::CameraErrorContext aContext)
+      : ControlMessage(aCameraControl, aContext)
+    { }
+
+    nsresult
+    RunImpl() MOZ_OVERRIDE
+    {
+      return mCameraControl->StartFaceDetectionImpl();
+    }
+  };
+
+  return mCameraThread->Dispatch(
+    new Message(this, CameraControlListener::kInStartFaceDetection), NS_DISPATCH_NORMAL);
+}
+
+nsresult
+CameraControlImpl::StopFaceDetection()
+{
+  class Message : public ControlMessage
+  {
+  public:
+    Message(CameraControlImpl* aCameraControl,
+            CameraControlListener::CameraErrorContext aContext)
+      : ControlMessage(aCameraControl, aContext)
+    { }
+
+    nsresult
+    RunImpl() MOZ_OVERRIDE
+    {
+      return mCameraControl->StopFaceDetectionImpl();
+    }
+  };
+
+  return mCameraThread->Dispatch(
+    new Message(this, CameraControlListener::kInStopFaceDetection), NS_DISPATCH_NORMAL);
 }
 
 nsresult
@@ -529,6 +607,28 @@ CameraControlImpl::StopPreview()
 
   return mCameraThread->Dispatch(
     new Message(this, CameraControlListener::kInStopPreview), NS_DISPATCH_NORMAL);
+}
+
+nsresult
+CameraControlImpl::ResumeContinuousFocus()
+{
+  class Message : public ControlMessage
+  {
+  public:
+    Message(CameraControlImpl* aCameraControl,
+            CameraControlListener::CameraErrorContext aContext)
+      : ControlMessage(aCameraControl, aContext)
+    { }
+
+    nsresult
+    RunImpl() MOZ_OVERRIDE
+    {
+      return mCameraControl->ResumeContinuousFocusImpl();
+    }
+  };
+
+  return mCameraThread->Dispatch(
+    new Message(this, CameraControlListener::kInResumeContinuousFocus), NS_DISPATCH_NORMAL);
 }
 
 nsresult

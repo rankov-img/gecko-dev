@@ -345,9 +345,9 @@ AudioDestinationNode::OfflineShutdown()
 }
 
 JSObject*
-AudioDestinationNode::WrapObject(JSContext* aCx, JS::Handle<JSObject*> aScope)
+AudioDestinationNode::WrapObject(JSContext* aCx)
 {
-  return AudioDestinationNodeBinding::Wrap(aCx, aScope, this);
+  return AudioDestinationNodeBinding::Wrap(aCx, this);
 }
 
 void
@@ -477,40 +477,10 @@ AudioDestinationNode::CreateAudioChannelAgent()
     mAudioChannelAgent->StopPlaying();
   }
 
-  AudioChannelType type = AUDIO_CHANNEL_NORMAL;
-  switch(mAudioChannel) {
-    case AudioChannel::Normal:
-      type = AUDIO_CHANNEL_NORMAL;
-      break;
-
-    case AudioChannel::Content:
-      type = AUDIO_CHANNEL_CONTENT;
-      break;
-
-    case AudioChannel::Notification:
-      type = AUDIO_CHANNEL_NOTIFICATION;
-      break;
-
-    case AudioChannel::Alarm:
-      type = AUDIO_CHANNEL_ALARM;
-      break;
-
-    case AudioChannel::Telephony:
-      type = AUDIO_CHANNEL_TELEPHONY;
-      break;
-
-    case AudioChannel::Ringer:
-      type = AUDIO_CHANNEL_RINGER;
-      break;
-
-    case AudioChannel::Publicnotification:
-      type = AUDIO_CHANNEL_PUBLICNOTIFICATION;
-      break;
-
-  }
-
   mAudioChannelAgent = new AudioChannelAgent();
-  mAudioChannelAgent->InitWithWeakCallback(GetOwner(), type, this);
+  mAudioChannelAgent->InitWithWeakCallback(GetOwner(),
+                                           static_cast<int32_t>(mAudioChannel),
+                                           this);
 
   nsCOMPtr<nsIDocShell> docshell = do_GetInterface(GetOwner());
   if (docshell) {
@@ -580,7 +550,6 @@ AudioDestinationNode::SetIsOnlyNodeForContext(bool aIsOnlyNode)
   if (aIsOnlyNode) {
     mStream->ChangeExplicitBlockerCount(1);
     mStartedBlockingDueToBeingOnlyNode = TimeStamp::Now();
-    mExtraCurrentTimeSinceLastStartedBlocking = 0;
     // Don't do an update of mExtraCurrentTimeSinceLastStartedBlocking until the next stable state.
     mExtraCurrentTimeUpdatedSinceLastStableState = true;
     ScheduleStableStateNotification();
@@ -588,6 +557,7 @@ AudioDestinationNode::SetIsOnlyNodeForContext(bool aIsOnlyNode)
     // Force update of mExtraCurrentTimeSinceLastStartedBlocking if necessary
     ExtraCurrentTime();
     mExtraCurrentTime += mExtraCurrentTimeSinceLastStartedBlocking;
+    mExtraCurrentTimeSinceLastStartedBlocking = 0;
     mStream->ChangeExplicitBlockerCount(-1);
     mStartedBlockingDueToBeingOnlyNode = TimeStamp();
   }

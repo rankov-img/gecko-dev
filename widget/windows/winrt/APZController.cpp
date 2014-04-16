@@ -131,12 +131,12 @@ public:
         APZCCallbackHelper::UpdateRootFrame(utils, mFrameMetrics);
 
 #ifdef DEBUG_CONTROLLER
-        WinUtils::Log("APZController: %I64d mDisplayPort: %0.2f %0.2f %0.2f %0.2f",
+        WinUtils::Log("APZController: %I64d mDisplayPortMargins: %0.2f %0.2f %0.2f %0.2f",
           mFrameMetrics.GetScrollId(),
-          mFrameMetrics.mDisplayPort.x,
-          mFrameMetrics.mDisplayPort.y,
-          mFrameMetrics.mDisplayPort.width,
-          mFrameMetrics.mDisplayPort.height);
+          mFrameMetrics.GetDisplayPortMargins().left,
+          mFrameMetrics.GetDisplayPortMargins().top,
+          mFrameMetrics.GetDisplayPortMargins().right,
+          mFrameMetrics.GetDisplayPortMargins().bottom);
 #endif
       }
     }
@@ -303,25 +303,37 @@ class TransformedEndEvent : public nsRunnable
 };
 
 void
-APZController::NotifyTransformBegin(const ScrollableLayerGuid& aGuid)
+APZController::NotifyAPZStateChange(const ScrollableLayerGuid& aGuid,
+                                    APZStateChange aChange,
+                                    int aArg)
 {
-  if (NS_IsMainThread()) {
-    MetroUtils::FireObserver("apzc-transform-begin", L"");
-    return;
+  switch (aChange) {
+    case APZStateChange::TransformBegin:
+    {
+      if (NS_IsMainThread()) {
+        MetroUtils::FireObserver("apzc-transform-begin", L"");
+        return;
+      }
+      nsCOMPtr<nsIRunnable> runnable = new TransformedStartEvent();
+      NS_DispatchToMainThread(runnable);
+      break;
+    }
+    case APZStateChange::TransformEnd:
+    {
+      if (NS_IsMainThread()) {
+        MetroUtils::FireObserver("apzc-transform-end", L"");
+        return;
+      }
+      nsCOMPtr<nsIRunnable> runnable = new TransformedEndEvent();
+      NS_DispatchToMainThread(runnable);
+      break;
+    }
+    default:
+    {
+      // We don't currently care about other state changes.
+      break;
+    }
   }
-  nsCOMPtr<nsIRunnable> runnable = new TransformedStartEvent();
-  NS_DispatchToMainThread(runnable);
-}
-
-void
-APZController::NotifyTransformEnd(const ScrollableLayerGuid& aGuid)
-{
-  if (NS_IsMainThread()) {
-    MetroUtils::FireObserver("apzc-transform-end", L"");
-    return;
-  }
-  nsCOMPtr<nsIRunnable> runnable = new TransformedEndEvent();
-  NS_DispatchToMainThread(runnable);
 }
 
 } } }

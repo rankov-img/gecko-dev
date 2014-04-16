@@ -320,9 +320,9 @@ Exception::GetName(nsACString& aName)
   return NS_OK;
 }
 
-/* readonly attribute AUTF8String filename; */
+/* readonly attribute AString filename; */
 NS_IMETHODIMP
-Exception::GetFilename(nsACString& aFilename)
+Exception::GetFilename(nsAString& aFilename)
 {
   NS_ENSURE_TRUE(mInitialized, NS_ERROR_NOT_INITIALIZED);
 
@@ -474,9 +474,9 @@ Exception::Initialize(const nsACString& aMessage, nsresult aResult,
 }
 
 JSObject*
-Exception::WrapObject(JSContext* cx, JS::Handle<JSObject*> scope)
+Exception::WrapObject(JSContext* cx)
 {
-  return ExceptionBinding::Wrap(cx, scope, this);
+  return ExceptionBinding::Wrap(cx, this);
 }
 
 void
@@ -505,18 +505,6 @@ Exception::GetName(nsString& retval)
   DebugOnly<nsresult> rv =
 #endif
   GetName(str);
-  MOZ_ASSERT(NS_SUCCEEDED(rv));
-  CopyUTF8toUTF16(str, retval);
-}
-
-void
-Exception::GetFilename(nsString& retval)
-{
-  nsCString str;
-#ifdef DEBUG
-  DebugOnly<nsresult> rv =
-#endif
-  GetFilename(str);
   MOZ_ASSERT(NS_SUCCEEDED(rv));
   CopyUTF8toUTF16(str, retval);
 }
@@ -622,7 +610,7 @@ DOMException::ToString(nsACString& aReturn)
   nsAutoCString location;
 
   if (mInner) {
-    nsCString filename;
+    nsString filename;
     mInner->GetFilename(filename);
 
     if (!filename.IsEmpty()) {
@@ -630,7 +618,9 @@ DOMException::ToString(nsACString& aReturn)
 
       mInner->GetLineNumber(&line_nr);
 
-      char *temp = PR_smprintf("%s Line: %d", filename.get(), line_nr);
+      char *temp = PR_smprintf("%s Line: %d",
+                               NS_ConvertUTF16toUTF8(filename).get(),
+                               line_nr);
       if (temp) {
         location.Assign(temp);
         PR_smprintf_free(temp);
@@ -664,9 +654,9 @@ DOMException::GetMessageMoz(nsString& retval)
 }
 
 JSObject*
-DOMException::WrapObject(JSContext* aCx, JS::Handle<JSObject*> aScope)
+DOMException::WrapObject(JSContext* aCx)
 {
-  return DOMExceptionBinding::Wrap(aCx, aScope, this);
+  return DOMExceptionBinding::Wrap(aCx, this);
 }
 
 /* static */already_AddRefed<DOMException>

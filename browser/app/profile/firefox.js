@@ -1176,7 +1176,7 @@ pref("devtools.profiler.ui.show-platform-data", false);
 pref("devtools.netmonitor.enabled", true);
 
 // The default Network Monitor UI settings
-pref("devtools.netmonitor.panes-network-details-width", 450);
+pref("devtools.netmonitor.panes-network-details-width", 550);
 pref("devtools.netmonitor.panes-network-details-height", 450);
 pref("devtools.netmonitor.statistics", true);
 pref("devtools.netmonitor.filters", "[\"all\"]");
@@ -1274,15 +1274,20 @@ pref("devtools.hud.loglimit.cssparser", 200);
 pref("devtools.hud.loglimit.exception", 200);
 pref("devtools.hud.loglimit.console", 200);
 
+// By how many times eyedropper will magnify pixels
+pref("devtools.eyedropper.zoom", 6);
+
 // The developer tools editor configuration:
 // - tabsize: how many spaces to use when a Tab character is displayed.
 // - expandtab: expand Tab characters to spaces.
 // - keymap: which keymap to use (can be 'default', 'emacs' or 'vim')
 // - autoclosebrackets: whether to permit automatic bracket/quote closing.
+// - detectindentation: whether to detect the indentation from the file
 pref("devtools.editor.tabsize", 4);
 pref("devtools.editor.expandtab", true);
 pref("devtools.editor.keymap", "default");
 pref("devtools.editor.autoclosebrackets", true);
+pref("devtools.editor.detectindentation", true);
 
 // Enable the Font Inspector
 pref("devtools.fontinspector.enabled", true);
@@ -1315,7 +1320,7 @@ pref("browser.newtabpage.rows", 3);
 // number of columns of newtab grid
 pref("browser.newtabpage.columns", 3);
 
-pref("browser.newtabpage.directorySource", "chrome://global/content/directoryLinks.json");
+pref("browser.newtabpage.directorySource", "data:application/json,{}");
 
 // Enable the DOM fullscreen API.
 pref("full-screen-api.enabled", true);

@@ -2375,18 +2375,16 @@ ContainerState::ProcessDisplayItems(const nsDisplayList& aList,
 {
   PROFILER_LABEL("ContainerState", "ProcessDisplayItems");
 
-  const nsIFrame* lastAnimatedGeometryRoot = nullptr;
-  nsPoint topLeft;
+  const nsIFrame* lastAnimatedGeometryRoot = mContainerReferenceFrame;
+  nsPoint topLeft(0,0);
 
   // When NO_COMPONENT_ALPHA is set, items will be flattened into a single
   // layer, so we need to choose which active scrolled root to use for all
   // items.
   if (aFlags & NO_COMPONENT_ALPHA) {
-    if (!ChooseAnimatedGeometryRoot(aList, &lastAnimatedGeometryRoot)) {
-      lastAnimatedGeometryRoot = mContainerReferenceFrame;
+    if (ChooseAnimatedGeometryRoot(aList, &lastAnimatedGeometryRoot)) {
+      topLeft = lastAnimatedGeometryRoot->GetOffsetToCrossDoc(mContainerReferenceFrame);
     }
-
-    topLeft = lastAnimatedGeometryRoot->GetOffsetToCrossDoc(mContainerReferenceFrame);
   }
 
   int32_t maxLayers = nsDisplayItem::MaxActiveLayers();
@@ -2426,7 +2424,14 @@ ContainerState::ProcessDisplayItems(const nsDisplayList& aList,
       animatedGeometryRoot = lastAnimatedGeometryRoot;
     } else {
       forceInactive = false;
-      animatedGeometryRoot = nsLayoutUtils::GetAnimatedGeometryRootFor(item, mBuilder);
+      if (mManager->IsWidgetLayerManager()) {
+        animatedGeometryRoot = nsLayoutUtils::GetAnimatedGeometryRootFor(item, mBuilder);
+      } else {
+        // For inactive layer subtrees, splitting content into ThebesLayers
+        // based on animated geometry roots is pointless. It's more efficient
+        // to build the minimum number of layers.
+        animatedGeometryRoot = mContainerReferenceFrame;
+      }
       if (animatedGeometryRoot != lastAnimatedGeometryRoot) {
         lastAnimatedGeometryRoot = animatedGeometryRoot;
         topLeft = animatedGeometryRoot->GetOffsetToCrossDoc(mContainerReferenceFrame);
@@ -3934,17 +3939,17 @@ ContainerState::SetupMaskLayer(Layer *aLayer, const DisplayItemClip& aClip,
     IntSize surfaceSizeInt(NSToIntCeil(surfaceSize.width),
                            NSToIntCeil(surfaceSize.height));
     // no existing mask image, so build a new one
-    nsRefPtr<gfxASurface> surface =
-      aLayer->Manager()->CreateOptimalMaskSurface(surfaceSizeInt);
+    RefPtr<DrawTarget> dt =
+      aLayer->Manager()->CreateOptimalMaskDrawTarget(surfaceSizeInt);
 
     // fail if we can't get the right surface
-    if (!surface || surface->CairoStatus()) {
-      NS_WARNING("Could not create surface for mask layer.");
+    if (!dt) {
+      NS_WARNING("Could not create DrawTarget for mask layer.");
       SetClipCount(thebesData, 0);
       return;
     }
 
-    nsRefPtr<gfxContext> context = new gfxContext(surface);
+    nsRefPtr<gfxContext> context = new gfxContext(dt);
     context->Multiply(ThebesMatrix(imageTransform));
 
     // paint the clipping rects with alpha to create the mask
@@ -3954,15 +3959,17 @@ ContainerState::SetupMaskLayer(Layer *aLayer, const DisplayItemClip& aClip,
                              0,
                              aRoundedRectClipCount);
 
+    RefPtr<SourceSurface> surface = dt->Snapshot();
+
     // build the image and container
     container = aLayer->Manager()->CreateImageContainer();
     NS_ASSERTION(container, "Could not create image container for mask layer.");
     nsRefPtr<Image> image = container->CreateImage(ImageFormat::CAIRO_SURFACE);
     NS_ASSERTION(image, "Could not create image container for mask layer.");
     CairoImage::Data data;
-    data.mDeprecatedSurface = surface;
     data.mSize = surfaceSizeInt;
-    data.mSourceSurface = gfxPlatform::GetPlatform()->GetSourceSurfaceForSurface(nullptr, surface);
+    data.mSourceSurface = surface;
+
     static_cast<CairoImage*>(image.get())->SetData(data);
     container->SetCurrentImageInTransaction(image);
 

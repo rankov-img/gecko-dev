@@ -42,14 +42,14 @@ public:
   NS_DECL_ISUPPORTS_INHERITED
   NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED(TextTrack, DOMEventTargetHelper)
 
-  TextTrack(nsISupports* aParent,
+  TextTrack(nsPIDOMWindow* aOwnerWindow,
             TextTrackKind aKind,
             const nsAString& aLabel,
             const nsAString& aLanguage,
             TextTrackMode aMode,
             TextTrackReadyState aReadyState,
             TextTrackSource aTextTrackSource);
-  TextTrack(nsISupports* aParent,
+  TextTrack(nsPIDOMWindow* aOwnerWindow,
             TextTrackList* aTextTrackList,
             TextTrackKind aKind,
             const nsAString& aLabel,
@@ -60,13 +60,7 @@ public:
 
   void SetDefaultSettings();
 
-  virtual JSObject* WrapObject(JSContext* aCx,
-                               JS::Handle<JSObject*> aScope) MOZ_OVERRIDE;
-
-  nsISupports* GetParentObject() const
-  {
-    return mParent;
-  }
+  virtual JSObject* WrapObject(JSContext* aCx) MOZ_OVERRIDE;
 
   TextTrackKind Kind() const
   {
@@ -111,6 +105,7 @@ public:
   void AddCue(TextTrackCue& aCue);
   void RemoveCue(TextTrackCue& aCue, ErrorResult& aRv);
   void SetDirty() { mDirty = true; }
+  void SetCuesDirty();
 
   TextTrackList* GetTextTrackList();
   void SetTextTrackList(TextTrackList* aTextTrackList);
@@ -125,7 +120,6 @@ public:
   }
 
 private:
-  nsCOMPtr<nsISupports> mParent;
   nsRefPtr<TextTrackList> mTextTrackList;
 
   TextTrackKind mKind;

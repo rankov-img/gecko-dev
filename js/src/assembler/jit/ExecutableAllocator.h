@@ -74,6 +74,10 @@ extern  "C" void sync_instruction_memory(caddr_t v, u_int len);
 #define INITIAL_PROTECTION_FLAGS (PROT_READ | PROT_WRITE | PROT_EXEC)
 #endif
 
+namespace JSC {
+  enum CodeKind { ION_CODE = 0, BASELINE_CODE, REGEXP_CODE, OTHER_CODE };
+}
+
 #if ENABLE_ASSEMBLER
 
 //#define DEBUG_STRESS_JSC_ALLOCATOR
@@ -85,8 +89,6 @@ namespace JS {
 namespace JSC {
 
   class ExecutableAllocator;
-
-  enum CodeKind { ION_CODE = 0, BASELINE_CODE, REGEXP_CODE, OTHER_CODE };
 
   // These are reference-counted. A new one starts with a count of 1.
   class ExecutablePool {

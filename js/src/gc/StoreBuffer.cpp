@@ -24,37 +24,39 @@ using mozilla::ReentrancyGuard;
 void
 StoreBuffer::SlotsEdge::mark(JSTracer *trc)
 {
-    if (trc->runtime->gcNursery.isInside(object_))
+    JSObject *obj = object();
+
+    if (trc->runtime->gcNursery.isInside(obj))
         return;
 
-    if (!object_->isNative()) {
-        const Class *clasp = object_->getClass();
+    if (!obj->isNative()) {
+        const Class *clasp = obj->getClass();
         if (clasp)
-            clasp->trace(trc, object_);
+            clasp->trace(trc, obj);
         return;
     }
 
-    if (count_ > 0) {
-        int32_t initLen = object_->getDenseInitializedLength();
+    if (kind() == ElementKind) {
+        int32_t initLen = obj->getDenseInitializedLength();
         int32_t clampedStart = Min(start_, initLen);
         int32_t clampedEnd = Min(start_ + count_, initLen);
         gc::MarkArraySlots(trc, clampedEnd - clampedStart,
-                           object_->getDenseElements() + clampedStart, "element");
+                           obj->getDenseElements() + clampedStart, "element");
     } else {
-        int32_t start = Min(uint32_t(start_), object_->slotSpan());
-        int32_t end = Min(uint32_t(start_) + (-count_), object_->slotSpan());
+        int32_t start = Min(uint32_t(start_), obj->slotSpan());
+        int32_t end = Min(uint32_t(start_) + count_, obj->slotSpan());
         MOZ_ASSERT(end >= start);
-        MarkObjectSlots(trc, object_, start, end - start);
+        MarkObjectSlots(trc, obj, start, end - start);
     }
 }
 
 void
 StoreBuffer::WholeCellEdges::mark(JSTracer *trc)
 {
-    JS_ASSERT(tenured->isTenured());
-    JSGCTraceKind kind = GetGCThingTraceKind(tenured);
+    JS_ASSERT(edge->isTenured());
+    JSGCTraceKind kind = GetGCThingTraceKind(edge);
     if (kind <= JSTRACE_OBJECT) {
-        JSObject *object = static_cast<JSObject *>(tenured);
+        JSObject *object = static_cast<JSObject *>(edge);
         if (object->is<ArgumentsObject>())
             ArgumentsObject::trace(trc, object);
         MarkChildren(trc, object);
@@ -62,7 +64,7 @@ StoreBuffer::WholeCellEdges::mark(JSTracer *trc)
     }
 #ifdef JS_ION
     JS_ASSERT(kind == JSTRACE_JITCODE);
-    static_cast<jit::JitCode *>(tenured)->trace(trc);
+    static_cast<jit::JitCode *>(edge)->trace(trc);
 #else
     MOZ_ASSUME_UNREACHABLE("Only objects can be in the wholeCellBuffer if IonMonkey is disabled.");
 #endif
@@ -115,23 +117,21 @@ template <typename T>
 void
 StoreBuffer::MonoTypeBuffer<T>::compactRemoveDuplicates(StoreBuffer *owner)
 {
-    if (!T::supportsDeduplication())
-        return;
+    typedef HashSet<T, typename T::Hasher, SystemAllocPolicy> DedupSet;
 
-    EdgeSet duplicates;
+    DedupSet duplicates;
     if (!duplicates.init())
         return; /* Failure to de-dup is acceptable. */
 
     LifoAlloc::Enum insert(*storage_);
     for (LifoAlloc::Enum e(*storage_); !e.empty(); e.popFront<T>()) {
         T *edge = e.get<T>();
-        void *key = edge->deduplicationKey();
-        if (!duplicates.has(key)) {
+        if (!duplicates.has(*edge)) {
             insert.updateFront<T>(*edge);
             insert.popFront<T>();
 
             /* Failure to insert will leave the set with duplicates. Oh well. */
-            duplicates.put(key);
+            duplicates.put(*edge);
         }
     }
     storage_->release(insert.mark());
@@ -188,10 +188,10 @@ StoreBuffer::RelocatableMonoTypeBuffer<T>::compactMoved(StoreBuffer *owner)
     for (LifoAlloc::Enum e(storage); !e.empty(); e.popFront<T>()) {
         T *edge = e.get<T>();
         if (edge->isTagged()) {
-            if (!invalidated.put(edge->deduplicationKey()))
+            if (!invalidated.put(edge->untagged().edge))
                 CrashAtUnhandlableOOM("RelocatableMonoTypeBuffer::compactMoved: Failed to put removal.");
         } else {
-            invalidated.remove(edge->deduplicationKey());
+            invalidated.remove(edge->untagged().edge);
         }
     }
 
@@ -199,7 +199,7 @@ StoreBuffer::RelocatableMonoTypeBuffer<T>::compactMoved(StoreBuffer *owner)
     LifoAlloc::Enum insert(storage);
     for (LifoAlloc::Enum e(storage); !e.empty(); e.popFront<T>()) {
         T *edge = e.get<T>();
-        if (!edge->isTagged() && !invalidated.has(edge->deduplicationKey())) {
+        if (!edge->isTagged() && !invalidated.has(edge->untagged().edge)) {
             insert.updateFront<T>(*edge);
             insert.popFront<T>();
         }

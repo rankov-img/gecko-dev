@@ -54,9 +54,6 @@
 #include "jsworkers.h"
 #include "jswrapper.h"
 #include "prmjtime.h"
-#if JS_TRACE_LOGGING
-#include "TraceLogging.h"
-#endif
 
 #include "builtin/TestingFunctions.h"
 #include "frontend/Parser.h"
@@ -1542,9 +1539,6 @@ PrintInternal(JSContext *cx, const CallArgs &args, FILE *file)
         if (!bytes)
             return false;
         fprintf(file, "%s%s", i ? " " : "", bytes);
-#if JS_TRACE_LOGGING
-        TraceLog(TraceLogging::defaultLogger(), bytes);
-#endif
         JS_free(cx, bytes);
     }
 
@@ -3671,7 +3665,7 @@ OffThreadCompileScript(JSContext *cx, unsigned argc, jsval *vp)
         return false;
     }
 
-    if (!JS::CompileOffThread(cx, cx->global(), options, chars, length,
+    if (!JS::CompileOffThread(cx, options, chars, length,
                               OffThreadCompileScriptCallback, nullptr))
     {
         offThreadState.abandon(cx);

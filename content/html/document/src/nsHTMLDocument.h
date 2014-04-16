@@ -166,7 +166,7 @@ public:
   virtual bool WillIgnoreCharsetOverride() MOZ_OVERRIDE;
 
   // WebIDL API
-  virtual JSObject* WrapNode(JSContext* aCx, JS::Handle<JSObject*> aScope)
+  virtual JSObject* WrapNode(JSContext* aCx)
     MOZ_OVERRIDE;
   void GetDomain(nsAString& aDomain, mozilla::ErrorResult& rv);
   void SetDomain(const nsAString& aDomain, mozilla::ErrorResult& rv);
@@ -233,7 +233,7 @@ public:
   {
     // Deprecated
   }
-  already_AddRefed<mozilla::Selection> GetSelection(mozilla::ErrorResult& rv);
+  mozilla::Selection* GetSelection(mozilla::ErrorResult& aRv);
   // The XPCOM CaptureEvents works fine for us.
   // The XPCOM ReleaseEvents works fine for us.
   // We're picking up GetLocation from Document

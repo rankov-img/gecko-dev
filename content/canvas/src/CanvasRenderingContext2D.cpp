@@ -73,6 +73,7 @@
 #include "mozilla/dom/ContentParent.h"
 #include "mozilla/dom/ImageData.h"
 #include "mozilla/dom/PBrowserParent.h"
+#include "mozilla/dom/ToJSValue.h"
 #include "mozilla/dom/TypedArray.h"
 #include "mozilla/Endian.h"
 #include "mozilla/gfx/2D.h"
@@ -99,9 +100,11 @@
 
 #undef free // apparently defined by some windows header, clashing with a free()
             // method in SkTypes.h
+#ifdef USE_SKIA
 #include "SkiaGLGlue.h"
 #include "SurfaceStream.h"
 #include "SurfaceTypes.h"
+#endif
 
 using mozilla::gl::GLContext;
 using mozilla::gl::SkiaGLGlue;
@@ -562,9 +565,9 @@ CanvasRenderingContext2D::~CanvasRenderingContext2D()
 }
 
 JSObject*
-CanvasRenderingContext2D::WrapObject(JSContext *cx, JS::Handle<JSObject*> scope)
+CanvasRenderingContext2D::WrapObject(JSContext *cx)
 {
-  return CanvasRenderingContext2DBinding::Wrap(cx, scope, this);
+  return CanvasRenderingContext2DBinding::Wrap(cx, this);
 }
 
 bool
@@ -899,6 +902,7 @@ CanvasRenderingContext2D::EnsureTarget()
 
         SkiaGLGlue* glue = gfxPlatform::GetPlatform()->GetSkiaGLGlue();
 
+#if USE_SKIA
         if (glue && glue->GetGrContext() && glue->GetGLContext()) {
           mTarget = Factory::CreateDrawTargetSkiaWithGrContext(glue->GetGrContext(), size, format);
           if (mTarget) {
@@ -908,6 +912,7 @@ CanvasRenderingContext2D::EnsureTarget()
             printf_stderr("Failed to create a SkiaGL DrawTarget, falling back to software\n");
           }
         }
+#endif
         if (!mTarget) {
           mTarget = layerManager->CreateDrawTarget(size, format);
         }
@@ -1273,17 +1278,18 @@ CanvasRenderingContext2D::SetTransform(double m11, double m12,
 JSObject*
 MatrixToJSObject(JSContext* cx, const Matrix& matrix, ErrorResult& error)
 {
-  JS::AutoValueArray<6> elts(cx);
-  elts[0].setDouble(matrix._11); elts[1].setDouble(matrix._12);
-  elts[2].setDouble(matrix._21); elts[3].setDouble(matrix._22);
-  elts[4].setDouble(matrix._31); elts[5].setDouble(matrix._32);
+  double elts[6] = { matrix._11, matrix._12,
+                     matrix._21, matrix._22,
+                     matrix._31, matrix._32 };
 
   // XXX Should we enter GetWrapper()'s compartment?
-  JSObject* obj = JS_NewArrayObject(cx, elts);
-  if  (!obj) {
+  JS::Rooted<JS::Value> val(cx);
+  if (!ToJSValue(cx, elts, &val)) {
     error.Throw(NS_ERROR_OUT_OF_MEMORY);
+    return nullptr;
   }
-  return obj;
+
+  return &val.toObject();
 }
 
 static bool
@@ -3633,7 +3639,6 @@ CanvasRenderingContext2D::DrawWindow(nsGlobalWindow& window, double x,
     return;
   }
   nsRefPtr<gfxContext> thebes;
-  nsRefPtr<gfxASurface> drawSurf;
   RefPtr<DrawTarget> drawDT;
   if (gfxPlatform::GetPlatform()->SupportsAzureContentForDrawTarget(mTarget)) {
     thebes = new gfxContext(mTarget);
@@ -3654,34 +3659,15 @@ CanvasRenderingContext2D::DrawWindow(nsGlobalWindow& window, double x,
 
   nsCOMPtr<nsIPresShell> shell = presContext->PresShell();
   unused << shell->RenderDocument(r, renderDocFlags, backgroundColor, thebes);
-  if (drawSurf || drawDT) {
-    RefPtr<SourceSurface> source;
+  if (drawDT) {
+    RefPtr<SourceSurface> snapshot = drawDT->Snapshot();
+    RefPtr<DataSourceSurface> data = snapshot->GetDataSurface();
 
-    if (drawSurf) {
-      gfxIntSize size = drawSurf->GetSize();
-
-      drawSurf->SetDeviceOffset(gfxPoint(0, 0));
-      nsRefPtr<gfxImageSurface> img = drawSurf->GetAsReadableARGB32ImageSurface();
-      if (!img || !img->Data()) {
-        error.Throw(NS_ERROR_FAILURE);
-        return;
-      }
-
-      source =
-        mTarget->CreateSourceSurfaceFromData(img->Data(),
-                                             IntSize(size.width, size.height),
-                                             img->Stride(),
-                                             SurfaceFormat::B8G8R8A8);
-    } else {
-      RefPtr<SourceSurface> snapshot = drawDT->Snapshot();
-      RefPtr<DataSourceSurface> data = snapshot->GetDataSurface();
-
-      source =
-        mTarget->CreateSourceSurfaceFromData(data->GetData(),
-                                             data->GetSize(),
-                                             data->Stride(),
-                                             data->GetFormat());
-    }
+    RefPtr<SourceSurface> source =
+      mTarget->CreateSourceSurfaceFromData(data->GetData(),
+                                           data->GetSize(),
+                                           data->Stride(),
+                                           data->GetFormat());
 
     if (!source) {
       error.Throw(NS_ERROR_FAILURE);
@@ -3692,7 +3678,8 @@ CanvasRenderingContext2D::DrawWindow(nsGlobalWindow& window, double x,
     mgfx::Rect sourceRect(0, 0, sw, sh);
     mTarget->DrawSurface(source, destRect, sourceRect,
                          DrawSurfaceOptions(mgfx::Filter::POINT),
-                         DrawOptions(1.0f, CompositionOp::OP_SOURCE, AntialiasMode::NONE));
+                         DrawOptions(1.0f, CompositionOp::OP_OVER,
+                                     AntialiasMode::NONE));
     mTarget->Flush();
   } else {
     mTarget->SetTransform(matrix);
@@ -4261,12 +4248,14 @@ CanvasRenderingContext2D::GetCanvasLayer(nsDisplayListBuilder* aBuilder,
 
     CanvasLayer::Data data;
     if (mStream) {
+#ifdef USE_SKIA
       SkiaGLGlue* glue = gfxPlatform::GetPlatform()->GetSkiaGLGlue();
 
       if (glue) {
         data.mGLContext = glue->GetGLContext();
         data.mStream = mStream.get();
       }
+#endif
     } else {
       data.mDrawTarget = mTarget;
     }
@@ -4309,7 +4298,9 @@ CanvasRenderingContext2D::GetCanvasLayer(nsDisplayListBuilder* aBuilder,
     if (glue) {
       canvasLayer->SetPreTransactionCallback(
               CanvasRenderingContext2DUserData::PreTransactionCallback, userData);
+#if USE_SKIA
       data.mGLContext = glue->GetGLContext();
+#endif
       data.mStream = mStream.get();
       data.mTexID = (uint32_t)((uintptr_t)mTarget->GetNativeSurface(NativeSurfaceType::OPENGL_TEXTURE));
     }
@@ -4368,9 +4359,9 @@ CanvasPath::CanvasPath(nsCOMPtr<nsISupports> aParent, RefPtr<PathBuilder> aPathB
 }
 
 JSObject*
-CanvasPath::WrapObject(JSContext* aCx, JS::Handle<JSObject*> aScope)
+CanvasPath::WrapObject(JSContext* aCx)
 {
-  return Path2DBinding::Wrap(aCx, aScope, this);
+  return Path2DBinding::Wrap(aCx, this);
 }
 
 already_AddRefed<CanvasPath>

@@ -219,7 +219,7 @@ CreateXMLHttpRequest(JSContext *cx, unsigned argc, jsval *vp)
     if (NS_FAILED(rv))
         return false;
 
-    rv = nsContentUtils::WrapNative(cx, global, xhr, args.rval());
+    rv = nsContentUtils::WrapNative(cx, xhr, args.rval());
     if (NS_FAILED(rv))
         return false;
 
@@ -1541,13 +1541,13 @@ AssembleSandboxMemoryReporterName(JSContext *cx, nsCString &sandboxName)
 
     // Append the caller's location information.
     if (frame) {
-        nsCString location;
+        nsString location;
         int32_t lineNumber = 0;
         frame->GetFilename(location);
         frame->GetLineNumber(&lineNumber);
 
         sandboxName.AppendLiteral(" (from: ");
-        sandboxName.Append(location);
+        sandboxName.Append(NS_ConvertUTF16toUTF8(location));
         sandboxName.AppendLiteral(":");
         sandboxName.AppendInt(lineNumber);
         sandboxName.AppendLiteral(")");

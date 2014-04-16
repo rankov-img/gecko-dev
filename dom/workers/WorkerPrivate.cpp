@@ -368,11 +368,7 @@ struct WorkerStructuredCloneCallbacks
       nsRefPtr<ImageData> imageData = new ImageData(width, height,
                                                     dataArray.toObject());
       // Wrap it in a JS::Value.
-      JS::Rooted<JSObject*> global(aCx, JS::CurrentGlobalOrNull(aCx));
-      if (!global) {
-        return nullptr;
-      }
-      return imageData->WrapObject(aCx, global);
+      return imageData->WrapObject(aCx);
     }
 
     Error(aCx, 0);
@@ -483,8 +479,7 @@ struct MainThreadWorkerStructuredCloneCallbacks
         // nsIDOMFiles should be threadsafe, thus we will use the same instance
         // on the main thread.
         JS::Rooted<JS::Value> wrappedFile(aCx);
-        JS::Rooted<JSObject*> global(aCx, JS::CurrentGlobalOrNull(aCx));
-        nsresult rv = nsContentUtils::WrapNative(aCx, global, file,
+        nsresult rv = nsContentUtils::WrapNative(aCx, file,
                                                  &NS_GET_IID(nsIDOMFile),
                                                  &wrappedFile);
         if (NS_FAILED(rv)) {
@@ -517,8 +512,7 @@ struct MainThreadWorkerStructuredCloneCallbacks
         // nsIDOMBlobs should be threadsafe, thus we will use the same instance
         // on the main thread.
         JS::Rooted<JS::Value> wrappedBlob(aCx);
-        JS::Rooted<JSObject*> global(aCx, JS::CurrentGlobalOrNull(aCx));
-        nsresult rv = nsContentUtils::WrapNative(aCx, global, blob,
+        nsresult rv = nsContentUtils::WrapNative(aCx, blob,
                                                  &NS_GET_IID(nsIDOMBlob),
                                                  &wrappedBlob);
         if (NS_FAILED(rv)) {
@@ -2154,8 +2148,7 @@ WorkerPrivateParent<Derived>::~WorkerPrivateParent()
 
 template <class Derived>
 JSObject*
-WorkerPrivateParent<Derived>::WrapObject(JSContext* aCx,
-                                         JS::Handle<JSObject*> aScope)
+WorkerPrivateParent<Derived>::WrapObject(JSContext* aCx)
 {
   MOZ_ASSERT(!IsSharedWorker(),
              "We should never wrap a WorkerPrivate for a SharedWorker");
@@ -2165,7 +2158,7 @@ WorkerPrivateParent<Derived>::WrapObject(JSContext* aCx,
   // XXXkhuey this should not need to be rooted, the analysis is dumb.
   // See bug 980181.
   JS::Rooted<JSObject*> wrapper(aCx,
-    WorkerBinding::Wrap(aCx, aScope, ParentAsWorkerPrivate()));
+    WorkerBinding::Wrap(aCx, ParentAsWorkerPrivate()));
   if (wrapper) {
     MOZ_ALWAYS_TRUE(TryPreserveWrapper(wrapper));
   }

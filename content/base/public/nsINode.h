@@ -394,8 +394,7 @@ public:
    */
   virtual bool IsNodeOfType(uint32_t aFlags) const = 0;
 
-  virtual JSObject* WrapObject(JSContext *aCx,
-                               JS::Handle<JSObject*> aScope) MOZ_OVERRIDE;
+  virtual JSObject* WrapObject(JSContext *aCx) MOZ_OVERRIDE;
 
 protected:
   /**
@@ -403,7 +402,7 @@ protected:
    * does some additional checks and fix-up that's common to all nodes. WrapNode
    * should just call the DOM binding's Wrap function.
    */
-  virtual JSObject* WrapNode(JSContext *aCx, JS::Handle<JSObject*> aScope)
+  virtual JSObject* WrapNode(JSContext *aCx)
   {
     MOZ_ASSERT(!IsDOMBinding(), "Someone forgot to override WrapNode");
     return nullptr;
@@ -416,7 +415,7 @@ protected:
     mozilla::dom::ParentObject p(aNativeParent);
     // Note that mUseXBLScope is a no-op for chrome, and other places where we
     // don't use XBL scopes.
-    p.mUseXBLScope = IsInAnonymousSubtree();
+    p.mUseXBLScope = IsInAnonymousSubtree() && !IsAnonymousContentInSVGUseSubtree();
     return p;
   }
 
@@ -1012,6 +1011,9 @@ public:
   }
 
   bool IsInAnonymousSubtree() const;
+
+  // Note: This asserts |IsInAnonymousSubtree()|.
+  bool IsAnonymousContentInSVGUseSubtree() const;
 
   // True for native anonymous content and for XBL content if the binging
   // has chromeOnlyContent="true".

@@ -308,7 +308,10 @@ class MochitestUtilsMixin(object):
     # allow relative paths for logFile
     if options.logFile:
       options.logFile = self.getLogFilePath(options.logFile)
-    if options.browserChrome or options.chrome or options.a11y or options.webapprtChrome:
+
+    # Note that all tests under options.subsuite need to be browser chrome tests.
+    if options.browserChrome or options.chrome or options.subsuite or \
+       options.a11y or options.webapprtChrome:
       self.makeTestConfig(options)
     else:
       if options.autorun:
@@ -463,9 +466,10 @@ class MochitestUtilsMixin(object):
         info[k] = v
 
       # Bug 883858 - return all tests including disabled tests
-      tests = manifest.active_tests(disabled=True, **info)
+      tests = manifest.active_tests(disabled=True, options=options, **info)
       paths = []
       testPath = self.getTestPath(options)
+
       for test in tests:
         pathAbs = os.path.abspath(test['path'])
         assert pathAbs.startswith(testRootAbs)
@@ -886,7 +890,8 @@ class Mochitest(MochitestUtilsMixin):
              timeout=-1,
              onLaunch=None,
              webapprtChrome=False,
-             hide_subtests=False):
+             hide_subtests=False,
+             screenshotOnFail=False):
     """
     Run the app, log the duration it took to execute, return the status code.
     Kills the app if it runs for longer than |maxTime| seconds, or outputs nothing for |timeout| seconds.
@@ -976,6 +981,7 @@ class Mochitest(MochitestUtilsMixin):
                                          utilityPath=utilityPath,
                                          symbolsPath=symbolsPath,
                                          dump_screen_on_timeout=not debuggerInfo,
+                                         dump_screen_on_fail=screenshotOnFail,
                                          hide_subtests=hide_subtests,
                                          shutdownLeaks=shutdownLeaks,
         )
@@ -1155,7 +1161,8 @@ class Mochitest(MochitestUtilsMixin):
                                timeout=timeout,
                                onLaunch=onLaunch,
                                webapprtChrome=options.webapprtChrome,
-                               hide_subtests=options.hide_subtests
+                               hide_subtests=options.hide_subtests,
+                               screenshotOnFail=options.screenshotOnFail
                                )
         except KeyboardInterrupt:
           log.info("runtests.py | Received keyboard interrupt.\n");
@@ -1208,7 +1215,7 @@ class Mochitest(MochitestUtilsMixin):
 
   class OutputHandler(object):
     """line output handler for mozrunner"""
-    def __init__(self, harness, utilityPath, symbolsPath=None, dump_screen_on_timeout=True,
+    def __init__(self, harness, utilityPath, symbolsPath=None, dump_screen_on_timeout=True, dump_screen_on_fail=False,
                  hide_subtests=False, shutdownLeaks=None):
       """
       harness -- harness instance
@@ -1220,6 +1227,7 @@ class Mochitest(MochitestUtilsMixin):
       self.utilityPath = utilityPath
       self.symbolsPath = symbolsPath
       self.dump_screen_on_timeout = dump_screen_on_timeout
+      self.dump_screen_on_fail = dump_screen_on_fail
       self.hide_subtests = hide_subtests
       self.shutdownLeaks = shutdownLeaks
 
@@ -1245,6 +1253,7 @@ class Mochitest(MochitestUtilsMixin):
       return [self.fix_stack,
               self.format,
               self.dumpScreenOnTimeout,
+              self.dumpScreenOnFail,
               self.metro_subprocess_id,
               self.trackShutdownLeaks,
               self.check_test_failure,
@@ -1317,7 +1326,13 @@ class Mochitest(MochitestUtilsMixin):
       return line.rstrip().decode("UTF-8", "ignore")
 
     def dumpScreenOnTimeout(self, line):
-      if self.dump_screen_on_timeout and "TEST-UNEXPECTED-FAIL" in line and "Test timed out" in line:
+      if not self.dump_screen_on_fail and self.dump_screen_on_timeout and "TEST-UNEXPECTED-FAIL" in line and "Test timed out" in line:
+        self.log_output_buffer()
+        self.harness.dumpScreen(self.utilityPath)
+      return line
+
+    def dumpScreenOnFail(self, line):
+      if self.dump_screen_on_fail and "TEST-UNEXPECTED-FAIL" in line:
         self.log_output_buffer()
         self.harness.dumpScreen(self.utilityPath)
       return line

@@ -791,8 +791,10 @@ EventListenerManager::CompileEventHandlerInternal(Listener* aListener,
   nsIScriptContext* context = global->GetScriptContext();
   NS_ENSURE_STATE(context);
 
-  // Push a context to make sure exceptions are reported in the right place.
-  AutoPushJSContextForErrorReporting cx(context->GetNativeContext());
+  // Activate JSAPI, and make sure that exceptions are reported on the right
+  // Window.
+  AutoJSAPIWithErrorsReportedToWindow jsapi(context);
+  JSContext* cx = jsapi.cx();
 
   nsCOMPtr<nsIAtom> typeAtom = aListener->mTypeAtom;
   nsIAtom* attrName = typeAtom;
@@ -863,7 +865,7 @@ EventListenerManager::CompileEventHandlerInternal(Listener* aListener,
   JS::Rooted<JS::Value> v(cx);
   {
     JSAutoCompartment ac(cx, wrapScope);
-    nsresult rv = nsContentUtils::WrapNative(cx, wrapScope, mTarget, &v,
+    nsresult rv = nsContentUtils::WrapNative(cx, mTarget, &v,
                                              /* aAllowWrapping = */ false);
     if (NS_WARN_IF(NS_FAILED(rv))) {
       return rv;

@@ -3558,6 +3558,7 @@ class ICSetElem_DenseAdd : public ICUpdatedStub
         return type_;
     }
     size_t protoChainDepth() const {
+        MOZ_ASSERT(extra_ <= MAX_PROTO_CHAIN_DEPTH);
         return extra_;
     }
 
@@ -3735,9 +3736,7 @@ class ICIn_Fallback : public ICFallbackStub
 
 // GetName
 //      JSOP_NAME
-//      JSOP_CALLNAME
 //      JSOP_GETGNAME
-//      JSOP_CALLGNAME
 class ICGetName_Fallback : public ICMonitoredFallbackStub
 {
     friend class ICStubSpace;
@@ -3933,7 +3932,6 @@ class ICBindName_Fallback : public ICFallbackStub
 
 // GetIntrinsic
 //      JSOP_GETINTRINSIC
-//      JSOP_CALLINTRINSIC
 class ICGetIntrinsic_Fallback : public ICMonitoredFallbackStub
 {
     friend class ICStubSpace;

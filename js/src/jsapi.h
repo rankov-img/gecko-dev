@@ -1677,6 +1677,15 @@ class JS_PUBLIC_API(JSAutoCompartment)
     ~JSAutoCompartment();
 };
 
+class JS_PUBLIC_API(JSAutoNullCompartment)
+{
+    JSContext *cx_;
+    JSCompartment *oldCompartment_;
+  public:
+    JSAutoNullCompartment(JSContext *cx);
+    ~JSAutoNullCompartment();
+};
+
 /* NB: This API is infallible; a nullptr return value does not indicate error. */
 extern JS_PUBLIC_API(JSCompartment *)
 JS_EnterCompartment(JSContext *cx, JSObject *target);
@@ -2527,14 +2536,6 @@ JS_SetParent(JSContext *cx, JS::HandleObject obj, JS::HandleObject parent);
 
 extern JS_PUBLIC_API(JSObject *)
 JS_GetConstructor(JSContext *cx, JS::Handle<JSObject*> proto);
-
-/*
- * Get a unique identifier for obj, good for the lifetime of obj (even if it
- * is moved by a copying GC).  Return false on failure (likely out of memory),
- * and true with *idp containing the unique id on success.
- */
-extern JS_PUBLIC_API(bool)
-JS_GetObjectId(JSContext *cx, JS::HandleObject obj, JS::MutableHandleId idp);
 
 namespace JS {
 
@@ -3649,8 +3650,8 @@ CanCompileOffThread(JSContext *cx, const ReadOnlyCompileOptions &options, size_t
  * for the compilation. The callback will be invoked while off the main thread,
  * so must ensure that its operations are thread safe. Afterwards,
  * FinishOffThreadScript must be invoked on the main thread to get the result
- * script or nullptr. If maybecx is specified, this method will also report
- * any error or warnings generated during the parse.
+ * script or nullptr. If maybecx is not specified, the resources will be freed,
+ * but no script will be returned.
  *
  * The characters passed in to CompileOffThread must remain live until the
  * callback is invoked, and the resulting script will be rooted until the call
@@ -3658,7 +3659,7 @@ CanCompileOffThread(JSContext *cx, const ReadOnlyCompileOptions &options, size_t
  */
 
 extern JS_PUBLIC_API(bool)
-CompileOffThread(JSContext *cx, HandleObject obj, const ReadOnlyCompileOptions &options,
+CompileOffThread(JSContext *cx, const ReadOnlyCompileOptions &options,
                  const jschar *chars, size_t length,
                  OffThreadCompileCallback callback, void *callbackData);
 
@@ -3730,6 +3731,17 @@ JS_ExecuteScript(JSContext *cx, JS::HandleObject obj, JS::HandleScript script, J
 
 extern JS_PUBLIC_API(bool)
 JS_ExecuteScript(JSContext *cx, JS::HandleObject obj, JS::HandleScript script);
+
+namespace JS {
+
+/*
+ * Like the above, but handles a cross-compartment script. If the script is
+ * cross-compartment, it is cloned into the current compartment before executing.
+ */
+extern JS_PUBLIC_API(bool)
+CloneAndExecuteScript(JSContext *cx, JS::Handle<JSObject*> obj, JS::Handle<JSScript*> script);
+
+} /* namespace JS */
 
 extern JS_PUBLIC_API(bool)
 JS_ExecuteScriptVersion(JSContext *cx, JS::HandleObject obj, JS::HandleScript script,
@@ -4365,9 +4377,27 @@ CreateTypeError(JSContext *cx, HandleString stack, HandleString fileName,
                 uint32_t lineNumber, uint32_t columnNumber, JSErrorReport *report,
                 HandleString message, MutableHandleValue rval);
 
-} /* namespace JS */
-
 /************************************************************************/
+
+/*
+ * Weak Maps.
+ */
+
+extern JS_PUBLIC_API(JSObject *)
+NewWeakMapObject(JSContext *cx);
+
+extern JS_PUBLIC_API(bool)
+IsWeakMapObject(JSObject *obj);
+
+extern JS_PUBLIC_API(bool)
+GetWeakMapEntry(JSContext *cx, JS::HandleObject mapObj, JS::HandleObject key,
+                JS::MutableHandleValue val);
+
+extern JS_PUBLIC_API(bool)
+SetWeakMapEntry(JSContext *cx, JS::HandleObject mapObj, JS::HandleObject key,
+                JS::HandleValue val);
+
+} /* namespace JS */
 
 /*
  * Dates.

@@ -81,54 +81,54 @@ var ZoomHelper = {
    */
   zoomToElement: function(aElement, aClickY = -1, aCanZoomOut = true, aCanScrollHorizontally = true) {
     let rect = ElementTouchHelper.getBoundingContentRect(aElement);
+    ZoomHelper.zoomToRect(rect, aClickY, aCanZoomOut, aCanScrollHorizontally, aElement);
+  },
 
+  zoomToRect: function(aRect, aClickY = -1, aCanZoomOut = true, aCanScrollHorizontally = true, aElement) {
     const margin = 15;
 
-    if(!rect.h || !rect.w) {
-      rect.h = rect.height;
-      rect.w = rect.width;
+    if(!aRect.h || !aRect.w) {
+      aRect.h = aRect.height;
+      aRect.w = aRect.width;
     }
 
     let viewport = BrowserApp.selectedTab.getViewport();
-    let bRect = new Rect(aCanScrollHorizontally ? Math.max(viewport.cssPageLeft, rect.x - margin) : viewport.cssX,
-                         rect.y,
-                         aCanScrollHorizontally ? rect.w + 2 * margin : viewport.cssWidth,
-                         rect.h);
+    let bRect = new Rect(aCanScrollHorizontally ? Math.max(viewport.cssPageLeft, aRect.x - margin) : viewport.cssX,
+                         aRect.y,
+                         aCanScrollHorizontally ? aRect.w + 2 * margin : viewport.cssWidth,
+                         aRect.h);
     // constrict the rect to the screen's right edge
     bRect.width = Math.min(bRect.width, viewport.cssPageRight - bRect.x);
 
     // if the rect is already taking up most of the visible area and is stretching the
     // width of the page, then we want to zoom out instead.
-    if (BrowserEventHandler.mReflozPref) {
-      let zoomFactor = BrowserApp.selectedTab.getZoomToMinFontSize(aElement);
+    if (aElement) {
+      if (BrowserEventHandler.mReflozPref) {
+        let zoomFactor = BrowserApp.selectedTab.getZoomToMinFontSize(aElement);
 
-      bRect.width = zoomFactor <= 1.0 ? bRect.width : gScreenWidth / zoomFactor;
-      bRect.height = zoomFactor <= 1.0 ? bRect.height : bRect.height / zoomFactor;
-      if (zoomFactor == 1.0 || ZoomHelper.isRectZoomedIn(bRect, viewport)) {
+        bRect.width = zoomFactor <= 1.0 ? bRect.width : gScreenWidth / zoomFactor;
+        bRect.height = zoomFactor <= 1.0 ? bRect.height : bRect.height / zoomFactor;
+        if (zoomFactor == 1.0 || ZoomHelper.isRectZoomedIn(bRect, viewport)) {
+          if (aCanZoomOut) {
+            ZoomHelper.zoomOut();
+          }
+          return;
+        }
+      } else if (ZoomHelper.isRectZoomedIn(bRect, viewport)) {
         if (aCanZoomOut) {
           ZoomHelper.zoomOut();
         }
         return;
       }
-    } else if (ZoomHelper.isRectZoomedIn(bRect, viewport)) {
-      if (aCanZoomOut) {
-        ZoomHelper.zoomOut();
-      }
-      return;
     }
 
-    ZoomHelper.zoomToRect(bRect, aClickY);
-  },
-
-  zoomToRect: function(aRect, aClickY = -1) {
-    let viewport = BrowserApp.selectedTab.getViewport();
     let rect = {};
 
     rect.type = "Browser:ZoomToRect";
-    rect.x = aRect.x;
-    rect.y = aRect.y;
-    rect.w = aRect.width;
-    rect.h = Math.min(aRect.width * viewport.cssHeight / viewport.cssWidth, aRect.height);
+    rect.x = bRect.x;
+    rect.y = bRect.y;
+    rect.w = bRect.width;
+    rect.h = Math.min(bRect.width * viewport.cssHeight / viewport.cssWidth, bRect.height);
 
     if (aClickY >= 0) {
       // if the block we're zooming to is really tall, and we want to keep a particular
@@ -136,7 +136,7 @@ var ZoomHelper = {
       // the 1.2 multiplier is just a little fuzz to compensate for bRect including horizontal
       // margins but not vertical ones.
       let cssTapY = viewport.cssY + aClickY;
-      if ((aRect.height > rect.h) && (cssTapY > rect.y + (rect.h * 1.2))) {
+      if ((bRect.height > rect.h) && (cssTapY > rect.y + (rect.h * 1.2))) {
         rect.y = cssTapY - (rect.h / 2);
       }
     }

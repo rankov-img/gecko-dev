@@ -168,7 +168,7 @@ UnknownAtCallback(char *at_string)
 static void
 KeyPressedCallback()
 {
-  // No support
+  BT_HF_PROCESS_CB(ProcessKeyPressed);
 }
 
 static bthf_callbacks_t sBluetoothHfpCallbacks = {
@@ -643,19 +643,17 @@ void BluetoothHfpManager::ProcessDialCall(char *aNumber)
 void
 BluetoothHfpManager::ProcessAtCnum()
 {
-  NS_ENSURE_TRUE_VOID(!mMsisdn.IsEmpty());
-  NS_ENSURE_TRUE_VOID(sBluetoothHfpInterface);
+  if (!mMsisdn.IsEmpty()) {
+    nsAutoCString message("+CNUM: ,\"");
+    message.Append(NS_ConvertUTF16toUTF8(mMsisdn).get());
+    message.AppendLiteral("\",");
+    message.AppendInt(BTHF_CALL_ADDRTYPE_UNKNOWN);
+    message.AppendLiteral(",,4");
 
-  nsAutoCString message("+CNUM: ,\"");
-  message.Append(NS_ConvertUTF16toUTF8(mMsisdn).get());
-  message.AppendLiteral("\",");
-  message.AppendInt(BTHF_CALL_ADDRTYPE_UNKNOWN);
-  message.AppendLiteral(",,4");
+    SendLine(message.get());
+  }
 
-  NS_ENSURE_TRUE_VOID(BT_STATUS_SUCCESS ==
-    sBluetoothHfpInterface->formatted_at_response(message.get()));
-  NS_ENSURE_TRUE_VOID(BT_STATUS_SUCCESS ==
-    sBluetoothHfpInterface->at_response(BTHF_AT_RESPONSE_OK, 0));
+  SendResponse(BTHF_AT_RESPONSE_OK);
 }
 
 void
@@ -711,6 +709,47 @@ BluetoothHfpManager::ProcessUnknownAt(char *aAtString)
   NS_ENSURE_TRUE_VOID(sBluetoothHfpInterface);
   NS_ENSURE_TRUE_VOID(BT_STATUS_SUCCESS ==
     sBluetoothHfpInterface->at_response(BTHF_AT_RESPONSE_ERROR, 0));
+}
+
+void
+BluetoothHfpManager::ProcessKeyPressed()
+{
+  bool hasActiveCall =
+    (FindFirstCall(nsITelephonyProvider::CALL_STATE_CONNECTED) > 0);
+
+  // Refer to AOSP HeadsetStateMachine.processKeyPressed
+  if (mCallSetupState == nsITelephonyProvider::CALL_STATE_INCOMING
+      && !hasActiveCall) {
+    /**
+     * Bluetooth HSP spec 4.2.2
+     * There is an incoming call, notify Dialer to pick up the phone call
+     * and SCO will be established after we get the CallStateChanged event
+     * indicating the call is answered successfully.
+     */
+    ProcessAnswerCall();
+  } else if (hasActiveCall) {
+    if (!IsScoConnected()) {
+      /**
+       * Bluetooth HSP spec 4.3
+       * If there's no SCO, set up a SCO link.
+       */
+      ConnectSco();
+    } else {
+      /**
+       * Bluetooth HSP spec 4.5
+       * There are two ways to release SCO: sending CHUP to dialer or closing
+       * SCO socket directly. We notify dialer only if there is at least one
+       * active call.
+       */
+      ProcessHangupCall();
+    }
+  } else {
+    // BLDN
+    mDialingRequestProcessed = false;
+    BT_HF_DISPATCH_MAIN(MainThreadTaskCmd::NOTIFY_DIALER,
+                        NS_LITERAL_STRING("BLDN"));
+    BT_HF_DISPATCH_MAIN(MainThreadTaskCmd::POST_TASK_RESPOND_TO_BLDN);
+  }
 }
 
 void
@@ -772,18 +811,12 @@ BluetoothHfpManager::NotifyConnectionStateChanged(const nsAString& aType)
 void
 BluetoothHfpManager::NotifyDialer(const nsAString& aCommand)
 {
-  BluetoothValue v;
+  NS_NAMED_LITERAL_STRING(type, "bluetooth-dialer-command");
   InfallibleTArray<BluetoothNamedValue> parameters;
 
-  NS_NAMED_LITERAL_STRING(type, "bluetooth-dialer-command");
-  NS_NAMED_LITERAL_STRING(name, "command");
+  BT_APPEND_NAMED_VALUE(parameters, "command", nsString(aCommand));
 
-  v = nsString(aCommand);
-  parameters.AppendElement(BluetoothNamedValue(name, v));
-
-  if (!BroadcastSystemMessage(type, parameters)) {
-    BT_WARNING("Failed to broadcast system message to dialer");
-  }
+  BT_ENSURE_TRUE_VOID_BROADCAST_SYSMSG(type, parameters);
 }
 
 void

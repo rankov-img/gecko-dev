@@ -11,7 +11,9 @@
 #include "jit/CompileInfo.h"
 #include "jit/IonSpewer.h"
 #include "jit/mips/Simulator-mips.h"
+#include "jit/Recover.h"
 #include "vm/ArgumentsObject.h"
+#include "vm/TraceLogging.h"
 
 #include "jsscriptinlines.h"
 
@@ -391,6 +393,17 @@ GetStubReturnAddress(JSContext *cx, jsbytecode *pc)
     return cx->compartment()->jitCompartment()->baselineCallReturnAddr();
 }
 
+static inline jsbytecode *
+GetNextNonLoopEntryPc(jsbytecode *pc)
+{
+    JSOp op = JSOp(*pc);
+    if (op == JSOP_GOTO)
+        return pc + GET_JUMP_OFFSET(pc);
+    if (op == JSOP_LOOPENTRY || op == JSOP_NOP || op == JSOP_LOOPHEAD)
+        return GetNextPc(pc);
+    return pc;
+}
+
 // For every inline frame, we write out the following data:
 //
 //                      |      ...      |
@@ -470,6 +483,8 @@ InitFromBailout(JSContext *cx, HandleScript caller, jsbytecode *callerPC,
                 AutoValueVector &startFrameFormals, MutableHandleFunction nextCallee,
                 jsbytecode **callPC, const ExceptionBailoutInfo *excInfo)
 {
+    MOZ_ASSERT(script->hasBaselineScript());
+
     // If excInfo is non-nullptr, we are bailing out to a catch or finally block
     // and this is the frame where we will resume. Usually the expression stack
     // should be empty in this case but there can be iterators on the stack.
@@ -477,7 +492,7 @@ InitFromBailout(JSContext *cx, HandleScript caller, jsbytecode *callerPC,
     if (excInfo)
         exprStackSlots = excInfo->numExprSlots;
     else
-        exprStackSlots = iter.allocations() - (script->nfixed() + CountArgSlots(script, fun));
+        exprStackSlots = iter.numAllocations() - (script->nfixed() + CountArgSlots(script, fun));
 
     builder.resetFramePushed();
 
@@ -630,9 +645,9 @@ InitFromBailout(JSContext *cx, HandleScript caller, jsbytecode *callerPC,
         size_t thisvOffset = builder.framePushed() + IonJSFrameLayout::offsetOfThis();
         *builder.valuePointerAtStackOffset(thisvOffset) = thisv;
 
-        JS_ASSERT(iter.allocations() >= CountArgSlots(script, fun));
+        JS_ASSERT(iter.numAllocations() >= CountArgSlots(script, fun));
         IonSpew(IonSpew_BaselineBailouts, "      frame slots %u, nargs %u, nfixed %u",
-                iter.allocations(), fun->nargs(), script->nfixed());
+                iter.numAllocations(), fun->nargs(), script->nfixed());
 
         if (!callerPC) {
             // This is the first frame. Store the formals in a Vector until we
@@ -782,16 +797,18 @@ InitFromBailout(JSContext *cx, HandleScript caller, jsbytecode *callerPC,
     // If we are resuming at a LOOPENTRY op, resume at the next op to avoid
     // a bailout -> enter Ion -> bailout loop with --ion-eager. See also
     // ThunkToInterpreter.
+    //
+    // The algorithm below is the "tortoise and the hare" algorithm. See bug
+    // 994444 for more explanation.
     if (!resumeAfter) {
+        jsbytecode *fasterPc = pc;
         while (true) {
-            op = JSOp(*pc);
-            if (op == JSOP_GOTO)
-                pc += GET_JUMP_OFFSET(pc);
-            else if (op == JSOP_LOOPENTRY || op == JSOP_NOP || op == JSOP_LOOPHEAD)
-                pc = GetNextPc(pc);
-            else
+            pc = GetNextNonLoopEntryPc(pc);
+            fasterPc = GetNextNonLoopEntryPc(GetNextNonLoopEntryPc(fasterPc));
+            if (fasterPc == pc)
                 break;
         }
+        op = JSOp(*pc);
     }
 
     uint32_t pcOff = script->pcToOffset(pc);
@@ -1261,9 +1278,9 @@ jit::BailoutIonToBaseline(JSContext *cx, JitActivation *activation, IonBailoutIt
     JS_ASSERT(bailoutInfo != nullptr);
     JS_ASSERT(*bailoutInfo == nullptr);
 
-#if JS_TRACE_LOGGING
-    TraceLogging::defaultLogger()->log(TraceLogging::INFO_ENGINE_BASELINE);
-#endif
+    TraceLogger *logger = TraceLoggerForMainThread(cx->runtime());
+    TraceLogStopEvent(logger, TraceLogger::IonMonkey);
+    TraceLogStartEvent(logger, TraceLogger::Baseline);
 
     // The caller of the top frame must be one of the following:
     //      IonJS - Ion calling into Ion.
@@ -1349,12 +1366,13 @@ jit::BailoutIonToBaseline(JSContext *cx, JitActivation *activation, IonBailoutIt
     jsbytecode *topCallerPC = nullptr;
 
     while (true) {
-#if JS_TRACE_LOGGING
+        MOZ_ASSERT(snapIter.instruction()->isResumePoint());
+
         if (frameNo > 0) {
-            TraceLogging::defaultLogger()->log(TraceLogging::SCRIPT_START, scr);
-            TraceLogging::defaultLogger()->log(TraceLogging::INFO_ENGINE_BASELINE);
+            TraceLogStartEvent(logger, TraceLogCreateTextId(logger, scr));
+            TraceLogStartEvent(logger, TraceLogger::Baseline);
         }
-#endif
+
         IonSpew(IonSpew_BaselineBailouts, "    FrameNo %d", frameNo);
 
         // If we are bailing out to a catch or finally block in this frame,
@@ -1384,7 +1402,6 @@ jit::BailoutIonToBaseline(JSContext *cx, JitActivation *activation, IonBailoutIt
         callerPC = callPC;
         fun = nextCallee;
         scr = fun->existingScript();
-        snapIter.nextFrame();
 
         // Save top caller info for adjusting SPS frames later.
         if (!topCaller) {
@@ -1394,6 +1411,8 @@ jit::BailoutIonToBaseline(JSContext *cx, JitActivation *activation, IonBailoutIt
         }
 
         frameNo++;
+
+        snapIter.nextInstruction();
     }
     IonSpew(IonSpew_BaselineBailouts, "  Done restoring frames");
 
@@ -1528,6 +1547,7 @@ jit::FinishBailoutToBaseline(BaselineBailoutInfo *bailoutInfo)
 
         if (iter.isBaselineJS()) {
             BaselineFrame *frame = iter.baselineFrame();
+            MOZ_ASSERT(frame->script()->hasBaselineScript());
 
             // If the frame doesn't even have a scope chain set yet, then it's resuming
             // into the the prologue before the scope chain is initialized.  Any

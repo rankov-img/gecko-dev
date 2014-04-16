@@ -1237,7 +1237,6 @@ EmitVarOp(ExclusiveContext *cx, ParseNode *pn, JSOp op, BytecodeEmitter *bce)
     switch (op) {
       case JSOP_GETARG: case JSOP_GETLOCAL: op = JSOP_GETALIASEDVAR; break;
       case JSOP_SETARG: case JSOP_SETLOCAL: op = JSOP_SETALIASEDVAR; break;
-      case JSOP_CALLARG: case JSOP_CALLLOCAL: op = JSOP_CALLALIASEDVAR; break;
       default: MOZ_ASSUME_UNREACHABLE("unexpected var op");
     }
 
@@ -2131,37 +2130,10 @@ EmitFinishIteratorResult(ExclusiveContext *cx, BytecodeEmitter *bce, bool done)
 static bool
 EmitNameOp(ExclusiveContext *cx, BytecodeEmitter *bce, ParseNode *pn, bool callContext)
 {
-    JSOp op;
-
     if (!BindNameToSlot(cx, bce, pn))
         return false;
-    op = pn->getOp();
 
-    if (callContext) {
-        switch (op) {
-          case JSOP_NAME:
-            op = JSOP_CALLNAME;
-            break;
-          case JSOP_GETINTRINSIC:
-            op = JSOP_CALLINTRINSIC;
-            break;
-          case JSOP_GETGNAME:
-            op = JSOP_CALLGNAME;
-            break;
-          case JSOP_GETARG:
-            op = JSOP_CALLARG;
-            break;
-          case JSOP_GETLOCAL:
-            op = JSOP_CALLLOCAL;
-            break;
-          case JSOP_GETALIASEDVAR:
-            op = JSOP_CALLALIASEDVAR;
-            break;
-          default:
-            JS_ASSERT(op == JSOP_CALLEE);
-            break;
-        }
-    }
+    JSOp op = pn->getOp();
 
     if (op == JSOP_CALLEE) {
         if (Emit1(cx, bce, op) < 0)
@@ -2179,7 +2151,7 @@ EmitNameOp(ExclusiveContext *cx, BytecodeEmitter *bce, ParseNode *pn, bool callC
 
     /* Need to provide |this| value for call */
     if (callContext) {
-        if (op == JSOP_CALLNAME && bce->needsImplicitThis()) {
+        if (op == JSOP_NAME && bce->needsImplicitThis()) {
             if (!EmitAtomOp(cx, pn, JSOP_IMPLICITTHIS, bce))
                 return false;
         } else {
@@ -6767,10 +6739,10 @@ SetSrcNoteOffset(ExclusiveContext *cx, BytecodeEmitter *bce, unsigned index, uns
 
 /*
  * Finish taking source notes in cx's notePool.
- * Returns the final source note count taken, or -1 to indicate an error.
+ * If successful, the final source note count is stored in the out outparam.
  */
-int32_t
-frontend::FinishTakingSrcNotes(ExclusiveContext *cx, BytecodeEmitter *bce)
+bool
+frontend::FinishTakingSrcNotes(ExclusiveContext *cx, BytecodeEmitter *bce, uint32_t *out)
 {
     JS_ASSERT(bce->current == &bce->main);
 
@@ -6778,7 +6750,7 @@ frontend::FinishTakingSrcNotes(ExclusiveContext *cx, BytecodeEmitter *bce)
     if (prologCount && bce->prolog.currentLine != bce->firstLine) {
         bce->switchToProlog();
         if (NewSrcNote2(cx, bce, SRC_SETLINE, (ptrdiff_t)bce->firstLine) < 0)
-            return -1;
+            return false;
         bce->switchToMain();
     } else {
         /*
@@ -6800,7 +6772,7 @@ frontend::FinishTakingSrcNotes(ExclusiveContext *cx, BytecodeEmitter *bce)
                 delta = offset;
             for (;;) {
                 if (!AddToSrcNoteDelta(cx, bce, sn, delta))
-                    return -1;
+                    return false;
                 offset -= delta;
                 if (offset == 0)
                     break;
@@ -6813,11 +6785,12 @@ frontend::FinishTakingSrcNotes(ExclusiveContext *cx, BytecodeEmitter *bce)
     // The prolog count might have changed, so we can't reuse prologCount.
     // The + 1 is to account for the final SN_MAKE_TERMINATOR that is appended
     // when the notes are copied to their final destination by CopySrcNotes.
-    return bce->prolog.notes.length() + bce->main.notes.length() + 1;
+    *out = bce->prolog.notes.length() + bce->main.notes.length() + 1;
+    return true;
 }
 
 void
-frontend::CopySrcNotes(BytecodeEmitter *bce, jssrcnote *destination, int32_t nsrcnotes)
+frontend::CopySrcNotes(BytecodeEmitter *bce, jssrcnote *destination, uint32_t nsrcnotes)
 {
     unsigned prologCount = bce->prolog.notes.length();
     unsigned mainCount = bce->main.notes.length();

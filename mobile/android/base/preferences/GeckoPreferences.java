@@ -88,6 +88,7 @@ public class GeckoPreferences
     private static final String PREFS_MP_ENABLED = "privacy.masterpassword.enabled";
     private static final String PREFS_UPDATER_AUTODOWNLOAD = "app.update.autodownload";
     private static final String PREFS_GEO_REPORTING = "app.geo.reportdata";
+    private static final String PREFS_GEO_LEARN_MORE = NON_PREF_PREFIX + "geo.learn_more";
     private static final String PREFS_HEALTHREPORT_LINK = NON_PREF_PREFIX + "healthreport.link";
     private static final String PREFS_DEVTOOLS_REMOTE_ENABLED = "devtools.debugger.remote-enabled";
     private static final String PREFS_DISPLAY_REFLOW_ON_ZOOM = "browser.zoom.reflowOnZoom";
@@ -381,11 +382,6 @@ public class GeckoPreferences
                     continue;
                 } else if (!AppConstants.MOZ_CRASHREPORTER &&
                            PREFS_CRASHREPORTER_ENABLED.equals(key)) {
-                    preferences.removePreference(pref);
-                    i--;
-                    continue;
-                } else if (AppConstants.RELEASE_BUILD && PREFS_GEO_REPORTING.equals(key)) {
-                    // We don't build wifi/cell tower collection in release builds, so hide the UI.
                     preferences.removePreference(pref);
                     i--;
                     continue;

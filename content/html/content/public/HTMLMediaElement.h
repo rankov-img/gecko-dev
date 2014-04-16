@@ -50,6 +50,9 @@ class nsIRunnable;
 namespace mozilla {
 namespace dom {
 
+// Number of milliseconds between timeupdate events as defined by spec
+#define TIMEUPDATE_MS 250
+
 class MediaError;
 class MediaSource;
 class TextTrackList;
@@ -493,7 +496,11 @@ public:
 
   double MozFragmentEnd();
 
-  AudioChannel MozAudioChannelType() const;
+  AudioChannel MozAudioChannelType() const
+  {
+    return mAudioChannel;
+  }
+
   void SetMozAudioChannelType(AudioChannel aValue, ErrorResult& aRv);
 
   TextTrackList* TextTracks();
@@ -1119,8 +1126,8 @@ protected:
   // True if the media's channel's download has been suspended.
   bool mDownloadSuspendedByCache;
 
-  // Audio Channel Type.
-  AudioChannelType mAudioChannelType;
+  // Audio Channel.
+  AudioChannel mAudioChannel;
 
   // The audio channel has been faded.
   bool mAudioChannelFaded;

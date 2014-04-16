@@ -441,7 +441,8 @@ IndexedDatabaseManager::DefineIndexedDB(JSContext* aCx,
   MOZ_ASSERT(factory, "This should never fail for chrome!");
 
   JS::Rooted<JS::Value> indexedDB(aCx);
-  if (!WrapNewBindingObject(aCx, aGlobal, factory, &indexedDB)) {
+  js::AssertSameCompartment(aCx, aGlobal);
+  if (!WrapNewBindingObject(aCx, factory, &indexedDB)) {
     return false;
   }
 
@@ -607,7 +608,9 @@ IndexedDatabaseManager::AsyncDeleteFile(FileManager* aFileManager,
 
   // See if we're currently clearing the storages for this origin. If so then
   // we pretend that we've already deleted everything.
-  if (quotaManager->IsClearOriginPending(aFileManager->Origin())) {
+  if (quotaManager->IsClearOriginPending(
+                             aFileManager->Origin(),
+                             Nullable<PersistenceType>(aFileManager->Type()))) {
     return NS_OK;
   }
 

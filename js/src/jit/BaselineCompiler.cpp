@@ -16,6 +16,7 @@
 # include "jit/PerfSpewer.h"
 #endif
 #include "jit/VMFunctions.h"
+#include "vm/TraceLogging.h"
 
 #include "jsscriptinlines.h"
 
@@ -344,9 +345,14 @@ BaselineCompiler::emitPrologue()
     if (needsEarlyStackCheck())
         masm.bind(&earlyStackCheckFailed);
 
-#if JS_TRACE_LOGGING
-    masm.tracelogStart(script.get());
-    masm.tracelogLog(TraceLogging::INFO_ENGINE_BASELINE);
+#ifdef JS_TRACE_LOGGING
+    TraceLogger *logger = TraceLoggerForMainThread(cx->runtime());
+    Register loggerReg = RegisterSet::Volatile().takeGeneral();
+    masm.Push(loggerReg);
+    masm.movePtr(ImmPtr(logger), loggerReg);
+    masm.tracelogStart(loggerReg, TraceLogCreateTextId(logger, script.get()));
+    masm.tracelogStart(loggerReg, TraceLogger::Baseline);
+    masm.Pop(loggerReg);
 #endif
 
     // Record the offset of the prologue, because Ion can bailout before
@@ -381,8 +387,16 @@ BaselineCompiler::emitEpilogue()
 {
     masm.bind(&return_);
 
-#if JS_TRACE_LOGGING
-    masm.tracelogStop();
+#ifdef JS_TRACE_LOGGING
+    TraceLogger *logger = TraceLoggerForMainThread(cx->runtime());
+    Register loggerReg = RegisterSet::Volatile().takeGeneral();
+    masm.Push(loggerReg);
+    masm.movePtr(ImmPtr(logger), loggerReg);
+    masm.tracelogStop(loggerReg, TraceLogger::Baseline);
+    // Stop the script. Using a stop without checking the textId, since we
+    // we didn't save the textId for the script.
+    masm.tracelogStop(loggerReg);
+    masm.Pop(loggerReg);
 #endif
 
     // Pop SPS frame if necessary
@@ -1904,12 +1918,6 @@ BaselineCompiler::emit_JSOP_GETGNAME()
 }
 
 bool
-BaselineCompiler::emit_JSOP_CALLGNAME()
-{
-    return emit_JSOP_GETGNAME();
-}
-
-bool
 BaselineCompiler::emit_JSOP_BINDGNAME()
 {
     frame.push(ObjectValue(script->global()));
@@ -2052,12 +2060,6 @@ BaselineCompiler::emit_JSOP_GETALIASEDVAR()
 }
 
 bool
-BaselineCompiler::emit_JSOP_CALLALIASEDVAR()
-{
-    return emit_JSOP_GETALIASEDVAR();
-}
-
-bool
 BaselineCompiler::emit_JSOP_SETALIASEDVAR()
 {
     JSScript *outerScript = ScopeCoordinateFunctionScript(script, pc);
@@ -2132,12 +2134,6 @@ BaselineCompiler::emit_JSOP_NAME()
 }
 
 bool
-BaselineCompiler::emit_JSOP_CALLNAME()
-{
-    return emit_JSOP_NAME();
-}
-
-bool
 BaselineCompiler::emit_JSOP_BINDNAME()
 {
     frame.syncStack(0);
@@ -2187,12 +2183,6 @@ BaselineCompiler::emit_JSOP_GETINTRINSIC()
 
     frame.push(R0);
     return true;
-}
-
-bool
-BaselineCompiler::emit_JSOP_CALLINTRINSIC()
-{
-    return emit_JSOP_GETINTRINSIC();
 }
 
 typedef bool (*DefVarOrConstFn)(JSContext *, HandlePropertyName, unsigned, HandleObject);
@@ -2363,12 +2353,6 @@ BaselineCompiler::emit_JSOP_GETLOCAL()
 }
 
 bool
-BaselineCompiler::emit_JSOP_CALLLOCAL()
-{
-    return emit_JSOP_GETLOCAL();
-}
-
-bool
 BaselineCompiler::emit_JSOP_SETLOCAL()
 {
     // Ensure no other StackValue refers to the old value, for instance i + (i = 3).
@@ -2460,12 +2444,6 @@ BaselineCompiler::emit_JSOP_GETARG()
 {
     uint32_t arg = GET_ARGNO(pc);
     return emitFormalArgAccess(arg, /* get = */ true);
-}
-
-bool
-BaselineCompiler::emit_JSOP_CALLARG()
-{
-    return emit_JSOP_GETARG();
 }
 
 bool

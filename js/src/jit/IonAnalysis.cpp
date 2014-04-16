@@ -223,11 +223,15 @@ IsPhiObservable(MPhi *phi, Observability observe)
     if (fun && slot == info.thisSlot())
         return true;
 
-    // If the function may need an arguments object, then make sure to preserve
-    // the scope chain, because it may be needed to construct the arguments
-    // object during bailout.
-    if (fun && info.hasArguments() && slot == info.scopeChainSlot())
+    // If the function may need an arguments object, then make sure to
+    // preserve the scope chain, because it may be needed to construct the
+    // arguments object during bailout. If we've already created an arguments
+    // object (or got one via OSR), preserve that as well.
+    if (fun && info.hasArguments() &&
+        (slot == info.scopeChainSlot() || slot == info.argsObjSlot()))
+    {
         return true;
+    }
 
     // If the Phi is one of the formal argument, and we are using an argument
     // object in the function. The phi might be observable after a bailout.
@@ -1005,6 +1009,63 @@ jit::ApplyTypeInformation(MIRGenerator *mir, MIRGraph &graph)
 
     if (!analyzer.analyze())
         return false;
+
+    return true;
+}
+
+bool
+jit::MakeMRegExpHoistable(MIRGraph &graph)
+{
+    for (ReversePostorderIterator block(graph.rpoBegin()); block != graph.rpoEnd(); block++) {
+        for (MDefinitionIterator iter(*block); iter; iter++) {
+            if (!iter->isRegExp())
+                continue;
+
+            MRegExp *regexp = iter->toRegExp();
+
+            // Test if MRegExp is hoistable by looking at all uses.
+            bool hoistable = true;
+            for (MUseIterator i = regexp->usesBegin(); i != regexp->usesEnd(); i++) {
+                // Ignore resume points. At this point all uses are listed.
+                // No DCE or GVN or something has happened.
+                if (i->consumer()->isResumePoint())
+                    continue;
+
+                JS_ASSERT(i->consumer()->isDefinition());
+
+                // All MRegExp* MIR's don't adjust the regexp.
+                MDefinition *use = i->consumer()->toDefinition();
+                if (use->isRegExpReplace())
+                    continue;
+                if (use->isRegExpExec())
+                    continue;
+                if (use->isRegExpTest())
+                    continue;
+
+                hoistable = false;
+                break;
+            }
+
+            if (!hoistable)
+                continue;
+
+            // Make MRegExp hoistable
+            regexp->setMovable();
+
+            // That would be incorrect for global/sticky, because lastIndex could be wrong.
+            // Therefore setting the lastIndex to 0. That is faster than a not movable regexp.
+            RegExpObject *source = regexp->source();
+            if (source->sticky() || source->global()) {
+                JS_ASSERT(regexp->mustClone());
+                MConstant *zero = MConstant::New(graph.alloc(), Int32Value(0));
+                regexp->block()->insertAfter(regexp, zero);
+
+                MStoreFixedSlot *lastIndex =
+                    MStoreFixedSlot::New(graph.alloc(), regexp, RegExpObject::lastIndexSlot(), zero);
+                regexp->block()->insertAfter(zero, lastIndex);
+            }
+        }
+    }
 
     return true;
 }
@@ -2178,8 +2239,10 @@ jit::AnalyzeNewScriptProperties(JSContext *cx, JSFunction *fun,
     const OptimizationInfo *optimizationInfo = js_IonOptimizations.get(Optimization_Normal);
 
     types::CompilerConstraintList *constraints = types::NewCompilerConstraintList(temp);
-    if (!constraints)
+    if (!constraints) {
+        js_ReportOutOfMemory(cx);
         return false;
+    }
 
     BaselineInspector inspector(script);
     const JitCompileOptions options(cx);

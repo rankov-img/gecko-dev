@@ -723,76 +723,48 @@ nsDOMStyleSheetList::~nsDOMStyleSheetList()
   }
 }
 
-DOMCI_DATA(StyleSheetList, nsDOMStyleSheetList)
+NS_IMPL_ISUPPORTS_INHERITED2(nsDOMStyleSheetList, StyleSheetList,
+                             nsIDocumentObserver,
+                             nsIMutationObserver)
 
-// XXX couldn't we use the GetIIDs method from CSSStyleSheetList here?
-// QueryInterface implementation for nsDOMStyleSheetList
-NS_INTERFACE_TABLE_HEAD(nsDOMStyleSheetList)
-  NS_INTERFACE_TABLE3(nsDOMStyleSheetList,
-                      nsIDOMStyleSheetList,
-                      nsIDocumentObserver,
-                      nsIMutationObserver)
-  NS_INTERFACE_TABLE_TO_MAP_SEGUE
-  NS_DOM_INTERFACE_MAP_ENTRY_CLASSINFO(StyleSheetList)
-NS_INTERFACE_MAP_END
-
-
-NS_IMPL_ADDREF(nsDOMStyleSheetList)
-NS_IMPL_RELEASE(nsDOMStyleSheetList)
-
-
-NS_IMETHODIMP
-nsDOMStyleSheetList::GetLength(uint32_t* aLength)
+uint32_t
+nsDOMStyleSheetList::Length()
 {
-  if (mDocument) {
-    // XXX Find the number and then cache it. We'll use the
-    // observer notification to figure out if new ones have
-    // been added or removed.
-    if (-1 == mLength) {
-      mLength = mDocument->GetNumberOfStyleSheets();
+  if (!mDocument) {
+    return 0;
+  }
+
+  // XXX Find the number and then cache it. We'll use the
+  // observer notification to figure out if new ones have
+  // been added or removed.
+  if (-1 == mLength) {
+    mLength = mDocument->GetNumberOfStyleSheets();
 
 #ifdef DEBUG
-      int32_t i;
-      for (i = 0; i < mLength; i++) {
-        nsIStyleSheet *sheet = mDocument->GetStyleSheetAt(i);
-        nsCOMPtr<nsIDOMStyleSheet> domss(do_QueryInterface(sheet));
-        NS_ASSERTION(domss, "All \"normal\" sheets implement nsIDOMStyleSheet");
-      }
-#endif
+    int32_t i;
+    for (i = 0; i < mLength; i++) {
+      nsIStyleSheet *sheet = mDocument->GetStyleSheetAt(i);
+      nsCOMPtr<nsIDOMStyleSheet> domss(do_QueryInterface(sheet));
+      NS_ASSERTION(domss, "All \"normal\" sheets implement nsIDOMStyleSheet");
     }
-    *aLength = mLength;
+#endif
   }
-  else {
-    *aLength = 0;
-  }
-
-  return NS_OK;
+  return mLength;
 }
 
-nsIStyleSheet*
-nsDOMStyleSheetList::GetItemAt(uint32_t aIndex)
+nsCSSStyleSheet*
+nsDOMStyleSheetList::IndexedGetter(uint32_t aIndex, bool& aFound)
 {
   if (!mDocument || aIndex >= (uint32_t)mDocument->GetNumberOfStyleSheets()) {
+    aFound = false;
     return nullptr;
   }
 
+  aFound = true;
   nsIStyleSheet *sheet = mDocument->GetStyleSheetAt(aIndex);
   NS_ASSERTION(sheet, "Must have a sheet");
 
-  return sheet;
-}
-
-NS_IMETHODIMP
-nsDOMStyleSheetList::Item(uint32_t aIndex, nsIDOMStyleSheet** aReturn)
-{
-  nsIStyleSheet *sheet = GetItemAt(aIndex);
-  if (!sheet) {
-      *aReturn = nullptr;
-
-      return NS_OK;
-  }
-
-  return CallQueryInterface(sheet, aReturn);
+  return static_cast<nsCSSStyleSheet*>(sheet);
 }
 
 void
@@ -1555,7 +1527,8 @@ nsIDocument::nsIDocument()
     mAllowDNSPrefetch(true),
     mIsBeingUsedAsImage(false),
     mHasLinksToUpdate(false),
-    mPartID(0)
+    mPartID(0),
+    mDidFireDOMContentLoaded(true)
 {
   SetInDocument();
 }
@@ -4707,6 +4680,8 @@ nsDocument::BeginLoad()
   // Block onload here to prevent having to deal with blocking and
   // unblocking it while we know the document is loading.
   BlockOnload();
+  mDidFireDOMContentLoaded = false;
+  BlockDOMContentLoaded();
 
   if (mScriptLoader) {
     mScriptLoader->BeginDeferringScripts();
@@ -4948,6 +4923,19 @@ nsDocument::EndLoad()
 
   NS_DOCUMENT_NOTIFY_OBSERVERS(EndLoad, (this));
 
+  UnblockDOMContentLoaded();
+}
+
+void
+nsDocument::UnblockDOMContentLoaded()
+{
+  MOZ_ASSERT(mBlockDOMContentLoaded);
+  if (--mBlockDOMContentLoaded != 0 || mDidFireDOMContentLoaded) {
+    return;
+  }
+  mDidFireDOMContentLoaded = true;
+
+  MOZ_ASSERT(mReadyState == READYSTATE_INTERACTIVE);
   if (!mSynchronousDOMContentLoaded) {
     nsRefPtr<nsIRunnable> ev =
       NS_NewRunnableMethod(this, &nsDocument::DispatchContentLoadedEvents);
@@ -5509,8 +5497,7 @@ nsDocument::CustomElementConstructor(JSContext* aCx, unsigned aArgc, JS::Value* 
     return true;
   }
 
-  rv = nsContentUtils::WrapNative(aCx, global, newElement, newElement,
-                                  args.rval());
+  rv = nsContentUtils::WrapNative(aCx, newElement, newElement, args.rval());
   NS_ENSURE_SUCCESS(rv, true);
 
   return true;
@@ -6093,7 +6080,7 @@ nsDocument::GetStyleSheets(nsIDOMStyleSheetList** aStyleSheets)
   return NS_OK;
 }
 
-nsIDOMStyleSheetList*
+StyleSheetList*
 nsDocument::StyleSheets()
 {
   if (!mDOMStyleSheets) {
@@ -7428,14 +7415,13 @@ nsIDocument::AdoptNode(nsINode& aAdoptedNode, ErrorResult& rv)
   if (!sameDocument) {
     newScope = GetWrapper();
     if (!newScope && GetScopeObject() && GetScopeObject()->GetGlobalJSObject()) {
-      // We need to pass some sort of scope object to WrapNative. It's kind of
-      // irrelevant, given that we're passing aAllowWrapping = false, and
-      // documents should always insist on being wrapped in an canonical
-      // scope. But we try to pass something sane anyway.
-      JS::Rooted<JSObject*> global(cx, GetScopeObject()->GetGlobalJSObject());
-
+      // Make sure cx is in a semi-sane compartment before we call WrapNative.
+      // It's kind of irrelevant, given that we're passing aAllowWrapping =
+      // false, and documents should always insist on being wrapped in an
+      // canonical scope. But we try to pass something sane anyway.
+      JSAutoCompartment ac(cx, GetScopeObject()->GetGlobalJSObject());
       JS::Rooted<JS::Value> v(cx);
-      rv = nsContentUtils::WrapNative(cx, global, this, this, &v,
+      rv = nsContentUtils::WrapNative(cx, this, this, &v,
                                       /* aAllowWrapping = */ false);
       if (rv.Failed())
         return nullptr;
@@ -12129,11 +12115,11 @@ nsDocument::Evaluate(const nsAString& aExpression, nsIDOMNode* aContextNode,
 // This is just a hack around the fact that window.document is not
 // [Unforgeable] yet.
 JSObject*
-nsIDocument::WrapObject(JSContext *aCx, JS::Handle<JSObject*> aScope)
+nsIDocument::WrapObject(JSContext *aCx)
 {
   MOZ_ASSERT(IsDOMBinding());
 
-  JS::Rooted<JSObject*> obj(aCx, nsINode::WrapObject(aCx, aScope));
+  JS::Rooted<JSObject*> obj(aCx, nsINode::WrapObject(aCx));
   if (!obj) {
     return nullptr;
   }
@@ -12152,16 +12138,13 @@ nsIDocument::WrapObject(JSContext *aCx, JS::Handle<JSObject*> aScope)
   JSAutoCompartment ac(aCx, obj);
 
   JS::Rooted<JS::Value> winVal(aCx);
-  nsresult rv = nsContentUtils::WrapNative(aCx, obj, win,
-                                           &NS_GET_IID(nsIDOMWindow),
-                                           &winVal);
+  nsresult rv = nsContentUtils::WrapNative(aCx, win, &NS_GET_IID(nsIDOMWindow),
+                                           &winVal,
+                                           false);
   if (NS_FAILED(rv)) {
     Throw(aCx, rv);
     return nullptr;
   }
-
-  MOZ_ASSERT(&winVal.toObject() == js::UncheckedUnwrap(&winVal.toObject()),
-             "WrapNative shouldn't create a cross-compartment wrapper");
 
   NS_NAMED_LITERAL_STRING(doc_str, "document");
 

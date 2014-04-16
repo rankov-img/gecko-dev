@@ -25,6 +25,7 @@ public:
   FallbackCameraControl(uint32_t aCameraId) : CameraControlImpl(aCameraId) { }
 
   void OnAutoFocusComplete(bool aSuccess);
+  void OnAutoFocusMoving(bool aIsMoving) { }
   void OnTakePictureComplete(uint8_t* aData, uint32_t aLength) { }
   void OnTakePictureError() { }
   void OnNewPreviewFrame(layers::GraphicBufferLocked* aBuffer) { }
@@ -57,17 +58,20 @@ public:
 protected:
   ~FallbackCameraControl();
 
-  virtual nsresult StartPreviewImpl() { return NS_ERROR_FAILURE; }
-  virtual nsresult StopPreviewImpl() { return NS_ERROR_FAILURE; }
-  virtual nsresult AutoFocusImpl(bool aCancelExistingCall) { return NS_ERROR_FAILURE; }
-  virtual nsresult TakePictureImpl() { return NS_ERROR_FAILURE; }
+  virtual nsresult StartPreviewImpl() MOZ_OVERRIDE { return NS_ERROR_FAILURE; }
+  virtual nsresult StopPreviewImpl() MOZ_OVERRIDE { return NS_ERROR_FAILURE; }
+  virtual nsresult AutoFocusImpl() MOZ_OVERRIDE { return NS_ERROR_FAILURE; }
+  virtual nsresult StartFaceDetectionImpl() MOZ_OVERRIDE { return NS_ERROR_FAILURE; }
+  virtual nsresult StopFaceDetectionImpl() MOZ_OVERRIDE { return NS_ERROR_FAILURE; }
+  virtual nsresult TakePictureImpl() MOZ_OVERRIDE { return NS_ERROR_FAILURE; }
   virtual nsresult StartRecordingImpl(DeviceStorageFileDescriptor* aFileDescriptor,
-                                      const StartRecordingOptions* aOptions = nullptr)
+                                      const StartRecordingOptions* aOptions = nullptr) MOZ_OVERRIDE
                                         { return NS_ERROR_FAILURE; }
-  virtual nsresult StopRecordingImpl() { return NS_ERROR_FAILURE; }
-  virtual nsresult PushParametersImpl() { return NS_ERROR_FAILURE; }
-  virtual nsresult PullParametersImpl() { return NS_ERROR_FAILURE; }
-  virtual already_AddRefed<RecorderProfileManager> GetRecorderProfileManagerImpl() { return nullptr; }
+  virtual nsresult StopRecordingImpl() MOZ_OVERRIDE { return NS_ERROR_FAILURE; }
+  virtual nsresult ResumeContinuousFocusImpl() MOZ_OVERRIDE { return NS_ERROR_FAILURE; }
+  virtual nsresult PushParametersImpl() MOZ_OVERRIDE { return NS_ERROR_FAILURE; }
+  virtual nsresult PullParametersImpl() MOZ_OVERRIDE { return NS_ERROR_FAILURE; }
+  virtual already_AddRefed<RecorderProfileManager> GetRecorderProfileManagerImpl() MOZ_OVERRIDE { return nullptr; }
 
 private:
   FallbackCameraControl(const FallbackCameraControl&) MOZ_DELETE;

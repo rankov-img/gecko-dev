@@ -231,6 +231,14 @@ class StoreBuffer
         GenericBuffer &operator=(const GenericBuffer& other) MOZ_DELETE;
     };
 
+    template <typename Edge>
+    struct PointerEdgeHasher
+    {
+        typedef Edge Lookup;
+        static HashNumber hash(const Lookup &l) { return uintptr_t(l.edge) >> 3; }
+        static bool match(const Edge &k, const Lookup &l) { return k == l; }
+    };
+
     struct CellPtrEdge
     {
         Cell **edge;
@@ -238,9 +246,6 @@ class StoreBuffer
         explicit CellPtrEdge(Cell **v) : edge(v) {}
         bool operator==(const CellPtrEdge &other) const { return edge == other.edge; }
         bool operator!=(const CellPtrEdge &other) const { return edge != other.edge; }
-
-        static bool supportsDeduplication() { return true; }
-        void *deduplicationKey() const { return (void *)untagged().edge; }
 
         bool maybeInRememberedSet(const Nursery &nursery) const {
             return !nursery.isInside(edge) && nursery.isInside(*edge);
@@ -254,6 +259,8 @@ class StoreBuffer
         CellPtrEdge tagged() const { return CellPtrEdge((Cell **)(uintptr_t(edge) | 1)); }
         CellPtrEdge untagged() const { return CellPtrEdge((Cell **)(uintptr_t(edge) & ~1)); }
         bool isTagged() const { return bool(uintptr_t(edge) & 1); }
+
+        typedef PointerEdgeHasher<CellPtrEdge> Hasher;
     };
 
     struct ValueEdge
@@ -265,9 +272,6 @@ class StoreBuffer
         bool operator!=(const ValueEdge &other) const { return edge != other.edge; }
 
         void *deref() const { return edge->isGCThing() ? edge->toGCThing() : nullptr; }
-
-        static bool supportsDeduplication() { return true; }
-        void *deduplicationKey() const { return (void *)untagged().edge; }
 
         bool maybeInRememberedSet(const Nursery &nursery) const {
             return !nursery.isInside(edge) && nursery.isInside(deref());
@@ -281,6 +285,8 @@ class StoreBuffer
         ValueEdge tagged() const { return ValueEdge((JS::Value *)(uintptr_t(edge) | 1)); }
         ValueEdge untagged() const { return ValueEdge((JS::Value *)(uintptr_t(edge) & ~1)); }
         bool isTagged() const { return bool(uintptr_t(edge) & 1); }
+
+        typedef PointerEdgeHasher<ValueEdge> Hasher;
     };
 
     struct SlotsEdge
@@ -289,75 +295,77 @@ class StoreBuffer
         const static int SlotKind = 0;
         const static int ElementKind = 1;
 
-        JSObject *object_;
+        uintptr_t objectAndKind_; // JSObject* | Kind
         int32_t start_;
         int32_t count_;
 
         SlotsEdge(JSObject *object, int kind, int32_t start, int32_t count)
-          : object_(object), start_(start), count_(count)
+          : objectAndKind_(uintptr_t(object) | kind), start_(start), count_(count)
         {
+            JS_ASSERT((uintptr_t(object) & 1) == 0);
+            JS_ASSERT(kind <= 1);
             JS_ASSERT(start >= 0);
-            JS_ASSERT(count > 0); // Must be non-zero size so that |count_| < 0 can be kind.
-            if (kind == SlotKind)
-                count_ = -count_;
+            JS_ASSERT(count > 0);
         }
 
+        JSObject *object() const { return reinterpret_cast<JSObject *>(objectAndKind_ & ~1); }
+        int kind() const { return (int)(objectAndKind_ & 1); }
+
         bool operator==(const SlotsEdge &other) const {
-            return object_ == other.object_ && start_ == other.start_ && count_ == other.count_;
+            return objectAndKind_ == other.objectAndKind_ &&
+                   start_ == other.start_ &&
+                   count_ == other.count_;
         }
 
         bool operator!=(const SlotsEdge &other) const {
-            return object_ != other.object_ || start_ != other.start_ || count_ != other.count_;
+            return !(*this == other);
         }
 
         bool canMergeWith(const SlotsEdge &other) const {
-            JS_ASSERT(sizeof(count_) == 4);
-            return object_ == other.object_ && count_ >> 31 == other.count_ >> 31;
+            return objectAndKind_ == other.objectAndKind_;
         }
 
         void mergeInplace(const SlotsEdge &other) {
-            JS_ASSERT((count_ > 0 && other.count_ > 0) || (count_ < 0 && other.count_ < 0));
-            int32_t end1 = start_ + abs(count_);
-            int32_t end2 = other.start_ + abs(other.count_);
+            int32_t end = Max(start_ + count_, other.start_ + other.count_);
             start_ = Min(start_, other.start_);
-            count_ = Max(end1, end2) - start_;
-            if (other.count_ < 0)
-                count_ = -count_;
-        }
-
-        static bool supportsDeduplication() { return false; }
-        void *deduplicationKey() const {
-            MOZ_CRASH("Dedup not supported on SlotsEdge.");
-            return nullptr;
+            count_ = end - start_;
         }
 
         bool maybeInRememberedSet(const Nursery &nursery) const {
-            return !nursery.isInside(object_);
+            return !nursery.isInside(object());
         }
 
         void mark(JSTracer *trc);
+
+        typedef struct {
+            typedef SlotsEdge Lookup;
+            static HashNumber hash(const Lookup &l) { return l.objectAndKind_ ^ l.start_ ^ l.count_; }
+            static bool match(const SlotsEdge &k, const Lookup &l) { return k == l; }
+        } Hasher;
     };
 
     struct WholeCellEdges
     {
-        Cell *tenured;
+        Cell *edge;
 
-        explicit WholeCellEdges(Cell *cell) : tenured(cell) {
-            JS_ASSERT(tenured->isTenured());
+        explicit WholeCellEdges(Cell *cell) : edge(cell) {
+            JS_ASSERT(edge->isTenured());
         }
 
-        bool operator==(const WholeCellEdges &other) const { return tenured == other.tenured; }
-        bool operator!=(const WholeCellEdges &other) const { return tenured != other.tenured; }
+        bool operator==(const WholeCellEdges &other) const { return edge == other.edge; }
+        bool operator!=(const WholeCellEdges &other) const { return edge != other.edge; }
 
         bool maybeInRememberedSet(const Nursery &nursery) const { return true; }
 
         static bool supportsDeduplication() { return true; }
-        void *deduplicationKey() const { return (void *)tenured; }
+        void *deduplicationKey() const { return (void *)edge; }
 
-        bool canMergeWith(const WholeCellEdges &other) const { return tenured == other.tenured; }
+        bool canMergeWith(const WholeCellEdges &other) const { return edge == other.edge; }
         void mergeInplace(const WholeCellEdges &) {}
 
         void mark(JSTracer *trc);
+
+        typedef PointerEdgeHasher<WholeCellEdges> Hasher;
     };
 
     template <typename Key>

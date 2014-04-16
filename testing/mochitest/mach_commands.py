@@ -184,7 +184,7 @@ class MochitestRunner(MozbuildObject):
         return mochitest.run_remote_mochitests(parser, options)
 
     def run_desktop_test(self, context, suite=None, test_paths=None, debugger=None,
-        debugger_args=None, slowscript=False, shuffle=False, keep_open=False,
+        debugger_args=None, slowscript=False, screenshot_on_fail = False, shuffle=False, keep_open=False,
         rerun_failures=False, no_autorun=False, repeat=0, run_until_failure=False,
         slow=False, chunk_by_dir=0, total_chunks=None, this_chunk=None,
         jsdebugger=False, debug_on_failure=False, start_at=None, end_at=None,
@@ -257,6 +257,7 @@ class MochitestRunner(MozbuildObject):
         opts = mochitest.MochitestOptions()
         options, args = opts.parse_args([])
 
+        options.subsuite = ''
         flavor = suite
 
         # Need to set the suite options before verifyOptions below.
@@ -268,6 +269,9 @@ class MochitestRunner(MozbuildObject):
         elif suite == 'browser':
             options.browserChrome = True
             flavor = 'browser-chrome'
+        elif suite == 'devtools':
+            options.browserChrome = True
+            options.subsuite = 'devtools'
         elif suite == 'metro':
             options.immersiveMode = True
             options.browserChrome = True
@@ -289,6 +293,7 @@ class MochitestRunner(MozbuildObject):
         options.autorun = not no_autorun
         options.closeWhenDone = not keep_open
         options.slowscript = slowscript
+        options.screenshotOnFail = screenshot_on_fail
         options.shuffle = shuffle
         options.consoleLevel = 'INFO'
         options.repeat = repeat
@@ -406,6 +411,10 @@ def MochitestCommand(func):
     slowscript = CommandArgument('--slowscript', action='store_true',
         help='Do not set the JS_DISABLE_SLOW_SCRIPT_SIGNALS env variable; when not set, recoverable but misleading SIGSEGV instances may occur in Ion/Odin JIT code')
     func = slowscript(func)
+
+    screenshot_on_fail = CommandArgument('--screenshot-on-fail', action='store_true',
+        help='Take screenshots on all test failures. Set $MOZ_UPLOAD_DIR to a directory for storing the screenshots.')
+    func = screenshot_on_fail(func)
 
     shuffle = CommandArgument('--shuffle', action='store_true',
         help='Shuffle execution order.')
@@ -591,6 +600,13 @@ class MachCommands(MachCommandBase):
     def run_mochitest_browser(self, test_paths, **kwargs):
         return self.run_mochitest(test_paths, 'browser', **kwargs)
 
+    @Command('mochitest-devtools', category='testing',
+        conditions=[conditions.is_firefox],
+        description='Run a devtools mochitest with browser chrome.')
+    @MochitestCommand
+    def run_mochitest_devtools(self, test_paths, **kwargs):
+        return self.run_mochitest(test_paths, 'devtools', **kwargs)
+
     @Command('mochitest-metro', category='testing',
         conditions=[conditions.is_firefox],
         description='Run a mochitest with metro browser chrome.')
@@ -637,7 +653,7 @@ class MachCommands(MachCommandBase):
 # they should be modified to work with all devices.
 def is_emulator(cls):
     """Emulator needs to be configured."""
-    return cls.device_name in ('emulator', 'emulator-jb')
+    return cls.device_name.find('emulator') == 0
 
 
 @CommandProvider
