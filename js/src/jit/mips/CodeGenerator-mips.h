@@ -201,7 +201,7 @@ class CodeGeneratorMIPS : public CodeGeneratorShared
     virtual bool visitCompareBAndBranch(LCompareBAndBranch *lir);
     virtual bool visitCompareV(LCompareV *lir);
     virtual bool visitCompareVAndBranch(LCompareVAndBranch *lir);
-    virtual bool visitBitAndAndBranch(LBitAndAndBranch *baab);
+    virtual bool visitBitAndAndBranch(LBitAndAndBranch *lir);
     virtual bool visitAsmJSUInt32ToDouble(LAsmJSUInt32ToDouble *lir);
     virtual bool visitAsmJSUInt32ToFloat32(LAsmJSUInt32ToFloat32 *lir);
     virtual bool visitNotI(LNotI *ins);

@@ -1400,7 +1400,7 @@ CodeGeneratorMIPS::visitBox(LBox *box)
 
     MOZ_ASSERT(!box->getOperand(0)->isConstant());
 
-    // On x86, the input operand and the output payload have the same
+    // For NUNBOX32, the input operand and the output payload have the same
     // virtual register. All that needs to be written is the type tag for
     // the type definition.
     masm.move32(Imm32(MIRTypeToTag(box->type())), ToRegister(type));
@@ -1674,14 +1674,14 @@ CodeGeneratorMIPS::visitCompareVAndBranch(LCompareVAndBranch *lir)
 }
 
 bool
-CodeGeneratorMIPS::visitBitAndAndBranch(LBitAndAndBranch *baab)
+CodeGeneratorMIPS::visitBitAndAndBranch(LBitAndAndBranch *lir)
 {
-    if (baab->right()->isConstant())
-        masm.ma_and(ScratchRegister, ToRegister(baab->left()), Imm32(ToInt32(baab->right())));
+    if (lir->right()->isConstant())
+        masm.ma_and(ScratchRegister, ToRegister(lir->left()), Imm32(ToInt32(lir->right())));
     else
-        masm.ma_and(ScratchRegister, ToRegister(baab->left()), ToRegister(baab->right()));
-    emitBranch(ScratchRegister, ScratchRegister, Assembler::NonZero, baab->ifTrue(),
-               baab->ifFalse());
+        masm.ma_and(ScratchRegister, ToRegister(lir->left()), ToRegister(lir->right()));
+    emitBranch(ScratchRegister, ScratchRegister, Assembler::NonZero, lir->ifTrue(),
+               lir->ifFalse());
     return true;
 }
 
@@ -2009,9 +2009,9 @@ CodeGeneratorMIPS::visitAsmJSLoadHeap(LAsmJSLoadHeap *ins)
       case ArrayBufferView::TYPE_INT16:   isSigned = true;  size = 16; break;
       case ArrayBufferView::TYPE_UINT16:  isSigned = false; size = 16; break;
       case ArrayBufferView::TYPE_INT32:   isSigned = true;  size = 32; break;
-      case ArrayBufferView::TYPE_UINT32:  isSigned = false;  size = 32; break;
-      case ArrayBufferView::TYPE_FLOAT64: isFloat = true;   size = 64; break;
-      case ArrayBufferView::TYPE_FLOAT32: isFloat = true;   size = 32; break;
+      case ArrayBufferView::TYPE_UINT32:  isSigned = false; size = 32; break;
+      case ArrayBufferView::TYPE_FLOAT64: isFloat  = true;  size = 64; break;
+      case ArrayBufferView::TYPE_FLOAT32: isFloat  = true;  size = 32; break;
       default: MOZ_ASSUME_UNREACHABLE("unexpected array type");
     }
 
@@ -2090,14 +2090,14 @@ CodeGeneratorMIPS::visitAsmJSStoreHeap(LAsmJSStoreHeap *ins)
     int size;
     bool isFloat = false;
     switch (mir->viewType()) {
-      case ArrayBufferView::TYPE_INT8:
-      case ArrayBufferView::TYPE_UINT8:   isSigned = false; size = 8; break;
-      case ArrayBufferView::TYPE_INT16:
+      case ArrayBufferView::TYPE_INT8:    isSigned = true;  size = 8;  break;
+      case ArrayBufferView::TYPE_UINT8:   isSigned = false; size = 8;  break;
+      case ArrayBufferView::TYPE_INT16:   isSigned = true;  size = 16; break;
       case ArrayBufferView::TYPE_UINT16:  isSigned = false; size = 16; break;
-      case ArrayBufferView::TYPE_INT32:
-      case ArrayBufferView::TYPE_UINT32:  isSigned = true;  size = 32; break;
+      case ArrayBufferView::TYPE_INT32:   isSigned = true;  size = 32; break;
+      case ArrayBufferView::TYPE_UINT32:  isSigned = false; size = 32; break;
       case ArrayBufferView::TYPE_FLOAT64: isFloat  = true;  size = 64; break;
-      case ArrayBufferView::TYPE_FLOAT32: isFloat = true;   size = 32; break;
+      case ArrayBufferView::TYPE_FLOAT32: isFloat  = true;  size = 32; break;
       default: MOZ_ASSUME_UNREACHABLE("unexpected array type");
     }
 
