@@ -544,8 +544,8 @@ CodeGeneratorMIPS::visitDivI(LDivI *ins)
     Label done;
 
     // Handle divide by zero.
-    if (mir->canBeDivideByZero() || mir->canBeNegativeZero()) {
-        if (mir->isTruncated()) {
+    if (mir->canBeDivideByZero()) {
+        if (mir->canTruncateInfinities()) {
             // Truncated division by zero is zero (Infinity|0 == 0)
             Label notzero;
             masm.ma_b(rhs, rhs, &notzero, Assembler::NonZero, ShortJump);
@@ -566,7 +566,7 @@ CodeGeneratorMIPS::visitDivI(LDivI *ins)
         masm.ma_b(lhs, temp, &notMinInt, Assembler::NotEqual, ShortJump);
 
         masm.move32(Imm32(-1), temp);
-        if (mir->isTruncated()) {
+        if (mir->canTruncateOverflow()) {
             // (-INT32_MIN)|0 == INT32_MIN
             Label skip;
             masm.ma_b(rhs, temp, &skip, Assembler::NotEqual, ShortJump);
@@ -582,7 +582,7 @@ CodeGeneratorMIPS::visitDivI(LDivI *ins)
     }
 
     // Handle negative 0. (0/-Y)
-    if (!mir->isTruncated() && mir->canBeNegativeZero()) {
+    if (!mir->canTruncateNegativeZero() && mir->canBeNegativeZero()) {
         Label nonzero;
         masm.ma_b(lhs, lhs, &nonzero, Assembler::NonZero, ShortJump);
         if (!bailoutCmp32(Assembler::LessThan, rhs, Imm32(0), ins->snapshot()))
@@ -593,7 +593,7 @@ CodeGeneratorMIPS::visitDivI(LDivI *ins)
     // smarter and requires double arithmetic in such cases.
 
     // All regular. Lets call div.
-    if (mir->isTruncated()) {
+    if (mir->canTruncateRemainder()) {
         masm.as_div(lhs, rhs);
         masm.as_mflo(dest);
     } else {
