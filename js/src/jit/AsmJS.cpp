@@ -6357,6 +6357,9 @@ GenerateFFIInterpreterExit(ModuleCompiler &m, const ModuleCompiler::ExitDescript
 #if defined(JS_CODEGEN_ARM)
     masm.Push(lr);
 #endif
+#if defined(JS_CODEGEN_MIPS)
+    masm.Push(ra);
+#endif
 
     MIRType typeArray[] = { MIRType_Pointer,   // cx
                             MIRType_Pointer,   // exitDatum
@@ -6526,6 +6529,11 @@ GenerateFFIIonExit(ModuleCompiler &m, const ModuleCompiler::ExitDescriptor &exit
                                                        (1<<HeapReg.code()) |
                                                        (1<<lr.code())),
                                     FloatRegisterSet(uint32_t(0))));
+#elif defined(JS_CODEGEN_MIPS)
+    masm.PushRegsInMask(RegisterSet(GeneralRegisterSet((1<<GlobalReg.code()) |
+                                                       (1<<HeapReg.code()) |
+                                                       (1<<ra.code())),
+                                    FloatRegisterSet(uint32_t(0))));
 #endif
 
     // The stack frame is used for the call into Ion and also for calls into C for OOL
@@ -6541,7 +6549,7 @@ GenerateFFIIonExit(ModuleCompiler &m, const ModuleCompiler::ExitDescriptor &exit
     // instruction does the push itself and the ABI just requires us to be aligned before
     // the call instruction.)
     unsigned offsetToArgs = 0;
-#if defined(JS_CODEGEN_ARM)
+#if defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_MIPS)
     offsetToArgs += sizeof(size_t);
 #endif
 
@@ -6662,7 +6670,7 @@ GenerateFFIIonExit(ModuleCompiler &m, const ModuleCompiler::ExitDescriptor &exit
 
     // 2. Call
     AssertStackAlignment(masm);
-#if defined(JS_CODEGEN_ARM)
+#if defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_MIPS)
     masm.ma_callIonNoPush(callee);
     // The return address has been popped from the stack, so adjust the stack
     // without changing the frame-pushed counter to keep the stack aligned.
@@ -6738,6 +6746,13 @@ GenerateFFIIonExit(ModuleCompiler &m, const ModuleCompiler::ExitDescriptor &exit
                                                       (1<<HeapReg.code()) |
                                                       (1<<pc.code())),
                                    FloatRegisterSet(uint32_t(0))));
+#elif defined(JS_CODEGEN_MIPS)
+    masm.loadConstantDouble(GenericNaN(), NANReg);
+    masm.PopRegsInMask(RegisterSet(GeneralRegisterSet((1<<GlobalReg.code()) |
+                                                      (1<<HeapReg.code()) |
+                                                      (1<<ra.code())),
+                                   FloatRegisterSet(uint32_t(0))));
+    masm.abiret();
 #else
 # if defined(JS_CODEGEN_X64)
     masm.Pop(HeapReg);

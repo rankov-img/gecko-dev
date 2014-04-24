@@ -2922,6 +2922,14 @@ MacroAssemblerMIPSCompat::linkParallelExitFrame(const Register &pt)
     ma_sw(StackPointer, Address(pt, offsetof(PerThreadData, ionTop)));
 }
 
+void
+MacroAssemblerMIPS::ma_callIonNoPush(const Register r)
+{
+    // This is a MIPS hack to push return address during jalr delay slot.
+    as_jalr(r);
+    as_sw(ra, StackPointer, 0);
+}
+
 // This macrosintruction calls the ion code and pushes the return address to
 // the stack in the case when stack is alligned.
 void
@@ -3382,20 +3390,29 @@ MacroAssemblerMIPSCompat::toggledCall(JitCode *target, bool enabled)
     return offset;
 }
 
+#ifdef JSGC_GENERATIONAL
+
 void
 MacroAssemblerMIPSCompat::branchPtrInNurseryRange(Register ptr, Register temp, Label *label)
 {
-    JS_ASSERT(temp != InvalidReg);
-    const Nursery &nursery = GetIonContext()->runtime->gcNursery();
+    JS_ASSERT(ptr != temp);
+    JS_ASSERT(ptr != SecondScratchReg);
 
-    // ptr and temp may be the same register, in which case we mustn't trash it
-    // before we use its contents.
-    if (ptr == temp) {
-        addPtr(ImmWord(-ptrdiff_t(nursery.start())), ptr);
-        branchPtr(Assembler::Below, ptr, Imm32(Nursery::NurserySize), label);
-    } else {
-        movePtr(ImmWord(-ptrdiff_t(nursery.start())), temp);
-        addPtr(ptr, temp);
-        branchPtr(Assembler::Below, temp, Imm32(Nursery::NurserySize), label);
-    }
+    const Nursery &nursery = GetIonContext()->runtime->gcNursery();
+    movePtr(ImmWord(-ptrdiff_t(nursery.start())), SecondScratchReg);
+    addPtr(ptr, SecondScratchReg);
+    branchPtr(Assembler::Below, SecondScratchReg, Imm32(Nursery::NurserySize), label);
 }
+
+void
+MacroAssemblerMIPSCompat::branchValueIsNurseryObject(ValueOperand value, Register temp, Label *label)
+{
+    Label done;
+
+    branchTestObject(Assembler::NotEqual, value, &done);
+    branchPtrInNurseryRange(value.payloadReg(), temp, label);
+
+    bind(&done);
+}
+
+#endif
