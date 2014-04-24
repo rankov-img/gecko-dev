@@ -48,9 +48,7 @@
 #include "nsStyleStructInlines.h"
 #include <algorithm>
 
-#ifdef IBMBIDI
 #include "nsBidiPresUtils.h"
-#endif
 
 // For triple-click pref
 #include "imgIContainer.h"
@@ -1929,22 +1927,16 @@ nsIFrame::BuildDisplayListForStackingContext(nsDisplayListBuilder* aBuilder,
       if (overflow.IsEmpty() && !Preserves3DChildren()) {
         return;
       }
-      // Trying to back-transform arbitrary rects gives us really weird results. I believe 
-      // this is from points that lie beyond the vanishing point. As a workaround we transform
-      // the overflow rect into screen space and compare in that coordinate system.
 
-      // Transform the overflow rect into screen space.
       nsPoint offset = aBuilder->ToReferenceFrame(this);
-      nsRect trans = nsDisplayTransform::TransformRect(overflow + offset, this, offset);
       dirtyRect += offset;
-      if (dirtyRect.Intersects(trans)) {
-        // If they intersect, we take our whole overflow rect. We could instead take the intersection
-        // and then reverse transform it but I doubt this extra work is worthwhile.
-        dirtyRect = overflow;
+
+      nsRect untransformedDirtyRect;
+      if (nsDisplayTransform::UntransformRect(dirtyRect, overflow, this, offset, &untransformedDirtyRect)) {
+        dirtyRect = untransformedDirtyRect;
       } else {
-        if (!Preserves3DChildren()) {
-          return;
-        }
+        NS_WARNING("Unable to untransform dirty rect!");
+        // This should only happen if the transform is singular, in which case nothing is visible anyway
         dirtyRect.SetEmpty();
       }
     }
@@ -6557,8 +6549,7 @@ nsIFrame::PeekOffset(nsPeekOffsetStruct* aPos)
       uint32_t lineFlags;
       nsIFrame* baseFrame = nullptr;
       bool endOfLine = (eSelectEndLine == aPos->mAmount);
-      
-#ifdef IBMBIDI
+
       if (aPos->mVisual && PresContext()->BidiEnabled()) {
         bool lineIsRTL = it->GetDirection();
         bool isReordered;
@@ -6572,9 +6563,7 @@ nsIFrame::PeekOffset(nsPeekOffsetStruct* aPos)
           if ((embeddingLevel & 1) == !lineIsRTL)
             endOfLine = !endOfLine;
         }
-      } else
-#endif
-      {
+      } else {
         it->GetLine(thisLine, &firstFrame, &lineFrameCount, usedRect, &lineFlags);
 
         nsIFrame* frame = firstFrame;
@@ -6690,8 +6679,8 @@ nsFrame::BreakWordBetweenPunctuation(const PeekWordState* aState,
   }
   if (!Preferences::GetBool("layout.word_select.stop_at_punctuation")) {
     // When this pref is false, we never stop at a punctuation boundary unless
-    // it's after whitespace
-    return false;
+    // it's followed by whitespace (in the relevant direction).
+    return aWhitespaceAfter;
   }
   if (!aIsKeyboardSelect) {
     // mouse caret movement (e.g. word selection) always stops at every punctuation boundary
@@ -6786,7 +6775,6 @@ nsIFrame::GetFrameFromDirection(nsDirection aDirection, bool aVisual,
     bool atLineEdge;
     nsIFrame *firstFrame;
     nsIFrame *lastFrame;
-#ifdef IBMBIDI
     if (aVisual && presContext->BidiEnabled()) {
       bool lineIsRTL = it->GetDirection();
       bool isReordered;
@@ -6804,9 +6792,7 @@ nsIFrame::GetFrameFromDirection(nsDirection aDirection, bool aVisual,
       } else {
         atLineEdge = true;
       }
-    } else
-#endif
-    {
+    } else {
       nsRect  nonUsedRect;
       int32_t lineFrameCount;
       uint32_t lineFlags;
@@ -6862,14 +6848,12 @@ nsIFrame::GetFrameFromDirection(nsDirection aDirection, bool aVisual,
 
   *aOutOffset = (aDirection == eDirNext) ? 0 : -1;
 
-#ifdef IBMBIDI
   if (aVisual) {
     uint8_t newLevel = NS_GET_EMBEDDING_LEVEL(traversedFrame);
     uint8_t newBaseLevel = NS_GET_BASE_LEVEL(traversedFrame);
     if ((newLevel & 1) != (newBaseLevel & 1)) // The new frame is reverse-direction, go to the other end
       *aOutOffset = -1 - *aOutOffset;
   }
-#endif
   *aOutFrame = traversedFrame;
   return NS_OK;
 }
@@ -7199,18 +7183,28 @@ nsIFrame::FinishAndStoreOverflow(nsOverflowAreas& aOverflowAreas,
                "Don't call - overflow rects not maintained on these SVG frames");
 
   nsRect bounds(nsPoint(0, 0), aNewSize);
-  // Store the passed in overflow area if we are a preserve-3d frame,
-  // and it's not just the frame bounds.
-  if ((Preserves3D() || HasPerspective()) && (!aOverflowAreas.VisualOverflow().IsEqualEdges(bounds) ||
-                        !aOverflowAreas.ScrollableOverflow().IsEqualEdges(bounds))) {
-    nsOverflowAreas* initial =
-      static_cast<nsOverflowAreas*>(Properties().Get(nsIFrame::InitialOverflowProperty()));
-    if (!initial) {
-      Properties().Set(nsIFrame::InitialOverflowProperty(),
-                       new nsOverflowAreas(aOverflowAreas));
-    } else if (initial != &aOverflowAreas) {
-      *initial = aOverflowAreas;
+  // Store the passed in overflow area if we are a preserve-3d frame or we have
+  // a transform, and it's not just the frame bounds.
+  if (Preserves3D() || HasPerspective() || IsTransformed()) {
+    if (!aOverflowAreas.VisualOverflow().IsEqualEdges(bounds) ||
+        !aOverflowAreas.ScrollableOverflow().IsEqualEdges(bounds)) {
+
+      nsOverflowAreas* initial =
+        static_cast<nsOverflowAreas*>(Properties().Get(nsIFrame::InitialOverflowProperty()));
+      if (!initial) {
+        Properties().Set(nsIFrame::InitialOverflowProperty(),
+                         new nsOverflowAreas(aOverflowAreas));
+      } else if (initial != &aOverflowAreas) {
+        *initial = aOverflowAreas;
+      }
     }
+#ifdef DEBUG
+    Properties().Set(nsIFrame::DebugInitialOverflowPropertyApplied(), nullptr);
+#endif
+  } else {
+#ifdef DEBUG
+  Properties().Delete(nsIFrame::DebugInitialOverflowPropertyApplied());
+#endif
   }
 
   // This is now called FinishAndStoreOverflow() instead of 

@@ -133,9 +133,7 @@ typedef bool (*DeferredFinalizeFunction)(uint32_t slice, void* data);
 
 } // namespace mozilla
 
-#ifdef IBMBIDI
 class nsIBidiKeyboard;
-#endif
 
 extern const char kLoadAsData[];
 
@@ -461,10 +459,8 @@ public:
     return sIOService;
   }
 
-#ifdef IBMBIDI
   static nsIBidiKeyboard* GetBidiKeyboard();
-#endif
-  
+
   /**
    * Get the cache security manager service. Can return null if the layout
    * module has been shut down.
@@ -654,6 +650,7 @@ public:
                             nsIURI* aReferrer,
                             imgINotificationObserver* aObserver,
                             int32_t aLoadFlags,
+                            const nsAString& initiatorType,
                             imgRequestProxy** aRequest);
 
   /**
@@ -1327,6 +1324,14 @@ public:
   static bool IsExpandedPrincipal(nsIPrincipal* aPrincipal);
 
   /**
+   * Returns true if aPrincipal is the system or an nsExpandedPrincipal.
+   */
+  static bool IsSystemOrExpandedPrincipal(nsIPrincipal* aPrincipal)
+  {
+    return IsSystemPrincipal(aPrincipal) || IsExpandedPrincipal(aPrincipal);
+  }
+
+  /**
    * Gets the system principal from the security manager.
    */
   static nsIPrincipal* GetSystemPrincipal();
@@ -1839,6 +1844,14 @@ public:
     return sIsPerformanceTimingEnabled;
   }
   
+  /*
+   * Returns true if the performance timing APIs are enabled.
+   */
+  static bool IsResourceTimingEnabled()
+  {
+    return sIsResourceTimingEnabled;
+  }
+
   /**
    * Returns true if the doc tree branch which contains aDoc contains any
    * plugins which we don't control event dispatch for, i.e. do any plugins
@@ -2188,9 +2201,7 @@ private:
   static nsILineBreaker* sLineBreaker;
   static nsIWordBreaker* sWordBreaker;
 
-#ifdef IBMBIDI
   static nsIBidiKeyboard* sBidiKeyboard;
-#endif
 
   static bool sInitialized;
   static uint32_t sScriptBlockerCount;
@@ -2213,6 +2224,7 @@ private:
   static uint32_t sHandlingInputTimeout;
   static bool sIsIdleObserverAPIEnabled;
   static bool sIsPerformanceTimingEnabled;
+  static bool sIsResourceTimingEnabled;
 
   static nsHtml5StringParser* sHTMLFragmentParser;
   static nsIParser* sXMLFragmentParser;

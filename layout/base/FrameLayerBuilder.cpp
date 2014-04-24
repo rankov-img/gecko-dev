@@ -1843,6 +1843,29 @@ AddTransformedBoundsToRegion(const nsIntRegion& aRegion,
   aDest->Or(*aDest, intRect);
 }
 
+static bool
+CanOptimizeAwayThebesLayer(ThebesLayerData* aData,
+                           FrameLayerBuilder* aLayerBuilder)
+{
+  bool isRetained = aData->mLayer->Manager()->IsWidgetLayerManager();
+  if (!isRetained) {
+    return false;
+  }
+
+  // If there's no thebes layer with valid content in it that we can reuse,
+  // always create a color or image layer (and potentially throw away an
+  // existing completely invalid thebes layer).
+  if (aData->mLayer->GetValidRegion().IsEmpty()) {
+    return true;
+  }
+
+  // There is an existing thebes layer we can reuse. Throwing it away can make
+  // compositing cheaper (see bug 946952), but it might cause us to re-allocate
+  // the thebes layer frequently due to an animation. So we only discard it if
+  // we're in tree compression mode, which is triggered at a low frequency.
+  return aLayerBuilder->CheckInLayerTreeCompressionMode();
+}
+
 void
 ContainerState::PopThebesLayerData()
 {
@@ -1858,9 +1881,8 @@ ContainerState::PopThebesLayerData()
   nsRefPtr<Layer> layer;
   nsRefPtr<ImageContainer> imageContainer = data->CanOptimizeImageLayer(mBuilder);
 
-  bool isRetained = data->mLayer->Manager()->IsWidgetLayerManager();
-  if (isRetained && (data->mIsSolidColorInVisibleRegion || imageContainer) &&
-      (data->mLayer->GetValidRegion().IsEmpty() || mLayerBuilder->CheckInLayerTreeCompressionMode())) {
+  if ((data->mIsSolidColorInVisibleRegion || imageContainer) &&
+      CanOptimizeAwayThebesLayer(data, mLayerBuilder)) {
     NS_ASSERTION(!(data->mIsSolidColorInVisibleRegion && imageContainer),
                  "Can't be a solid color as well as an image!");
     if (imageContainer) {
@@ -2664,6 +2686,7 @@ ContainerState::InvalidateForLayerChange(nsDisplayItem* aItem,
   nsRect invalid;
   nsRegion combined;
   nsPoint shift = aTopLeft - data->mLastAnimatedGeometryRootOrigin;
+  bool notifyRenderingChanged = true;
   if (!oldLayer) {
     // This item is being added for the first time, invalidate its entire area.
     //TODO: We call GetGeometry again in AddThebesDisplayItem, we should reuse this.
@@ -2686,6 +2709,21 @@ ContainerState::InvalidateForLayerChange(nsDisplayItem* aItem,
   } else {
     // Let the display item check for geometry changes and decide what needs to be
     // repainted.
+
+    // We have an optimization to cache the drawing background-attachment: fixed canvas
+    // background images so we can scroll and just blit them when they are flattened into
+    // the same layer as scrolling content. NotifyRenderingChanged is only used to tell
+    // the canvas bg image item to purge this cache. We want to be careful not to accidentally
+    // purge the cache if we are just invalidating due to scrolling (ie the background image
+    // moves on the scrolling layer but it's rendering stays the same) so if
+    // AddOffsetAndComputeDifference is the only thing that will invalidate we skip the
+    // NotifyRenderingChanged call (ComputeInvalidationRegion for background images also calls
+    // NotifyRenderingChanged if anything changes).
+    if (oldGeometry->ComputeInvalidationRegion() == aGeometry->ComputeInvalidationRegion() &&
+        *oldClip == aClip && invalid.IsEmpty() && changedFrames.Length() == 0) {
+      notifyRenderingChanged = false;
+    }
+
     oldGeometry->MoveBy(shift);
     aItem->ComputeInvalidationRegion(mBuilder, oldGeometry, &combined);
     oldClip->AddOffsetAndComputeDifference(shift, oldGeometry->ComputeInvalidationRegion(),
@@ -2713,7 +2751,9 @@ ContainerState::InvalidateForLayerChange(nsDisplayItem* aItem,
 #endif
   }
   if (!combined.IsEmpty()) {
-    aItem->NotifyRenderingChanged();
+    if (notifyRenderingChanged) {
+      aItem->NotifyRenderingChanged();
+    }
     InvalidatePostTransformRegion(newThebesLayer,
         combined.ScaleToOutsidePixels(data->mXScale, data->mYScale, mAppUnitsPerDevPixel),
         GetTranslationForThebesLayer(newThebesLayer));

@@ -721,11 +721,8 @@ mozJSComponentLoader::PrepareObjectForLocation(JSCLContextHelper& aCx,
         RootedObject locationObj(aCx, locationHolder->GetJSObject());
         NS_ENSURE_TRUE(locationObj, nullptr);
 
-        if (!JS_DefineProperty(aCx, obj, "__LOCATION__",
-                               ObjectValue(*locationObj),
-                               nullptr, nullptr, 0)) {
+        if (!JS_DefineProperty(aCx, obj, "__LOCATION__", locationObj, 0))
             return nullptr;
-        }
     }
 
     nsAutoCString nativePath;
@@ -734,12 +731,11 @@ mozJSComponentLoader::PrepareObjectForLocation(JSCLContextHelper& aCx,
 
     // Expose the URI from which the script was imported through a special
     // variable that we insert into the JSM.
-    JSString *exposedUri = JS_NewStringCopyN(aCx, nativePath.get(),
-                                             nativePath.Length());
-    if (!JS_DefineProperty(aCx, obj, "__URI__",
-                           STRING_TO_JSVAL(exposedUri), nullptr, nullptr, 0)) {
+    RootedString exposedUri(aCx, JS_NewStringCopyN(aCx, nativePath.get(), nativePath.Length()));
+    NS_ENSURE_TRUE(exposedUri, nullptr);
+
+    if (!JS_DefineProperty(aCx, obj, "__URI__", exposedUri, 0))
         return nullptr;
-    }
 
     if (createdNewGlobal) {
         RootedObject global(aCx, holder->GetJSObject());
@@ -818,13 +814,16 @@ mozJSComponentLoader::ObjectForLocation(nsIFile *aComponentFile,
         if (aPropagateExceptions)
             ContextOptionsRef(cx).setDontReportUncaught(true);
 
+        // Note - if mReuseLoaderGlobal is true, then we can't do lazy source,
+        // because we compile things as functions (rather than script), and lazy
+        // source isn't supported in that configuration. That's ok though,
+        // because we only do mReuseLoaderGlobal on b2g, where we invoke
+        // setDiscardSource(true) on the entire global.
         CompileOptions options(cx);
         options.setNoScriptRval(mReuseLoaderGlobal ? false : true)
                .setVersion(JSVERSION_LATEST)
                .setFileAndLine(nativePath.get(), 1)
-               .setSourcePolicy(mReuseLoaderGlobal ?
-                                CompileOptions::NO_SOURCE :
-                                CompileOptions::LAZY_SOURCE);
+               .setSourceIsLazy(!mReuseLoaderGlobal);
 
         if (realFile) {
 #ifdef HAVE_PR_MEMMAP

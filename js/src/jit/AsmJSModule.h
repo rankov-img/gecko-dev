@@ -434,6 +434,7 @@ class AsmJSModule
     struct Pod {
         uint32_t                          funcLength_;
         uint32_t                          funcLengthWithRightBrace_;
+        bool                              strict_;
         uint32_t                          numGlobalVars_;
         uint32_t                          numFFIs_;
         size_t                            funcPtrTableAndExitBytes_;
@@ -467,7 +468,8 @@ class AsmJSModule
     mutable bool                          codeIsProtected_;
 
   public:
-    explicit AsmJSModule(ScriptSource *scriptSource, uint32_t functStart, uint32_t offsetToEndOfUseAsm);
+    explicit AsmJSModule(ScriptSource *scriptSource, uint32_t functStart,
+                         uint32_t offsetToEndOfUseAsm, bool strict);
     ~AsmJSModule();
 
     void trace(JSTracer *trc) {
@@ -526,6 +528,9 @@ class AsmJSModule
     }
     uint32_t funcEndAfterCurly() const {
         return funcStart_ + pod.funcLengthWithRightBrace_;
+    }
+    bool strict() const {
+        return pod.strict_;
     }
 
     bool addGlobalVarInit(const Value &v, AsmJSCoercion coercion, uint32_t *globalIndex) {

@@ -90,7 +90,7 @@
 #include <string.h>
 
 #include "xpcpublic.h"
-#include "js/Tracer.h"
+#include "js/TracingAPI.h"
 #include "js/WeakMapPtr.h"
 #include "pldhash.h"
 #include "nscore.h"
@@ -557,7 +557,8 @@ public:
     AutoMarkingPtr**  GetAutoRootsAdr() {return &mAutoRoots;}
 
     JSObject* GetJunkScope();
-    void DeleteJunkScope();
+    JSObject* GetCompilationScope();
+    void DeleteSingletonScopes();
 
     PRTime GetWatchdogTimestamp(WatchdogTimestampCategory aCategory);
     void OnAfterProcessNextEvent() { mSlowScriptCheckpoint = mozilla::TimeStamp(); }
@@ -598,6 +599,7 @@ private:
     nsRefPtr<WatchdogManager> mWatchdogManager;
     JS::GCSliceCallback mPrevGCSliceCallback;
     JS::PersistentRootedObject mJunkScope;
+    JS::PersistentRootedObject mCompilationScope;
     nsRefPtr<AsyncFreeSnowWhite> mAsyncSnowWhiteFreer;
 
     mozilla::TimeStamp mSlowScriptCheckpoint;
@@ -3347,6 +3349,7 @@ public:
         , proto(cx)
         , sameZoneAs(cx)
         , invisibleToDebugger(false)
+        , discardSource(false)
         , globalProperties(true)
         , metadata(cx)
     { }
@@ -3360,6 +3363,7 @@ public:
     nsCString sandboxName;
     JS::RootedObject sameZoneAs;
     bool invisibleToDebugger;
+    bool discardSource;
     GlobalProperties globalProperties;
     JS::RootedValue metadata;
 
