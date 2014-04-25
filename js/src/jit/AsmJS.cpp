@@ -6120,7 +6120,7 @@ GenerateEntry(ModuleCompiler &m, const AsmJSModule::ExportedFunction &exportedFu
     masm.ma_vimm(GenericNaN(), NANReg);
 #elif defined(JS_CODEGEN_MIPS)
     masm.movePtr(IntArgReg1, GlobalReg);
-    masm.ma_lid(NANReg, GenericNaN());
+    masm.loadConstantDouble(GenericNaN(), NANReg);
 #endif
 
     // ARM, MIPS and x64 have a globally-pinned HeapReg (x86 uses immediates in
@@ -6822,14 +6822,14 @@ GenerateStackOverflowExit(ModuleCompiler &m, Label *throwLabel)
 
     // MIPS ABI requires rewserving stack for registes $a0 to $a3.
 #if defined(JS_CODEGEN_MIPS)
-    masm.ma_subu(StackPointer, StackPointer, Imm32(4 * sizeof(intptr_t)));
+    masm.subPtr(Imm32(4 * sizeof(intptr_t)), StackPointer);
 #endif
 
     masm.call(AsmJSImm_ReportOverRecursed);
     masm.jump(throwLabel);
 
 #if defined(JS_CODEGEN_MIPS)
-    masm.ma_addu(StackPointer, StackPointer, Imm32(4 * sizeof(intptr_t)));
+    masm.addPtr(Imm32(4 * sizeof(intptr_t)), StackPointer);
 #endif
 
     return !masm.oom();
@@ -6850,7 +6850,7 @@ GenerateInterruptExit(ModuleCompiler &m, Label *throwLabel)
     masm.align(CodeAlignment);
     masm.bind(&m.interruptLabel());
 
-#if !defined(JS_CODEGEN_ARM) && !defined(JS_CODEGEN_MIPS)
+#if defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_X64)
     // Be very careful here not to perturb the machine state before saving it
     // to the stack. In particular, add/sub instructions may set conditions in
     // the flags register.
@@ -6898,14 +6898,14 @@ GenerateInterruptExit(ModuleCompiler &m, Label *throwLabel)
     masm.ret();                   // pop resumePC into PC
 #elif defined(JS_CODEGEN_MIPS)
     // Reserve space to store resumePC.
-    masm.ma_subu(StackPointer, StackPointer, Imm32(sizeof(intptr_t)));
+    masm.subPtr(Imm32(sizeof(intptr_t)), StackPointer);
     // set to zero so we can use masm.framePushed() below.
     masm.setFramePushed(0);
     // save all registers,except sp. After this stack is alligned.
     masm.PushRegsInMask(AllRegsExceptSP);
 
     // Save the stack pointer in a non-volatile register.
-    masm.mov(StackPointer, s0);
+    masm.movePtr(StackPointer, s0);
     // Align the stack.
     masm.ma_and(StackPointer, StackPointer, Imm32(~(StackAlignment - 1)));
 
@@ -6918,25 +6918,26 @@ GenerateInterruptExit(ModuleCompiler &m, Label *throwLabel)
     masm.loadPtr(Address(IntArgReg0, AsmJSActivation::offsetOfContext()), IntArgReg0);
 
     // MIPS ABI requires rewserving stack for registes $a0 to $a3.
-    masm.ma_subu(StackPointer, StackPointer, Imm32(4 * sizeof(intptr_t)));
+    masm.subPtr(Imm32(4 * sizeof(intptr_t)), StackPointer);
 
     masm.call(AsmJSImm_HandleExecutionInterrupt);
 
-    masm.ma_addu(StackPointer, StackPointer, Imm32(4 * sizeof(intptr_t)));
+    masm.addPtr(Imm32(4 * sizeof(intptr_t)), StackPointer);
 
     masm.branchIfFalseBool(ReturnReg, throwLabel);
 
     // This will restore stack to the address before the call.
-    masm.mov(s0, StackPointer);
+    masm.movePtr(s0, StackPointer);
     masm.PopRegsInMask(AllRegsExceptSP);
 
     // Pop resumePC into PC. Use a slot in Global Data to save the scratch.
     // Look at globalDataBytes()
     masm.ma_sw(ScratchRegister, Address(GlobalReg, sizeof(intptr_t)));
-    masm.ma_pop(ScratchRegister);
+    masm.pop(ScratchRegister);
+    // Use delay slot to restore scratch register.
     masm.as_jr(ScratchRegister);
     masm.ma_lw(ScratchRegister, Address(GlobalReg, sizeof(intptr_t)));
-#else
+#elif defined(JS_CODEGEN_ARM)
     masm.setFramePushed(0);         // set to zero so we can use masm.framePushed() below
     masm.PushRegsInMask(RegisterSet(GeneralRegisterSet(Registers::AllMask & ~(1<<Registers::sp)), FloatRegisterSet(uint32_t(0))));   // save all GP registers,excep sp
 
@@ -6984,6 +6985,8 @@ GenerateInterruptExit(ModuleCompiler &m, Label *throwLabel)
     masm.finishDataTransfer();
     masm.ret();
 
+#else
+# error "Unknown architecture!"
 #endif
 
     return !masm.oom();
