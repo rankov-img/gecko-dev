@@ -24,6 +24,7 @@
     _(TableSwitchV)                 \
     _(Goto)                         \
     _(NewArray)                     \
+    _(ArraySplice)                  \
     _(NewObject)                    \
     _(NewSlots)                     \
     _(NewDeclEnvObject)             \
@@ -291,7 +292,6 @@
     _(AsmJSVoidReturn)              \
     _(AsmJSPassStackArg)            \
     _(AsmJSCall)                    \
-    _(AsmJSCheckOverRecursed)       \
     _(InterruptCheckPar)            \
     _(RecompileCheck)               \
     _(AssertRangeI)                 \

@@ -8,8 +8,6 @@
 
 #include "mozilla/DebugOnly.h"
 
-#include "jsanalyze.h"
-
 #include "jit/IonSpewer.h"
 #include "jit/LIR.h"
 #include "jit/MIR.h"
@@ -564,6 +562,15 @@ LIRGenerator::visitAssertFloat32(MAssertFloat32 *assertion)
         JS_ASSERT_IF(!checkIsFloat32, type != MIRType_Float32);
     }
     return true;
+}
+
+bool
+LIRGenerator::visitArraySplice(MArraySplice *ins)
+{
+    LArraySplice *lir = new(alloc()) LArraySplice(useRegisterAtStart(ins->object()),
+                                                  useRegisterAtStart(ins->start()),
+                                                  useRegisterAtStart(ins->deleteCount()));
+    return add(lir, ins) && assignSafepoint(lir, ins);
 }
 
 bool
@@ -3491,12 +3498,6 @@ LIRGenerator::visitAsmJSCall(MAsmJSCall *ins)
         return add(lir, ins);
     }
     return defineReturn(lir, ins);
-}
-
-bool
-LIRGenerator::visitAsmJSCheckOverRecursed(MAsmJSCheckOverRecursed *ins)
-{
-    return add(new(alloc()) LAsmJSCheckOverRecursed(), ins);
 }
 
 bool

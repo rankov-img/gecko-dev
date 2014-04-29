@@ -10,6 +10,7 @@
 #include "jit/BaselineIC.h"
 #include "jit/BaselineJIT.h"
 #include "jit/FixedList.h"
+#include "jit/IonAnalysis.h"
 #include "jit/IonLinker.h"
 #include "jit/IonSpewer.h"
 #ifdef JS_ION_PERF
@@ -25,7 +26,7 @@
 using namespace js;
 using namespace js::jit;
 
-BaselineCompiler::BaselineCompiler(JSContext *cx, TempAllocator &alloc, HandleScript script)
+BaselineCompiler::BaselineCompiler(JSContext *cx, TempAllocator &alloc, JSScript *script)
   : BaselineCompilerSpecific(cx, alloc, script),
     modifiesArguments_(false)
 {
@@ -70,7 +71,7 @@ MethodStatus
 BaselineCompiler::compile()
 {
     IonSpew(IonSpew_BaselineScripts, "Baseline compiling script %s:%d (%p)",
-            script->filename(), script->lineno(), script.get());
+            script->filename(), script->lineno(), script);
 
     IonSpew(IonSpew_Codegen, "# Emitting baseline code for script %s:%d",
             script->filename(), script->lineno());
@@ -79,15 +80,8 @@ BaselineCompiler::compile()
     AutoTraceLog logScript(logger, TraceLogCreateTextId(logger, script));
     AutoTraceLog logCompile(logger, TraceLogger::BaselineCompilation);
 
-    if (!script->ensureHasTypes(cx))
+    if (!script->ensureHasTypes(cx) || !script->ensureHasAnalyzedArgsUsage(cx))
         return Method_Error;
-
-    // Only need to analyze scripts which are marked |argumensHasVarBinding|, to
-    // compute |needsArgsObj| flag.
-    if (script->argumentsHasVarBinding()) {
-        if (!script->ensureRanAnalysis(cx))
-            return Method_Error;
-    }
 
     // Pin analysis info during compilation.
     types::AutoEnterAnalysis autoEnterAnalysis(cx);
@@ -121,7 +115,8 @@ BaselineCompiler::compile()
     if (script->functionNonDelazifying()) {
         RootedFunction fun(cx, script->functionNonDelazifying());
         if (fun->isHeavyweight()) {
-            templateScope = CallObject::createTemplateObject(cx, script, gc::TenuredHeap);
+            RootedScript scriptRoot(cx, script);
+            templateScope = CallObject::createTemplateObject(cx, scriptRoot, gc::TenuredHeap);
             if (!templateScope)
                 return Method_Error;
 
@@ -174,13 +169,17 @@ BaselineCompiler::compile()
         return Method_Error;
 
     prologueOffset_.fixup(&masm);
+    epilogueOffset_.fixup(&masm);
     spsPushToggleOffset_.fixup(&masm);
+    postDebugPrologueOffset_.fixup(&masm);
 
     // Note: There is an extra entry in the bytecode type map for the search hint, see below.
     size_t bytecodeTypeMapEntries = script->nTypeSets() + 1;
 
     BaselineScript *baselineScript = BaselineScript::New(cx, prologueOffset_.offset(),
+                                                         epilogueOffset_.offset(),
                                                          spsPushToggleOffset_.offset(),
+                                                         postDebugPrologueOffset_.offset(),
                                                          icEntries_.length(),
                                                          pcMappingIndexEntries.length(),
                                                          pcEntries.length(),
@@ -235,18 +234,7 @@ BaselineCompiler::compile()
         baselineScript->toggleSPS(true);
 
     uint32_t *bytecodeMap = baselineScript->bytecodeTypeMap();
-
-    uint32_t added = 0;
-    for (jsbytecode *pc = script->code(); pc < script->codeEnd(); pc += GetBytecodeLength(pc)) {
-        JSOp op = JSOp(*pc);
-        if (js_CodeSpec[op].format & JOF_TYPESET) {
-            bytecodeMap[added++] = script->pcToOffset(pc);
-            if (added == script->nTypeSets())
-                break;
-        }
-    }
-
-    JS_ASSERT(added == script->nTypeSets());
+    types::FillBytecodeTypeMap(script, bytecodeMap);
 
     // The last entry in the last index found, and is used to avoid binary
     // searches for the sought entry when queries are in linear order.
@@ -354,7 +342,7 @@ BaselineCompiler::emitPrologue()
     Register loggerReg = RegisterSet::Volatile().takeGeneral();
     masm.Push(loggerReg);
     masm.movePtr(ImmPtr(logger), loggerReg);
-    masm.tracelogStart(loggerReg, TraceLogCreateTextId(logger, script.get()));
+    masm.tracelogStart(loggerReg, TraceLogCreateTextId(logger, script));
     masm.tracelogStart(loggerReg, TraceLogger::Baseline);
     masm.Pop(loggerReg);
 #endif
@@ -389,6 +377,10 @@ BaselineCompiler::emitPrologue()
 bool
 BaselineCompiler::emitEpilogue()
 {
+    // Record the offset of the epilogue, so we can do early return from
+    // Debugger handlers during on-stack recompile.
+    epilogueOffset_ = masm.currentOffset();
+
     masm.bind(&return_);
 
 #ifdef JS_TRACE_LOGGING
@@ -449,9 +441,9 @@ BaselineCompiler::emitOutOfLinePostBarrierSlot()
 #endif // JSGC_GENERATIONAL
 
 bool
-BaselineCompiler::emitIC(ICStub *stub, bool isForOp)
+BaselineCompiler::emitIC(ICStub *stub, ICEntry::Kind kind)
 {
-    ICEntry *entry = allocateICEntry(stub, isForOp);
+    ICEntry *entry = allocateICEntry(stub, kind);
     if (!entry)
         return false;
 
@@ -529,27 +521,32 @@ static const VMFunction DebugPrologueInfo = FunctionInfo<DebugPrologueFn>(jit::D
 bool
 BaselineCompiler::emitDebugPrologue()
 {
-    if (!debugMode_)
-        return true;
+    if (debugMode_) {
+        // Load pointer to BaselineFrame in R0.
+        masm.loadBaselineFramePtr(BaselineFrameReg, R0.scratchReg());
 
-    // Load pointer to BaselineFrame in R0.
-    masm.loadBaselineFramePtr(BaselineFrameReg, R0.scratchReg());
+        prepareVMCall();
+        pushArg(ImmPtr(pc));
+        pushArg(R0.scratchReg());
+        if (!callVM(DebugPrologueInfo))
+            return false;
 
-    prepareVMCall();
-    pushArg(ImmPtr(pc));
-    pushArg(R0.scratchReg());
-    if (!callVM(DebugPrologueInfo))
-        return false;
+        // Fix up the fake ICEntry appended by callVM for on-stack recompilation.
+        icEntries_.back().setForDebugPrologue();
 
-    // If the stub returns |true|, we have to return the value stored in the
-    // frame's return value slot.
-    Label done;
-    masm.branchTest32(Assembler::Zero, ReturnReg, ReturnReg, &done);
-    {
-        masm.loadValue(frame.addressOfReturnValue(), JSReturnOperand);
-        masm.jump(&return_);
+        // If the stub returns |true|, we have to return the value stored in the
+        // frame's return value slot.
+        Label done;
+        masm.branchTest32(Assembler::Zero, ReturnReg, ReturnReg, &done);
+        {
+            masm.loadValue(frame.addressOfReturnValue(), JSReturnOperand);
+            masm.jump(&return_);
+        }
+        masm.bind(&done);
     }
-    masm.bind(&done);
+
+    postDebugPrologueOffset_ = masm.currentOffset();
+
     return true;
 }
 
@@ -723,7 +720,7 @@ BaselineCompiler::emitDebugTrap()
 #endif
 
     // Add an IC entry for the return offset -> pc mapping.
-    ICEntry icEntry(script->pcToOffset(pc), false);
+    ICEntry icEntry(script->pcToOffset(pc), ICEntry::Kind_DebugTrap);
     icEntry.setReturnOffset(masm.currentOffset());
     if (!icEntries_.append(icEntry))
         return false;
@@ -2104,7 +2101,6 @@ BaselineCompiler::emit_JSOP_SETALIASEDVAR()
     frame.syncStack(0);
     Register temp = R1.scratchReg();
 
-    Nursery &nursery = cx->runtime()->gcNursery;
     Label skipBarrier;
     masm.branchTestObject(Assembler::NotEqual, R0, &skipBarrier);
     masm.branchPtrInNurseryRange(objReg, temp, &skipBarrier);
@@ -2424,7 +2420,6 @@ BaselineCompiler::emitFormalArgAccess(uint32_t arg, bool get)
         Register reg = R2.scratchReg();
         masm.loadPtr(Address(BaselineFrameReg, BaselineFrame::reverseOffsetOfArgsObj()), reg);
 
-        Nursery &nursery = cx->runtime()->gcNursery;
         Label skipBarrier;
         masm.branchPtrInNurseryRange(reg, temp, &skipBarrier);
 
@@ -2745,6 +2740,9 @@ static const VMFunction OnDebuggerStatementInfo =
 bool
 BaselineCompiler::emit_JSOP_DEBUGGER()
 {
+    if (!debugMode_)
+        return true;
+
     prepareVMCall();
     pushArg(ImmPtr(pc));
 
@@ -2786,6 +2784,9 @@ BaselineCompiler::emitReturn()
         pushArg(R0.scratchReg());
         if (!callVM(DebugEpilogueInfo))
             return false;
+
+        // Fix up the fake ICEntry appended by callVM for on-stack recompilation.
+        icEntries_.back().setForDebugEpilogue();
 
         masm.loadValue(frame.addressOfReturnValue(), JSReturnOperand);
     }

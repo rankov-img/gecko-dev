@@ -227,7 +227,7 @@ InitProp(JSContext *cx, HandleObject obj, HandlePropertyName name, HandleValue v
 
     MOZ_ASSERT(name != cx->names().proto,
                "__proto__ should have been handled by JSOP_MUTATEPROTO");
-    return DefineNativeProperty(cx, obj, id, rval, nullptr, nullptr, JSPROP_ENUMERATE, 0, 0);
+    return DefineNativeProperty(cx, obj, id, rval, nullptr, nullptr, JSPROP_ENUMERATE);
 }
 
 template<bool Equal>
@@ -364,6 +364,20 @@ NewInitObjectWithClassPrototype(JSContext *cx, HandleObject templateObject)
 }
 
 bool
+ArraySpliceDense(JSContext *cx, HandleObject obj, uint32_t start, uint32_t deleteCount)
+{
+    JS_ASSERT(obj->is<ArrayObject>());
+
+    JS::AutoValueArray<4> argv(cx);
+    argv[0].setUndefined();
+    argv[1].setObject(*obj);
+    argv[2].set(Int32Value(start));
+    argv[3].set(Int32Value(deleteCount));
+
+    return js::array_splice_impl(cx, 2, argv.begin(), false);
+}
+
+bool
 ArrayPopDense(JSContext *cx, HandleObject obj, MutableHandleValue rval)
 {
     JS_ASSERT(obj->is<ArrayObject>());
@@ -484,9 +498,13 @@ SetProperty(JSContext *cx, HandleObject obj, HandlePropertyName name, HandleValu
     }
 
     if (MOZ_LIKELY(!obj->getOps()->setProperty)) {
-        unsigned defineHow = (op == JSOP_SETNAME || op == JSOP_SETGNAME) ? DNP_UNQUALIFIED : 0;
-        return baseops::SetPropertyHelper<SequentialExecution>(cx, obj, obj, id, defineHow, &v,
-                                                               strict);
+        return baseops::SetPropertyHelper<SequentialExecution>(
+            cx, obj, obj, id,
+            (op == JSOP_SETNAME || op == JSOP_SETGNAME)
+            ? baseops::Unqualified
+            : baseops::Qualified,
+            &v,
+            strict);
     }
 
     return JSObject::setGeneric(cx, obj, obj, id, &v, strict);

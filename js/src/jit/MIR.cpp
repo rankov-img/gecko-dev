@@ -557,6 +557,9 @@ MConstant::printOpcode(FILE *fp) const
       case MIRType_MagicIsConstructing:
         fprintf(fp, "magic is-constructing");
         break;
+      case MIRType_MagicOptimizedOut:
+        fprintf(fp, "magic optimized-out");
+        break;
       default:
         MOZ_ASSUME_UNREACHABLE("unexpected type");
     }
@@ -2968,12 +2971,10 @@ MAsmJSUnsignedToFloat32::foldsTo(TempAllocator &alloc, bool useValueNumbers)
 }
 
 MAsmJSCall *
-MAsmJSCall::New(TempAllocator &alloc, Callee callee, const Args &args, MIRType resultType,
-                size_t spIncrement)
+MAsmJSCall::New(TempAllocator &alloc, const CallSiteDesc &desc, Callee callee,
+                const Args &args, MIRType resultType, size_t spIncrement)
 {
-    MAsmJSCall *call = new(alloc) MAsmJSCall;
-    call->spIncrement_ = spIncrement;
-    call->callee_ = callee;
+    MAsmJSCall *call = new(alloc) MAsmJSCall(desc, callee, spIncrement);
     call->setResultType(resultType);
 
     if (!call->argRegs_.init(alloc, args.length()))

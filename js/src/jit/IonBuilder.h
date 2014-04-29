@@ -649,6 +649,7 @@ class IonBuilder : public MIRGenerator
     InliningStatus inlineArrayPopShift(CallInfo &callInfo, MArrayPopShift::Mode mode);
     InliningStatus inlineArrayPush(CallInfo &callInfo);
     InliningStatus inlineArrayConcat(CallInfo &callInfo);
+    InliningStatus inlineArraySplice(CallInfo &callInfo);
 
     // Math natives.
     InliningStatus inlineMathAbs(CallInfo &callInfo);
@@ -716,8 +717,11 @@ class IonBuilder : public MIRGenerator
     InliningStatus inlineBailout(CallInfo &callInfo);
     InliningStatus inlineAssertFloat32(CallInfo &callInfo);
 
+    // Bind function.
+    InliningStatus inlineBoundFunction(CallInfo &callInfo, JSFunction *target);
+
     // Main inlining functions
-    InliningStatus inlineNativeCall(CallInfo &callInfo, JSNative native);
+    InliningStatus inlineNativeCall(CallInfo &callInfo, JSFunction *target);
     bool inlineScriptedCall(CallInfo &callInfo, JSFunction *target);
     InliningStatus inlineSingleCall(CallInfo &callInfo, JSFunction *target);
 
@@ -836,6 +840,7 @@ class IonBuilder : public MIRGenerator
 
     types::TemporaryTypeSet *thisTypes, *argTypes, *typeArray;
     uint32_t typeArrayHint;
+    uint32_t *bytecodeTypeMap;
 
     GSNCache gsn;
     ScopeCoordinateNameCache scopeCoordinateNameCache;

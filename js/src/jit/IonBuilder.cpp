@@ -66,7 +66,7 @@ jit::NewBaselineFrameInspector(TempAllocator *temp, BaselineFrame *frame, Compil
     // during compilation could capture nursery pointers, so the values' types
     // are recorded instead.
 
-    inspector->thisType = types::GetValueType(frame->thisValue());
+    inspector->thisType = types::GetMaybeOptimizedOutValueType(frame->thisValue());
 
     if (frame->scopeChain()->hasSingletonType())
         inspector->singletonScopeChain = frame->scopeChain();
@@ -77,24 +77,29 @@ jit::NewBaselineFrameInspector(TempAllocator *temp, BaselineFrame *frame, Compil
         if (!inspector->argTypes.reserve(frame->numFormalArgs()))
             return nullptr;
         for (size_t i = 0; i < frame->numFormalArgs(); i++) {
-            if (script->formalIsAliased(i))
+            if (script->formalIsAliased(i)) {
                 inspector->argTypes.infallibleAppend(types::Type::UndefinedType());
-            else if (!script->argsObjAliasesFormals())
-                inspector->argTypes.infallibleAppend(types::GetValueType(frame->unaliasedFormal(i)));
-            else if (frame->hasArgsObj())
-                inspector->argTypes.infallibleAppend(types::GetValueType(frame->argsObj().arg(i)));
-            else
+            } else if (!script->argsObjAliasesFormals()) {
+                types::Type type = types::GetMaybeOptimizedOutValueType(frame->unaliasedFormal(i));
+                inspector->argTypes.infallibleAppend(type);
+            } else if (frame->hasArgsObj()) {
+                types::Type type = types::GetMaybeOptimizedOutValueType(frame->argsObj().arg(i));
+                inspector->argTypes.infallibleAppend(type);
+            } else {
                 inspector->argTypes.infallibleAppend(types::Type::UndefinedType());
+            }
         }
     }
 
     if (!inspector->varTypes.reserve(frame->script()->nfixed()))
         return nullptr;
     for (size_t i = 0; i < frame->script()->nfixed(); i++) {
-        if (info->isSlotAliasedAtOsr(i + info->firstLocalSlot()))
+        if (info->isSlotAliasedAtOsr(i + info->firstLocalSlot())) {
             inspector->varTypes.infallibleAppend(types::Type::UndefinedType());
-        else
-            inspector->varTypes.infallibleAppend(types::GetValueType(frame->unaliasedLocal(i)));
+        } else {
+            types::Type type = types::GetMaybeOptimizedOutValueType(frame->unaliasedLocal(i));
+            inspector->varTypes.infallibleAppend(type);
+        }
     }
 
     return inspector;
@@ -119,6 +124,7 @@ IonBuilder::IonBuilder(JSContext *analysisContext, CompileCompartment *comp,
     argTypes(nullptr),
     typeArray(nullptr),
     typeArrayHint(0),
+    bytecodeTypeMap(nullptr),
     loopDepth_(loopDepth),
     callerResumePoint_(nullptr),
     callerBuilder_(nullptr),
@@ -140,7 +146,7 @@ IonBuilder::IonBuilder(JSContext *analysisContext, CompileCompartment *comp,
     script_ = info->script();
     pc = info->startPC();
 
-    JS_ASSERT(script()->hasBaselineScript());
+    JS_ASSERT(script()->hasBaselineScript() == (info->executionMode() != ArgumentsUsageAnalysis));
     JS_ASSERT(!!analysisContext == (info->executionMode() == DefinitePropertiesAnalysis));
 }
 
@@ -604,6 +610,17 @@ IonBuilder::init()
     if (!analysis().init(alloc(), gsn))
         return false;
 
+    // The baseline script normally has the bytecode type map, but compute
+    // it ourselves if we do not have a baseline script.
+    if (script()->hasBaselineScript()) {
+        bytecodeTypeMap = script()->baselineScript()->bytecodeTypeMap();
+    } else {
+        bytecodeTypeMap = alloc_->lifoAlloc()->newArrayUninitialized<uint32_t>(script()->nTypeSets());
+        if (!bytecodeTypeMap)
+            return false;
+        types::FillBytecodeTypeMap(script(), bytecodeTypeMap);
+    }
+
     return true;
 }
 
@@ -981,8 +998,10 @@ IonBuilder::initScopeChain(MDefinition *callee)
         scope = MFunctionEnvironment::New(alloc(), callee);
         current->add(scope);
 
-        // This reproduce what is done in CallObject::createForFunction
-        if (fun->isHeavyweight()) {
+        // This reproduce what is done in CallObject::createForFunction. Skip
+        // this for analyses, as the script might not have a baseline script
+        // with template objects yet.
+        if (fun->isHeavyweight() && !info().executionModeIsAnalysis()) {
             if (fun->isNamedLambda()) {
                 scope = createDeclEnvObject(callee, scope);
                 if (!scope)
@@ -3568,7 +3587,12 @@ IonBuilder::jsop_try()
         return abort("Has try-finally");
 
     // Try-catch within inline frames is not yet supported.
-    JS_ASSERT(script()->uninlineable() && !isInlineBuilder());
+    JS_ASSERT(!isInlineBuilder());
+
+    // Try-catch during the arguments usage analysis is not yet supported. Code
+    // accessing the arguments within the 'catch' block is not accounted for.
+    if (info().executionMode() == ArgumentsUsageAnalysis)
+        return abort("Try-catch during arguments usage analysis");
 
     graph().setHasTryBlock();
 
@@ -3681,34 +3705,39 @@ IonBuilder::processThrow()
 {
     MDefinition *def = current->pop();
 
-    if (graph().hasTryBlock()) {
-        // MThrow is not marked as effectful. This means when it throws and we
-        // are inside a try block, we could use an earlier resume point and this
-        // resume point may not be up-to-date, for example:
-        //
-        // (function() {
-        //     try {
-        //         var x = 1;
-        //         foo(); // resume point
-        //         x = 2;
-        //         throw foo;
-        //     } catch(e) {
-        //         print(x);
-        //     }
-        // ])();
-        //
-        // If we use the resume point after the call, this will print 1 instead
-        // of 2. To fix this, we create a resume point right before the MThrow.
-        //
-        // Note that this is not a problem for instructions other than MThrow
-        // because they are either marked as effectful (have their own resume
-        // point) or cannot throw a catchable exception.
-        MNop *ins = MNop::New(alloc());
-        current->add(ins);
+    // MThrow is not marked as effectful. This means when it throws and we
+    // are inside a try block, we could use an earlier resume point and this
+    // resume point may not be up-to-date, for example:
+    //
+    // (function() {
+    //     try {
+    //         var x = 1;
+    //         foo(); // resume point
+    //         x = 2;
+    //         throw foo;
+    //     } catch(e) {
+    //         print(x);
+    //     }
+    // ])();
+    //
+    // If we use the resume point after the call, this will print 1 instead
+    // of 2. To fix this, we create a resume point right before the MThrow.
+    //
+    // Note that this is not a problem for instructions other than MThrow
+    // because they are either marked as effectful (have their own resume
+    // point) or cannot throw a catchable exception.
+    //
+    // We always install this resume point (instead of only when the function
+    // has a try block) in order to handle the Debugger onExceptionUnwind
+    // hook. When we need to handle the hook, we bail out to baseline right
+    // after the throw and propagate the exception when debug mode is on. This
+    // is opposed to the normal behavior of resuming directly in the
+    // associated catch block.
+    MNop *nop = MNop::New(alloc());
+    current->add(nop);
 
-        if (!resumeAfter(ins))
-            return ControlStatus_Error;
-    }
+    if (!resumeAfter(nop))
+        return ControlStatus_Error;
 
     MThrow *ins = MThrow::New(alloc(), def);
     current->end(ins);
@@ -3855,7 +3884,10 @@ bool
 IonBuilder::jsop_pos()
 {
     if (IsNumberType(current->peek(-1)->type())) {
-        // Already int32 or double.
+        // Already int32 or double. Set the operand as implicitly used so it
+        // doesn't get optimized out if it has no other uses, as we could bail
+        // out.
+        current->peek(-1)->setImplicitlyUsedUnchecked();
         return true;
     }
 
@@ -4086,6 +4118,10 @@ IonBuilder::makeInliningDecision(JSFunction *target, CallInfo &callInfo)
     if (target == nullptr)
         return InliningDecision_DontInline;
 
+    // Never inline during the arguments usage analysis.
+    if (info().executionMode() == ArgumentsUsageAnalysis)
+        return InliningDecision_DontInline;
+
     // Native functions provide their own detection in inlineNativeCall().
     if (target->isNative())
         return InliningDecision_Inline;
@@ -4252,7 +4288,7 @@ IonBuilder::inlineSingleCall(CallInfo &callInfo, JSFunction *target)
 {
     // Expects formals to be popped and wrapped.
     if (target->isNative())
-        return inlineNativeCall(callInfo, target->native());
+        return inlineNativeCall(callInfo, target);
 
     if (!inlineScriptedCall(callInfo, target))
         return InliningStatus_Error;
@@ -5631,14 +5667,8 @@ IonBuilder::jsop_initprop(PropertyName *name)
 
     // In parallel execution, we never require write barriers.  See
     // forkjoin.cpp for more information.
-    switch (info().executionMode()) {
-      case SequentialExecution:
-      case DefinitePropertiesAnalysis:
-        break;
-      case ParallelExecution:
+    if (info().executionMode() == ParallelExecution)
         needsBarrier = false;
-        break;
-    }
 
     if (templateObject->isFixedSlot(shape->slot())) {
         MStoreFixedSlot *store = MStoreFixedSlot::New(alloc(), obj, shape->slot(), value);
@@ -6653,6 +6683,21 @@ IonBuilder::jsop_getelem()
 {
     MDefinition *index = current->pop();
     MDefinition *obj = current->pop();
+
+    // Always use a call if we are performing analysis and not actually
+    // emitting code, to simplify later analysis.
+    if (info().executionModeIsAnalysis()) {
+        MInstruction *ins = MCallGetElement::New(alloc(), obj, index);
+
+        current->add(ins);
+        current->push(ins);
+
+        if (!resumeAfter(ins))
+            return false;
+
+        types::TemporaryTypeSet *types = bytecodeTypes(pc);
+        return pushTypeBarrier(ins, types, true);
+    }
 
     bool emitted = false;
 
@@ -8526,11 +8571,11 @@ IonBuilder::jsop_getprop(PropertyName *name)
     bool barrier = PropertyReadNeedsTypeBarrier(analysisContext, constraints(),
                                                 current->peek(-1), name, types);
 
-    // Always use a call if we are doing the definite properties analysis and
+    // Always use a call if we are performing analysis and
     // not actually emitting code, to simplify later analysis. Also skip deeper
     // analysis if there are no known types for this operation, as it will
     // always invalidate when executing.
-    if (info().executionMode() == DefinitePropertiesAnalysis || types->empty()) {
+    if (info().executionModeIsAnalysis() || types->empty()) {
         MDefinition *obj = current->peek(-1);
         MCallGetProperty *call = MCallGetProperty::New(alloc(), obj, name, *pc == JSOP_CALLPROP);
         current->add(call);
@@ -8539,7 +8584,7 @@ IonBuilder::jsop_getprop(PropertyName *name)
         // constants read off the prototype chain, to allow inlining later on.
         // In this case we still need the getprop call so that the later
         // analysis knows when the |this| value has been read from.
-        if (info().executionMode() == DefinitePropertiesAnalysis) {
+        if (info().executionModeIsAnalysis()) {
             if (!getPropTryConstant(&emitted, name, types) || emitted)
                 return emitted;
         }
@@ -9006,7 +9051,7 @@ IonBuilder::jsop_setprop(PropertyName *name)
 
     // Always use a call if we are doing the definite properties analysis and
     // not actually emitting code, to simplify later analysis.
-    if (info().executionMode() == DefinitePropertiesAnalysis) {
+    if (info().executionModeIsAnalysis()) {
         MInstruction *ins = MCallSetProperty::New(alloc(), obj, value, name, script()->strict());
         current->add(ins);
         current->push(value);
@@ -9592,11 +9637,10 @@ IonBuilder::jsop_this()
         return true;
     }
 
-    // If we are doing a definite properties analysis, we don't yet know the
-    // |this| type as its type object is being created right now. Instead of
-    // bailing out just push the |this| slot, as this code won't actually
-    // execute and it does not matter whether |this| is primitive.
-    if (info().executionMode() == DefinitePropertiesAnalysis) {
+    // If we are doing an analysis, we might not yet know the type of |this|.
+    // Instead of bailing out just push the |this| slot, as this code won't
+    // actually execute and it does not matter whether |this| is primitive.
+    if (info().executionModeIsAnalysis()) {
         current->pushSlot(info().thisSlot());
         return true;
     }
@@ -9997,7 +10041,7 @@ IonBuilder::addShapeGuard(MDefinition *obj, Shape *const shape, BailoutKind bail
 types::TemporaryTypeSet *
 IonBuilder::bytecodeTypes(jsbytecode *pc)
 {
-    return types::TypeScript::BytecodeTypes(script(), pc, &typeArrayHint, typeArray);
+    return types::TypeScript::BytecodeTypes(script(), pc, bytecodeTypeMap, &typeArrayHint, typeArray);
 }
 
 TypeDescrSetHash *

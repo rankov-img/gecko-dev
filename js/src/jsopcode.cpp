@@ -15,7 +15,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "jsanalyze.h"
 #include "jsapi.h"
 #include "jsatom.h"
 #include "jscntxt.h"
@@ -284,19 +283,6 @@ js_DumpPCCounts(JSContext *cx, HandleScript script, js::Sprinter *sp)
 // Bytecode Parser
 /////////////////////////////////////////////////////////////////////
 
-// Ensure that script analysis reports the same stack depth.
-static void
-AssertStackDepth(JSScript *script, uint32_t offset, uint32_t stackDepth) {
-    /*
-     * If this assertion fails, run the failing test case under gdb and use the
-     * following gdb command to understand the execution path of this function.
-     *
-     *     call js_DumpScriptDepth(cx, script, pc)
-     */
-    if (script->hasAnalysis())
-        script->analysis()->assertMatchingStackDepthAtOffset(offset, stackDepth);
-}
-
 namespace {
 
 class BytecodeParser
@@ -500,7 +486,6 @@ BytecodeParser::addJump(uint32_t offset, uint32_t *currentOffset,
         code = alloc().new_<Bytecode>();
         if (!code)
             return false;
-        AssertStackDepth(script_, offset, stackDepth);
         if (!code->captureOffsetStack(alloc(), offsetStack, stackDepth)) {
             reportOOM();
             return false;
@@ -653,7 +638,6 @@ BytecodeParser::parse()
                     reportOOM();
                     return false;
                 }
-                AssertStackDepth(script_, successorOffset, stackDepth);
                 if (!nextcode->captureOffsetStack(alloc(), offsetStack, stackDepth)) {
                     reportOOM();
                     return false;
