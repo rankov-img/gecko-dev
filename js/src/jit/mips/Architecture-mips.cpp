@@ -6,10 +6,6 @@
 
 #include "jit/mips/Architecture-mips.h"
 
-#ifndef JS_MIPS_SIMULATOR
-#include <elf.h>
-#endif
-
 #include <fcntl.h>
 #include <unistd.h>
 

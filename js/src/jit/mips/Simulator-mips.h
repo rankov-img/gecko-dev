@@ -50,9 +50,6 @@ const intptr_t kDoubleAlignmentMask = kDoubleAlignment - 1;
 // Number of general purpose registers.
 const int kNumRegisters = 32;
 
-// Number of registers with HI, LO, and pc.
-const int kNumSimuRegisters = 35;
-
 // In the simulator, the PC register is simulated as the 34th register.
 const int kPCRegister = 34;
 
@@ -99,45 +96,15 @@ const uint32_t kMaxStopCode = 127;
 // -----------------------------------------------------------------------------
 // Utility functions
 
-class CachePage {
-public:
-    static const int LINE_VALID = 0;
-    static const int LINE_INVALID = 1;
-
-    static const int kPageShift = 12;
-    static const int kPageSize = 1 << kPageShift;
-    static const int kPageMask = kPageSize - 1;
-    static const int kLineShift = 2;  // The cache line is only 4 bytes right now.
-    static const int kLineLength = 1 << kLineShift;
-    static const int kLineMask = kLineLength - 1;
-
-    CachePage() {
-        memset(&validity_map_, LINE_INVALID, sizeof(validity_map_));
-    }
-
-    char *validityByte(int offset) {
-        return &validity_map_[offset >> kLineShift];
-    }
-
-    char *cachedData(int offset) {
-        return &data_[offset];
-    }
-
-private:
-    char data_[kPageSize];   // The cached data.
-    static const int kValidityMapSize = kPageSize >> kLineShift;
-    char validity_map_[kValidityMapSize];  // One byte per line.
-};
-
 typedef int32_t Instr;
 class SimInstruction;
 
 class Simulator {
     friend class Redirection;
     friend class MipsDebugger;
-public:
+  public:
 
-    // Registers are declared in order. See SMRL chapter 2.
+    // Registers are declared in order. See "See MIPS Run Linux" chapter 2.
     enum Register {
         no_reg = -1,
         zero_reg = 0,
@@ -162,7 +129,6 @@ public:
     };
 
     // Coprocessor registers.
-    // Generated code will always use doubles. So we will only use even registers.
     enum FPURegister {
         f0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11,
         f12, f13, f14, f15,   // f12 and f14 are arguments FPURegisters.
@@ -191,7 +157,9 @@ public:
     // Same for FPURegisters.
     void setFpuRegister(int fpureg, int32_t value);
     void setFpuRegisterFloat(int fpureg, float value);
+    void setFpuRegisterFloat(int fpureg, int64_t value);
     void setFpuRegisterDouble(int fpureg, double value);
+    void setFpuRegisterDouble(int fpureg, int64_t value);
     int32_t getFpuRegister(int fpureg) const;
     int64_t getFpuRegisterLong(int fpureg) const;
     float getFpuRegisterFloat(int fpureg) const;
@@ -236,7 +204,7 @@ public:
     // below (bad_ra, end_sim_pc).
     bool has_bad_pc() const;
 
-private:
+  private:
     enum SpecialValues {
         // Known bad pc value to ensure that the simulator does not execute
         // without being properly setup.
@@ -254,22 +222,22 @@ private:
     void format(SimInstruction* instr, const char* format);
 
     // Read and write memory.
-    inline uint32_t readBU(int32_t addr);
-    inline int32_t readB(int32_t addr);
-    inline void writeB(int32_t addr, uint8_t value);
-    inline void writeB(int32_t addr, int8_t value);
+    inline uint32_t readBU(uint32_t addr);
+    inline int32_t readB(uint32_t addr);
+    inline void writeB(uint32_t addr, uint8_t value);
+    inline void writeB(uint32_t addr, int8_t value);
 
-    inline uint16_t readHU(int32_t addr, SimInstruction *instr);
-    inline int16_t readH(int32_t addr, SimInstruction *instr);
+    inline uint16_t readHU(uint32_t addr, SimInstruction *instr);
+    inline int16_t readH(uint32_t addr, SimInstruction *instr);
     // Note: Overloaded on the sign of the value.
-    inline void writeH(int32_t addr, uint16_t value, SimInstruction *instr);
-    inline void writeH(int32_t addr, int16_t value, SimInstruction *instr);
+    inline void writeH(uint32_t addr, uint16_t value, SimInstruction *instr);
+    inline void writeH(uint32_t addr, int16_t value, SimInstruction *instr);
 
-    inline int readW(int32_t addr, SimInstruction *instr);
-    inline void writeW(int32_t addr, int value, SimInstruction *instr);
+    inline int readW(uint32_t addr, SimInstruction *instr);
+    inline void writeW(uint32_t addr, int value, SimInstruction *instr);
 
-    inline double readD(int32_t addr, SimInstruction *instr);
-    inline void writeD(int32_t addr, double value, SimInstruction *instr);
+    inline double readD(uint32_t addr, SimInstruction *instr);
+    inline void writeD(uint32_t addr, double value, SimInstruction *instr);
 
     // Executing is handled based on the instruction type.
     void decodeTypeRegister(SimInstruction *instr);
@@ -306,7 +274,7 @@ private:
     // Execute one instruction placed in a branch delay slot.
     void branchDelayInstructionDecode(SimInstruction *instr);
 
-public:
+  public:
     static bool ICacheCheckingEnabled;
 
     static int StopSimAt;
@@ -314,7 +282,7 @@ public:
     // Runtime call support.
     static void *RedirectNativeFunction(void *nativeFunction, ABIFunctionType type);
 
-private:
+  private:
     enum Exception {
         kNone,
         kIntegerOverflow,
@@ -367,7 +335,7 @@ private:
 
 
     // Stop is disabled if bit 31 is set.
-    static const uint32_t kStopDisabledBit = 1 << 31;
+    static const uint32_t kStopDisabledBit = 1U << 31;
 
     // A stop is enabled, meaning the simulator will stop when meeting the
     // instruction, if bit 31 of watchedStops_[code].count is unset.
