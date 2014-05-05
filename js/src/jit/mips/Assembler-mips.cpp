@@ -1253,6 +1253,17 @@ Assembler::bind(InstImm *inst, uint32_t branch, uint32_t target)
         inst[1].makeNop();
         return;
     }
+
+    // Generate the long jump for calls because return address has to be the
+    // address after the reserved block.
+    if (inst[0].encode() == inst_bgezal.encode()) {
+        addLongJump(BufferOffset(branch));
+        writeLuiOriInstructions(inst, &inst[1], ScratchRegister, target);
+        inst[2] = InstReg(op_special, ScratchRegister, zero, ra, ff_jalr).encode();
+        // There is 1 nop after this.
+        return;
+    }
+
     if (BOffImm16::isInRange(offset)) {
         bool conditional = (inst[0].encode() != inst_bgezal.encode() &&
                             inst[0].encode() != inst_beq.encode());
@@ -1268,13 +1279,7 @@ Assembler::bind(InstImm *inst, uint32_t branch, uint32_t target)
         return;
     }
 
-    if (inst[0].encode() == inst_bgezal.encode()) {
-        // Handle long call.
-        addLongJump(BufferOffset(branch));
-        writeLuiOriInstructions(inst, &inst[1], ScratchRegister, target);
-        inst[2] = InstReg(op_special, ScratchRegister, zero, ra, ff_jalr).encode();
-        // There is 1 nop after this.
-    } else if (inst[0].encode() == inst_beq.encode()) {
+    if (inst[0].encode() == inst_beq.encode()) {
         // Handle long unconditional jump.
         addLongJump(BufferOffset(branch));
         writeLuiOriInstructions(inst, &inst[1], ScratchRegister, target);

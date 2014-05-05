@@ -1504,6 +1504,7 @@ class AsmJSActivation : public Activation
     SPSProfiler *profiler_;
     void *resumePC_;
     uint8_t *exitSP_;
+    int32_t retAddressOffset_;
 
     static const intptr_t InterruptedSP = -1;
 
@@ -1522,6 +1523,8 @@ class AsmJSActivation : public Activation
     // Initialized by JIT code:
     static unsigned offsetOfErrorRejoinSP() { return offsetof(AsmJSActivation, errorRejoinSP_); }
     static unsigned offsetOfExitSP() { return offsetof(AsmJSActivation, exitSP_); }
+    static unsigned offsetOfRetAddressOffset() { return offsetof(AsmJSActivation,
+                                                                 retAddressOffset_); }
 
     // Set from SIGSEGV handler:
     void setInterrupted(void *pc) { resumePC_ = pc; exitSP_ = (uint8_t*)InterruptedSP; }
@@ -1531,6 +1534,7 @@ class AsmJSActivation : public Activation
     // means before the return address is pushed on the stack, on ARM, this
     // means after.
     uint8_t *exitSP() const { JS_ASSERT(!isInterruptedSP()); return exitSP_; }
+    int32_t retAddressOffset() const { JS_ASSERT(!isInterruptedSP()); return retAddressOffset_; }
 };
 
 // A FrameIter walks over the runtime's stack of JS script activations,

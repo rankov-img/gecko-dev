@@ -2951,6 +2951,20 @@ MacroAssemblerMIPS::ma_callIonHalfPush(const Register r)
 }
 
 void
+MacroAssemblerMIPS::ma_callAndStoreRet(const Register r, uint32_t stackArgBytes)
+{
+    // Note: this function stores the return address to sp[0]. The caller must
+    // anticipate this by pushing additional space on the stack. The ABI does
+    // not provide space for a return address so this function may only be
+    // called if no argument are passed.
+    //JS_ASSERT(stackArgBytes == 0);
+
+    // This is a MIPS hack to push return address during jalr delay slot.
+    as_jalr(r);
+    as_sw(ra, StackPointer, 4 * sizeof(uintptr_t));
+}
+
+void
 MacroAssemblerMIPS::ma_call(ImmPtr dest)
 {
     ma_liPatchable(CallReg, dest);

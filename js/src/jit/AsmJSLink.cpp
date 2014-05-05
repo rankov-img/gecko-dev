@@ -52,13 +52,19 @@ AsmJSFrameIterator::AsmJSFrameIterator(const AsmJSActivation *activation)
     // to C++. Since the call instruction pushes the return address, we know
     // that the return address is 1 word below exitSP.
     returnAddress_ = *(uint8_t**)(sp_ - sizeof(void*));
-#else
+#elif defined(JS_CODEGEN_ARM)
     // For calls to Ion/C++ on ARM, the *caller* pushes the return address on
     // the stack. For Ion, this is just part of the ABI. For C++, the return
     // address is explicitly pushed before the call since we cannot expect the
     // callee to immediately push lr. This means that exitSP points to the
     // return address.
     returnAddress_ = *(uint8_t**)sp_;
+#elif defined(JS_CODEGEN_MIPS)
+    // On MIPS, we cannot push return address just before call to C++ function.
+    // MIPS ABI doesn't allow this. Because of this, we need to remember the
+    // offset of the loaction where return address is stored.
+    int32_t retAddressOffset = activation->retAddressOffset();
+    returnAddress_ = *(uint8_t**)(sp_ + retAddressOffset);
 #endif
 
     settle();

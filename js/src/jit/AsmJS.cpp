@@ -6091,7 +6091,7 @@ static const unsigned FramePushedAfterSave = NonVolatileRegs.gprs().size() * siz
 // we can explicitly store the return address before making the call to C++ or
 // Ion. On x86/x64, this isn't necessary since the call instruction pushes the
 // return address.
-#ifdef JS_CODEGEN_ARM
+#if defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_MIPS)
 static const unsigned MaybeRetAddr = sizeof(void*);
 #else
 static const unsigned MaybeRetAddr = 0;
@@ -6367,6 +6367,8 @@ GenerateFFIInterpreterExit(ModuleCompiler &m, const ModuleCompiler::ExitDescript
 #endif
 #if defined(JS_CODEGEN_MIPS)
     masm.Push(ra);
+    // Make sure that arguments buffer is properly aligned.
+    masm.reserveStack(StackAlignment - sizeof(uintptr_t));
 #endif
 
     MIRType typeArray[] = { MIRType_Pointer,   // cx
@@ -6384,7 +6386,7 @@ GenerateFFIInterpreterExit(ModuleCompiler &m, const ModuleCompiler::ExitDescript
 
     // Fill the argument array.
     unsigned offsetToCallerStackArgs = AlignmentAtPrologue + masm.framePushed();
-    unsigned offsetToArgv = StackArgBytes(invokeArgTypes) + MaybeRetAddr;
+    unsigned offsetToArgv = stackDec - arraySize;
     Register scratch = ABIArgGenerator::NonArgReturnVolatileReg0;
     FillArgumentArray(m, exit.sig().args(), offsetToArgv, offsetToCallerStackArgs, scratch);
 
@@ -6431,6 +6433,11 @@ GenerateFFIInterpreterExit(ModuleCompiler &m, const ModuleCompiler::ExitDescript
     i++;
     JS_ASSERT(i.done());
 
+#if defined(JS_CODEGEN_MIPS)
+    masm.store32(Imm32(i.stackBytesConsumedSoFar()),
+                 Address(activation, AsmJSActivation::offsetOfRetAddressOffset()));
+#endif
+
     // Make the call, test whether it succeeded, and extract the return value.
     AssertStackAlignment(masm);
     switch (exit.sig().retType().which()) {
@@ -6456,6 +6463,9 @@ GenerateFFIInterpreterExit(ModuleCompiler &m, const ModuleCompiler::ExitDescript
     // Note: the caller is IonMonkey code which means there are no non-volatile
     // registers to restore.
     masm.freeStack(stackDec);
+#if defined(JS_CODEGEN_MIPS)
+    masm.freeStack(StackAlignment - sizeof(uintptr_t));
+#endif
     masm.ret();
 }
 
@@ -6505,6 +6515,11 @@ GenerateOOLConvert(ModuleCompiler &m, RetType retType, Label *throwLabel)
     }
     i++;
     JS_ASSERT(i.done());
+
+#if defined(JS_CODEGEN_MIPS)
+    masm.store32(Imm32(i.stackBytesConsumedSoFar()),
+                 Address(activation, AsmJSActivation::offsetOfRetAddressOffset()));
+#endif
 
     // Call
     AssertStackAlignment(masm);
@@ -6652,6 +6667,9 @@ GenerateFFIIonExit(ModuleCompiler &m, const ModuleCompiler::ExitDescriptor &exit
 
         // Record sp in the AsmJSActivation for stack-walking.
         masm.storePtr(StackPointer, Address(reg0, AsmJSActivation::offsetOfExitSP()));
+#if defined(JS_CODEGEN_MIPS)
+        masm.store32(Imm32(0), Address(reg0, AsmJSActivation::offsetOfRetAddressOffset()));
+#endif
 
         // The following is inlined:
         //   JSContext *cx = activation->cx();
@@ -6828,6 +6846,11 @@ GenerateStackOverflowExit(ModuleCompiler &m, Label *throwLabel)
     i++;
 
     JS_ASSERT(i.done());
+
+#if defined(JS_CODEGEN_MIPS)
+    masm.store32(Imm32(i.stackBytesConsumedSoFar()),
+                 Address(activation, AsmJSActivation::offsetOfRetAddressOffset()));
+#endif
 
     AssertStackAlignment(masm);
     masm.callExit(AsmJSImm_ReportOverRecursed, i.stackBytesConsumedSoFar());
