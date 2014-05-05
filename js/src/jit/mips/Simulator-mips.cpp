@@ -45,12 +45,14 @@ namespace jit {
 static const Instr kCallRedirInstr = op_special | MAX_BREAK_CODE << RTShift | ff_break;
 
 // Utils functions.
-bool HaveSameSign(int32_t a, int32_t b)
+static bool
+HaveSameSign(int32_t a, int32_t b)
 {
     return ((a ^ b) >= 0);
 }
 
-uint32_t GetFCSRConditionBit(uint32_t cc)
+static uint32_t
+GetFCSRConditionBit(uint32_t cc)
 {
     if (cc == 0) {
         return 23;
@@ -67,7 +69,7 @@ static const int32_t kRegisterskMinValue = 0x80000000;
 
 class SimInstruction
 {
-public:
+  public:
     enum {
         kInstrSize = 4,
         // On MIPS PC cannot actually be directly accessed. We behave as if PC was
@@ -109,8 +111,7 @@ public:
 
     // Accessors for the different named fields used in the MIPS encoding.
     inline Opcode opcodeValue() const {
-        return static_cast<Opcode>(
-                   bits(OpcodeShift + OpcodeBits - 1, OpcodeShift));
+        return static_cast<Opcode>(bits(OpcodeShift + OpcodeBits - 1, OpcodeShift));
     }
 
     inline int rsValue() const {
@@ -236,7 +237,7 @@ public:
     // Say if the instruction is a break or a trap.
     bool isTrap() const;
 
-private:
+  private:
 
     SimInstruction() MOZ_DELETE;
     SimInstruction(const SimInstruction &other) MOZ_DELETE;
@@ -455,6 +456,36 @@ const int kCArgSlotCount = 4;
 const int kCArgsSlotsSize = kCArgSlotCount * SimInstruction::kInstrSize;
 const int kBranchReturnOffset = 2 * SimInstruction::kInstrSize;
 
+class CachePage {
+  public:
+    static const int LINE_VALID = 0;
+    static const int LINE_INVALID = 1;
+
+    static const int kPageShift = 12;
+    static const int kPageSize = 1 << kPageShift;
+    static const int kPageMask = kPageSize - 1;
+    static const int kLineShift = 2;  // The cache line is only 4 bytes right now.
+    static const int kLineLength = 1 << kLineShift;
+    static const int kLineMask = kLineLength - 1;
+
+    CachePage() {
+        memset(&validity_map_, LINE_INVALID, sizeof(validity_map_));
+    }
+
+    char *validityByte(int offset) {
+        return &validity_map_[offset >> kLineShift];
+    }
+
+    char *cachedData(int offset) {
+        return &data_[offset];
+    }
+
+  private:
+    char data_[kPageSize];   // The cached data.
+    static const int kValidityMapSize = kPageSize >> kLineShift;
+    char validity_map_[kValidityMapSize];  // One byte per line.
+};
+
 class Redirection;
 
 class SimulatorRuntime
@@ -471,17 +502,17 @@ class SimulatorRuntime
         static bool match(const Key &k, const Lookup &l);
     };
 
-public:
+  public:
     typedef HashMap<void *, CachePage *, ICacheHasher, SystemAllocPolicy> ICacheMap;
 
-protected:
+  protected:
     ICacheMap icache_;
 
     // Synchronize access between main thread and compilation/PJS threads.
     PRLock *lock_;
     mozilla::DebugOnly<PRThread *> lockOwner_;
 
-public:
+  public:
     SimulatorRuntime()
       : redirection_(nullptr),
         lock_(nullptr),
@@ -519,10 +550,10 @@ public:
 
 class AutoLockSimulatorRuntime
 {
-protected:
+  protected:
     SimulatorRuntime *srt_;
 
-public:
+  public:
     AutoLockSimulatorRuntime(SimulatorRuntime *srt)
         : srt_(srt) {
 #ifdef JS_THREADSAFE
@@ -578,16 +609,12 @@ DestroySimulatorRuntime(SimulatorRuntime *srt)
     js_delete(srt);
 }
 
-// This macro provides a platform independent use of sscanf.
-#define sscanF sscanf  // NOLINT
-
 // The MipsDebugger class is used by the simulator while debugging simulated
 // code.
 class MipsDebugger
 {
-public:
+  public:
     explicit MipsDebugger(Simulator *sim) : sim_(sim) { }
-    ~MipsDebugger();
 
     void stop(SimInstruction *instr);
     void debug();
@@ -595,7 +622,7 @@ public:
     void printAllRegs();
     void printAllRegsIncludingFPU();
 
-private:
+  private:
     // We set the breakpoint code to 0xfffff to easily recognize it.
     static const Instr kBreakpointInstr = op_special | ff_break | 0xfffff << 6;
     static const Instr kNopInstr =  op_special | ff_sll;
@@ -619,11 +646,12 @@ private:
     void redoBreakpoints();
 };
 
-MipsDebugger::~MipsDebugger()
+static void
+UNSUPPORTED()
 {
+    printf("Unsupported instruction.\n");
+    MOZ_CRASH();
 }
-
-#define UNSUPPORTED() printf("Unsupported instruction.\n");
 
 void
 MipsDebugger::stop(SimInstruction *instr)
@@ -690,16 +718,15 @@ MipsDebugger::getValue(const char *desc, int32_t *value)
     if (strncmp(desc, "0x", 2) == 0) {
         return sscanf(desc, "%x", reinterpret_cast<uint32_t*>(value)) == 1;
     }
-    return sscanF(desc, "%i", value) == 1;
+    return sscanf(desc, "%i", value) == 1;
 }
 
 bool
 MipsDebugger::setBreakpoint(SimInstruction *breakpc)
 {
     // Check if a breakpoint can be set. If not return without any side-effects.
-    if (sim_->break_pc_ != nullptr) {
+    if (sim_->break_pc_ != nullptr)
         return false;
-    }
 
     // Set the breakpoint.
     sim_->break_pc_ = breakpc;
@@ -768,22 +795,9 @@ MipsDebugger::printAllRegsIncludingFPU()
 
     printf("\n\n");
     // f0, f1, f2, ... f31.
-    printf("%3s,%3s: 0x%08x%08x %16.4e\n", FPU_REG_INFO(0) );
-    printf("%3s,%3s: 0x%08x%08x %16.4e\n", FPU_REG_INFO(2) );
-    printf("%3s,%3s: 0x%08x%08x %16.4e\n", FPU_REG_INFO(4) );
-    printf("%3s,%3s: 0x%08x%08x %16.4e\n", FPU_REG_INFO(6) );
-    printf("%3s,%3s: 0x%08x%08x %16.4e\n", FPU_REG_INFO(8) );
-    printf("%3s,%3s: 0x%08x%08x %16.4e\n", FPU_REG_INFO(10));
-    printf("%3s,%3s: 0x%08x%08x %16.4e\n", FPU_REG_INFO(12));
-    printf("%3s,%3s: 0x%08x%08x %16.4e\n", FPU_REG_INFO(14));
-    printf("%3s,%3s: 0x%08x%08x %16.4e\n", FPU_REG_INFO(16));
-    printf("%3s,%3s: 0x%08x%08x %16.4e\n", FPU_REG_INFO(18));
-    printf("%3s,%3s: 0x%08x%08x %16.4e\n", FPU_REG_INFO(20));
-    printf("%3s,%3s: 0x%08x%08x %16.4e\n", FPU_REG_INFO(22));
-    printf("%3s,%3s: 0x%08x%08x %16.4e\n", FPU_REG_INFO(24));
-    printf("%3s,%3s: 0x%08x%08x %16.4e\n", FPU_REG_INFO(26));
-    printf("%3s,%3s: 0x%08x%08x %16.4e\n", FPU_REG_INFO(28));
-    printf("%3s,%3s: 0x%08x%08x %16.4e\n", FPU_REG_INFO(30));
+    for (uint32_t i = 0; i < FloatRegisters::Total; i += 2) {
+        printf("%3s,%3s: 0x%08x%08x %16.4e\n", FPU_REG_INFO(i));
+    }
 
 #undef REG_INFO
 #undef FPU_REG_INFO
@@ -847,7 +861,7 @@ DisassembleInstruction(uint32_t pc)
     char llvmcmd[1024];
     sprintf(llvmcmd, "bash -c \"echo -n '%p'; echo '%s' | "
             "llvm-mc -disassemble -arch=mipsel -mcpu=mips32r2 | "
-            "grep -v pure_instructions | grep -v .text\"", reinterpret_cast<void*>(pc), hexbytes);
+            "grep -v pure_instructions | grep -v .text\"", static_cast<void*>(bytes), hexbytes);
     system(llvmcmd);
 }
 
@@ -895,7 +909,7 @@ MipsDebugger::debug()
             }
             // Use sscanf to parse the individual parts of the command line. At the
             // moment no command expects more than two parameters.
-            int argc = sscanF(line,
+            int argc = sscanf(line,
                               "%" XSTR(COMMAND_SIZE) "s "
                               "%" XSTR(ARG_SIZE) "s "
                               "%" XSTR(ARG_SIZE) "s",
@@ -1283,7 +1297,7 @@ Simulator::Simulator(SimulatorRuntime *srt)
     // Allocate 2MB for the stack. Note that we will only use 1MB, see also
     // Simulator::stackLimit().
     static const size_t stackSize = 2 * 1024 * 1024;
-    stack_ = reinterpret_cast<char*>(js_malloc(stackSize));
+    stack_ = static_cast<char*>(js_malloc(stackSize));
     if (!stack_) {
         MOZ_ReportAssertionFailure("[unhandlable oom] Simulator stack", __FILE__, __LINE__);
         MOZ_CRASH();
@@ -1314,9 +1328,8 @@ Simulator::Simulator(SimulatorRuntime *srt)
     registers_[pc] = bad_ra;
     registers_[ra] = bad_ra;
 
-    for (int i = 0; i < kNumExceptions; i++) {
+    for (int i = 0; i < kNumExceptions; i++)
         exceptions[i] = 0;
-    }
 
     lastDebuggerInput_ = nullptr;
 }
@@ -1346,7 +1359,7 @@ class Redirection
         srt->setRedirection(this);
     }
 
-public:
+  public:
     void *addressOfSwiInstruction() { return &swiInstruction_; }
     void *nativeFunction() const { return nativeFunction_; }
     ABIFunctionType type() const { return type_; }
@@ -1379,7 +1392,7 @@ public:
         return reinterpret_cast<Redirection*>(addrOfRedirection);
     }
 
-private:
+  private:
     void *nativeFunction_;
     uint32_t swiInstruction_;
     ABIFunctionType type_;
@@ -1449,11 +1462,25 @@ Simulator::setFpuRegisterFloat(int fpureg, float value)
 }
 
 void
+Simulator::setFpuRegisterFloat(int fpureg, int64_t value)
+{
+    setFpuRegister(fpureg, value & 0xffffffff);
+    setFpuRegister(fpureg + 1, value >> 32);
+}
+
+void
 Simulator::setFpuRegisterDouble(int fpureg, double value)
 {
     MOZ_ASSERT((fpureg >= 0) && (fpureg < Simulator::FPURegister::kNumFPURegisters)
            && ((fpureg % 2) == 0));
     *mozilla::BitwiseCast<double*>(&FPUregisters_[fpureg]) = value;
+}
+
+void
+Simulator::setFpuRegisterDouble(int fpureg, int64_t value)
+{
+    setFpuRegister(fpureg, value & 0xffffffff);
+    setFpuRegister(fpureg + 1, value >> 32);
 }
 
 // Get the register from the architecture state. This function does handle
@@ -1464,8 +1491,7 @@ Simulator::getRegister(int reg) const
     MOZ_ASSERT((reg >= 0) && (reg < Register::kNumSimuRegisters));
     if (reg == 0)
         return 0;
-    else
-        return registers_[reg] + ((reg == pc) ? SimInstruction::kPCReadOffset : 0);
+    return registers_[reg] + ((reg == pc) ? SimInstruction::kPCReadOffset : 0);
 }
 
 double
@@ -1476,9 +1502,7 @@ Simulator::getDoubleFromRegisterPair(int reg)
     double dm_val = 0.0;
     // Read the bits from the unsigned integer register_[] array
     // into the double precision floating point value and return it.
-    char buffer[2 * sizeof(registers_[0])];
-    memcpy(buffer, &registers_[reg], 2 * sizeof(registers_[0]));
-    memcpy(&dm_val, buffer, 2 * sizeof(registers_[0]));
+    memcpy(&dm_val, &registers_[reg], sizeof(dm_val));
     return(dm_val);
 }
 
@@ -1494,16 +1518,14 @@ Simulator::getFpuRegisterLong(int fpureg) const
 {
     MOZ_ASSERT((fpureg >= 0) && (fpureg < Simulator::FPURegister::kNumFPURegisters)
            && ((fpureg % 2) == 0));
-    return *mozilla::BitwiseCast<int64_t*>(
-               const_cast<int32_t*>(&FPUregisters_[fpureg]));
+    return *mozilla::BitwiseCast<int64_t*>(const_cast<int32_t*>(&FPUregisters_[fpureg]));
 }
 
 float
 Simulator::getFpuRegisterFloat(int fpureg) const
 {
     MOZ_ASSERT((fpureg >= 0) && (fpureg < Simulator::FPURegister::kNumFPURegisters));
-    return *mozilla::BitwiseCast<float*>(
-               const_cast<int32_t*>(&FPUregisters_[fpureg]));
+    return *mozilla::BitwiseCast<float*>(const_cast<int32_t*>(&FPUregisters_[fpureg]));
 }
 
 double
@@ -1548,11 +1570,10 @@ Simulator::setCallResult(int64_t res)
 void
 Simulator::setFCSRBit(uint32_t cc, bool value)
 {
-    if (value) {
+    if (value)
         FCSR_ |= (1 << cc);
-    } else {
+    else
         FCSR_ &= ~(1 << cc);
-    }
 }
 
 bool
@@ -1622,14 +1643,13 @@ Simulator::get_pc() const
 // get the correct MIPS-like behaviour on unaligned accesses.
 
 int
-Simulator::readW(int32_t addr, SimInstruction *instr)
+Simulator::readW(uint32_t addr, SimInstruction *instr)
 {
-    if (addr >= 0 && addr < 0x400) {
+    if (addr < 0x400) {
         // This has to be a NULL-dereference, drop into debugger.
         printf("Memory read from bad address: 0x%08x, pc=0x%08x\n",
                addr, reinterpret_cast<intptr_t>(instr));
-        MipsDebugger dbg(this);
-        dbg.debug();
+        MOZ_CRASH();
     }
     if ((addr & kPointerAlignmentMask) == 0) {
         intptr_t *ptr = reinterpret_cast<intptr_t*>(addr);
@@ -1638,20 +1658,18 @@ Simulator::readW(int32_t addr, SimInstruction *instr)
     printf("Unaligned read at 0x%08x, pc=0x%08x\n",
            addr,
            reinterpret_cast<intptr_t>(instr));
-    MipsDebugger dbg(this);
-    dbg.debug();
+    MOZ_CRASH();
     return 0;
 }
 
 void
-Simulator::writeW(int32_t addr, int value, SimInstruction *instr)
+Simulator::writeW(uint32_t addr, int value, SimInstruction *instr)
 {
-    if (addr >= 0 && addr < 0x400) {
+    if (addr < 0x400) {
         // This has to be a NULL-dereference, drop into debugger.
         printf("Memory write to bad address: 0x%08x, pc=0x%08x\n",
                addr, reinterpret_cast<intptr_t>(instr));
-        MipsDebugger dbg(this);
-        dbg.debug();
+        MOZ_CRASH();
     }
     if ((addr & kPointerAlignmentMask) == 0) {
         intptr_t *ptr = reinterpret_cast<intptr_t*>(addr);
@@ -1661,12 +1679,11 @@ Simulator::writeW(int32_t addr, int value, SimInstruction *instr)
     printf("Unaligned write at 0x%08x, pc=0x%08x\n",
            addr,
            reinterpret_cast<intptr_t>(instr));
-    MipsDebugger dbg(this);
-    dbg.debug();
+    MOZ_CRASH();
 }
 
 double
-Simulator::readD(int32_t addr, SimInstruction* instr)
+Simulator::readD(uint32_t addr, SimInstruction* instr)
 {
     if ((addr & kDoubleAlignmentMask) == 0) {
         double *ptr = reinterpret_cast<double*>(addr);
@@ -1680,7 +1697,7 @@ Simulator::readD(int32_t addr, SimInstruction* instr)
 }
 
 void
-Simulator::writeD(int32_t addr, double value, SimInstruction *instr)
+Simulator::writeD(uint32_t addr, double value, SimInstruction *instr)
 {
     if ((addr & kDoubleAlignmentMask) == 0) {
         double *ptr = reinterpret_cast<double*>(addr);
@@ -1694,7 +1711,7 @@ Simulator::writeD(int32_t addr, double value, SimInstruction *instr)
 }
 
 uint16_t
-Simulator::readHU(int32_t addr, SimInstruction *instr)
+Simulator::readHU(uint32_t addr, SimInstruction *instr)
 {
     if ((addr & 1) == 0) {
         uint16_t *ptr = reinterpret_cast<uint16_t*>(addr);
@@ -1708,7 +1725,7 @@ Simulator::readHU(int32_t addr, SimInstruction *instr)
 }
 
 int16_t
-Simulator::readH(int32_t addr, SimInstruction* instr)
+Simulator::readH(uint32_t addr, SimInstruction* instr)
 {
     if ((addr & 1) == 0) {
         int16_t* ptr = reinterpret_cast<int16_t*>(addr);
@@ -1722,7 +1739,7 @@ Simulator::readH(int32_t addr, SimInstruction* instr)
 }
 
 void
-Simulator::writeH(int32_t addr, uint16_t value, SimInstruction *instr)
+Simulator::writeH(uint32_t addr, uint16_t value, SimInstruction *instr)
 {
     if ((addr & 1) == 0) {
         uint16_t *ptr = reinterpret_cast<uint16_t*>(addr);
@@ -1736,7 +1753,7 @@ Simulator::writeH(int32_t addr, uint16_t value, SimInstruction *instr)
 }
 
 void
-Simulator::writeH(int32_t addr, int16_t value, SimInstruction *instr)
+Simulator::writeH(uint32_t addr, int16_t value, SimInstruction *instr)
 {
     if ((addr & 1) == 0) {
         int16_t *ptr = reinterpret_cast<int16_t*>(addr);
@@ -1750,28 +1767,28 @@ Simulator::writeH(int32_t addr, int16_t value, SimInstruction *instr)
 }
 
 uint32_t
-Simulator::readBU(int32_t addr)
+Simulator::readBU(uint32_t addr)
 {
     uint8_t *ptr = reinterpret_cast<uint8_t*>(addr);
-    return *ptr & 0xff;
+    return *ptr;
 }
 
 int32_t
-Simulator::readB(int32_t addr)
+Simulator::readB(uint32_t addr)
 {
     int8_t *ptr = reinterpret_cast<int8_t*>(addr);
     return *ptr;
 }
 
 void
-Simulator::writeB(int32_t addr, uint8_t value)
+Simulator::writeB(uint32_t addr, uint8_t value)
 {
     uint8_t *ptr = reinterpret_cast<uint8_t*>(addr);
     *ptr = value;
 }
 
 void
-Simulator::writeB(int32_t addr, int8_t value)
+Simulator::writeB(uint32_t addr, int8_t value)
 {
     int8_t *ptr = reinterpret_cast<int8_t*>(addr);
     *ptr = value;
@@ -1846,6 +1863,9 @@ Simulator::softwareInterrupt(SimInstruction *instr)
 
     // We first check if we met a call_rt_redirected.
     if (instr->instructionBits() == kCallRedirInstr) {
+#if !defined(USES_O32_ABI)
+        MOZ_ASSUME_UNREACHABLE("Only O32 ABI supported.");
+#else
         Redirection *redirection = Redirection::FromSwiInstruction(instr);
         int32_t arg0 = getRegister(a0);
         int32_t arg1 = getRegister(a1);
@@ -1856,7 +1876,6 @@ Simulator::softwareInterrupt(SimInstruction *instr)
         // Args 4 and 5 are on the stack after the reserved space for args 0..3.
         int32_t arg4 = stack_pointer[4];
         int32_t arg5 = stack_pointer[5];
-
 
         // This is dodgy but it works because the C entry stubs are never moved.
         // See comment in codegen-arm.cc and bug 1242173.
@@ -2004,9 +2023,9 @@ Simulator::softwareInterrupt(SimInstruction *instr)
             MOZ_ASSUME_UNREACHABLE("call");
         }
 
-
         setRegister(ra, saved_ra);
         set_pc(getRegister(ra));
+#endif
     } else if (func == ff_break && code <= kMaxStopCode) {
         if (isWatchpoint(code)) {
             printWatchpoint(code);
@@ -2071,17 +2090,15 @@ Simulator::isEnabledStop(uint32_t code)
 void
 Simulator::enableStop(uint32_t code)
 {
-    if (!isEnabledStop(code)) {
+    if (!isEnabledStop(code))
         watchedStops_[code].count_ &= ~kStopDisabledBit;
-    }
 }
 
 void
 Simulator::disableStop(uint32_t code)
 {
-    if (isEnabledStop(code)) {
+    if (isEnabledStop(code))
         watchedStops_[code].count_ |= kStopDisabledBit;
-    }
 }
 
 void
@@ -2127,22 +2144,20 @@ void
 Simulator::signalExceptions()
 {
     for (int i = 1; i < kNumExceptions; i++) {
-        if (exceptions[i] != 0) {
+        if (exceptions[i] != 0)
             MOZ_ASSUME_UNREACHABLE("Error: Exception raised.");
-            //V8_Fatal(__FILE__, __LINE__, "Error: Exception %i raised.", i);
-        }
     }
 }
 
 // Handle execution based on instruction types.
 void
 Simulator::configureTypeRegister(SimInstruction *instr,
-                                      int32_t& alu_out,
-                                      int64_t& i64hilo,
-                                      uint64_t& u64hilo,
-                                      int32_t& next_pc,
-                                      int32_t& return_addr_reg,
-                                      bool& do_interrupt)
+                                 int32_t& alu_out,
+                                 int64_t& i64hilo,
+                                 uint64_t& u64hilo,
+                                 int32_t& next_pc,
+                                 int32_t& return_addr_reg,
+                                 bool& do_interrupt)
 {
     // Every local variable declared here needs to be const.
     // This is to make sure that changed values are sent back to
@@ -2470,7 +2485,7 @@ Simulator::decodeTypeRegister(SimInstruction *instr)
                 setFpuRegisterFloat(fd_reg, fs_value / ft_value);
                 break;
               case ff_abs_fmt:
-                setFpuRegisterFloat(fd_reg, fabs(fs_value));
+                setFpuRegisterFloat(fd_reg, fabsf(fs_value));
                 break;
               case ff_mov_fmt:
                 setFpuRegisterFloat(fd_reg, fs_value);
@@ -2479,31 +2494,31 @@ Simulator::decodeTypeRegister(SimInstruction *instr)
                 setFpuRegisterFloat(fd_reg, -fs_value);
                 break;
               case ff_sqrt_fmt:
-                setFpuRegisterFloat(fd_reg, sqrt(fs_value));
+                setFpuRegisterFloat(fd_reg, sqrtf(fs_value));
                 break;
               case ff_c_un_fmt:
-                setFCSRBit(fcsr_cc, std::isnan(fs_value) || std::isnan(ft_value));
+                setFCSRBit(fcsr_cc, mozilla::IsNaN(fs_value) || mozilla::IsNaN(ft_value));
                 break;
               case ff_c_eq_fmt:
                 setFCSRBit(fcsr_cc, (fs_value == ft_value));
                 break;
               case ff_c_ueq_fmt:
                 setFCSRBit(fcsr_cc,
-                           (fs_value == ft_value) || (std::isnan(fs_value) || std::isnan(ft_value)));
+                           (fs_value == ft_value) || (mozilla::IsNaN(fs_value) || mozilla::IsNaN(ft_value)));
                 break;
               case ff_c_olt_fmt:
                 setFCSRBit(fcsr_cc, (fs_value < ft_value));
                 break;
               case ff_c_ult_fmt:
                 setFCSRBit(fcsr_cc,
-                           (fs_value < ft_value) || (std::isnan(fs_value) || std::isnan(ft_value)));
+                           (fs_value < ft_value) || (mozilla::IsNaN(fs_value) || mozilla::IsNaN(ft_value)));
                 break;
               case ff_c_ole_fmt:
                 setFCSRBit(fcsr_cc, (fs_value <= ft_value));
                 break;
               case ff_c_ule_fmt:
                 setFCSRBit(fcsr_cc,
-                           (fs_value <= ft_value) || (std::isnan(fs_value) || std::isnan(ft_value)));
+                           (fs_value <= ft_value) || (mozilla::IsNaN(fs_value) || mozilla::IsNaN(ft_value)));
                 break;
               case ff_cvt_d_fmt:
                 f = getFpuRegisterFloat(fs_reg);
@@ -2528,7 +2543,7 @@ Simulator::decodeTypeRegister(SimInstruction *instr)
                 break;
               }
               case ff_trunc_w_fmt: { // Truncate float to word (round towards 0).
-                float rounded = trunc(fs_value);
+                float rounded = truncf(fs_value);
                 int32_t result = static_cast<int32_t>(rounded);
                 setFpuRegister(fd_reg, result);
                 if (setFCSRRoundError(fs_value, rounded)) {
@@ -2555,36 +2570,31 @@ Simulator::decodeTypeRegister(SimInstruction *instr)
                 break;
               }
               case ff_cvt_l_fmt: {  // Mips32r2: Truncate float to 64-bit long-word.
-                float rounded = trunc(fs_value);
+                float rounded = truncf(fs_value);
                 i64 = static_cast<int64_t>(rounded);
-                setFpuRegister(fd_reg, i64 & 0xffffffff);
-                setFpuRegister(fd_reg + 1, i64 >> 32);
+                setFpuRegisterFloat(fd_reg, i64);
                 break;
               }
               case ff_round_l_fmt: {  // Mips32r2 instruction.
                 float rounded =
                     fs_value > 0 ? std::floor(fs_value + 0.5) : std::ceil(fs_value - 0.5);
                 i64 = static_cast<int64_t>(rounded);
-                setFpuRegister(fd_reg, i64 & 0xffffffff);
-                setFpuRegister(fd_reg + 1, i64 >> 32);
+                setFpuRegisterFloat(fd_reg, i64);
                 break;
               }
               case ff_trunc_l_fmt: {  // Mips32r2 instruction.
-                float rounded = trunc(fs_value);
+                float rounded = truncf(fs_value);
                 i64 = static_cast<int64_t>(rounded);
-                setFpuRegister(fd_reg, i64 & 0xffffffff);
-                setFpuRegister(fd_reg + 1, i64 >> 32);
+                setFpuRegisterFloat(fd_reg, i64);
                 break;
               }
               case ff_floor_l_fmt:  // Mips32r2 instruction.
                 i64 = static_cast<int64_t>(std::floor(fs_value));
-                setFpuRegister(fd_reg, i64 & 0xffffffff);
-                setFpuRegister(fd_reg + 1, i64 >> 32);
+                setFpuRegisterFloat(fd_reg, i64);
                 break;
               case ff_ceil_l_fmt:  // Mips32r2 instruction.
                 i64 = static_cast<int64_t>(std::ceil(fs_value));
-                setFpuRegister(fd_reg, i64 & 0xffffffff);
-                setFpuRegister(fd_reg + 1, i64 >> 32);
+                setFpuRegisterFloat(fd_reg, i64);
                 break;
               case ff_cvt_ps_s:
               case ff_c_f_fmt:
@@ -2626,28 +2636,28 @@ Simulator::decodeTypeRegister(SimInstruction *instr)
                 setFpuRegisterDouble(fd_reg, sqrt(ds_value));
                 break;
               case ff_c_un_fmt:
-                setFCSRBit(fcsr_cc, std::isnan(ds_value) || std::isnan(dt_value));
+                setFCSRBit(fcsr_cc, mozilla::IsNaN(ds_value) || mozilla::IsNaN(dt_value));
                 break;
               case ff_c_eq_fmt:
                 setFCSRBit(fcsr_cc, (ds_value == dt_value));
                 break;
               case ff_c_ueq_fmt:
                 setFCSRBit(fcsr_cc,
-                            (ds_value == dt_value) || (std::isnan(ds_value) || std::isnan(dt_value)));
+                            (ds_value == dt_value) || (mozilla::IsNaN(ds_value) || mozilla::IsNaN(dt_value)));
                 break;
               case ff_c_olt_fmt:
                 setFCSRBit(fcsr_cc, (ds_value < dt_value));
                 break;
               case ff_c_ult_fmt:
                 setFCSRBit(fcsr_cc,
-                            (ds_value < dt_value) || (std::isnan(ds_value) || std::isnan(dt_value)));
+                            (ds_value < dt_value) || (mozilla::IsNaN(ds_value) || mozilla::IsNaN(dt_value)));
                 break;
               case ff_c_ole_fmt:
                 setFCSRBit(fcsr_cc, (ds_value <= dt_value));
                 break;
               case ff_c_ule_fmt:
                 setFCSRBit(fcsr_cc,
-                            (ds_value <= dt_value) || (std::isnan(ds_value) || std::isnan(dt_value)));
+                            (ds_value <= dt_value) || (mozilla::IsNaN(ds_value) || mozilla::IsNaN(dt_value)));
                 break;
               case ff_cvt_w_fmt:   // Convert double to word.
                 // Rounding modes are not yet supported.
@@ -2665,8 +2675,8 @@ Simulator::decodeTypeRegister(SimInstruction *instr)
                 if (setFCSRRoundError(ds_value, rounded)) {
                     setFpuRegister(fd_reg, kFPUInvalidResult);
                 }
+                break;
               }
-              break;
               case ff_trunc_w_fmt: { // Truncate double to word (round towards 0).
                 double rounded = trunc(ds_value);
                 int32_t result = static_cast<int32_t>(rounded);
@@ -2674,8 +2684,8 @@ Simulator::decodeTypeRegister(SimInstruction *instr)
                 if (setFCSRRoundError(ds_value, rounded)) {
                     setFpuRegister(fd_reg, kFPUInvalidResult);
                 }
+                break;
               }
-              break;
               case ff_floor_w_fmt: { // Round double to word towards negative infinity.
                 double rounded = std::floor(ds_value);
                 int32_t result = static_cast<int32_t>(rounded);
@@ -2683,8 +2693,8 @@ Simulator::decodeTypeRegister(SimInstruction *instr)
                 if (setFCSRRoundError(ds_value, rounded)) {
                     setFpuRegister(fd_reg, kFPUInvalidResult);
                 }
+                break;
               }
-              break;
               case ff_ceil_w_fmt: { // Round double to word towards positive infinity.
                 double rounded = std::ceil(ds_value);
                 int32_t result = static_cast<int32_t>(rounded);
@@ -2692,42 +2702,37 @@ Simulator::decodeTypeRegister(SimInstruction *instr)
                 if (setFCSRRoundError(ds_value, rounded)) {
                     setFpuRegister(fd_reg, kFPUInvalidResult);
                 }
+                break;
               }
-              break;
               case ff_cvt_s_fmt:  // Convert double to float (single).
                 setFpuRegisterFloat(fd_reg, static_cast<float>(ds_value));
                 break;
               case ff_cvt_l_fmt: {  // Mips32r2: Truncate double to 64-bit long-word.
                 double rounded = trunc(ds_value);
                 i64 = static_cast<int64_t>(rounded);
-                setFpuRegister(fd_reg, i64 & 0xffffffff);
-                setFpuRegister(fd_reg + 1, i64 >> 32);
+                setFpuRegisterDouble(fd_reg, i64);
                 break;
               }
               case ff_trunc_l_fmt: {  // Mips32r2 instruction.
                 double rounded = trunc(ds_value);
                 i64 = static_cast<int64_t>(rounded);
-                setFpuRegister(fd_reg, i64 & 0xffffffff);
-                setFpuRegister(fd_reg + 1, i64 >> 32);
+                setFpuRegisterDouble(fd_reg, i64);
                 break;
               }
               case ff_round_l_fmt: {  // Mips32r2 instruction.
                 double rounded =
                     ds_value > 0 ? std::floor(ds_value + 0.5) : std::ceil(ds_value - 0.5);
                 i64 = static_cast<int64_t>(rounded);
-                setFpuRegister(fd_reg, i64 & 0xffffffff);
-                setFpuRegister(fd_reg + 1, i64 >> 32);
+                setFpuRegisterDouble(fd_reg, i64);
                 break;
               }
               case ff_floor_l_fmt:  // Mips32r2 instruction.
                 i64 = static_cast<int64_t>(std::floor(ds_value));
-                setFpuRegister(fd_reg, i64 & 0xffffffff);
-                setFpuRegister(fd_reg + 1, i64 >> 32);
+                setFpuRegisterDouble(fd_reg, i64);
                 break;
               case ff_ceil_l_fmt:  // Mips32r2 instruction.
                 i64 = static_cast<int64_t>(std::ceil(ds_value));
-                setFpuRegister(fd_reg, i64 & 0xffffffff);
-                setFpuRegister(fd_reg + 1, i64 >> 32);
+                setFpuRegisterDouble(fd_reg, i64);
                 break;
               case ff_c_f_fmt:
                 MOZ_CRASH();
@@ -2941,7 +2946,7 @@ Simulator::decodeTypeImmediate(SimInstruction *instr)
     uint32_t cc, cc_value, fcsr_cc;
 
     // Used for memory instructions.
-    int32_t addr = 0x0;
+    uint32_t addr = 0x0;
     // Value to be written in memory.
     uint32_t mem_value = 0x0;
 
@@ -3225,9 +3230,8 @@ Simulator::decodeTypeImmediate(SimInstruction *instr)
     }
 
     // If needed update pc after the branch delay execution.
-    if (next_pc != bad_ra) {
+    if (next_pc != bad_ra)
         set_pc(next_pc);
-    }
 }
 
 // Type 3: instructions using a 26 bytes immediate. (e.g. j, jal).
@@ -3250,9 +3254,8 @@ Simulator::decodeTypeJump(SimInstruction *instr)
 
     // Update pc and ra if necessary.
     // Do this after the branch delay execution.
-    if (instr->isLinkingInstruction()) {
+    if (instr->isLinkingInstruction())
         setRegister(31, current_pc + 2 * SimInstruction::kInstrSize);
-    }
     set_pc(next_pc);
     pc_modified_ = true;
 }
@@ -3280,10 +3283,8 @@ Simulator::instructionDecode(SimInstruction *instr)
       default:
         UNSUPPORTED();
     }
-    if (!pc_modified_) {
-        setRegister(pc, reinterpret_cast<int32_t>(instr) +
-                     SimInstruction::kInstrSize);
-    }
+    if (!pc_modified_)
+        setRegister(pc, reinterpret_cast<int32_t>(instr) + SimInstruction::kInstrSize);
 }
 
 void
