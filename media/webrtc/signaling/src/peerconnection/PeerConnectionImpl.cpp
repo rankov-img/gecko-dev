@@ -193,9 +193,7 @@ public:
   WrappableJSErrorResult(WrappableJSErrorResult &other) : mRv(), isCopy(true) {}
   ~WrappableJSErrorResult() {
     if (isCopy) {
-#ifdef MOZILLA_INTERNAL_API
       MOZ_ASSERT(NS_IsMainThread());
-#endif
     }
   }
   operator JSErrorResult &() { return mRv; }
@@ -707,9 +705,7 @@ PeerConnectionImpl::Initialize(PeerConnectionObserver& aObserver,
 
   // Invariant: we receive configuration one way or the other but not both (XOR)
   MOZ_ASSERT(!aConfiguration != !aRTCConfiguration);
-#ifdef MOZILLA_INTERNAL_API
   MOZ_ASSERT(NS_IsMainThread());
-#endif
   MOZ_ASSERT(aThread);
   mThread = do_QueryInterface(aThread);
 
@@ -1896,6 +1892,7 @@ PeerConnectionImpl::IceGatheringStateChange(
                 NS_DISPATCH_NORMAL);
 }
 
+#ifdef MOZILLA_INTERNAL_API
 static bool isDone(PCImplIceConnectionState state) {
   return state != PCImplIceConnectionState::Checking &&
          state != PCImplIceConnectionState::New;
@@ -1910,6 +1907,7 @@ static bool isFailed(PCImplIceConnectionState state) {
   return state == PCImplIceConnectionState::Failed ||
          state == PCImplIceConnectionState::Disconnected;
 }
+#endif
 
 nsresult
 PeerConnectionImpl::IceConnectionStateChange_m(PCImplIceConnectionState aState)
@@ -2185,11 +2183,6 @@ PeerConnectionImpl::ExecuteStatsQuery_s(RTCStatsQuery *query) {
 
   ASSERT_ON_THREAD(query->iceCtx->thread());
 
-  // NrIceCtx must be destroyed on STS, so it is not safe to dispatch it back
-  // to main.
-  RefPtr<NrIceCtx> iceCtxTmp(query->iceCtx);
-  query->iceCtx = nullptr;
-
   // Gather stats from pipelines provided (can't touch mMedia + stream on STS)
 
   for (size_t p = 0; p < query->pipelines.Length(); ++p) {
@@ -2333,6 +2326,11 @@ PeerConnectionImpl::ExecuteStatsQuery_s(RTCStatsQuery *query) {
                      &(query->report));
   }
 
+  // NrIceCtx and NrIceMediaStream must be destroyed on STS, so it is not safe
+  // to dispatch them back to main.
+  // We clear streams first to maintain destruction order
+  query->streams.Clear();
+  query->iceCtx = nullptr;
   return NS_OK;
 }
 

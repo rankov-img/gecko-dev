@@ -159,6 +159,23 @@ enum ExecutionMode {
     ArgumentsUsageAnalysis
 };
 
+inline const char *
+ExecutionModeString(ExecutionMode mode)
+{
+    switch (mode) {
+      case SequentialExecution:
+        return "SequentialExecution";
+      case ParallelExecution:
+        return "ParallelExecution";
+      case DefinitePropertiesAnalysis:
+        return "DefinitePropertiesAnalysis";
+      case ArgumentsUsageAnalysis:
+        return "ArgumentsUsageAnalysis";
+      default:
+        MOZ_ASSUME_UNREACHABLE("Invalid ExecutionMode");
+    }
+}
+
 /*
  * Not as part of the enum so we don't get warnings about unhandled enum
  * values.
@@ -584,6 +601,12 @@ class TypeSet
      */
     bool isSubset(TypeSet *other);
 
+    /*
+     * Get whether the objects in this TypeSet are a subset of the objects
+     * in other.
+     */
+    bool objectsAreSubset(TypeSet *other);
+
     /* Forward all types in this set to the specified constraint. */
     bool addTypesToConstraint(JSContext *cx, TypeConstraint *constraint);
 
@@ -981,7 +1004,7 @@ struct TypeObject : gc::BarrieredCell<TypeObject>
      *   some number of properties to the object in a definite order
      *   before the object escapes.
      */
-    HeapPtr<TypeObjectAddendum> addendum;
+    HeapPtrTypeObjectAddendum addendum;
   public:
 
     TypeObjectFlags flags() const {
@@ -1182,7 +1205,7 @@ struct TypeObject : gc::BarrieredCell<TypeObject>
  */
 struct TypeObjectWithNewScriptEntry
 {
-    ReadBarriered<TypeObject> object;
+    ReadBarrieredTypeObject object;
 
     // Note: This pointer is only used for equality and does not need a read barrier.
     JSFunction *newFunction;
@@ -1327,14 +1350,20 @@ void
 FinishDefinitePropertiesAnalysis(JSContext *cx, CompilerConstraintList *constraints);
 
 struct ArrayTableKey;
-typedef HashMap<ArrayTableKey,ReadBarriered<TypeObject>,ArrayTableKey,SystemAllocPolicy> ArrayTypeTable;
+typedef HashMap<ArrayTableKey,
+                ReadBarrieredTypeObject,
+                ArrayTableKey,
+                SystemAllocPolicy> ArrayTypeTable;
 
 struct ObjectTableKey;
 struct ObjectTableEntry;
 typedef HashMap<ObjectTableKey,ObjectTableEntry,ObjectTableKey,SystemAllocPolicy> ObjectTypeTable;
 
 struct AllocationSiteKey;
-typedef HashMap<AllocationSiteKey,ReadBarriered<TypeObject>,AllocationSiteKey,SystemAllocPolicy> AllocationSiteTable;
+typedef HashMap<AllocationSiteKey,
+                ReadBarrieredTypeObject,
+                AllocationSiteKey,
+                SystemAllocPolicy> AllocationSiteTable;
 
 class HeapTypeSetKey;
 

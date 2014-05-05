@@ -175,6 +175,12 @@ LayerTransactionParent::GetCompositorBackendType() const
 }
 
 /* virtual */
+void
+LayerTransactionParent::ActorDestroy(ActorDestroyReason aWhy)
+{
+  // Implement me! Bug 1005171
+}
+
 bool
 LayerTransactionParent::RecvUpdateNoSwap(const InfallibleTArray<Edit>& cset,
                                          const TargetConfig& targetConfig,
@@ -738,33 +744,6 @@ LayerTransactionParent::RecvForceComposite()
 {
   mShadowLayersManager->ForceComposite(this);
   return true;
-}
-
-
-PGrallocBufferParent*
-LayerTransactionParent::AllocPGrallocBufferParent(const IntSize& aSize,
-                                                  const uint32_t& aFormat,
-                                                  const uint32_t& aUsage,
-                                                  MaybeMagicGrallocBufferHandle* aOutHandle)
-{
-#ifdef MOZ_HAVE_SURFACEDESCRIPTORGRALLOC
-  return GrallocBufferActor::Create(aSize, aFormat, aUsage, aOutHandle);
-#else
-  NS_RUNTIMEABORT("No gralloc buffers for you");
-  return nullptr;
-#endif
-}
-
-bool
-LayerTransactionParent::DeallocPGrallocBufferParent(PGrallocBufferParent* actor)
-{
-#ifdef MOZ_HAVE_SURFACEDESCRIPTORGRALLOC
-  delete actor;
-  return true;
-#else
-  NS_RUNTIMEABORT("Um, how did we get here?");
-  return false;
-#endif
 }
 
 PLayerParent*

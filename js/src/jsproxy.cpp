@@ -243,7 +243,7 @@ BaseProxyHandler::keys(JSContext *cx, HandleObject proxy, AutoIdVector &props)
         if (!getOwnPropertyDescriptor(cx, proxy, id, &desc))
             return false;
         if (desc.object() && desc.isEnumerable())
-            props[i++] = id;
+            props[i++].set(id);
     }
 
     JS_ASSERT(i <= props.length());
@@ -409,8 +409,8 @@ DirectProxyHandler::defineProperty(JSContext *cx, HandleObject proxy, HandleId i
     assertEnteredPolicy(cx, proxy, id, SET);
     RootedObject target(cx, proxy->as<ProxyObject>().target());
     RootedValue v(cx, desc.value());
-    return CheckDefineProperty(cx, target, id, v, desc.getter(), desc.setter(), desc.attributes()) &&
-           JS_DefinePropertyById(cx, target, id, v, desc.getter(), desc.setter(), desc.attributes());
+    return CheckDefineProperty(cx, target, id, v, desc.attributes(), desc.getter(), desc.setter()) &&
+           JS_DefinePropertyById(cx, target, id, v, desc.attributes(), desc.getter(), desc.setter());
 }
 
 bool
@@ -1137,7 +1137,7 @@ NormalizePropertyDescriptor(JSContext *cx, MutableHandleValue vp, bool complete 
         return false;
     if (complete)
         desc->complete();
-    JS_ASSERT(!vp.isPrimitive()); // due to desc->initialize
+    JS_ASSERT(vp.isObject()); // due to desc->initialize
     RootedObject attributes(cx, &vp.toObject());
 
     /*
@@ -1477,8 +1477,8 @@ TrapDefineOwnProperty(JSContext *cx, HandleObject proxy, HandleId id, MutableHan
         Rooted<PropertyDescriptor> desc(cx);
         if (!ParsePropertyDescriptorObject(cx, proxy, vp, &desc))
             return false;
-        return JS_DefinePropertyById(cx, target, id, desc.value(), desc.getter(), desc.setter(),
-                                     desc.attributes());
+        return JS_DefinePropertyById(cx, target, id, desc.value(), desc.attributes(),
+                                     desc.getter(), desc.setter());
     }
 
     // step 5
@@ -1582,7 +1582,7 @@ ArrayToIdVector(JSContext *cx, HandleObject proxy, HandleObject target, HandleVa
 
         // step iii
         for (uint32_t j = 0; j < i; ++j) {
-            if (props[j] == id) {
+            if (props[j].get() == id) {
                 ReportInvalidTrapResult(cx, proxy, trapName);
                 return false;
             }
@@ -1618,7 +1618,7 @@ ArrayToIdVector(JSContext *cx, HandleObject proxy, HandleObject target, HandleVa
 
         bool found = false;
         for (size_t j = 0; j < props.length(); ++j) {
-            if (props[j] == id) {
+            if (props[j].get() == id) {
                 found = true;
                break;
             }
@@ -2453,7 +2453,7 @@ js::AppendUnique(JSContext *cx, AutoIdVector &base, AutoIdVector &others)
     for (size_t i = 0; i < others.length(); ++i) {
         bool unique = true;
         for (size_t j = 0; j < base.length(); ++j) {
-            if (others[i] == base[j]) {
+            if (others[i].get() == base[j]) {
                 unique = false;
                 break;
             }
@@ -2987,7 +2987,7 @@ ProxyObject::trace(JSTracer *trc, JSObject *obj)
     ProxyObject *proxy = &obj->as<ProxyObject>();
 
 #ifdef DEBUG
-    if (!trc->runtime()->gcDisableStrictProxyCheckingCount && proxy->is<WrapperObject>()) {
+    if (!trc->runtime()->gc.disableStrictProxyCheckingCount && proxy->is<WrapperObject>()) {
         JSObject *referent = &proxy->private_().toObject();
         if (referent->compartment() != proxy->compartment()) {
             /*

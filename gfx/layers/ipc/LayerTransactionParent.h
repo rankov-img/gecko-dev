@@ -80,6 +80,8 @@ public:
   virtual bool IsSameProcess() const MOZ_OVERRIDE;
 
 protected:
+  virtual void ActorDestroy(ActorDestroyReason aWhy) MOZ_OVERRIDE;
+
   virtual bool RecvUpdate(const EditArray& cset,
                           const TargetConfig& targetConfig,
                           const bool& isFirstPaint,
@@ -102,13 +104,6 @@ protected:
                                          MOZ_OVERRIDE;
   virtual bool RecvSetAsyncScrollOffset(PLayerParent* aLayer,
                                         const int32_t& aX, const int32_t& aY) MOZ_OVERRIDE;
-
-  virtual PGrallocBufferParent*
-  AllocPGrallocBufferParent(const IntSize& aSize,
-                            const uint32_t& aFormat, const uint32_t& aUsage,
-                            MaybeMagicGrallocBufferHandle* aOutHandle) MOZ_OVERRIDE;
-  virtual bool
-  DeallocPGrallocBufferParent(PGrallocBufferParent* actor) MOZ_OVERRIDE;
 
   virtual PLayerParent* AllocPLayerParent() MOZ_OVERRIDE;
   virtual bool DeallocPLayerParent(PLayerParent* actor) MOZ_OVERRIDE;

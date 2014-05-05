@@ -321,9 +321,8 @@ ExportFunction(JSContext *cx, HandleValue vfunction, HandleValue vscope, HandleV
         // defineAs was set, we also need to define it as a property on
         // the target.
         if (!JSID_IS_VOID(options.defineAs)) {
-            if (!JS_DefinePropertyById(cx, targetScope, id, rval,
-                                       JS_PropertyStub, JS_StrictPropertyStub,
-                                       JSPROP_ENUMERATE)) {
+            if (!JS_DefinePropertyById(cx, targetScope, id, rval, JSPROP_ENUMERATE,
+                                       JS_PropertyStub, JS_StrictPropertyStub)) {
                 return false;
             }
         }
@@ -391,7 +390,7 @@ CloneNonReflectorsRead(JSContext *cx, JSStructuredCloneReader *reader, uint32_t 
 
         size_t idx;
         if (JS_ReadBytes(reader, &idx, sizeof(size_t))) {
-            RootedObject reflector(cx, reflectors->handleAt(idx));
+            RootedObject reflector(cx, (*reflectors)[idx]);
             MOZ_ASSERT(reflector, "No object pointer?");
             MOZ_ASSERT(IsReflector(reflector), "Object pointer must be a reflector!");
 

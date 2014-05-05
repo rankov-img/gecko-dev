@@ -111,6 +111,7 @@ class CodeGenerator : public CodeGeneratorSpecific
     bool visitConvertElementsToDoubles(LConvertElementsToDoubles *lir);
     bool visitMaybeToDoubleElement(LMaybeToDoubleElement *lir);
     bool visitGuardObjectIdentity(LGuardObjectIdentity *guard);
+    bool visitGuardShapePolymorphic(LGuardShapePolymorphic *lir);
     bool visitTypeBarrierV(LTypeBarrierV *lir);
     bool visitTypeBarrierO(LTypeBarrierO *lir);
     bool visitMonitorTypes(LMonitorTypes *lir);
@@ -388,7 +389,8 @@ class CodeGenerator : public CodeGeneratorSpecific
                                const LDefinition *scratch1, const LDefinition *scratch2,
                                FloatRegister fr,
                                Label *ifTruthy, Label *ifFalsy,
-                               OutOfLineTestObject *ool);
+                               OutOfLineTestObject *ool,
+                               MDefinition *valueMIR);
 
     // Test whether value is truthy or not and jump to the corresponding label.
     // If the value can be an object that emulates |undefined|, |ool| must be
@@ -399,7 +401,8 @@ class CodeGenerator : public CodeGeneratorSpecific
                          const LDefinition *scratch1, const LDefinition *scratch2,
                          FloatRegister fr,
                          Label *ifTruthy, Label *ifFalsy,
-                         OutOfLineTestObject *ool);
+                         OutOfLineTestObject *ool,
+                         MDefinition *valueMIR);
 
     // This function behaves like testObjectEmulatesUndefined with the exception
     // that it can choose to let control flow fall through when the object
