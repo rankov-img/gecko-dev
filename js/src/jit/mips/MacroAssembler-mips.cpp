@@ -1774,8 +1774,7 @@ MacroAssemblerMIPSCompat::movePtr(const ImmPtr &imm, const Register &dest)
 void
 MacroAssemblerMIPSCompat::movePtr(const AsmJSImmPtr &imm, const Register &dest)
 {
-    AsmJSAbsoluteLink link(nextOffset().getOffset(), imm.kind());
-    enoughMemory_ &= asmJSAbsoluteLinks_.append(link);
+    enoughMemory_ &= append(AsmJSAbsoluteLink(nextOffset().getOffset(), imm.kind()));
     ma_liPatchable(dest, Imm32(-1));
 }
 
