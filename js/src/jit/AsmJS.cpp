@@ -17,10 +17,7 @@
 #include "jsworkers.h"
 #include "prmjtime.h"
 
-#if defined(JS_CODEGEN_X64) || defined(JS_CODEGEN_X86)
 #include "assembler/assembler/MacroAssembler.h"
-#endif
-
 #include "frontend/Parser.h"
 #include "jit/AsmJSLink.h"
 #include "jit/AsmJSModule.h"

@@ -1183,6 +1183,8 @@ MarkJitExitFrame(JSTracer *trc, const JitFrameIterator &frame)
     }
 }
 
+// We need to specialize this for MIPS because the Value address is forced to
+// be aligned in JitRuntime::generateVMWrapper()
 #ifdef JS_CODEGEN_MIPS
 template <>
 Value *

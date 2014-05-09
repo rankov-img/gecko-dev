@@ -709,7 +709,7 @@ class MacroAssemblerMIPSCompat : public MacroAssemblerMIPS
 
     void branchTestMagicValue(Condition cond, const ValueOperand &val, JSWhyMagic why,
                               Label *label) {
-        JS_ASSERT(cond == Equal || cond == NotEqual);
+        MOZ_ASSERT(cond == Equal || cond == NotEqual);
         if (cond == Equal) {
             // Test for magic
             Label notmagic;

@@ -29,7 +29,7 @@
 #include "jswatchpoint.h"
 #include "jswrapper.h"
 
-#if defined(JS_ION) && !defined(JS_CODEGEN_MIPS)
+#if defined(JS_ION)
 # include "assembler/assembler/MacroAssembler.h"
 #endif
 #include "jit/arm/Simulator-arm.h"
@@ -242,9 +242,7 @@ JSRuntime::JSRuntime(JSRuntime *parentRuntime, JSUseHelperThreads useHelperThrea
 static bool
 JitSupportsFloatingPoint()
 {
-#ifdef JS_CODEGEN_MIPS
-    return true;
-#elif defined(JS_ION)
+#if defined(JS_ION)
     if (!JSC::MacroAssembler::supportsFloatingPoint())
         return false;
 

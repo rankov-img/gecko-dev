@@ -5476,7 +5476,8 @@ js::PrimitiveToObject(JSContext *cx, const Value &v)
         return StringObject::create(cx, str);
     }
 
-// Temporary fix until we fix the alignment of all arguments.
+// :TODO: (Bug 1007156) This is temporary fix for unaligned access to Value
+// To fix this properly arguments part of VMFunction will have to be redesigned.
 #ifdef JS_CODEGEN_MIPS
     if (v.isNumber()) {
         Value val;

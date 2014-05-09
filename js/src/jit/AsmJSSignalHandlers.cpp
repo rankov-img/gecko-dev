@@ -8,10 +8,7 @@
 
 #include "mozilla/BinarySearch.h"
 
-#if defined(JS_CODEGEN_X64) || defined(JS_CODEGEN_X86)
 #include "assembler/assembler/MacroAssembler.h"
-#endif
-
 #include "jit/AsmJSModule.h"
 
 using namespace js;
