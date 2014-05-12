@@ -1030,7 +1030,7 @@ JS_NeuterArrayBuffer(JSContext *cx, HandleObject obj,
     }
 
     void *newData;
-    if (changeData == ChangeData) {
+    if (changeData == ChangeData && buffer->hasStealableContents()) {
         newData = AllocateArrayBufferContents(cx, buffer->byteLength());
         if (!newData)
             return false;
@@ -1040,6 +1040,18 @@ JS_NeuterArrayBuffer(JSContext *cx, HandleObject obj,
 
     ArrayBufferObject::neuter(cx, buffer, newData);
     return true;
+}
+
+JS_FRIEND_API(bool)
+JS_IsNeuteredArrayBufferObject(JSObject *obj)
+{
+    obj = CheckedUnwrap(obj);
+    if (!obj)
+        return false;
+
+    return obj->is<ArrayBufferObject>()
+           ? obj->as<ArrayBufferObject>().isNeutered()
+           : false;
 }
 
 JS_FRIEND_API(JSObject *)

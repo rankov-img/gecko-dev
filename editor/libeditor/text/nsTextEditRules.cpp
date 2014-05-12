@@ -58,17 +58,28 @@ using namespace mozilla::dom;
  ********************************************************/
 
 nsTextEditRules::nsTextEditRules()
-: mEditor(nullptr)
-, mPasswordText()
-, mPasswordIMEText()
-, mPasswordIMEIndex(0)
-, mActionNesting(0)
-, mLockRulesSniffing(false)
-, mDidExplicitlySetInterline(false)
-, mTheAction(EditAction::none)
-, mLastStart(0)
-, mLastLength(0)
 {
+  InitFields();
+}
+
+void
+nsTextEditRules::InitFields()
+{
+  mEditor = nullptr;
+  mPasswordText.Truncate();
+  mPasswordIMEText.Truncate();
+  mPasswordIMEIndex = 0;
+  mBogusNode = nullptr;
+  mCachedSelectionNode = nullptr;
+  mCachedSelectionOffset = 0;
+  mActionNesting = 0;
+  mLockRulesSniffing = false;
+  mDidExplicitlySetInterline = false;
+  mDeleteBidiImmediately = false;
+  mTheAction = EditAction::none;
+  mTimer = nullptr;
+  mLastStart = 0;
+  mLastLength = 0;
 }
 
 nsTextEditRules::~nsTextEditRules()
@@ -102,6 +113,8 @@ NS_IMETHODIMP
 nsTextEditRules::Init(nsPlaintextEditor *aEditor)
 {
   if (!aEditor) { return NS_ERROR_NULL_POINTER; }
+
+  InitFields();
 
   mEditor = aEditor;  // we hold a non-refcounted reference back to our editor
   nsCOMPtr<nsISelection> selection;
@@ -1158,9 +1171,10 @@ nsTextEditRules::CreateBogusNodeIfNeeded(nsISelection *aSelection)
   }
 
   // Create a br.
-  nsCOMPtr<dom::Element> newContent;
-  nsresult rv = mEditor->CreateHTMLContent(NS_LITERAL_STRING("br"), getter_AddRefs(newContent));
-  NS_ENSURE_SUCCESS(rv, rv);
+  ErrorResult res;
+  nsCOMPtr<Element> newContent =
+    mEditor->CreateHTMLContent(NS_LITERAL_STRING("br"), res);
+  NS_ENSURE_SUCCESS(res.ErrorCode(), res.ErrorCode());
 
   // set mBogusNode to be the newly created <br>
   mBogusNode = do_QueryInterface(newContent);
@@ -1172,7 +1186,7 @@ nsTextEditRules::CreateBogusNodeIfNeeded(nsISelection *aSelection)
 
   // Put the node in the document.
   nsCOMPtr<nsIDOMNode> bodyNode = do_QueryInterface(body);
-  rv = mEditor->InsertNode(mBogusNode, bodyNode, 0);
+  nsresult rv = mEditor->InsertNode(mBogusNode, bodyNode, 0);
   NS_ENSURE_SUCCESS(rv, rv);
 
   // Set selection.

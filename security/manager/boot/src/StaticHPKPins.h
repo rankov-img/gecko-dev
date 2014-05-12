@@ -27,14 +27,6 @@ static const char kDigiCert_High_Assurance_EV_Root_CAFingerprint[]=
 static const char kEnd_Entity_Test_CertFingerprint[]=
   "sEIYDccDj1ULE64YxhvqV7ASqc2qfIofVyArzg+62hU=";
 
-/* Equifax Secure CA */
-static const char kEquifax_Secure_CAFingerprint[]=
-  "/1aAzXOlcD2gSBegdf1GJQanNQbEuBoVg+9UlHjSZHY=";
-
-/* GTE CyberTrust Global Root */
-static const char kGTE_CyberTrust_Global_RootFingerprint[]=
-  "EGn6R6CqT4z3ERscrqNl7q7RC//zJmDe9uBhS/rnCHU=";
-
 /* GeoTrust Global CA */
 static const char kGeoTrust_Global_CAFingerprint[]=
   "h6801m+z8v3zbgkRHpq6L29Esgfzhj89C1SyUCOQmqU=";
@@ -75,33 +67,13 @@ static const char kVeriSign_Class_3_Public_Primary_Certification_Authority___G5F
 static const char kVeriSign_Universal_Root_Certification_AuthorityFingerprint[]=
   "lnsM2T/O9/J84sJFdnrpsFp3awZJ+ZZbYpCWhGloaHI=";
 
-/* Verisign Class 1 Public Primary Certification Authority */
-static const char kVerisign_Class_1_Public_Primary_Certification_AuthorityFingerprint[]=
-  "LclHC+Y+9KzxvYKGCUArt7h72ZY4pkOTTohoLRvowwg=";
-
-/* Verisign Class 1 Public Primary Certification Authority - G2 */
-static const char kVerisign_Class_1_Public_Primary_Certification_Authority___G2Fingerprint[]=
-  "FqngEtMjKfKCsQu/V8fAtCroD2rJVC60CbwcLN5Q0yI=";
-
 /* Verisign Class 1 Public Primary Certification Authority - G3 */
 static const char kVerisign_Class_1_Public_Primary_Certification_Authority___G3Fingerprint[]=
   "IgduWu9Eu5pBaii30cRDItcFn2D+/6XK9sW+hEeJEwM=";
 
-/* Verisign Class 2 Public Primary Certification Authority - G2 */
-static const char kVerisign_Class_2_Public_Primary_Certification_Authority___G2Fingerprint[]=
-  "2oALgLKofTmeZvoZ1y/fSZg7R9jPMix8eVA6DH4o/q8=";
-
 /* Verisign Class 2 Public Primary Certification Authority - G3 */
 static const char kVerisign_Class_2_Public_Primary_Certification_Authority___G3Fingerprint[]=
   "cAajgxHlj7GTSEIzIYIQxmEloOSoJq7VOaxWHfv72QM=";
-
-/* Verisign Class 3 Public Primary Certification Authority */
-static const char kVerisign_Class_3_Public_Primary_Certification_AuthorityFingerprint[]=
-  "sRJBQqWhpaKIGcc1NA7/jJ4vgWj+47oYfyU7waOS1+I=";
-
-/* Verisign Class 3 Public Primary Certification Authority - G2 */
-static const char kVerisign_Class_3_Public_Primary_Certification_Authority___G2Fingerprint[]=
-  "AjyBzOjnxk+pQtPBUEhwfTXZu1uH9PVExb8bxWQ68vo=";
 
 /* Verisign Class 3 Public Primary Certification Authority - G3 */
 static const char kVerisign_Class_3_Public_Primary_Certification_Authority___G3Fingerprint[]=
@@ -129,36 +101,12 @@ typedef struct {
   const char* const* data;
 } StaticPinset;
 static const char* const kPinSet_mozilla_Data[] = {
-    kEquifax_Secure_CAFingerprint,
     kGeoTrust_Global_CA_2Fingerprint,
-    kthawte_Primary_Root_CA___G3Fingerprint,
-    kthawte_Primary_Root_CAFingerprint,
-    kDigiCert_Assured_ID_Root_CAFingerprint,
-    kGeoTrust_Primary_Certification_AuthorityFingerprint,
-    kDigiCert_High_Assurance_EV_Root_CAFingerprint,
-    kthawte_Primary_Root_CA___G2Fingerprint,
-    kGeoTrust_Universal_CA_2Fingerprint,
-    kGeoTrust_Global_CAFingerprint,
-    kGeoTrust_Universal_CAFingerprint,
-    kGeoTrust_Primary_Certification_Authority___G3Fingerprint,
-    kDigiCert_Global_Root_CAFingerprint,
-    kGeoTrust_Primary_Certification_Authority___G2Fingerprint,
-};
-const StaticPinset kPinSet_mozilla = { 14, kPinSet_mozilla_Data};
-
-static const char* const kPinSet_mozilla_cdn_Data[] = {
-    kEquifax_Secure_CAFingerprint,
-    kVerisign_Class_2_Public_Primary_Certification_Authority___G2Fingerprint,
-    kVerisign_Class_3_Public_Primary_Certification_Authority___G2Fingerprint,
-    kGTE_CyberTrust_Global_RootFingerprint,
-    kGeoTrust_Global_CA_2Fingerprint,
-    kVerisign_Class_1_Public_Primary_Certification_Authority___G2Fingerprint,
     kthawte_Primary_Root_CA___G3Fingerprint,
     kthawte_Primary_Root_CAFingerprint,
     kDigiCert_Assured_ID_Root_CAFingerprint,
     kVerisign_Class_1_Public_Primary_Certification_Authority___G3Fingerprint,
     kVeriSign_Class_3_Public_Primary_Certification_Authority___G5Fingerprint,
-    kVerisign_Class_1_Public_Primary_Certification_AuthorityFingerprint,
     kGeoTrust_Primary_Certification_AuthorityFingerprint,
     kVerisign_Class_3_Public_Primary_Certification_Authority___G3Fingerprint,
     kVeriSign_Class_3_Public_Primary_Certification_Authority___G4Fingerprint,
@@ -173,10 +121,9 @@ static const char* const kPinSet_mozilla_cdn_Data[] = {
     kGeoTrust_Universal_CAFingerprint,
     kGeoTrust_Primary_Certification_Authority___G3Fingerprint,
     kDigiCert_Global_Root_CAFingerprint,
-    kVerisign_Class_3_Public_Primary_Certification_AuthorityFingerprint,
     kGeoTrust_Primary_Certification_Authority___G2Fingerprint,
 };
-const StaticPinset kPinSet_mozilla_cdn = { 28, kPinSet_mozilla_cdn_Data};
+const StaticPinset kPinSet_mozilla = { 21, kPinSet_mozilla_Data};
 
 static const char* const kPinSet_mozilla_test_Data[] = {
     kEnd_Entity_Test_CertFingerprint,
@@ -191,10 +138,15 @@ typedef struct {
 } TransportSecurityPreload;
 
 static const TransportSecurityPreload kPublicKeyPinningPreloadList[] = {
+  { "addons.mozilla.net",	true,	&kPinSet_mozilla },
+  { "addons.mozilla.org",	true,	&kPinSet_mozilla },
+  { "cdn.mozilla.net",	true,	&kPinSet_mozilla },
+  { "cdn.mozilla.org",	true,	&kPinSet_mozilla },
   { "exclude-subdomains.pinning.example.com",	false,	&kPinSet_mozilla_test },
   { "include-subdomains.pinning.example.com",	true,	&kPinSet_mozilla_test },
+  { "media.mozilla.com",	true,	&kPinSet_mozilla },
 };
 
-static const int kPublicKeyPinningPreloadListLength = 2;
+static const int kPublicKeyPinningPreloadListLength = 7;
 
-const PRTime kPreloadPKPinsExpirationTime = INT64_C(1410109244157000);
+const PRTime kPreloadPKPinsExpirationTime = INT64_C(1410540741649000);

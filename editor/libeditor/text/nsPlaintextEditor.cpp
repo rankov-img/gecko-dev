@@ -125,7 +125,6 @@ NS_IMETHODIMP nsPlaintextEditor::Init(nsIDOMDocument *aDoc,
   nsresult res = NS_OK, rulesRes = NS_OK;
   if (mRules) {
     mRules->DetachEditor();
-    mRules = nullptr;
   }
   
   {
@@ -324,9 +323,10 @@ nsPlaintextEditor::UpdateMetaCharset(nsIDOMDocument* aDocument,
 
 NS_IMETHODIMP nsPlaintextEditor::InitRules()
 {
-  MOZ_ASSERT(!mRules);
-  // instantiate the rules for this text editor
-  mRules = new nsTextEditRules();
+  if (!mRules) {
+    // instantiate the rules for this text editor
+    mRules = new nsTextEditRules();
+  }
   return mRules->Init(this);
 }
 
@@ -436,6 +436,20 @@ nsPlaintextEditor::TypedText(const nsAString& aString, ETypingAction aAction)
       // eTypedBR is only for HTML
       return NS_ERROR_FAILURE;
   }
+}
+
+already_AddRefed<Element>
+nsPlaintextEditor::CreateBRImpl(nsCOMPtr<nsINode>* aInOutParent,
+                                int32_t* aInOutOffset,
+                                EDirection aSelect)
+{
+  nsCOMPtr<nsIDOMNode> parent(GetAsDOMNode(*aInOutParent));
+  nsCOMPtr<nsIDOMNode> br;
+  // We ignore the retval, and assume it's fine if the br is non-null
+  CreateBRImpl(address_of(parent), aInOutOffset, address_of(br), aSelect);
+  *aInOutParent = do_QueryInterface(parent);
+  nsCOMPtr<Element> ret(do_QueryInterface(br));
+  return ret.forget();
 }
 
 nsresult

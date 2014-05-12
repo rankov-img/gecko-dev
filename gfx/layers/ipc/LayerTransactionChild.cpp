@@ -9,6 +9,7 @@
 #include "mozilla/layers/CompositableClient.h"  // for CompositableChild
 #include "mozilla/layers/PCompositableChild.h"  // for PCompositableChild
 #include "mozilla/layers/PLayerChild.h"  // for PLayerChild
+#include "mozilla/layers/ShadowLayers.h"  // for ShadowLayerForwarder
 #include "mozilla/mozalloc.h"           // for operator delete, etc
 #include "nsDebug.h"                    // for NS_RUNTIMEABORT, etc
 #include "nsTArray.h"                   // for nsTArray
@@ -21,10 +22,19 @@ namespace layers {
 void
 LayerTransactionChild::Destroy()
 {
+  if (!IPCOpen() || mDestroyed) {
+    return;
+  }
+  // mDestroyed is used to prevent calling Send__delete__() twice.
+  // When this function is called from CompositorChild::Destroy(),
+  // under Send__delete__() call, this function is called from
+  // ShadowLayerForwarder's destructor.
+  // When it happens, IPCOpen() is still true.
+  // See bug 1004191.
+  mDestroyed = true;
   NS_ABORT_IF_FALSE(0 == ManagedPLayerChild().Length(),
                     "layers should have been cleaned up by now");
   PLayerTransactionChild::Send__delete__(this);
-  // WARNING: |this| has gone to the great heap in the sky
 }
 
 
@@ -53,6 +63,36 @@ bool
 LayerTransactionChild::DeallocPCompositableChild(PCompositableChild* actor)
 {
   return CompositableClient::DestroyIPDLActor(actor);
+}
+
+bool
+LayerTransactionChild::RecvParentAsyncMessage(const mozilla::layers::AsyncParentMessageData& aMessage)
+{
+  switch (aMessage.type()) {
+    case AsyncParentMessageData::TOpDeliverFence: {
+      const OpDeliverFence& op = aMessage.get_OpDeliverFence();
+      FenceHandle fence = op.fence();
+      PTextureChild* child = op.textureChild();
+
+      RefPtr<TextureClient> texture = TextureClient::AsTextureClient(child);
+      if (texture) {
+        texture->SetReleaseFenceHandle(fence);
+      }
+      if (mForwarder) {
+        mForwarder->HoldTransactionsToRespond(op.transactionId());
+      } else {
+        // Send back a response.
+        InfallibleTArray<AsyncChildMessageData> replies;
+        replies.AppendElement(OpReplyDeliverFence(op.transactionId()));
+        SendChildAsyncMessages(replies);
+      }
+      break;
+    }
+    default:
+      NS_ERROR("unknown AsyncParentMessageData type");
+      return false;
+  }
+  return true;
 }
 
 void

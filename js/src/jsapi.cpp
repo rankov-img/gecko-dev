@@ -568,6 +568,8 @@ JS_Init(void)
     MOZ_ASSERT(!JSRuntime::hasLiveRuntimes(),
                "how do we have live runtimes before JS_Init?");
 
+    PRMJ_NowInit();
+
 #ifdef DEBUG
     CheckMessageNumbering();
     CheckMessageParameterCounts();
@@ -1380,6 +1382,14 @@ JS_GetArrayPrototype(JSContext *cx, HandleObject forObj)
     assertSameCompartment(cx, forObj);
     Rooted<GlobalObject*> global(cx, &forObj->global());
     return GlobalObject::getOrCreateArrayPrototype(cx, global);
+}
+
+JS_PUBLIC_API(JSObject *)
+JS_GetErrorPrototype(JSContext *cx)
+{
+    CHECK_REQUEST(cx);
+    Rooted<GlobalObject*> global(cx, cx->global());
+    return GlobalObject::getOrCreateCustomErrorPrototype(cx, global, JSEXN_ERR);
 }
 
 JS_PUBLIC_API(JSObject *)

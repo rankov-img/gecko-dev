@@ -366,8 +366,6 @@ NewInitObjectWithClassPrototype(JSContext *cx, HandleObject templateObject)
 bool
 ArraySpliceDense(JSContext *cx, HandleObject obj, uint32_t start, uint32_t deleteCount)
 {
-    JS_ASSERT(obj->is<ArrayObject>());
-
     JS::AutoValueArray<4> argv(cx);
     argv[0].setUndefined();
     argv[1].setObject(*obj);
@@ -528,25 +526,16 @@ InterruptCheck(JSContext *cx)
     return CheckForInterrupt(cx);
 }
 
-HeapSlot *
-NewSlots(JSRuntime *rt, unsigned nslots)
+void *
+MallocWrapper(JSRuntime *rt, size_t nbytes)
 {
-    JS_STATIC_ASSERT(sizeof(Value) == sizeof(HeapSlot));
-
-    Value *slots = reinterpret_cast<Value *>(rt->malloc_(nslots * sizeof(Value)));
-    if (!slots)
-        return nullptr;
-
-    for (unsigned i = 0; i < nslots; i++)
-        slots[i] = UndefinedValue();
-
-    return reinterpret_cast<HeapSlot *>(slots);
+    return rt->pod_malloc<uint8_t>(nbytes);
 }
 
 JSObject *
-NewCallObject(JSContext *cx, HandleShape shape, HandleTypeObject type, HeapSlot *slots)
+NewCallObject(JSContext *cx, HandleShape shape, HandleTypeObject type)
 {
-    JSObject *obj = CallObject::create(cx, shape, type, slots);
+    JSObject *obj = CallObject::create(cx, shape, type);
     if (!obj)
         return nullptr;
 
@@ -554,17 +543,17 @@ NewCallObject(JSContext *cx, HandleShape shape, HandleTypeObject type, HeapSlot 
     // The JIT creates call objects in the nursery, so elides barriers for
     // the initializing writes. The interpreter, however, may have allocated
     // the call object tenured, so barrier as needed before re-entering.
-    if (!IsInsideNursery(cx->runtime(), obj))
-        cx->runtime()->gc.storeBuffer.putWholeCell(obj);
+    if (!IsInsideNursery(obj))
+        cx->runtime()->gc.storeBuffer.putWholeCellFromMainThread(obj);
 #endif
 
     return obj;
 }
 
 JSObject *
-NewSingletonCallObject(JSContext *cx, HandleShape shape, HeapSlot *slots)
+NewSingletonCallObject(JSContext *cx, HandleShape shape)
 {
-    JSObject *obj = CallObject::createSingleton(cx, shape, slots);
+    JSObject *obj = CallObject::createSingleton(cx, shape);
     if (!obj)
         return nullptr;
 
@@ -572,9 +561,9 @@ NewSingletonCallObject(JSContext *cx, HandleShape shape, HeapSlot *slots)
     // The JIT creates call objects in the nursery, so elides barriers for
     // the initializing writes. The interpreter, however, may have allocated
     // the call object tenured, so barrier as needed before re-entering.
-    MOZ_ASSERT(!IsInsideNursery(cx->runtime(), obj),
+    MOZ_ASSERT(!IsInsideNursery(obj),
                "singletons are created in the tenured heap");
-    cx->runtime()->gc.storeBuffer.putWholeCell(obj);
+    cx->runtime()->gc.storeBuffer.putWholeCellFromMainThread(obj);
 #endif
 
     return obj;
@@ -715,7 +704,7 @@ void
 PostWriteBarrier(JSRuntime *rt, JSObject *obj)
 {
     JS_ASSERT(!IsInsideNursery(rt, obj));
-    rt->gc.storeBuffer.putWholeCell(obj);
+    rt->gc.storeBuffer.putWholeCellFromMainThread(obj);
 }
 
 void

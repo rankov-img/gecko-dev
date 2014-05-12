@@ -52,6 +52,7 @@ WEBIDL_FILES = [
     'ChannelSplitterNode.webidl',
     'CharacterData.webidl',
     'ChildNode.webidl',
+    'ChromeNotifications.webidl',
     'ClipboardEvent.webidl',
     'CommandEvent.webidl',
     'Comment.webidl',
@@ -246,7 +247,6 @@ WEBIDL_FILES = [
     'MozMmsMessage.webidl',
     'MozMobileConnection.webidl',
     'MozNamedAttrMap.webidl',
-    'MozNetworkStats.webidl',
     'MozPowerManager.webidl',
     'MozTimeManager.webidl',
     'MozWakeLock.webidl',
@@ -370,6 +370,7 @@ WEBIDL_FILES = [
     'SVGGElement.webidl',
     'SVGGradientElement.webidl',
     'SVGGraphicsElement.webidl',
+    'SVGIFrameElement.webidl',
     'SVGImageElement.webidl',
     'SVGLength.webidl',
     'SVGLengthList.webidl',
@@ -565,6 +566,10 @@ if CONFIG['MOZ_NFC']:
 
 if CONFIG['MOZ_WIDGET_TOOLKIT'] == 'gonk':
     WEBIDL_FILES += [
+        'MozNetworkStats.webidl',
+        'MozNetworkStatsAlarm.webidl',
+        'MozNetworkStatsData.webidl',
+        'MozNetworkStatsInterface.webidl',
         'MozSpeakerManager.webidl',
         'MozWifiConnectionInfoEvent.webidl',
         'MozWifiManager.webidl',

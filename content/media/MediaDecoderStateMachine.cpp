@@ -207,6 +207,8 @@ MediaDecoderStateMachine::MediaDecoderStateMachine(MediaDecoder* aDecoder,
   mMinimizePreroll(false),
   mDecodeThreadWaiting(false),
   mRealTime(aRealTime),
+  mDispatchedDecodeMetadataTask(false),
+  mDispatchedDecodeSeekTask(false),
   mLastFrameStatus(MediaDecoderOwner::NEXT_FRAME_UNINITIALIZED),
   mTimerId(0)
 {
@@ -243,14 +245,9 @@ MediaDecoderStateMachine::~MediaDecoderStateMachine()
   NS_ASSERTION(!mPendingWakeDecoder.get(),
                "WakeDecoder should have been revoked already");
 
-  if (mDecodeTaskQueue) {
-    mDecodeTaskQueue->Shutdown();
-    mDecodeTaskQueue = nullptr;
-  }
-
-  // No need to cancel the timer here for we've done that in
-  // TimeoutExpired() triggered by Shutdown()
-  mTimer = nullptr;
+  MOZ_ASSERT(!mDecodeTaskQueue, "Should be released in SHUTDOWN");
+  // No need to cancel the timer here for we've done that in SHUTDOWN.
+  MOZ_ASSERT(!mTimer, "Should be released in SHUTDOWN");
   mReader = nullptr;
 
 #ifdef XP_WIN
@@ -1447,7 +1444,7 @@ void MediaDecoderStateMachine::Seek(const SeekTarget& aTarget)
   mSeekTarget = SeekTarget(seekTime, aTarget.mType);
 
   mBasePosition = seekTime - mStartTime;
-  DECODER_LOG(PR_LOG_DEBUG, "Changed state to SEEKING (to %ld)", mSeekTarget.mTime);
+  DECODER_LOG(PR_LOG_DEBUG, "Changed state to SEEKING (to %lld)", mSeekTarget.mTime);
   mState = DECODER_STATE_SEEKING;
   if (mDecoder->GetDecodedStream()) {
     mDecoder->RecreateDecodedStream(seekTime - mStartTime);
@@ -1486,12 +1483,18 @@ MediaDecoderStateMachine::EnqueueDecodeMetadataTask()
 {
   AssertCurrentThreadInMonitor();
 
-  if (mState != DECODER_STATE_DECODING_METADATA) {
+  if (mState != DECODER_STATE_DECODING_METADATA ||
+      mDispatchedDecodeMetadataTask) {
     return NS_OK;
   }
   nsresult rv = mDecodeTaskQueue->Dispatch(
     NS_NewRunnableMethod(this, &MediaDecoderStateMachine::CallDecodeMetadata));
-  NS_ENSURE_SUCCESS(rv, rv);
+  if (NS_SUCCEEDED(rv)) {
+    mDispatchedDecodeMetadataTask = true;
+  } else {
+    NS_WARNING("Dispatch ReadMetadata task failed.");
+    return rv;
+  }
 
   return NS_OK;
 }
@@ -1576,13 +1579,13 @@ MediaDecoderStateMachine::DispatchDecodeTasksIfNeeded()
     return;
   }
   mIsReaderIdle = needIdle;
-  nsRefPtr<nsIRunnable> event;
+  RefPtr<nsIRunnable> event;
   if (mIsReaderIdle) {
     event = NS_NewRunnableMethod(this, &MediaDecoderStateMachine::SetReaderIdle);
   } else {
     event = NS_NewRunnableMethod(this, &MediaDecoderStateMachine::SetReaderActive);
   }
-  if (NS_FAILED(mDecodeTaskQueue->Dispatch(event)) &&
+  if (NS_FAILED(mDecodeTaskQueue->Dispatch(event.forget())) &&
       mState != DECODER_STATE_SHUTDOWN) {
     NS_WARNING("Failed to dispatch event to set decoder idle state");
   }
@@ -1595,14 +1598,18 @@ MediaDecoderStateMachine::EnqueueDecodeSeekTask()
                "Should be on state machine or decode thread.");
   AssertCurrentThreadInMonitor();
 
-  if (mState != DECODER_STATE_SEEKING) {
+  if (mState != DECODER_STATE_SEEKING ||
+      mDispatchedDecodeSeekTask) {
     return NS_OK;
   }
   nsresult rv = mDecodeTaskQueue->Dispatch(
     NS_NewRunnableMethod(this, &MediaDecoderStateMachine::DecodeSeek));
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  return NS_OK;
+  if (NS_SUCCEEDED(rv)) {
+    mDispatchedDecodeSeekTask = true;
+  } else {
+    NS_WARNING("Dispatch DecodeSeek task failed.");
+  }
+  return rv;
 }
 
 nsresult
@@ -1803,6 +1810,7 @@ void
 MediaDecoderStateMachine::CallDecodeMetadata()
 {
   ReentrantMonitorAutoEnter mon(mDecoder->GetReentrantMonitor());
+  AutoSetOnScopeExit<bool> unsetOnExit(mDispatchedDecodeMetadataTask, false);
   if (mState != DECODER_STATE_DECODING_METADATA) {
     return;
   }
@@ -1918,6 +1926,7 @@ void MediaDecoderStateMachine::DecodeSeek()
 {
   ReentrantMonitorAutoEnter mon(mDecoder->GetReentrantMonitor());
   NS_ASSERTION(OnDecodeThread(), "Should be on decode thread.");
+  AutoSetOnScopeExit<bool> unsetOnExit(mDispatchedDecodeSeekTask, false);
   if (mState != DECODER_STATE_SEEKING) {
     return;
   }
@@ -2135,6 +2144,7 @@ nsresult MediaDecoderStateMachine::RunStateMachine()
         ReentrantMonitorAutoExit exitMon(mDecoder->GetReentrantMonitor());
         // Wait for the thread decoding to exit.
         mDecodeTaskQueue->Shutdown();
+        mDecodeTaskQueue = nullptr;
         mReader->ReleaseMediaResources();
       }
       // Now that those threads are stopped, there's no possibility of
@@ -2158,6 +2168,9 @@ nsresult MediaDecoderStateMachine::RunStateMachine()
       // state machine.
       GetStateMachineThread()->Dispatch(
         new nsDispatchDisposeEvent(mDecoder, this), NS_DISPATCH_NORMAL);
+
+      mTimer->Cancel();
+      mTimer = nullptr;
       return NS_OK;
     }
 

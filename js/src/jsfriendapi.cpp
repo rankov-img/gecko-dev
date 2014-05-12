@@ -39,6 +39,10 @@ JS_STATIC_ASSERT(offsetof(JSRuntime, mainThread) ==
 PerThreadDataFriendFields::PerThreadDataFriendFields()
 {
     PodArrayZero(nativeStackLimit);
+#if JS_STACK_GROWTH_DIRECTION > 0
+    for (int i=0; i<StackKindCount; i++)
+        nativeStackLimit[i] = UINTPTR_MAX;
+#endif
 #if defined(JSGC_USE_EXACT_ROOTING)
     PodArrayZero(thingGCRooters);
 #endif
@@ -92,9 +96,7 @@ JS_FindCompilationScope(JSContext *cx, HandleObject objArg)
      * Innerize the target_obj so that we compile in the correct (inner)
      * scope.
      */
-    if (JSObjectOp op = obj->getClass()->ext.innerObject)
-        obj = op(cx, obj);
-    return obj;
+    return GetInnerObject(obj);
 }
 
 JS_FRIEND_API(JSFunction *)

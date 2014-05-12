@@ -305,6 +305,22 @@ const uint32_t Arena::FirstThingOffsets[] = {
 
 #undef OFFSET
 
+const char *
+js::gc::TraceKindAsAscii(JSGCTraceKind kind)
+{
+    switch(kind) {
+      case JSTRACE_OBJECT: return "JSTRACE_OBJECT";
+      case JSTRACE_STRING: return "JSTRACE_STRING";
+      case JSTRACE_SCRIPT: return "JSTRACE_SCRIPT";
+      case JSTRACE_LAZY_SCRIPT: return "JSTRACE_SCRIPT";
+      case JSTRACE_JITCODE: return "JSTRACE_JITCODE";
+      case JSTRACE_SHAPE: return "JSTRACE_SHAPE";
+      case JSTRACE_BASE_SHAPE: return "JSTRACE_BASE_SHAPE";
+      case JSTRACE_TYPE_OBJECT: return "JSTRACE_TYPE_OBJECT";
+      default: return "INVALID";
+    }
+}
+
 /*
  * Finalization order for incrementally swept things.
  */
@@ -399,15 +415,15 @@ ArenaHeader::checkSynchronizedWithFreeList() const
     FreeSpan firstSpan = FreeSpan::decodeOffsets(arenaAddress(), firstFreeSpanOffsets);
     if (firstSpan.isEmpty())
         return;
-    const FreeSpan *list = zone->allocator.arenas.getFreeList(getAllocKind());
-    if (list->isEmpty() || firstSpan.arenaAddress() != list->arenaAddress())
+    const FreeList *freeList = zone->allocator.arenas.getFreeList(getAllocKind());
+    if (freeList->isEmpty() || firstSpan.arenaAddress() != freeList->arenaAddress())
         return;
 
     /*
      * Here this arena has free things, FreeList::lists[thingKind] is not
      * empty and also points to this arena. Thus they must the same.
      */
-    JS_ASSERT(firstSpan.isSameNonEmptySpan(list));
+    JS_ASSERT(freeList->isSameNonEmptySpan(firstSpan));
 }
 #endif
 
@@ -421,11 +437,10 @@ Arena::staticAsserts()
 void
 Arena::setAsFullyUnused(AllocKind thingKind)
 {
-    FreeSpan entireList;
-    entireList.first = thingsStart(thingKind);
-    uintptr_t arenaAddr = aheader.arenaAddress();
-    entireList.last = arenaAddr | ArenaMask;
-    aheader.setFirstFreeSpan(&entireList);
+    FreeSpan fullSpan;
+    size_t thingSize = Arena::thingSize(thingKind);
+    fullSpan.initFinal(thingsStart(thingKind), thingsEnd() - thingSize, thingSize);
+    aheader.setFirstFreeSpan(&fullSpan);
 }
 
 template<typename T>
@@ -445,7 +460,7 @@ Arena::finalize(FreeOp *fop, AllocKind thingKind, size_t thingSize)
 
     uintptr_t firstThing = thingsStart(thingKind);
     uintptr_t firstThingOrSuccessorOfLastMarkedThing = firstThing;
-    uintptr_t lastByte = thingsEnd() - 1;
+    uintptr_t lastThing = thingsEnd() - thingSize;
 
     FreeSpan newListHead;
     FreeSpan *newListTail = &newListHead;
@@ -458,9 +473,9 @@ Arena::finalize(FreeOp *fop, AllocKind thingKind, size_t thingSize)
             if (thing != firstThingOrSuccessorOfLastMarkedThing) {
                 // We just finished passing over one or more free things,
                 // so record a new FreeSpan.
-                newListTail->first = firstThingOrSuccessorOfLastMarkedThing;
-                newListTail->last = thing - thingSize;
-                newListTail = newListTail->nextSpanUnchecked(thingSize);
+                newListTail->initBoundsUnchecked(firstThingOrSuccessorOfLastMarkedThing,
+                                                 thing - thingSize);
+                newListTail = newListTail->nextSpanUnchecked();
             }
             firstThingOrSuccessorOfLastMarkedThing = thing + thingSize;
             nmarked++;
@@ -470,46 +485,32 @@ Arena::finalize(FreeOp *fop, AllocKind thingKind, size_t thingSize)
         }
     }
 
-    // Complete the last FreeSpan.
-    newListTail->first = firstThingOrSuccessorOfLastMarkedThing;
-    newListTail->last = lastByte;
-
     if (nmarked == 0) {
+        // Do nothing. The caller will update the arena header appropriately.
         JS_ASSERT(newListTail == &newListHead);
-        JS_ASSERT(newListTail->first == thingsStart(thingKind));
         JS_EXTRA_POISON(data, JS_SWEPT_TENURED_PATTERN, sizeof(data));
         return true;
     }
 
+    JS_ASSERT(firstThingOrSuccessorOfLastMarkedThing != firstThing);
+    uintptr_t lastMarkedThing = firstThingOrSuccessorOfLastMarkedThing - thingSize;
+    if (lastThing == lastMarkedThing) {
+        // If the last thing was marked, we will have already set the bounds of
+        // the final span, and we just need to terminate the list.
+        newListTail->initAsEmpty();
+    } else {
+        // Otherwise, end the list with a span that covers the final stretch of free things.
+        newListTail->initFinal(firstThingOrSuccessorOfLastMarkedThing, lastThing, thingSize);
+    }
+
 #ifdef DEBUG
     size_t nfree = 0;
-    for (const FreeSpan *span = &newListHead; span != newListTail; span = span->nextSpan()) {
-        span->checkSpan();
-        JS_ASSERT(Arena::isAligned(span->first, thingSize));
-        JS_ASSERT(Arena::isAligned(span->last, thingSize));
-        nfree += (span->last - span->first) / thingSize + 1;
-    }
-    JS_ASSERT(Arena::isAligned(newListTail->first, thingSize));
-    JS_ASSERT(newListTail->last == lastByte);
-    nfree += (newListTail->last + 1 - newListTail->first) / thingSize;
+    for (const FreeSpan *span = &newListHead; !span->isEmpty(); span = span->nextSpan())
+        nfree += span->length(thingSize);
     JS_ASSERT(nfree + nmarked == thingsPerArena(thingSize));
 #endif
     aheader.setFirstFreeSpan(&newListHead);
     return false;
-}
-
-/*
- * Insert an arena into the list in appropriate position and update the cursor
- * to ensure that any arena before the cursor is full.
- */
-void ArenaList::insert(ArenaHeader *a)
-{
-    JS_ASSERT(a);
-    JS_ASSERT_IF(!head, cursor == &head);
-    a->next = *cursor;
-    *cursor = a;
-    if (!a->hasFreeThings())
-        cursor = &a->next;
 }
 
 template<typename T>
@@ -538,7 +539,7 @@ FinalizeTypedArenas(FreeOp *fop,
         *src = aheader->next;
         bool allClear = aheader->getArena()->finalize<T>(fop, thingKind, thingSize);
         if (!allClear)
-            dest.insert(aheader);
+            dest.insertAtCursor(aheader);
         else if (releaseArenas)
             aheader->chunk()->releaseArena(aheader);
         else
@@ -548,13 +549,14 @@ FinalizeTypedArenas(FreeOp *fop,
         if (budget.isOverBudget())
             return false;
     }
+    dest.deepCheck();
 
     return true;
 }
 
 /*
- * Finalize the list. On return al->cursor points to the first non-empty arena
- * after the al->head.
+ * Finalize the list. On return, |al|'s cursor points to the first non-empty
+ * arena in the list (which may be null if all arenas are full).
  */
 static bool
 FinalizeArenas(FreeOp *fop,
@@ -563,7 +565,7 @@ FinalizeArenas(FreeOp *fop,
                AllocKind thingKind,
                SliceBudget &budget)
 {
-    switch(thingKind) {
+    switch (thingKind) {
       case FINALIZE_OBJECT0:
       case FINALIZE_OBJECT0_BACKGROUND:
       case FINALIZE_OBJECT2:
@@ -789,6 +791,7 @@ Chunk::init(JSRuntime *rt)
 
     /* Initialize the chunk info. */
     info.age = 0;
+    info.trailer.storeBuffer = nullptr;
     info.trailer.location = ChunkLocationTenuredHeap;
     info.trailer.runtime = rt;
 
@@ -934,7 +937,7 @@ void
 Chunk::recycleArena(ArenaHeader *aheader, ArenaList &dest, AllocKind thingKind)
 {
     aheader->getArena()->setAsFullyUnused(thingKind);
-    dest.insert(aheader);
+    dest.insertAtCursor(aheader);
 }
 
 void
@@ -1445,9 +1448,9 @@ inline void
 ArenaLists::prepareForIncrementalGC(JSRuntime *rt)
 {
     for (size_t i = 0; i != FINALIZE_LIMIT; ++i) {
-        FreeSpan *headSpan = &freeLists[i];
-        if (!headSpan->isEmpty()) {
-            ArenaHeader *aheader = headSpan->arenaHeader();
+        FreeList *freeList = &freeLists[i];
+        if (!freeList->isEmpty()) {
+            ArenaHeader *aheader = freeList->arenaHeader();
             aheader->allocatedDuringIncremental = true;
             rt->gc.marker.delayMarkingArena(aheader);
         }
@@ -1483,13 +1486,13 @@ ArenaLists::allocateFromArenaInline(Zone *zone, AllocKind thingKind)
     volatile uintptr_t *bfs = &backgroundFinalizeState[thingKind];
     if (*bfs != BFS_DONE) {
         /*
-         * We cannot search the arena list for free things while the
-         * background finalization runs and can modify head or cursor at any
-         * moment. So we always allocate a new arena in that case.
+         * We cannot search the arena list for free things while background
+         * finalization runs and can modify it at any moment. So we always
+         * allocate a new arena in that case.
          */
         maybeLock.lock(zone->runtimeFromAnyThread());
         if (*bfs == BFS_RUN) {
-            JS_ASSERT(!*al->cursor);
+            JS_ASSERT(al->isCursorAtEnd());
             chunk = PickChunk(zone);
             if (!chunk) {
                 /*
@@ -1508,9 +1511,7 @@ ArenaLists::allocateFromArenaInline(Zone *zone, AllocKind thingKind)
 #endif /* JS_THREADSAFE */
 
     if (!chunk) {
-        if (ArenaHeader *aheader = *al->cursor) {
-            JS_ASSERT(aheader->hasFreeThings());
-
+        if (ArenaHeader *aheader = al->arenaAfterCursor()) {
             /*
              * Normally, the empty arenas are returned to the chunk
              * and should not present on the list. In parallel
@@ -1518,13 +1519,15 @@ ArenaLists::allocateFromArenaInline(Zone *zone, AllocKind thingKind)
              * list to avoid synchronizing on the chunk.
              */
             JS_ASSERT(!aheader->isEmpty() || InParallelSection());
-            al->cursor = &aheader->next;
+
+            al->moveCursorPast(aheader);
 
             /*
              * Move the free span stored in the arena to the free list and
              * allocate from it.
              */
-            freeLists[thingKind] = aheader->getFirstFreeSpan();
+            FreeSpan firstFreeSpan = aheader->getFirstFreeSpan();
+            freeLists[thingKind].setHead(&firstFreeSpan);
             aheader->setAsFullyUsed();
             if (MOZ_UNLIKELY(zone->wasGCStarted())) {
                 if (zone->needsBarrier()) {
@@ -1534,7 +1537,9 @@ ArenaLists::allocateFromArenaInline(Zone *zone, AllocKind thingKind)
                     PushArenaAllocatedDuringSweep(zone->runtimeFromMainThread(), aheader);
                 }
             }
-            return freeLists[thingKind].infallibleAllocate(Arena::thingSize(thingKind));
+            void *thing = freeLists[thingKind].allocate(Arena::thingSize(thingKind));
+            JS_ASSERT(thing);   // This allocation is infallible.
+            return thing;
         }
 
         /* Make sure we hold the GC lock before we call PickChunk. */
@@ -1550,11 +1555,11 @@ ArenaLists::allocateFromArenaInline(Zone *zone, AllocKind thingKind)
      * as full as its single free span is moved to the free lits, and insert
      * it to the list as a fully allocated arena.
      *
-     * We add the arena before the the head, not after the tail pointed by the
-     * cursor, so after the GC the most recently added arena will be used first
-     * for allocations improving cache locality.
+     * We add the arena before the the head, so that after the GC the most
+     * recently added arena will be used first for allocations. This improves
+     * cache locality.
      */
-    JS_ASSERT(!*al->cursor);
+    JS_ASSERT(al->isCursorAtEnd());
     ArenaHeader *aheader = chunk->allocateArena(zone, thingKind);
     if (!aheader)
         return nullptr;
@@ -1567,12 +1572,7 @@ ArenaLists::allocateFromArenaInline(Zone *zone, AllocKind thingKind)
             PushArenaAllocatedDuringSweep(zone->runtimeFromMainThread(), aheader);
         }
     }
-    aheader->next = al->head;
-    if (!al->head) {
-        JS_ASSERT(al->cursor == &al->head);
-        al->cursor = &aheader->next;
-    }
-    al->head = aheader;
+    al->insertAtStart(aheader);
 
     /* See comments before allocateFromNewArena about this assert. */
     JS_ASSERT(!aheader->hasFreeThings());
@@ -1603,7 +1603,7 @@ ArenaLists::wipeDuringParallelExecution(JSRuntime *rt)
     // that'd be bad.
     for (unsigned i = 0; i < FINALIZE_LAST; i++) {
         AllocKind thingKind = AllocKind(i);
-        if (!IsBackgroundFinalized(thingKind) && arenaLists[thingKind].head)
+        if (!IsBackgroundFinalized(thingKind) && !arenaLists[thingKind].isEmpty())
             return;
     }
 
@@ -1616,7 +1616,7 @@ ArenaLists::wipeDuringParallelExecution(JSRuntime *rt)
         if (!IsBackgroundFinalized(thingKind))
             continue;
 
-        if (arenaLists[i].head) {
+        if (!arenaLists[i].isEmpty()) {
             purge(thingKind);
             forceFinalizeNow(&fop, thingKind);
         }
@@ -1635,7 +1635,7 @@ ArenaLists::forceFinalizeNow(FreeOp *fop, AllocKind thingKind)
 {
     JS_ASSERT(backgroundFinalizeState[thingKind] == BFS_DONE);
 
-    ArenaHeader *arenas = arenaLists[thingKind].head;
+    ArenaHeader *arenas = arenaLists[thingKind].head();
     arenaLists[thingKind].clear();
 
     SliceBudget budget;
@@ -1650,7 +1650,7 @@ ArenaLists::queueForForegroundSweep(FreeOp *fop, AllocKind thingKind)
     JS_ASSERT(backgroundFinalizeState[thingKind] == BFS_DONE);
     JS_ASSERT(!arenaListsToSweep[thingKind]);
 
-    arenaListsToSweep[thingKind] = arenaLists[thingKind].head;
+    arenaListsToSweep[thingKind] = arenaLists[thingKind].head();
     arenaLists[thingKind].clear();
 }
 
@@ -1664,9 +1664,8 @@ ArenaLists::queueForBackgroundSweep(FreeOp *fop, AllocKind thingKind)
 #endif
 
     ArenaList *al = &arenaLists[thingKind];
-    if (!al->head) {
+    if (al->isEmpty()) {
         JS_ASSERT(backgroundFinalizeState[thingKind] == BFS_DONE);
-        JS_ASSERT(al->cursor == &al->head);
         return;
     }
 
@@ -1677,7 +1676,7 @@ ArenaLists::queueForBackgroundSweep(FreeOp *fop, AllocKind thingKind)
     JS_ASSERT(backgroundFinalizeState[thingKind] == BFS_DONE ||
               backgroundFinalizeState[thingKind] == BFS_JUST_FINISHED);
 
-    arenaListsToSweep[thingKind] = al->head;
+    arenaListsToSweep[thingKind] = al->head();
     al->clear();
     backgroundFinalizeState[thingKind] = BFS_RUN;
 }
@@ -1694,23 +1693,18 @@ ArenaLists::backgroundFinalize(FreeOp *fop, ArenaHeader *listHead, bool onBackgr
     FinalizeArenas(fop, &listHead, finalized, thingKind, budget);
     JS_ASSERT(!listHead);
 
-    /*
-     * After we finish the finalization al->cursor must point to the end of
-     * the head list as we emptied the list before the background finalization
-     * and the allocation adds new arenas before the cursor.
-     */
+    // When arenas are queued for background finalization, all
+    // arenas are moved to arenaListsToSweep[], leaving the arenaLists[] empty.
+    // Then, if new arenas are allocated before background finalization
+    // finishes they are always added to the front of the list. Therefore,
+    // at this point, |al|'s cursor will always be at the end of its list.
     ArenaLists *lists = &zone->allocator.arenas;
     ArenaList *al = &lists->arenaLists[thingKind];
 
     AutoLockGC lock(fop->runtime());
     JS_ASSERT(lists->backgroundFinalizeState[thingKind] == BFS_RUN);
-    JS_ASSERT(!*al->cursor);
 
-    if (finalized.head) {
-        *al->cursor = finalized.head;
-        if (finalized.cursor != &finalized.head)
-            al->cursor = finalized.cursor;
-    }
+    al->appendToListWithCursorAtEnd(finalized);
 
     /*
      * We must set the state to BFS_JUST_FINISHED if we are running on the
@@ -1721,7 +1715,7 @@ ArenaLists::backgroundFinalize(FreeOp *fop, ArenaHeader *listHead, bool onBackgr
      * allocating new arenas from the chunks we can set the state to BFS_DONE if
      * we have released all finalized arenas back to their chunks.
      */
-    if (onBackgroundThread && finalized.head)
+    if (onBackgroundThread && !finalized.isEmpty())
         lists->backgroundFinalizeState[thingKind] = BFS_JUST_FINISHED;
     else
         lists->backgroundFinalizeState[thingKind] = BFS_DONE;
@@ -2854,7 +2848,7 @@ BeginMarkPhase(JSRuntime *rt)
 
     if (!rt->gc.shouldCleanUpEverything) {
 #ifdef JS_ION
-        if (JSCompartment *comp = jit::TopmostJitActivationCompartment(rt))
+        if (JSCompartment *comp = jit::TopmostIonActivationCompartment(rt))
             comp->zone()->setPreservingCode(true);
 #endif
     }
@@ -5341,11 +5335,12 @@ ArenaLists::adoptArenas(JSRuntime *rt, ArenaLists *fromArenaLists)
 #endif
         ArenaList *fromList = &fromArenaLists->arenaLists[thingKind];
         ArenaList *toList = &arenaLists[thingKind];
-        while (fromList->head != nullptr) {
-            // Remove entry from |fromList|
-            ArenaHeader *fromHeader = fromList->head;
-            fromList->head = fromHeader->next;
-            fromHeader->next = nullptr;
+        fromList->deepCheck();
+        toList->deepCheck();
+        ArenaHeader *next;
+        for (ArenaHeader *fromHeader = fromList->head(); fromHeader; fromHeader = next) {
+            // Copy fromHeader->next before releasing/reinserting.
+            next = fromHeader->next;
 
             // During parallel execution, we sometimes keep empty arenas
             // on the lists rather than sending them back to the chunk.
@@ -5354,9 +5349,10 @@ ArenaLists::adoptArenas(JSRuntime *rt, ArenaLists *fromArenaLists)
             if (fromHeader->isEmpty())
                 fromHeader->chunk()->releaseArena(fromHeader);
             else
-                toList->insert(fromHeader);
+                toList->insertAtCursor(fromHeader);
         }
-        fromList->cursor = &fromList->head;
+        fromList->clear();
+        toList->deepCheck();
     }
 }
 
@@ -5365,10 +5361,7 @@ ArenaLists::containsArena(JSRuntime *rt, ArenaHeader *needle)
 {
     AutoLockGC lock(rt);
     size_t allocKind = needle->getAllocKind();
-    for (ArenaHeader *aheader = arenaLists[allocKind].head;
-         aheader != nullptr;
-         aheader = aheader->next)
-    {
+    for (ArenaHeader *aheader = arenaLists[allocKind].head(); aheader; aheader = aheader->next) {
         if (aheader == needle)
             return true;
     }
