@@ -321,7 +321,6 @@ AsmJSModule::staticallyLink(ExclusiveContext *cx)
         } else {
             InstImm *inst = (InstImm *)(code_ + link.patchAtOffset);
             Assembler::updateLuiOriValue(inst, inst->next(), (uint32_t)code_ + link.targetOffset);
-            AutoFlushCache::updateTop(uintptr_t(inst), 8);
         }
 #endif
     }
@@ -1391,10 +1390,6 @@ js::LookupAsmJSModuleInCache(ExclusiveContext *cx,
         return true;
 
     module->staticallyLink(cx);
-
-#ifdef JS_CODEGEN_MIPS
-    jit::AutoFlushCache::updateTop(uintptr_t(module->codeBase()), module->offsetOfGlobalData());
-#endif
 
     parser.tokenStream.advance(module->funcEndBeforeCurly());
 

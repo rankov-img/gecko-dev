@@ -144,10 +144,6 @@ CloneModule(JSContext *cx, MutableHandle<AsmJSModuleObject*> moduleObj)
 
     module->staticallyLink(cx);
 
-#ifdef JS_CODEGEN_MIPS
-    jit::AutoFlushCache::updateTop(uintptr_t(module->codeBase()), module->offsetOfGlobalData());
-#endif
-
     AsmJSModuleObject *newModuleObj = AsmJSModuleObject::create(cx, &module);
     if (!newModuleObj)
         return false;
