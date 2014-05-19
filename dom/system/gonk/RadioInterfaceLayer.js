@@ -24,11 +24,8 @@ Cu.import("resource://gre/modules/systemlibs.js");
 Cu.import("resource://gre/modules/Promise.jsm");
 Cu.import("resource://gre/modules/FileUtils.jsm");
 
-XPCOMUtils.defineLazyGetter(this, "RIL", function () {
-  let obj = {};
-  Cu.import("resource://gre/modules/ril_consts.js", obj);
-  return obj;
-});
+var RIL = {};
+Cu.import("resource://gre/modules/ril_consts.js", RIL);
 
 // set to true in ril_consts.js to see debug messages
 var DEBUG = RIL.DEBUG_RIL;
@@ -1798,10 +1795,10 @@ function RadioInterface(aClientId, aWorkerMessenger) {
     iccInfo:        null,
     imsi:           null,
 
-    // These objects implement the nsIDOMMozMobileConnectionInfo interface,
+    // These objects implement the nsIMobileConnectionInfo interface,
     // although the actual implementation lives in the content process. So are
     // the child attributes `network` and `cell`, which implement
-    // nsIDOMMozMobileNetworkInfo and nsIDOMMozMobileCellInfo respectively.
+    // nsIMobileNetworkInfo and nsIMobileCellInfo respectively.
     voice:          {connected: false,
                      emergencyCallsOnly: false,
                      roaming: false,
@@ -2184,8 +2181,7 @@ RadioInterface.prototype = {
         gMessageManager.sendVoicemailMessage("RIL:VoicemailNotification",
                                              this.clientId, message.mwi);
         break;
-      case "USSDReceived":
-        if (DEBUG) this.debug("USSDReceived " + JSON.stringify(message));
+      case "ussdreceived":
         this.handleUSSDReceived(message);
         break;
       case "stkcommand":
@@ -2457,10 +2453,6 @@ RadioInterface.prototype = {
 
   getPreferredNetworkType: function(target, message) {
     this.workerMessenger.send("getPreferredNetworkType", message, (function(response) {
-      if (response.success) {
-        response.type = RIL.RIL_PREFERRED_NETWORK_TYPE_TO_GECKO[response.networkType];
-      }
-
       target.sendAsyncMessage("RIL:GetPreferredNetworkType", {
         clientId: this.clientId,
         data: response
@@ -2470,17 +2462,6 @@ RadioInterface.prototype = {
   },
 
   setPreferredNetworkType: function(target, message) {
-    let networkType = RIL.RIL_PREFERRED_NETWORK_TYPE_TO_GECKO.indexOf(message.type);
-    if (networkType < 0) {
-      message.errorMsg = RIL.GECKO_ERROR_INVALID_PARAMETER;
-      target.sendAsyncMessage("RIL:SetPreferredNetworkType", {
-        clientId: this.clientId,
-        data: message
-      });
-      return false;
-    }
-    message.networkType = networkType;
-
     this.workerMessenger.send("setPreferredNetworkType", message, (function(response) {
       target.sendAsyncMessage("RIL:SetPreferredNetworkType", {
         clientId: this.clientId,
@@ -3269,8 +3250,10 @@ RadioInterface.prototype = {
   },
 
   handleUSSDReceived: function(ussd) {
-    if (DEBUG) this.debug("handleUSSDReceived " + JSON.stringify(ussd));
-    gSystemMessenger.broadcastMessage("ussd-received", ussd);
+    gSystemMessenger.broadcastMessage("ussd-received",
+                                      {message: ussd.message,
+                                       sessionEnded: ussd.sessionEnded,
+                                       serviceId: this.clientId});
     gMessageManager.sendMobileConnectionMessage("RIL:USSDReceived",
                                                 this.clientId, ussd);
   },

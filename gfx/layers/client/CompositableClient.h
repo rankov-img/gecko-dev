@@ -19,6 +19,7 @@
 namespace mozilla {
 namespace layers {
 
+class AsyncTransactionTracker;
 class CompositableClient;
 class TextureClient;
 class BufferTextureClient;
@@ -26,7 +27,6 @@ class ImageBridgeChild;
 class CompositableForwarder;
 class CompositableChild;
 class SurfaceDescriptor;
-class TextureClientData;
 class PCompositableChild;
 /**
  * CompositableClient manages the texture-specific logic for composite layers,
@@ -160,6 +160,10 @@ public:
   static bool DestroyIPDLActor(PCompositableChild* actor);
 
   void InitIPDLActor(PCompositableChild* aActor, uint64_t aAsyncID = 0);
+
+  static void TransactionCompleteted(PCompositableChild* aActor, uint64_t aTransactionId);
+
+  static void HoldUntilComplete(PCompositableChild* aActor, AsyncTransactionTracker* aTracker);
 
 protected:
   CompositableChild* mCompositableChild;

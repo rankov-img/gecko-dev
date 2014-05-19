@@ -56,6 +56,11 @@
     "n_values": 21,
     "description": "Maximum number of concurrent threads reached during a given download session"
   },
+  "BLOCKLIST_SYNC_FILE_LOAD": {
+    "expires_in_version": "35",
+    "kind": "boolean",
+    "description": "blocklist.xml has been loaded synchronously"
+  },
   "COMPARTMENT_DONATED_NODE": {
     "expires_in_version": "never",
     "kind": "boolean",
@@ -307,6 +312,12 @@
     "expires_in_version": "never",
     "kind": "flag",
     "description": "Has seen location error"
+  },
+  "JS_MINOR_VERSION": {
+    "expires_in_version": "never",
+    "kind": "enumerated",
+    "n_values": 10,
+    "description": "JavaScript version in web content (1.x)"
   },
   "TELEMETRY_PING": {
     "expires_in_version": "never",
@@ -3330,6 +3341,22 @@
     "extended_statistics_ok": true,
     "description": "Widget: Time it takes for the message before a UI message (ms)"
   },
+  "FX_SESSION_RESTORE_STARTUP_INIT_SESSION_MS": {
+    "expires_in_version": "never",
+    "kind": "exponential",
+    "high": "30000",
+    "n_buckets": 20,
+    "extended_statistics_ok": true,
+    "description": "Session restore: Time it takes to prepare the data structures for restoring a session (ms)"
+  },
+  "FX_SESSION_RESTORE_STARTUP_ONLOAD_INITIAL_WINDOW_MS": {
+    "expires_in_version": "never",
+    "kind": "exponential",
+    "high": "30000",
+    "n_buckets": 20,
+    "extended_statistics_ok": true,
+    "description": "Session restore: Time it takes to finish restoration once we have first opened a window (ms)"
+  },
   "FX_SESSION_RESTORE_COLLECT_ALL_WINDOWS_DATA_MS": {
     "expires_in_version": "never",
     "kind": "exponential",
@@ -3613,12 +3640,12 @@
     "description": "Whether the decoder for ISO-2022-JP has been instantiated in this session."
   },
   "DECODER_INSTANTIATED_JOHAB": {
-    "expires_in_version": "never",
+    "expires_in_version": "32",
     "kind": "flag",
     "description": "Whether the decoder for JOHAB has been instantiated in this session."
   },
   "DECODER_INSTANTIATED_T61": {
-    "expires_in_version": "never",
+    "expires_in_version": "32",
     "kind": "flag",
     "description": "Whether the decoder for T.61 has been instantiated in this session."
   },
@@ -4266,6 +4293,11 @@
     "n_buckets": 15,
     "extended_statistics_ok": true,
     "description": "Time (ms) it takes to initialize the search service"
+  },
+  "SEARCH_SERVICE_INIT_SYNC": {
+    "expires_in_version": "35",
+    "kind": "boolean",
+    "description": "search service has been initialized synchronously"
   },
   "SEARCH_SERVICE_BUILD_CACHE_MS": {
     "expires_in_version": "never",
@@ -5917,10 +5949,36 @@
     "n_buckets": 10,
     "extended_statistics_ok": true
   },
-  "CERT_PINNING_EVALUATION_RESULTS": {
+  "CERT_PINNING_RESULTS": {
+    "expires_in_version": "never",
+    "kind": "boolean",
+    "description": "Certificate pinning results (0 = failure, 1 = success)"
+  },
+  "CERT_PINNING_TEST_RESULTS": {
+    "expires_in_version": "never",
+    "kind": "boolean",
+    "description": "Certificate pinning test results (0 = failure, 1 = success)"
+  },
+  "CERT_PINNING_MOZ_RESULTS": {
+    "expires_in_version": "never",
+    "kind": "boolean",
+    "description": "Certificate pinning results for Mozilla sites (0 = failure, 1 = success)"
+  },
+  "CERT_PINNING_MOZ_TEST_RESULTS": {
+    "expires_in_version": "never",
+    "kind": "boolean",
+    "description": "Certificate pinning test results for Mozilla sites (0 = failure, 1 = success)"
+  },
+  "CERT_PINNING_MOZ_RESULTS_BY_HOST": {
     "expires_in_version": "never",
     "kind": "enumerated",
-    "n_values": 4,
-    "description": "Certificate pinning evalutation results(pinned host)(0 = failure, 1 = success)"
+    "n_values": 512,
+    "description": "Certificate pinning results by host for Mozilla operational sites"
+  },
+  "CERT_PINNING_MOZ_TEST_RESULTS_BY_HOST": {
+    "expires_in_version": "never",
+    "kind": "enumerated",
+    "n_values": 512,
+    "description": "Certificate pinning test results by host for Mozilla operational sites"
   }
 }

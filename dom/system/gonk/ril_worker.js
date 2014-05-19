@@ -254,12 +254,6 @@ RilObject.prototype = {
   _pendingSentSmsMap: null,
 
   /**
-   * Index of the RIL_PREFERRED_NETWORK_TYPE_TO_GECKO. Its value should be
-   * preserved over rild reset.
-   */
-  preferredNetworkType: null,
-
-  /**
    * Marker object.
    */
   pendingNetworkType: null,
@@ -1110,8 +1104,7 @@ RilObject.prototype = {
    * the called party when originating a call.
    *
    * @param options.clirMode
-   *        Is one of the CLIR_* constants in
-   *        nsIDOMMozMobileConnection interface.
+   *        One of the CLIR_* constants.
    */
   setCLIR: function(options) {
     let Buf = this.context.Buf;
@@ -1154,23 +1147,21 @@ RilObject.prototype = {
   /**
    * Set the preferred network type.
    *
-   * @param options An object contains a valid index of
-   *                RIL_PREFERRED_NETWORK_TYPE_TO_GECKO as its `networkType`
-   *                attribute, or undefined to set current preferred network
-   *                type.
+   * @param options An object contains a valid value of
+   *                RIL_PREFERRED_NETWORK_TYPE_TO_GECKO as its `type` attribute.
    */
   setPreferredNetworkType: function(options) {
-    if (options) {
-      this.preferredNetworkType = options.networkType;
-    }
-    if (this.preferredNetworkType == null) {
+    let networkType = RIL_PREFERRED_NETWORK_TYPE_TO_GECKO.indexOf(options.type);
+    if (networkType < 0) {
+      options.errorMsg = GECKO_ERROR_INVALID_PARAMETER;
+      this.sendChromeMessage(options);
       return;
     }
 
     let Buf = this.context.Buf;
     Buf.newParcel(REQUEST_SET_PREFERRED_NETWORK_TYPE, options);
     Buf.writeInt32(1);
-    Buf.writeInt32(this.preferredNetworkType);
+    Buf.writeInt32(networkType);
     Buf.sendParcel();
   },
 
@@ -2601,7 +2592,7 @@ RilObject.prototype = {
    * Queries current call forward rules.
    *
    * @param reason
-   *        One of nsIDOMMozMobileCFInfo.CALL_FORWARD_REASON_* constants.
+   *        One of CALL_FORWARD_REASON_* constants.
    * @param serviceClass
    *        One of ICC_SERVICE_CLASS_* constants.
    * @param number
@@ -2624,9 +2615,9 @@ RilObject.prototype = {
    * Configures call forward rule.
    *
    * @param action
-   *        One of nsIDOMMozMobileCFInfo.CALL_FORWARD_ACTION_* constants.
+   *        One of CALL_FORWARD_ACTION_* constants.
    * @param reason
-   *        One of nsIDOMMozMobileCFInfo.CALL_FORWARD_REASON_* constants.
+   *        One of CALL_FORWARD_REASON_* constants.
    * @param serviceClass
    *        One of ICC_SERVICE_CLASS_* constants.
    * @param number
@@ -2650,7 +2641,7 @@ RilObject.prototype = {
    * Queries current call barring rules.
    *
    * @param program
-   *        One of nsIDOMMozMobileConnection.CALL_BARRING_PROGRAM_* constants.
+   *        One of CALL_BARRING_PROGRAM_* constants.
    * @param serviceClass
    *        One of ICC_SERVICE_CLASS_* constants.
    */
@@ -2664,7 +2655,7 @@ RilObject.prototype = {
    * Configures call barring rule.
    *
    * @param program
-   *        One of nsIDOMMozMobileConnection.CALL_BARRING_PROGRAM_* constants.
+   *        One of CALL_BARRING_PROGRAM_* constants.
    * @param enabled
    *        Enable or disable the call barring.
    * @param password
@@ -5781,7 +5772,7 @@ RilObject.prototype[REQUEST_QUERY_CALL_FORWARD_STATUS] =
   if (options.rilMessageType === "sendMMI") {
     options.statusMessage = MMI_SM_KS_SERVICE_INTERROGATED;
     // MMI query call forwarding options request returns a set of rules that
-    // will be exposed in the form of an array of nsIDOMMozMobileCFInfo
+    // will be exposed in the form of an array of MozCallForwardingOptions
     // instances.
     options.additionalInformation = rules;
   }
@@ -6217,31 +6208,20 @@ RilObject.prototype[REQUEST_STK_SEND_TERMINAL_RESPONSE] = null;
 RilObject.prototype[REQUEST_STK_HANDLE_CALL_SETUP_REQUESTED_FROM_SIM] = null;
 RilObject.prototype[REQUEST_EXPLICIT_CALL_TRANSFER] = null;
 RilObject.prototype[REQUEST_SET_PREFERRED_NETWORK_TYPE] = function REQUEST_SET_PREFERRED_NETWORK_TYPE(length, options) {
-  if (options.networkType == null) {
-    // The request was made by ril_worker itself automatically. Don't report.
-    return;
-  }
-
   if (options.rilRequestError) {
-    options.success = false;
     options.errorMsg = RIL_ERROR_TO_GECKO_ERROR[options.rilRequestError];
-  } else {
-    options.success = true;
   }
   this.sendChromeMessage(options);
 };
 RilObject.prototype[REQUEST_GET_PREFERRED_NETWORK_TYPE] = function REQUEST_GET_PREFERRED_NETWORK_TYPE(length, options) {
   if (options.rilRequestError) {
-    options.success = false;
     options.errorMsg = RIL_ERROR_TO_GECKO_ERROR[options.rilRequestError];
     this.sendChromeMessage(options);
     return;
   }
 
-  let results = this.context.Buf.readInt32List();
-  options.networkType = this.preferredNetworkType = results[0];
-  options.success = true;
-
+  let networkType = this.context.Buf.readInt32List()[0];
+  options.type = RIL_PREFERRED_NETWORK_TYPE_TO_GECKO[networkType];
   this.sendChromeMessage(options);
 };
 RilObject.prototype[REQUEST_GET_NEIGHBORING_CELL_IDS] = null;
@@ -6480,7 +6460,6 @@ RilObject.prototype[UNSOLICITED_RESPONSE_RADIO_STATE_CHANGED] = function UNSOLIC
     }
     this.getBasebandVersion();
     this.updateCellBroadcastConfig();
-    this.setPreferredNetworkType();
     if ((RILQUIRKS_DATA_REGISTRATION_ON_DEMAND ||
          RILQUIRKS_SUBSCRIPTION_CONTROL) &&
         this._attachDataRegistration) {
@@ -6558,7 +6537,7 @@ RilObject.prototype[UNSOLICITED_ON_USSD] = function UNSOLICITED_ON_USSD() {
 
   this._ussdSession = (typeCode != "0" && typeCode != "2");
 
-  this.sendChromeMessage({rilMessageType: "USSDReceived",
+  this.sendChromeMessage({rilMessageType: "ussdreceived",
                           message: message,
                           sessionEnded: !this._ussdSession});
 };

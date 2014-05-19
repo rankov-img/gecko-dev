@@ -114,7 +114,7 @@ CompositableParentManager::ReceiveCompositableUpdate(const CompositableOperation
 
       RenderTraceInvalidateEnd(thebes, "FF00FF");
       // return texure data to client if necessary
-      ReturnTextureDataIfNecessary(compositable, replyv, op.compositableParent());
+      ReturnTextureDataIfNecessary(compositable);
       break;
     }
     case CompositableOperation::TOpPaintTextureIncremental: {
@@ -160,7 +160,28 @@ CompositableParentManager::ReceiveCompositableUpdate(const CompositableOperation
       MOZ_ASSERT(tex.get());
       compositable->RemoveTextureHost(tex);
       // return texure data to client if necessary
-      ReturnTextureDataIfNecessary(compositable, replyv, op.compositableParent());
+      if (IsAsync()) {
+        DeprecatedReturnTextureDataIfNecessary(compositable,
+                                               replyv,
+                                               op.compositableParent());
+      } else {
+        ReturnTextureDataIfNecessary(compositable);
+      }
+      break;
+    }
+    case CompositableOperation::TOpRemoveTextureAsync: {
+      const OpRemoveTextureAsync& op = aEdit.get_OpRemoveTextureAsync();
+      CompositableHost* compositable = AsCompositable(op);
+      RefPtr<TextureHost> tex = TextureHost::AsTextureHost(op.textureParent());
+
+      MOZ_ASSERT(tex.get());
+      compositable->RemoveTextureHost(tex);
+      // send FenceHandle if present.
+      TextureHost::SendFenceHandleIfPresent(op.textureParent());
+
+      ReplyRemoveTexture(OpReplyRemoveTexture(op.transactionId(),
+                                              op.compositableParent(), nullptr,
+                                              tex->GetIPDLActor(), nullptr));
       break;
     }
     case CompositableOperation::TOpUseTexture: {
@@ -180,7 +201,13 @@ CompositableParentManager::ReceiveCompositableUpdate(const CompositableOperation
         }
       }
       // return texure data to client if necessary
-      ReturnTextureDataIfNecessary(compositable, replyv, op.compositableParent());
+      if (IsAsync()) {
+        DeprecatedReturnTextureDataIfNecessary(compositable,
+                                               replyv,
+                                               op.compositableParent());
+      } else {
+        ReturnTextureDataIfNecessary(compositable);
+      }
       break;
     }
     case CompositableOperation::TOpUseComponentAlphaTextures: {
@@ -196,7 +223,7 @@ CompositableParentManager::ReceiveCompositableUpdate(const CompositableOperation
         ScheduleComposition(op);
       }
       // return texure data to client if necessary
-      ReturnTextureDataIfNecessary(compositable, replyv, op.compositableParent());
+      ReturnTextureDataIfNecessary(compositable);
       break;
     }
     case CompositableOperation::TOpUpdateTexture: {
@@ -220,9 +247,52 @@ CompositableParentManager::ReceiveCompositableUpdate(const CompositableOperation
 
 #if defined(MOZ_WIDGET_GONK) && ANDROID_VERSION >= 17
 void
-CompositableParentManager::ReturnTextureDataIfNecessary(CompositableHost* aCompositable,
-                                                        EditReplyVector& replyv,
-                                                        PCompositableParent* aParent)
+CompositableParentManager::ReturnTextureDataIfNecessary(CompositableHost* aCompositable)
+{
+  if (!aCompositable || !aCompositable->GetCompositableBackendSpecificData()) {
+    return;
+  }
+
+  static const uint32_t MAX_FENCE_COUNT_PER_MESSAGE = 4;
+
+  const std::vector< RefPtr<TextureHost> > textureList =
+        aCompositable->GetCompositableBackendSpecificData()->GetPendingReleaseFenceTextureList();
+  InfallibleTArray<AsyncParentMessageData> messages;
+  messages.SetCapacity(MAX_FENCE_COUNT_PER_MESSAGE);
+
+  // Send Fences to child side
+  for (size_t i = 0; i < textureList.size(); i++) {
+    TextureHostOGL* hostOGL = textureList[i]->AsHostOGL();
+    PTextureParent* actor = textureList[i]->GetIPDLActor();
+    if (!hostOGL || !actor) {
+      continue;
+    }
+    android::sp<android::Fence> fence = hostOGL->GetAndResetReleaseFence();
+    if (fence.get() && fence->isValid()) {
+      RefPtr<FenceDeliveryTracker> tracker = new FenceDeliveryTracker(fence);
+      FenceHandle handle = FenceHandle(fence);
+      HoldUntilComplete(tracker);
+      messages.AppendElement(OpDeliverFence(tracker->GetId(),
+                                            actor, nullptr,
+                                            handle));
+      if (messages.Length() >= MAX_FENCE_COUNT_PER_MESSAGE) {
+        SendAsyncMessage(messages);
+        messages.Clear();
+      }
+    }
+  }
+
+  if (messages.Length() > 0) {
+    SendAsyncMessage(messages);
+    messages.Clear();
+  }
+  aCompositable->GetCompositableBackendSpecificData()->ClearPendingReleaseFenceTextureList();
+}
+
+void
+CompositableParentManager::DeprecatedReturnTextureDataIfNecessary(CompositableHost* aCompositable,
+                                                                  EditReplyVector& replyv,
+                                                                  PCompositableParent* aParent)
 {
   if (!aCompositable || !aCompositable->GetCompositableBackendSpecificData()) {
     return;
@@ -252,11 +322,21 @@ CompositableParentManager::ReturnTextureDataIfNecessary(CompositableHost* aCompo
   }
   aCompositable->GetCompositableBackendSpecificData()->ClearPendingReleaseFenceTextureList();
 }
+
 #else
 void
-CompositableParentManager::ReturnTextureDataIfNecessary(CompositableHost* aCompositable,
-                                                       EditReplyVector& replyv,
-                                                       PCompositableParent* aParent)
+CompositableParentManager::ReturnTextureDataIfNecessary(CompositableHost* aCompositable)
+{
+  if (!aCompositable || !aCompositable->GetCompositableBackendSpecificData()) {
+    return;
+  }
+  aCompositable->GetCompositableBackendSpecificData()->ClearPendingReleaseFenceTextureList();
+}
+
+void
+CompositableParentManager::DeprecatedReturnTextureDataIfNecessary(CompositableHost* aCompositable,
+                                                                  EditReplyVector& replyv,
+                                                                  PCompositableParent* aParent)
 {
   if (!aCompositable || !aCompositable->GetCompositableBackendSpecificData()) {
     return;
@@ -266,7 +346,7 @@ CompositableParentManager::ReturnTextureDataIfNecessary(CompositableHost* aCompo
 #endif
 
 void
-CompositableParentManager::ClearPrevFenceHandles()
+CompositableParentManager::DeprecatedClearPrevFenceHandles()
 {
   mPrevFenceHandles.clear();
 }

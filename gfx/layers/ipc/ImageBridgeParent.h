@@ -59,6 +59,8 @@ public:
                                PTextureParent* aTexture,
                                const FenceHandle& aFence) MOZ_OVERRIDE;
 
+  virtual void SendAsyncMessage(const InfallibleTArray<AsyncParentMessageData>& aMessage) MOZ_OVERRIDE;
+
   // PImageBridge
   virtual bool RecvUpdate(const EditArray& aEdits, EditReplyArray* aReply) MOZ_OVERRIDE;
   virtual bool RecvUpdateNoSwap(const EditArray& aEdits) MOZ_OVERRIDE;
@@ -103,6 +105,8 @@ public:
   }
 
   virtual bool IsSameProcess() const MOZ_OVERRIDE;
+
+  virtual void ReplyRemoveTexture(const OpReplyRemoveTexture& aReply) MOZ_OVERRIDE;
 
   // Overriden from IToplevelProtocol
   IToplevelProtocol*

@@ -158,7 +158,7 @@ jit::PatchJump(CodeLocationJump &jump_, CodeLocationLabel label)
 
     Assembler::updateLuiOriValue(inst1, inst2, (uint32_t)label.raw());
 
-    AutoFlushCache::updateTop(uintptr_t(inst1), 8);
+    AutoFlushICache::flush(uintptr_t(inst1), 8);
 }
 
 void
@@ -182,7 +182,7 @@ Assembler::executableCopy(uint8_t *buffer)
         updateLuiOriValue(inst1, inst1->next(), (uint32_t)buffer + value);
     }
 
-    AutoFlushCache::updateTop((uintptr_t)buffer, m_buffer.size());
+    AutoFlushICache::setRange(uintptr_t(buffer), m_buffer.size());
 }
 
 uint32_t
@@ -1379,7 +1379,7 @@ Assembler::patchWrite_NearCall(CodeLocationLabel start, CodeLocationLabel toCall
     inst[3] = InstNOP();
 
     // Ensure everyone sees the code that was just written into memory.
-    AutoFlushCache::updateTop(uintptr_t(inst), patchWrite_NearCallSize());
+    AutoFlushICache::flush(uintptr_t(inst), patchWrite_NearCallSize());
 }
 
 uint32_t
@@ -1426,7 +1426,7 @@ Assembler::patchDataWithValueCheck(CodeLocationLabel label, PatchedImmPtr newVal
     // Replace with new value
     Assembler::updateLuiOriValue(inst, inst->next(), uint32_t(newValue.value));
 
-    AutoFlushCache::updateTop(uintptr_t(inst), 8);
+    AutoFlushICache::flush(uintptr_t(inst), 8);
 }
 
 void
@@ -1528,7 +1528,7 @@ Assembler::ToggleToJmp(CodeLocationLabel inst_)
     // We converted beq to andi, so now we restore it.
     inst->setOpcode(op_beq);
 
-    AutoFlushCache::updateTop((uintptr_t)inst, 4);
+    AutoFlushICache::flush(uintptr_t(inst), 4);
 }
 
 void
@@ -1541,7 +1541,7 @@ Assembler::ToggleToCmp(CodeLocationLabel inst_)
     // Replace "beq $zero, $zero, offset" with "andi $zero, $zero, offset"
     inst->setOpcode(op_andi);
 
-    AutoFlushCache::updateTop((uintptr_t)inst, 4);
+    AutoFlushICache::flush(uintptr_t(inst), 4);
 }
 
 void
@@ -1563,7 +1563,7 @@ Assembler::ToggleCall(CodeLocationLabel inst_, bool enabled)
         *i2 = nop;
     }
 
-    AutoFlushCache::updateTop((uintptr_t)i2, 4);
+    AutoFlushICache::flush(uintptr_t(i2), 4);
 }
 
 void Assembler::updateBoundsCheck(uint32_t heapSize, Instruction *inst)
@@ -1592,70 +1592,3 @@ OnSamePage(uintptr_t start1, uintptr_t stop1, uintptr_t start2, uintptr_t stop2)
     // Return true if (parts of) the two ranges are on the same memory page.
     return PageStart(stop1) == PageStart(start2) || PageStart(stop2) == PageStart(start1);
 }
-
-void
-AutoFlushCache::update(uintptr_t newStart, size_t len)
-{
-    uintptr_t newStop = newStart + len;
-    if (this == nullptr) {
-        // just flush right here and now.
-        JSC::ExecutableAllocator::cacheFlush((void*)newStart, len);
-        return;
-    }
-    used_ = true;
-    if (!start_) {
-        IonSpewCont(IonSpew_CacheFlush, ".");
-        start_ = newStart;
-        stop_ = newStop;
-        return;
-    }
-
-    if (!OnSamePage(start_, stop_, newStart, newStop)) {
-        // Flush now if the two ranges have no memory page in common, to avoid
-        // problems on Linux where the kernel only flushes the first VMA that
-        // covers the range. This also ensures we don't add too many pages to
-        // the range.
-        IonSpewCont(IonSpew_CacheFlush, "*");
-        JSC::ExecutableAllocator::cacheFlush((void*)start_, stop_ - start_);
-        start_ = newStart;
-        stop_ = newStop;
-        return;
-    }
-    start_ = Min(start_, newStart);
-    stop_ = Max(stop_, newStop);
-    IonSpewCont(IonSpew_CacheFlush, ".");
-}
-
-AutoFlushCache::~AutoFlushCache()
-{
-    if (!runtime_)
-        return;
-
-    flushAnyway();
-    IonSpewCont(IonSpew_CacheFlush, ">", name_);
-    if (runtime_->flusher() == this) {
-        IonSpewFin(IonSpew_CacheFlush);
-        runtime_->setFlusher(nullptr);
-    }
-}
-
-void
-AutoFlushCache::flushAnyway()
-{
-    if (!runtime_)
-        return;
-
-    IonSpewCont(IonSpew_CacheFlush, "|", name_);
-
-    if (!used_)
-        return;
-
-    if (start_) {
-        JSC::ExecutableAllocator::cacheFlush((void *)start_,
-                                             size_t(stop_ - start_ + sizeof(Instruction)));
-    } else {
-        JSC::ExecutableAllocator::cacheFlush(nullptr, 0xff000000);
-    }
-    used_ = false;
-}
-

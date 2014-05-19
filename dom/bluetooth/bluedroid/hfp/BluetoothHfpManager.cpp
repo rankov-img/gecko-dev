@@ -17,9 +17,10 @@
 #include "nsContentUtils.h"
 #include "nsIAudioManager.h"
 #include "nsIDOMIccInfo.h"
-#include "nsIDOMMobileConnection.h"
 #include "nsIIccProvider.h"
+#include "nsIMobileConnectionInfo.h"
 #include "nsIMobileConnectionProvider.h"
+#include "nsIMobileNetworkInfo.h"
 #include "nsIObserverService.h"
 #include "nsISettingsService.h"
 #include "nsITelephonyProvider.h"
@@ -394,8 +395,6 @@ BluetoothHfpManager::Init()
 {
   MOZ_ASSERT(NS_IsMainThread());
 
-  NS_ENSURE_TRUE(InitHfpInterface(), false);
-
   nsCOMPtr<nsIObserverService> obs = services::GetObserverService();
   NS_ENSURE_TRUE(obs, false);
 
@@ -406,6 +405,10 @@ BluetoothHfpManager::Init()
   }
 
   hal::RegisterBatteryObserver(this);
+  // Update to the latest battery level
+  hal::BatteryInformation batteryInfo;
+  hal::GetCurrentBatteryInformation(&batteryInfo);
+  Notify(batteryInfo);
 
   mListener = new BluetoothRilListener();
   NS_ENSURE_TRUE(mListener->Listen(true), false);
@@ -425,11 +428,12 @@ BluetoothHfpManager::Init()
   return true;
 }
 
-bool
+// static
+void
 BluetoothHfpManager::InitHfpInterface()
 {
   const bt_interface_t* btInf = GetBluetoothInterface();
-  NS_ENSURE_TRUE(btInf, false);
+  NS_ENSURE_TRUE_VOID(btInf);
 
   if (sBluetoothHfpInterface) {
     sBluetoothHfpInterface->cleanup();
@@ -438,13 +442,11 @@ BluetoothHfpManager::InitHfpInterface()
 
   bthf_interface_t *interface = (bthf_interface_t *)
     btInf->get_profile_interface(BT_PROFILE_HANDSFREE_ID);
-  NS_ENSURE_TRUE(interface, false);
+  NS_ENSURE_TRUE_VOID(interface);
 
-  NS_ENSURE_TRUE(BT_STATUS_SUCCESS ==
-    interface->init(&sBluetoothHfpCallbacks), false);
+  NS_ENSURE_TRUE_VOID(BT_STATUS_SUCCESS ==
+    interface->init(&sBluetoothHfpCallbacks));
   sBluetoothHfpInterface = interface;
-
-  return true;
 }
 
 BluetoothHfpManager::~BluetoothHfpManager()
@@ -463,9 +465,9 @@ BluetoothHfpManager::~BluetoothHfpManager()
   }
 
   hal::UnregisterBatteryObserver(this);
-  DeinitHfpInterface();
 }
 
+// static
 void
 BluetoothHfpManager::DeinitHfpInterface()
 {
@@ -521,7 +523,7 @@ BluetoothHfpManager::Notify(const hal::BatteryInformation& aBatteryInfo)
 {
   // Range of battery level: [0, 1], double
   // Range of CIND::BATTCHG: [0, 5], int
-  mBattChg = (int) ceil(aBatteryInfo.level() * 5.0);
+  mBattChg = (int) round(aBatteryInfo.level() * 5.0);
   UpdateDeviceCIND();
 }
 
@@ -889,7 +891,7 @@ BluetoothHfpManager::HandleVoiceConnectionChanged(uint32_t aClientId)
     do_GetService(NS_RILCONTENTHELPER_CONTRACTID);
   NS_ENSURE_TRUE_VOID(connection);
 
-  nsCOMPtr<nsIDOMMozMobileConnectionInfo> voiceInfo;
+  nsCOMPtr<nsIMobileConnectionInfo> voiceInfo;
   connection->GetVoiceConnectionInfo(aClientId, getter_AddRefs(voiceInfo));
   NS_ENSURE_TRUE_VOID(voiceInfo);
 
@@ -924,7 +926,7 @@ BluetoothHfpManager::HandleVoiceConnectionChanged(uint32_t aClientId)
   UpdateDeviceCIND();
 
   // Operator name
-  nsCOMPtr<nsIDOMMozMobileNetworkInfo> network;
+  nsCOMPtr<nsIMobileNetworkInfo> network;
   voiceInfo->GetNetwork(getter_AddRefs(network));
   NS_ENSURE_TRUE_VOID(network);
   network->GetLongName(mOperatorName);
@@ -1040,13 +1042,14 @@ BluetoothHfpManager::UpdatePhoneCIND(uint32_t aCallIndex)
 void
 BluetoothHfpManager::UpdateDeviceCIND()
 {
-  NS_ENSURE_TRUE_VOID(sBluetoothHfpInterface);
-  NS_ENSURE_TRUE_VOID(BT_STATUS_SUCCESS ==
-    sBluetoothHfpInterface->device_status_notification(
-      (bthf_network_state_t) mService,
-      (bthf_service_type_t) mRoam,
-      mSignal,
-      mBattChg));
+  if (sBluetoothHfpInterface) {
+    NS_ENSURE_TRUE_VOID(BT_STATUS_SUCCESS ==
+      sBluetoothHfpInterface->device_status_notification(
+        (bthf_network_state_t) mService,
+        (bthf_service_type_t) mRoam,
+        mSignal,
+        mBattChg));
+  }
 }
 
 uint32_t

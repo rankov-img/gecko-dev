@@ -69,7 +69,7 @@
            " i=(%ld %lld) cb=(%d %d %d %d) rcs=(%.3f %.3f) dp=(%.3f %.3f %.3f %.3f) dpm=(%.3f %.3f %.3f %.3f) um=%d " \
            "v=(%.3f %.3f %.3f %.3f) s=(%.3f %.3f) sr=(%.3f %.3f %.3f %.3f) z(ld=%.3f r=%.3f cr=%.3f z=%.3f ts=%.3f) u=(%d %lu)\n", \
            __VA_ARGS__, \
-           fm.mPresShellId, fm.GetScrollId(), \
+           fm.GetPresShellId(), fm.GetScrollId(), \
            fm.mCompositionBounds.x, fm.mCompositionBounds.y, fm.mCompositionBounds.width, fm.mCompositionBounds.height, \
            fm.GetRootCompositionSize().width, fm.GetRootCompositionSize().height, \
            fm.mDisplayPort.x, fm.mDisplayPort.y, fm.mDisplayPort.width, fm.mDisplayPort.height, \
@@ -142,10 +142,12 @@ typedef GeckoContentController::APZStateChange APZStateChange;
  * Pref that allows or disallows checkerboarding
  *
  * "apz.asyncscroll.throttle"
- * The time period in ms that throttles mozbrowserasyncscroll event.
+ * The time period that throttles mozbrowserasyncscroll event.
+ * Units: milliseconds
  *
  * "apz.asyncscroll.timeout"
- * The timeout in ms for mAsyncScrollTimeoutTask delay task.
+ * The timeout for mAsyncScrollTimeoutTask delay task.
+ * Units: milliseconds
  *
  * "apz.axis_lock_mode"
  * The preferred axis locking style. See AxisLockMode for possible values.
@@ -155,6 +157,7 @@ typedef GeckoContentController::APZStateChange APZStateChange;
  * content is being unruly/slow and we don't get a response back within this
  * time, we will just pretend that content did not preventDefault any touch
  * events we dispatched to it.
+ * Units: milliseconds
  *
  * "apz.cross_slide_enabled"
  * Pref that enables integration with the Metro "cross-slide" gesture.
@@ -165,10 +168,11 @@ typedef GeckoContentController::APZStateChange APZStateChange;
  * opposite axis.
  *
  * "apz.fling_accel_interval_ms"
- * The time in milliseconds that determines whether a second fling will be
- * treated as accelerated. If two flings are started within this interval,
- * the second one will be accelerated. Setting an interval of 0 means that
- * acceleration will be disabled.
+ * The time that determines whether a second fling will be treated as
+ * accelerated. If two flings are started within this interval, the second one
+ * will be accelerated. Setting an interval of 0 means that acceleration will
+ * be disabled.
+ * Units: milliseconds
  *
  * "apz.fling_accel_base_mult"
  * "apz.fling_accel_supplemental_mult"
@@ -184,15 +188,18 @@ typedef GeckoContentController::APZStateChange APZStateChange;
  * "apz.fling_repaint_interval"
  * Maximum amount of time flinging before sending a viewport change. This will
  * asynchronously repaint the page.
+ * Units: milliseconds
  *
  * "apz.fling_stopped_threshold"
  * When flinging, if the velocity goes below this number, we just stop the
  * animation completely. This is to prevent asymptotically approaching 0
  * velocity and rerendering unnecessarily.
+ * Units: screen pixels per millisecond
  *
  * "apz.max_velocity_inches_per_ms"
- * Maximum velocity in inches per millisecond.  Velocity will be capped at this
- * value if a faster fling occurs.  Negative values indicate unlimited velocity.
+ * Maximum velocity.  Velocity will be capped at this value if a faster fling
+ * occurs.  Negative values indicate unlimited velocity.
+ * Units: (real-world, i.e. screen) inches per millisecond
  *
  * "apz.max_velocity_queue_size"
  * Maximum size of velocity queue. The queue contains last N velocity records.
@@ -202,6 +209,7 @@ typedef GeckoContentController::APZStateChange APZStateChange;
  * "apz.min_skate_speed"
  * Minimum amount of speed along an axis before we switch to "skate" multipliers
  * rather than using the "stationary" multipliers.
+ * Units: CSS pixels per millisecond
  *
  * "apz.num_paint_duration_samples"
  * Number of samples to store of how long it took to paint after the previous
@@ -216,6 +224,7 @@ typedef GeckoContentController::APZStateChange APZStateChange;
  * device DPI, before we start panning the screen. This is to prevent us from
  * accidentally processing taps as touch moves, and from very short/accidental
  * touches moving the screen.
+ * Units: (real-world, i.e. screen) inches
  *
  * "apz.use_paint_duration"
  * Whether or not to use the estimated paint duration as a factor when projecting
@@ -241,6 +250,10 @@ typedef GeckoContentController::APZStateChange APZStateChange;
  * "apz.x_stationary_size_multiplier", "apz.y_stationary_size_multiplier"
  * The multiplier we apply to the displayport size if it is not skating (see
  * documentation for the skate size multipliers above).
+ *
+ * "apz.zoom_animation_duration_ms"
+ * This controls how long the zoom-to-rect animation takes.
+ * Units: ms
  */
 
 /**
@@ -274,11 +287,6 @@ static const double AXIS_BREAKOUT_ANGLE = M_PI / 8.0; // 22.5 degrees
  * added to keep behavior consistent with IE.
  */
 static const double ALLOWED_DIRECT_PAN_ANGLE = M_PI / 3.0; // 60 degrees
-
-/**
- * Duration of a zoom to animation.
- */
-static const TimeDuration ZOOM_TO_DURATION = TimeDuration::FromSeconds(0.25);
 
 /**
  * Computed time function used for sampling frames of a zoom to animation.
@@ -410,7 +418,8 @@ class ZoomAnimation: public AsyncPanZoomAnimation {
 public:
   ZoomAnimation(CSSPoint aStartOffset, CSSToScreenScale aStartZoom,
                 CSSPoint aEndOffset, CSSToScreenScale aEndZoom)
-    : mStartOffset(aStartOffset)
+    : mTotalDuration(TimeDuration::FromMilliseconds(gfxPrefs::APZZoomAnimationDuration()))
+    , mStartOffset(aStartOffset)
     , mStartZoom(aStartZoom)
     , mEndOffset(aEndOffset)
     , mEndZoom(aEndZoom)
@@ -421,6 +430,7 @@ public:
 
 private:
   TimeDuration mDuration;
+  const TimeDuration mTotalDuration;
 
   // Old metrics from before we started a zoom animation. This is only valid
   // when we are in the "ANIMATED_ZOOM" state. This is used so that we can
@@ -504,16 +514,6 @@ AsyncPanZoomController::AsyncPanZoomController(uint64_t aLayersId,
 }
 
 AsyncPanZoomController::~AsyncPanZoomController() {
-  PCompositorParent* compositor = GetSharedFrameMetricsCompositor();
-
-  // Only send the release message if the SharedFrameMetrics has been created.
-  if (compositor && mSharedFrameMetricsBuffer) {
-    unused << compositor->SendReleaseSharedCompositorFrameMetrics(mFrameMetrics.GetScrollId(), mAPZCId);
-  }
-
-  delete mSharedFrameMetricsBuffer;
-  delete mSharedLock;
-
   MOZ_COUNT_DTOR(AsyncPanZoomController);
 }
 
@@ -558,6 +558,20 @@ AsyncPanZoomController::Destroy()
   mLastChild = nullptr;
   mParent = nullptr;
   mTreeManager = nullptr;
+
+  PCompositorParent* compositor = GetSharedFrameMetricsCompositor();
+  // Only send the release message if the SharedFrameMetrics has been created.
+  if (compositor && mSharedFrameMetricsBuffer) {
+    unused << compositor->SendReleaseSharedCompositorFrameMetrics(mFrameMetrics.GetScrollId(), mAPZCId);
+  }
+
+  { // scope the lock
+    ReentrantMonitorAutoEnter lock(mMonitor);
+    delete mSharedFrameMetricsBuffer;
+    mSharedFrameMetricsBuffer = nullptr;
+    delete mSharedLock;
+    mSharedLock = nullptr;
+  }
 }
 
 bool
@@ -1590,7 +1604,7 @@ void AsyncPanZoomController::RequestContentRepaint(FrameMetrics& aFrameMetrics) 
                       aFrameMetrics),
     GetFrameTime());
 
-  aFrameMetrics.mPresShellId = mLastContentPaintMetrics.mPresShellId;
+  aFrameMetrics.SetPresShellId(mLastContentPaintMetrics.GetPresShellId());
   mLastPaintRequestMetrics = aFrameMetrics;
 }
 
@@ -1630,7 +1644,7 @@ AsyncPanZoomController::FireAsyncScrollOnTimeout()
 bool ZoomAnimation::Sample(FrameMetrics& aFrameMetrics,
                            const TimeDuration& aDelta) {
   mDuration += aDelta;
-  double animPosition = mDuration / ZOOM_TO_DURATION;
+  double animPosition = mDuration / mTotalDuration;
 
   if (animPosition >= 1.0) {
     aFrameMetrics.SetZoom(mEndZoom);
@@ -1909,7 +1923,7 @@ void AsyncPanZoomController::NotifyLayersUpdated(const FrameMetrics& aLayerMetri
   UpdateSharedCompositorFrameMetrics();
 }
 
-const FrameMetrics& AsyncPanZoomController::GetFrameMetrics() {
+const FrameMetrics& AsyncPanZoomController::GetFrameMetrics() const {
   mMonitor.AssertCurrentThreadIn();
   return mFrameMetrics;
 }
@@ -2207,14 +2221,14 @@ bool AsyncPanZoomController::Matches(const ScrollableLayerGuid& aGuid)
   return aGuid == GetGuid();
 }
 
-void AsyncPanZoomController::GetGuid(ScrollableLayerGuid* aGuidOut)
+void AsyncPanZoomController::GetGuid(ScrollableLayerGuid* aGuidOut) const
 {
   if (aGuidOut) {
     *aGuidOut = GetGuid();
   }
 }
 
-ScrollableLayerGuid AsyncPanZoomController::GetGuid()
+ScrollableLayerGuid AsyncPanZoomController::GetGuid() const
 {
   return ScrollableLayerGuid(mLayersId, mFrameMetrics);
 }

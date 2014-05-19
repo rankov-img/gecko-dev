@@ -20,6 +20,8 @@ import org.mozilla.gecko.LightweightTheme;
 import org.mozilla.gecko.R;
 import org.mozilla.gecko.Tab;
 import org.mozilla.gecko.Tabs;
+import org.mozilla.gecko.Telemetry;
+import org.mozilla.gecko.TelemetryContract;
 import org.mozilla.gecko.animation.PropertyAnimator;
 import org.mozilla.gecko.animation.PropertyAnimator.PropertyAnimationListener;
 import org.mozilla.gecko.animation.ViewHelper;
@@ -375,6 +377,9 @@ public class BrowserToolbar extends ThemedRelativeLayout
             editCancel.setOnClickListener(new OnClickListener() {
                 @Override
                 public void onClick(View v) {
+                    Telemetry.sendUIEvent(TelemetryContract.Event.CANCEL,
+                                          TelemetryContract.Method.ACTIONBAR,
+                                          Integer.toString(editCancel.getId()));
                     cancelEdit();
                 }
             });
@@ -403,6 +408,8 @@ public class BrowserToolbar extends ThemedRelativeLayout
 
     public boolean onBackPressed() {
         if (isEditing()) {
+            Telemetry.sendUIEvent(TelemetryContract.Event.CANCEL,
+                                  TelemetryContract.Method.BACK);
             cancelEdit();
             return true;
         }
@@ -610,8 +617,7 @@ public class BrowserToolbar extends ThemedRelativeLayout
         // Find the distance from the right-edge of the url bar (where we're translating from) to
         // the left-edge of the cancel button (where we're translating to; note that the cancel
         // button must be laid out, i.e. not View.GONE).
-        final LayoutParams lp = (LayoutParams) urlEditLayout.getLayoutParams();
-        return editCancel.getLeft() - lp.leftMargin - urlBarEntry.getRight();
+        return editCancel.getLeft() - urlBarEntry.getRight();
     }
 
     private int getUrlBarCurveTranslation() {
@@ -1004,11 +1010,17 @@ public class BrowserToolbar extends ThemedRelativeLayout
             ViewHelper.setTranslationX(urlBarTranslatingEdge, entryTranslation);
         }
 
+        // Prevent taps through the editing mode cancel button (bug 1001243).
+        tabsButton.setEnabled(false);
+
         ViewHelper.setTranslationX(tabsButton, curveTranslation);
         ViewHelper.setTranslationX(tabsCounter, curveTranslation);
         ViewHelper.setTranslationX(actionItemBar, curveTranslation);
 
         if (hasSoftMenuButton) {
+            // Prevent tabs through the editing mode cancel button (bug 1001243).
+            menuButton.setEnabled(false);
+
             ViewHelper.setTranslationX(menuButton, curveTranslation);
             ViewHelper.setTranslationX(menuIcon, curveTranslation);
         }
@@ -1070,6 +1082,7 @@ public class BrowserToolbar extends ThemedRelativeLayout
      * @return the url that was entered
      */
     public String cancelEdit() {
+        Telemetry.stopUISession(TelemetryContract.Session.AWESOMESCREEN);
         return stopEditing();
     }
 
@@ -1130,11 +1143,15 @@ public class BrowserToolbar extends ThemedRelativeLayout
             }
         }
 
+        tabsButton.setEnabled(true);
+
         ViewHelper.setTranslationX(tabsButton, 0);
         ViewHelper.setTranslationX(tabsCounter, 0);
         ViewHelper.setTranslationX(actionItemBar, 0);
 
         if (hasSoftMenuButton) {
+            menuButton.setEnabled(true);
+
             ViewHelper.setTranslationX(menuButton, 0);
             ViewHelper.setTranslationX(menuIcon, 0);
         }

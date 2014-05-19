@@ -32,6 +32,7 @@ class Shmem;
 namespace layers {
 
 class ClientTiledLayerBuffer;
+class AsyncTransactionTracker;
 class ImageClient;
 class ImageContainer;
 class ImageBridgeParent;
@@ -102,6 +103,7 @@ class ImageBridgeChild : public PImageBridgeChild
                        , public CompositableForwarder
 {
   friend class ImageContainer;
+  typedef InfallibleTArray<AsyncParentMessageData> AsyncParentMessageArray;
 public:
 
   /**
@@ -193,7 +195,7 @@ public:
   DeallocPTextureChild(PTextureChild* actor) MOZ_OVERRIDE;
 
   virtual bool
-  RecvParentAsyncMessage(const mozilla::layers::AsyncParentMessageData& aMessage) MOZ_OVERRIDE;
+  RecvParentAsyncMessage(const InfallibleTArray<AsyncParentMessageData>& aMessages) MOZ_OVERRIDE;
 
   TemporaryRef<ImageClient> CreateImageClient(CompositableType aType);
   TemporaryRef<ImageClient> CreateImageClientNow(CompositableType aType);
@@ -207,11 +209,6 @@ public:
    */
   static void FlushAllImages(ImageClient* aClient, ImageContainer* aContainer, bool aExceptFront);
 
-  /**
-   * Must be called on the ImageBridgeChild's thread.
-   */
-  static void FlushAllImagesNow(ImageClient* aClient, ImageContainer* aContainer, bool aExceptFront);
-
   // CompositableForwarder
 
   virtual void Connect(CompositableClient* aCompositable) MOZ_OVERRIDE;
@@ -222,6 +219,8 @@ public:
   virtual void UpdatedTexture(CompositableClient* aCompositable,
                               TextureClient* aTexture,
                               nsIntRegion* aRegion) MOZ_OVERRIDE;
+
+  virtual bool IsImageBridgeChild() const MOZ_OVERRIDE { return true; }
 
   /**
    * See CompositableForwarder::UseTexture
@@ -234,6 +233,10 @@ public:
 
   virtual void RemoveTextureFromCompositable(CompositableClient* aCompositable,
                                              TextureClient* aTexture) MOZ_OVERRIDE;
+
+  virtual void RemoveTextureFromCompositableAsync(AsyncTransactionTracker* aAsyncTransactionTracker,
+                                                  CompositableClient* aCompositable,
+                                                  TextureClient* aTexture) MOZ_OVERRIDE;
 
   virtual void RemoveTexture(TextureClient* aTexture) MOZ_OVERRIDE;
 

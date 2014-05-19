@@ -407,6 +407,10 @@ public:
   // True if this frame has been scrolled at least once
   bool mHasBeenScrolled:1;
 
+  // True if the frame's resolution has been set via SetResolution or restored
+  // via RestoreState.
+  bool mIsResolutionSet:1;
+
 protected:
   /**
    * @note This method might destroy the frame, pres shell and other objects.
@@ -465,15 +469,15 @@ public:
   bool TryLayout(ScrollReflowState* aState,
                    nsHTMLReflowMetrics* aKidMetrics,
                    bool aAssumeVScroll, bool aAssumeHScroll,
-                   bool aForce, nsresult* aResult);
+                   bool aForce);
   bool ScrolledContentDependsOnHeight(ScrollReflowState* aState);
-  nsresult ReflowScrolledFrame(ScrollReflowState* aState,
-                               bool aAssumeHScroll,
-                               bool aAssumeVScroll,
-                               nsHTMLReflowMetrics* aMetrics,
-                               bool aFirstPass);
-  nsresult ReflowContents(ScrollReflowState* aState,
-                          const nsHTMLReflowMetrics& aDesiredSize);
+  void ReflowScrolledFrame(ScrollReflowState* aState,
+                           bool aAssumeHScroll,
+                           bool aAssumeVScroll,
+                           nsHTMLReflowMetrics* aMetrics,
+                           bool aFirstPass);
+  void ReflowContents(ScrollReflowState* aState,
+                      const nsHTMLReflowMetrics& aDesiredSize);
   void PlaceScrollArea(const ScrollReflowState& aState,
                        const nsPoint& aScrollPosition);
   nscoord GetIntrinsicVScrollbarWidth(nsRenderingContext *aRenderingContext);
@@ -488,10 +492,10 @@ public:
   virtual nsresult GetPadding(nsMargin& aPadding) MOZ_OVERRIDE;
   virtual bool IsCollapsed() MOZ_OVERRIDE;
   
-  virtual nsresult Reflow(nsPresContext*           aPresContext,
-                          nsHTMLReflowMetrics&     aDesiredSize,
-                          const nsHTMLReflowState& aReflowState,
-                          nsReflowStatus&          aStatus) MOZ_OVERRIDE;
+  virtual void Reflow(nsPresContext*           aPresContext,
+                      nsHTMLReflowMetrics&     aDesiredSize,
+                      const nsHTMLReflowState& aReflowState,
+                      nsReflowStatus&          aStatus) MOZ_OVERRIDE;
 
   virtual bool UpdateOverflow() MOZ_OVERRIDE {
     return mHelper.UpdateOverflow();
@@ -657,6 +661,9 @@ public:
   }
   virtual void ResetScrollPositionForLayerPixelAlignment() MOZ_OVERRIDE {
     mHelper.ResetScrollPositionForLayerPixelAlignment();
+  }
+  virtual bool IsResolutionSet() const MOZ_OVERRIDE {
+    return mHelper.mIsResolutionSet;
   }
   virtual bool DidHistoryRestore() const MOZ_OVERRIDE {
     return mHelper.mDidHistoryRestore;
@@ -971,6 +978,9 @@ public:
   }
   virtual void ResetScrollPositionForLayerPixelAlignment() MOZ_OVERRIDE {
     mHelper.ResetScrollPositionForLayerPixelAlignment();
+  }
+  virtual bool IsResolutionSet() const MOZ_OVERRIDE {
+    return mHelper.mIsResolutionSet;
   }
   virtual bool DidHistoryRestore() const MOZ_OVERRIDE {
     return mHelper.mDidHistoryRestore;

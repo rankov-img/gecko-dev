@@ -1980,19 +1980,16 @@ dnl Configure JIT support
 case "$target" in
 i?86-*)
     ENABLE_ION=1
-    ENABLE_YARR_JIT=1
     AC_DEFINE(JS_CPU_X86)
     AC_DEFINE(JS_NUNBOX32)
     ;;
 x86_64*-*)
     ENABLE_ION=1
-    ENABLE_YARR_JIT=1
     AC_DEFINE(JS_CPU_X64)
     AC_DEFINE(JS_PUNBOX64)
     ;;
 arm*-*)
     ENABLE_ION=1
-    ENABLE_YARR_JIT=1
     AC_DEFINE(JS_CPU_ARM)
     AC_DEFINE(JS_NUNBOX32)
     ;;
@@ -2015,22 +2012,12 @@ MOZ_ARG_DISABLE_BOOL(ion,
 [  --disable-ion      Disable use of the IonMonkey JIT],
   ENABLE_ION= )
 
-MOZ_ARG_DISABLE_BOOL(yarr-jit,
-[  --disable-yarr-jit    Disable YARR JIT support],
-  ENABLE_YARR_JIT= )
-
 AC_SUBST(ENABLE_METHODJIT_SPEW)
 
 AC_SUBST(ENABLE_ION)
 
 if test "$ENABLE_ION"; then
     AC_DEFINE(JS_ION)
-fi
-
-AC_SUBST(ENABLE_YARR_JIT)
-
-if test "$ENABLE_YARR_JIT"; then
-    AC_DEFINE(ENABLE_YARR_JIT)
 fi
 
 if test -n "$COMPILE_ENVIRONMENT"; then
@@ -2098,7 +2085,7 @@ MOZ_CXX11
 dnl Check for .hidden assembler directive and visibility attribute.
 dnl Borrowed from glibc configure.in
 dnl ===============================================================
-if test "$GNU_CC"; then
+if test "$GNU_CC" -a "$OS_TARGET" != WINNT; then
   AC_DEFINE(HAVE_VISIBILITY_HIDDEN_ATTRIBUTE)
   AC_DEFINE(HAVE_VISIBILITY_ATTRIBUTE)
   if test -n "$gonkdir"; then
@@ -3000,6 +2987,20 @@ if test "$ENABLE_TRACE_LOGGING"; then
 fi
 
 dnl ========================================================
+dnl = Enable yarr regexp engine
+dnl ========================================================
+MOZ_ARG_ENABLE_BOOL(yarr,
+[  --enable-yarr   Enable yarr regexp engine],
+    ENABLE_YARR=1,
+    ENABLE_YARR= )
+
+AC_SUBST(ENABLE_YARR)
+
+if test "$ENABLE_YARR"; then
+    AC_DEFINE(JS_YARR)
+fi
+
+dnl ========================================================
 dnl = Enable any treating of compile warnings as errors
 dnl ========================================================
 MOZ_ARG_DISABLE_BOOL(warnings-as-errors,
@@ -3696,14 +3697,14 @@ else
     fi
     AC_SUBST(CL_INCLUDES_PREFIX)
     rm -f dummy-hello.c
+
+    dnl Make sure that the build system can handle non-ASCII characters
+    dnl in environment variables to prevent it from breaking silently on
+    dnl non-English systems.
+    NONASCII=$'\241\241'
+    AC_SUBST(NONASCII)
   fi
 fi
-
-dnl Make sure that the build system can handle non-ASCII characters
-dnl in environment variables to prevent it from breking silently on
-dnl non-English systems.
-NONASCII=$'\241\241'
-AC_SUBST(NONASCII)
 
 dnl ========================================================
 dnl = Disable -fstrict-aliasing with GCC 4.4 and earlier.

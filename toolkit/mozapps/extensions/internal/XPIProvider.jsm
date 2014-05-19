@@ -397,11 +397,32 @@ SafeInstallOperation.prototype = {
    *         The directory to move into, this is expected to be an empty
    *         directory.
    */
-  move: function SIO_move(aFile, aTargetDirectory) {
+  moveUnder: function SIO_move(aFile, aTargetDirectory) {
     try {
       this._installDirEntry(aFile, aTargetDirectory, false);
     }
     catch (e) {
+      this.rollback();
+      throw e;
+    }
+  },
+
+  /**
+   * Renames a file to a new location.  If an error occurs then all
+   * files that have been moved will be moved back to their original location.
+   *
+   * @param  aOldLocation
+   *         The old location of the file.
+   * @param  aNewLocation
+   *         The new location of the file.
+   */
+  moveTo: function(aOldLocation, aNewLocation) {
+    try {
+      let oldFile = aOldLocation.clone(), newFile = aNewLocation.clone();
+      oldFile.moveTo(newFile.parent, newFile.leafName);
+      this._installedFiles.push({ oldFile: oldFile, newFile: newFile, isMoveTo: true});
+    }
+    catch(e) {
       this.rollback();
       throw e;
     }
@@ -435,7 +456,10 @@ SafeInstallOperation.prototype = {
   rollback: function SIO_rollback() {
     while (this._installedFiles.length > 0) {
       let move = this._installedFiles.pop();
-      if (move.newFile.isDirectory()) {
+      if (move.isMoveTo) {
+        move.newFile.moveTo(oldDir.parent, oldDir.leafName);
+      }
+      else if (move.newFile.isDirectory()) {
         let oldDir = move.oldFile.parent.clone();
         oldDir.append(move.oldFile.leafName);
         oldDir.create(Ci.nsIFile.DIRECTORY_TYPE, FileUtils.PERMS_DIRECTORY);
@@ -1592,6 +1616,8 @@ this.XPIProvider = {
   _telemetryDetails: {},
   // Experiments are disabled by default. Track ones that are locally enabled.
   _enabledExperiments: null,
+  // A Map from an add-on install to its ID
+  _addonFileMap: new Map(),
 
   /*
    * Set a value in the telemetry hash for a given ID
@@ -1636,55 +1662,8 @@ this.XPIProvider = {
    * consumers may still have URIs of (leaked) resources they want to map.
    */
   _addURIMapping: function XPI__addURIMapping(aID, aFile) {
-    try {
-      // Always use our own mechanics instead of nsIIOService.newFileURI, so
-      // that we can be sure to map things as we want them mapped.
-      let uri = this._resolveURIToFile(getURIForResourceInFile(aFile, "."));
-      if (!uri) {
-        throw new Error("Cannot resolve");
-      }
-      this._ensureURIMappings();
-      this._uriMappings[aID] = uri.spec;
-    }
-    catch (ex) {
-      logger.warn("Failed to add URI mapping", ex);
-    }
-  },
-
-  /**
-   * Ensures that the URI to Addon mappings are available.
-   *
-   * The function will add mappings for all non-bootstrapped but enabled
-   * add-ons.
-   * Bootstrapped add-on mappings will be added directly when the bootstrap
-   * scope get loaded. (See XPIProvider._addURIMapping() and callers)
-   */
-  _ensureURIMappings: function XPI__ensureURIMappings() {
-    if (this._uriMappings) {
-      return;
-    }
-    // XXX Convert to Map(), once it gets stable with stable iterators
-    this._uriMappings = Object.create(null);
-
-    // XXX Convert to Set(), once it gets stable with stable iterators
-    let enabled = Object.create(null);
-    let enabledAddons = this.enabledAddons || "";
-    for (let a of enabledAddons.split(",")) {
-      a = decodeURIComponent(a.split(":")[0]);
-      enabled[a] = null;
-    }
-
-    let cache = JSON.parse(Prefs.getCharPref(PREF_INSTALL_CACHE, "[]"));
-    for (let loc of cache) {
-      for (let [id, val] in Iterator(loc.addons)) {
-        if (!(id in enabled)) {
-          continue;
-        }
-        let file = new nsIFile(val.descriptor);
-        let spec = Services.io.newFileURI(file).spec;
-        this._uriMappings[id] = spec;
-      }
-    }
+    logger.info("Mapping " + aID + " to " + aFile.path);
+    this._addonFileMap.set(aID, aFile.path);
   },
 
   /**
@@ -1914,10 +1893,6 @@ this.XPIProvider = {
 
       this.enabledAddons = Prefs.getCharPref(PREF_EM_ENABLED_ADDONS, "");
 
-      // Invalidate the URI mappings now that |enabledAddons| was updated.
-      // |_ensureMappings()| will re-create the mappings when needed.
-      delete this._uriMappings;
-
       if ("nsICrashReporter" in Ci &&
           Services.appinfo instanceof Ci.nsICrashReporter) {
         // Annotate the crash report with relevant add-on information.
@@ -2027,9 +2002,7 @@ this.XPIProvider = {
 
     // This is needed to allow xpcshell tests to simulate a restart
     this.extensionsActive = false;
-
-    // Remove URI mappings again
-    delete this._uriMappings;
+    this._addonFileMap.clear();
 
     if (gLazyObjectsLoaded) {
       let done = XPIDatabase.shutdown();
@@ -3715,17 +3688,15 @@ this.XPIProvider = {
    * @see    amIAddonManager.mapURIToAddonID
    */
   mapURIToAddonID: function XPI_mapURIToAddonID(aURI) {
-    this._ensureURIMappings();
     let resolved = this._resolveURIToFile(aURI);
-    if (!resolved) {
+    if (!resolved || !(resolved instanceof Ci.nsIFileURL))
       return null;
-    }
-    resolved = resolved.spec;
-    for (let [id, spec] in Iterator(this._uriMappings)) {
-      if (resolved.startsWith(spec)) {
+
+    for (let [id, path] of this._addonFileMap) {
+      if (resolved.file.path.startsWith(path))
         return id;
-      }
     }
+
     return null;
   },
 
@@ -4119,9 +4090,6 @@ this.XPIProvider = {
 
     let loader = Cc["@mozilla.org/moz/jssubscript-loader;1"].
                  createInstance(Ci.mozIJSSubScriptLoader);
-
-    // Add a mapping for XPIProvider.mapURIToAddonID
-    this._addURIMapping(aId, aFile);
 
     try {
       // Copy the reason values from the global object into the bootstrap scope.
@@ -6206,6 +6174,22 @@ AddonInternal.prototype = {
   },
 
   /**
+   * getDataDirectory tries to execute the callback with two arguments:
+   * 1) the path of the data directory within the profile,
+   * 2) any exception generated from trying to build it.
+   */
+  getDataDirectory: function(callback) {
+    let parentPath = OS.Path.join(OS.Constants.Path.profileDir, "extension-data");
+    let dirPath = OS.Path.join(parentPath, this.id);
+
+    Task.spawn(function*() {
+      yield OS.File.makeDir(parentPath, {ignoreExisting: true});
+      yield OS.File.makeDir(dirPath, {ignoreExisting: true});
+    }).then(() => callback(dirPath, null),
+            e => callback(dirPath, e));
+  },
+
+  /**
    * toJSON is called by JSON.stringify in order to create a filtered version
    * of this object to be serialized to a JSON file. A new object is returned
    * with copies of all non-private properties. Functions, getters and setters
@@ -6307,7 +6291,8 @@ function AddonWrapper(aAddon) {
   ["id", "syncGUID", "version", "type", "isCompatible", "isPlatformCompatible",
    "providesUpdatesSecurely", "blocklistState", "blocklistURL", "appDisabled",
    "softDisabled", "skinnable", "size", "foreignInstall", "hasBinaryComponents",
-   "strictCompatibility", "compatibilityOverrides", "updateURL"].forEach(function(aProp) {
+   "strictCompatibility", "compatibilityOverrides", "updateURL",
+   "getDataDirectory"].forEach(function(aProp) {
      this.__defineGetter__(aProp, function AddonWrapper_propertyGetter() aAddon[aProp]);
   }, this);
 
@@ -6945,6 +6930,7 @@ DirectoryInstallLocation.prototype = {
 
       this._IDToFileMap[id] = entry;
       this._FileToIDMap[entry.path] = id;
+      XPIProvider._addURIMapping(id, entry);
     }
   },
 
@@ -7107,13 +7093,13 @@ DirectoryInstallLocation.prototype = {
       file.append(aId);
 
       if (file.exists())
-        transaction.move(file, trashDir);
+        transaction.moveUnder(file, trashDir);
 
       file = self._directory.clone();
       file.append(aId + ".xpi");
       if (file.exists()) {
         flushJarCache(file);
-        transaction.move(file, trashDir);
+        transaction.moveUnder(file, trashDir);
       }
     }
 
@@ -7121,8 +7107,33 @@ DirectoryInstallLocation.prototype = {
     // temporary directory
     try {
       moveOldAddon(aId);
-      if (aExistingAddonID && aExistingAddonID != aId)
+      if (aExistingAddonID && aExistingAddonID != aId) {
         moveOldAddon(aExistingAddonID);
+
+        {
+          // Move the data directories.
+          /* XXX ajvincent We can't use OS.File:  installAddon isn't compatible
+           * with Promises, nor is SafeInstallOperation.  Bug 945540 has been filed
+           * for porting to OS.File.
+           */
+          let oldDataDir = FileUtils.getDir(
+            KEY_PROFILEDIR, ["extension-data", aExistingAddonID], false, true
+          );
+
+          if (oldDataDir.exists()) {
+            let newDataDir = FileUtils.getDir(
+              KEY_PROFILEDIR, ["extension-data", aId], false, true
+            );
+            if (newDataDir.exists()) {
+              let trashData = trashDir.clone();
+              trashData.append("data-directory");
+              transaction.moveUnder(newDataDir, trashData);
+            }
+
+            transaction.moveTo(oldDataDir, newDataDir);
+          }
+        }
+      }
 
       if (aCopy) {
         transaction.copy(aSource, this._directory);
@@ -7131,7 +7142,7 @@ DirectoryInstallLocation.prototype = {
         if (aSource.isFile())
           flushJarCache(aSource);
 
-        transaction.move(aSource, this._directory);
+        transaction.moveUnder(aSource, this._directory);
       }
     }
     finally {
@@ -7154,6 +7165,7 @@ DirectoryInstallLocation.prototype = {
     }
     this._FileToIDMap[newFile.path] = aId;
     this._IDToFileMap[aId] = newFile;
+    XPIProvider._addURIMapping(aId, newFile);
 
     if (aExistingAddonID && aExistingAddonID != aId &&
         aExistingAddonID in this._IDToFileMap) {
@@ -7203,7 +7215,7 @@ DirectoryInstallLocation.prototype = {
     let transaction = new SafeInstallOperation();
 
     try {
-      transaction.move(file, trashDir);
+      transaction.moveUnder(file, trashDir);
     }
     finally {
       // It isn't ideal if this cleanup fails, but it is probably better than
@@ -7348,6 +7360,7 @@ WinRegInstallLocation.prototype = {
 
       this._IDToFileMap[id] = file;
       this._FileToIDMap[file.path] = id;
+      XPIProvider._addURIMapping(id, file);
     }
   },
 

@@ -492,6 +492,7 @@ let CustomizableUIInternal = {
     let window = document.defaultView;
     let inPrivateWindow = PrivateBrowsingUtils.isWindowPrivate(window);
     let container = aAreaNode.customizationTarget;
+    let areaIsPanel = gAreas.get(aArea).get("type") == CustomizableUI.TYPE_MENU_PANEL;
 
     if (!container) {
       throw new Error("Expected area " + aArea
@@ -516,6 +517,11 @@ let CustomizableUIInternal = {
 
         if (currentNode && currentNode.id == id) {
           currentNode = currentNode.nextSibling;
+          continue;
+        }
+
+        if (this.isSpecialWidget(id) && areaIsPanel) {
+          placementsToRemove.add(id);
           continue;
         }
 
@@ -548,7 +554,7 @@ let CustomizableUIInternal = {
 
         this.ensureButtonContextMenu(node, aAreaNode);
         if (node.localName == "toolbarbutton") {
-          if (aArea == CustomizableUI.AREA_PANEL) {
+          if (areaIsPanel) {
             node.setAttribute("wrap", "true");
           } else {
             node.removeAttribute("wrap");
@@ -766,14 +772,15 @@ let CustomizableUIInternal = {
         continue;
       }
 
+      let container = areaNode.customizationTarget;
       let widgetNode = window.document.getElementById(aWidgetId);
-      if (!widgetNode) {
+      if (widgetNode && isOverflowable) {
+        container = areaNode.overflowable.getContainerFor(widgetNode);
+      }
+
+      if (!widgetNode || !container.contains(widgetNode)) {
         INFO("Widget not found, unable to remove");
         continue;
-      }
-      let container = areaNode.customizationTarget;
-      if (isOverflowable) {
-        container = areaNode.overflowable.getContainerFor(widgetNode);
       }
 
       this.notifyListeners("onWidgetBeforeDOMChange", widgetNode, null, container, true);
@@ -906,6 +913,8 @@ let CustomizableUIInternal = {
     let anchor = props.get("anchor");
     if (anchor) {
       aNode.setAttribute("cui-anchorid", anchor);
+    } else {
+      aNode.removeAttribute("cui-anchorid");
     }
   },
 
@@ -1378,6 +1387,12 @@ let CustomizableUIInternal = {
         menuitemCloseMenu = (closemenuVal == "single" || closemenuVal == "none") ?
                             closemenuVal : "auto";
       }
+      // Break out of the loop immediately for disabled items, as we need to
+      // keep the menu open in that case.
+      if (target.getAttribute("disabled") == "true") {
+        return true;
+      }
+
       // This isn't in the loop condition because we want to break before
       // changing |target| if any of these conditions are true
       if (inInput || inItem || target == panel) {
@@ -1393,6 +1408,7 @@ let CustomizableUIInternal = {
         target = target.parentNode;
       }
     }
+
     // If the user clicked a menu item...
     if (inMenu) {
       // We care if we're in an input also,
@@ -1551,6 +1567,13 @@ let CustomizableUIInternal = {
   addWidgetToArea: function(aWidgetId, aArea, aPosition, aInitialAdd) {
     if (!gAreas.has(aArea)) {
       throw new Error("Unknown customization area: " + aArea);
+    }
+
+    // Hack: don't want special widgets in the panel (need to check here as well
+    // as in canWidgetMoveToArea because the menu panel is lazy):
+    if (gAreas.get(aArea).get("type") == CustomizableUI.TYPE_MENU_PANEL &&
+        this.isSpecialWidget(aWidgetId)) {
+      return;
     }
 
     // If this is a lazy area that hasn't been restored yet, we can't yet modify
@@ -2371,10 +2394,16 @@ let CustomizableUIInternal = {
 
   canWidgetMoveToArea: function(aWidgetId, aArea) {
     let placement = this.getPlacementOfWidget(aWidgetId);
-    if (placement && placement.area != aArea &&
-        !this.isWidgetRemovable(aWidgetId)) {
-      return false;
+    if (placement && placement.area != aArea) {
+      // Special widgets can't move to the menu panel.
+      if (this.isSpecialWidget(aWidgetId) && gAreas.has(aArea) &&
+          gAreas.get(aArea).get("type") == CustomizableUI.TYPE_MENU_PANEL) {
+        return false;
+      }
+      // For everything else, just return whether the widget is removable.
+      return this.isWidgetRemovable(aWidgetId);
     }
+
     return true;
   },
 

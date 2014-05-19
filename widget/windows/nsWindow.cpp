@@ -66,6 +66,7 @@
 
 #include <shellapi.h>
 #include <windows.h>
+#include <wtsapi32.h>
 #include <process.h>
 #include <commctrl.h>
 #include <unknwn.h>
@@ -605,6 +606,14 @@ nsWindow::Create(nsIWidget *aParent,
   }
 
   SubclassWindow(TRUE);
+
+  // Starting with Windows XP, a process always runs within a terminal services
+  // session. In order to play nicely with RDP, fast user switching, and the
+  // lock screen, we should be handling WM_WTSSESSION_CHANGE. We must register
+  // our HWND in order to receive this message.
+  DebugOnly<BOOL> wtsRegistered = ::WTSRegisterSessionNotification(mWnd,
+                                                       NOTIFY_FOR_THIS_SESSION);
+  NS_ASSERTION(wtsRegistered, "WTSRegisterSessionNotification failed!\n");
 
   IMEHandler::InitInputContext(this, mInputContext);
 
@@ -3580,6 +3589,15 @@ nsWindow::UpdateThemeGeometries(const nsTArray<ThemeGeometry>& aThemeGeometries)
   }
 }
 
+uint32_t
+nsWindow::GetMaxTouchPoints() const
+{
+  if (IsWin7OrLater()) {
+    return GetSystemMetrics(SM_MAXIMUMTOUCHES);
+  }
+  return 0;
+}
+
 /**************************************************************
  **************************************************************
  **
@@ -4566,6 +4584,21 @@ nsWindow::ProcessMessage(UINT msg, WPARAM& wParam, LPARAM& lParam,
       // Invalidate the window so that the repaint will
       // pick up the new theme.
       Invalidate(true, true, true);
+    }
+    break;
+
+    case WM_WTSSESSION_CHANGE:
+    {
+      switch (wParam) {
+        case WTS_CONSOLE_CONNECT:
+        case WTS_REMOTE_CONNECT:
+        case WTS_SESSION_UNLOCK:
+          // When a session becomes visible, we should invalidate.
+          Invalidate(true, true, true);
+          break;
+        default:
+          break;
+      }
     }
     break;
 
@@ -6401,6 +6434,9 @@ void nsWindow::OnDestroy()
   mWidgetListener = nullptr;
   mAttachedWidgetListener = nullptr;
 
+  // Unregister notifications from terminal services
+  ::WTSUnRegisterSessionNotification(mWnd);
+
   // Free our subclass and clear |this| stored in the window props. We will no longer
   // receive events from Windows after this point.
   SubclassWindow(FALSE);
@@ -7292,6 +7328,13 @@ nsWindow::DealWithPopups(HWND aWnd, UINT aMessage,
           if (deactiveWindow && deactiveWindow->IsPopup()) {
             return false;
           }
+        }
+      } else if (LOWORD(aWParam) == WA_CLICKACTIVE) {
+        // If the WM_ACTIVATE message is caused by a click in a popup,
+        // we should not rollup any popups.
+        if (EventIsInsideWindow(popupWindow) ||
+            !GetPopupsToRollup(rollupListener, &popupsToRollup)) {
+          return false;
         }
       }
       break;

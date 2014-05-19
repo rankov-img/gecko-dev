@@ -18,6 +18,9 @@ namespace jit {
 
 #define RECOVER_OPCODE_LIST(_)                  \
     _(ResumePoint)                              \
+    _(BitNot)                                   \
+    _(BitOr)                                    \
+    _(BitXor)                                   \
     _(Add)                                      \
     _(NewObject)                                \
     _(NewDerivedTypedObject)
@@ -88,6 +91,30 @@ class RResumePoint MOZ_FINAL : public RInstruction
     bool recover(JSContext *cx, SnapshotIterator &iter) const;
 };
 
+class RBitNot MOZ_FINAL : public RInstruction
+{
+  public:
+    RINSTRUCTION_HEADER_(BitNot)
+
+    virtual uint32_t numOperands() const {
+        return 1;
+    }
+
+    bool recover(JSContext *cx, SnapshotIterator &iter) const;
+};
+
+class RBitXor MOZ_FINAL : public RInstruction
+{
+  public:
+    RINSTRUCTION_HEADER_(BitXor)
+
+    virtual uint32_t numOperands() const {
+        return 2;
+    }
+
+    bool recover(JSContext *cx, SnapshotIterator &iter) const;
+};
+
 class RAdd MOZ_FINAL : public RInstruction
 {
   private:
@@ -125,6 +152,18 @@ class RNewDerivedTypedObject MOZ_FINAL : public RInstruction
 
     virtual uint32_t numOperands() const {
         return 3;
+    }
+
+    bool recover(JSContext *cx, SnapshotIterator &iter) const;
+};
+
+class RBitOr MOZ_FINAL : public RInstruction
+{
+  public:
+    RINSTRUCTION_HEADER_(BitOr)
+
+    virtual uint32_t numOperands() const {
+        return 2;
     }
 
     bool recover(JSContext *cx, SnapshotIterator &iter) const;

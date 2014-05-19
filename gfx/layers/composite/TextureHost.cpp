@@ -9,7 +9,6 @@
 #include "gfx2DGlue.h"                  // for ToIntSize
 #include "mozilla/gfx/2D.h"             // for DataSourceSurface, Factory
 #include "mozilla/ipc/Shmem.h"          // for Shmem
-#include "mozilla/layers/AsyncTransactionTracker.h" // for AsyncTransactionTracker
 #include "mozilla/layers/CompositableTransactionParent.h" // for CompositableParentManager
 #include "mozilla/layers/Compositor.h"  // for Compositor
 #include "mozilla/layers/ISurfaceAllocator.h"  // for ISurfaceAllocator
@@ -38,36 +37,6 @@ struct nsIntPoint;
 namespace mozilla {
 namespace layers {
 
-#if defined(MOZ_WIDGET_GONK) && ANDROID_VERSION >= 17
-// FenceDeliveryTracker puts off releasing a Fence until a transaction complete.
-class FenceDeliveryTracker : public AsyncTransactionTracker {
-public:
-  FenceDeliveryTracker(const android::sp<android::Fence>& aFence)
-    : mFence(aFence)
-  {
-    MOZ_COUNT_CTOR(FenceDeliveryTracker);
-  }
-
-  ~FenceDeliveryTracker()
-  {
-    MOZ_COUNT_DTOR(FenceDeliveryTracker);
-  }
-
-  virtual void Complete() MOZ_OVERRIDE
-  {
-    mFence = nullptr;
-  }
-
-  virtual void Cancel() MOZ_OVERRIDE
-  {
-    mFence = nullptr;
-  }
-
-private:
-  android::sp<android::Fence> mFence;
-};
-#endif
-
 /**
  * TextureParent is the host-side IPDL glue between TextureClient and TextureHost.
  * It is an IPDL actor just like LayerParent, CompositableParent, etc.
@@ -83,15 +52,20 @@ public:
             const TextureFlags& aFlags);
 
   void CompositorRecycle();
+
+  void SendFenceHandleIfPresent();
+
   virtual bool RecvClientRecycle() MOZ_OVERRIDE;
 
-  virtual bool RecvRemoveTexture() MOZ_OVERRIDE;
+  virtual bool RecvClearTextureHostSync() MOZ_OVERRIDE;
 
-  virtual bool RecvRemoveTextureSync() MOZ_OVERRIDE;
+  virtual bool RecvRemoveTexture() MOZ_OVERRIDE;
 
   TextureHost* GetTextureHost() { return mTextureHost; }
 
   void ActorDestroy(ActorDestroyReason why) MOZ_OVERRIDE;
+
+  void ClearTextureHost();
 
   CompositableParentManager* mCompositableManager;
   RefPtr<TextureHost> mWaitForClientRecycle;
@@ -144,6 +118,14 @@ PTextureParent*
 TextureHost::GetIPDLActor()
 {
   return mActor;
+}
+
+// static
+void
+TextureHost::SendFenceHandleIfPresent(PTextureParent* actor)
+{
+  TextureParent* parent = static_cast<TextureParent*>(actor);
+  parent->SendFenceHandleIfPresent();
 }
 
 // implemented in TextureHostOGL.cpp
@@ -659,7 +641,19 @@ void
 TextureParent::CompositorRecycle()
 {
   mTextureHost->ClearRecycleCallback();
+  SendFenceHandleIfPresent();
 
+  if (mTextureHost->GetFlags() & TextureFlags::RECYCLE) {
+    mozilla::unused << SendCompositorRecycle();
+    // Don't forget to prepare for the next reycle
+    // if TextureClient request it.
+    mWaitForClientRecycle = mTextureHost;
+  }
+}
+
+void
+TextureParent::SendFenceHandleIfPresent()
+{
 #if defined(MOZ_WIDGET_GONK) && ANDROID_VERSION >= 17
   if (mTextureHost) {
     TextureHostOGL* hostOGL = mTextureHost->AsHostOGL();
@@ -674,13 +668,6 @@ TextureParent::CompositorRecycle()
     }
   }
 #endif
-
-  if (mTextureHost->GetFlags() & TextureFlags::RECYCLE) {
-    mozilla::unused << SendCompositorRecycle();
-    // Don't forget to prepare for the next reycle
-    // if TextureClient request it.
-    mWaitForClientRecycle = mTextureHost;
-  }
 }
 
 bool
@@ -721,20 +708,15 @@ TextureParent::RecvRemoveTexture()
 }
 
 bool
-TextureParent::RecvRemoveTextureSync()
+TextureParent::RecvClearTextureHostSync()
 {
-  // we don't need to send a reply in the synchronous case since the child side
-  // has the guarantee that this message has been handled synchronously.
-  return PTextureParent::Send__delete__(this);
+  ClearTextureHost();
+  return true;
 }
 
 void
 TextureParent::ActorDestroy(ActorDestroyReason why)
 {
-  if (!mTextureHost) {
-    return;
-  }
-
   switch (why) {
   case AncestorDeletion:
   case Deletion:
@@ -743,6 +725,16 @@ TextureParent::ActorDestroy(ActorDestroyReason why)
     break;
   case FailedConstructor:
     NS_RUNTIMEABORT("FailedConstructor isn't possible in PTexture");
+  }
+
+  ClearTextureHost();
+}
+
+void
+TextureParent::ClearTextureHost()
+{
+  if (!mTextureHost) {
+    return;
   }
 
   if (mTextureHost->GetFlags() & TextureFlags::RECYCLE) {

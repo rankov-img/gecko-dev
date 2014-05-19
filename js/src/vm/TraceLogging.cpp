@@ -582,13 +582,15 @@ TraceLogger::startEvent(uint32_t id)
         return;
     }
 
-    if (!tree.ensureSpaceBeforeAdd()) {
+    if (!tree.hasSpaceForAdd()){
         uint64_t start = rdtsc() - traceLoggers.startupTime;
-        if (!flush()) {
-            fprintf(stderr, "TraceLogging: Couldn't write the data to disk.\n");
-            enabled = false;
-            failed = true;
-            return;
+        if (!tree.ensureSpaceBeforeAdd()) {
+            if (!flush()) {
+                fprintf(stderr, "TraceLogging: Couldn't write the data to disk.\n");
+                enabled = false;
+                failed = true;
+                return;
+            }
         }
 
         // Log the time it took to flush the events as being from the
@@ -823,9 +825,14 @@ TraceLogging::lazyInit()
         enabledTextIds[TraceLogger::ParserCompileFunction] = true;
         enabledTextIds[TraceLogger::ParserCompileLazy] = true;
         enabledTextIds[TraceLogger::ParserCompileScript] = true;
+#ifdef JS_YARR
         enabledTextIds[TraceLogger::YarrCompile] = true;
         enabledTextIds[TraceLogger::YarrInterpret] = true;
         enabledTextIds[TraceLogger::YarrJIT] = true;
+#else
+        enabledTextIds[TraceLogger::IrregexpCompile] = true;
+        enabledTextIds[TraceLogger::IrregexpExecute] = true;
+#endif
     }
 
     if (ContainsFlag(env, "IonCompiler") || strlen(env) == 0) {

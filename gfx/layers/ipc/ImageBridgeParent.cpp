@@ -82,7 +82,7 @@ ImageBridgeParent::RecvUpdate(const EditArray& aEdits, EditReplyArray* aReply)
   }
 
   // Clear fence handles used in previsou transaction.
-  ClearPrevFenceHandles();
+  DeprecatedClearPrevFenceHandles();
 
   EditReplyVector replyv;
   for (EditArray::index_type i = 0; i < aEdits.Length(); ++i) {
@@ -193,9 +193,17 @@ ImageBridgeParent::SendFenceHandle(AsyncTransactionTracker* aTracker,
                                    const FenceHandle& aFence)
 {
   HoldUntilComplete(aTracker);
-  mozilla::unused << SendParentAsyncMessage(OpDeliverFence(aTracker->GetId(),
+  InfallibleTArray<AsyncParentMessageData> messages;
+  messages.AppendElement(OpDeliverFence(aTracker->GetId(),
                                         aTexture, nullptr,
                                         aFence));
+  mozilla::unused << SendParentAsyncMessage(messages);
+}
+
+void
+ImageBridgeParent::SendAsyncMessage(const InfallibleTArray<AsyncParentMessageData>& aMessage)
+{
+  mozilla::unused << SendParentAsyncMessage(aMessage);
 }
 
 bool
@@ -271,6 +279,14 @@ ImageBridgeParent::CloneToplevel(const InfallibleTArray<ProtocolFdMapping>& aFds
 bool ImageBridgeParent::IsSameProcess() const
 {
   return OtherProcess() == ipc::kInvalidProcessHandle;
+}
+
+void
+ImageBridgeParent::ReplyRemoveTexture(const OpReplyRemoveTexture& aReply)
+{
+  InfallibleTArray<AsyncParentMessageData> messages;
+  messages.AppendElement(aReply);
+  mozilla::unused << SendParentAsyncMessage(messages);
 }
 
 } // layers
