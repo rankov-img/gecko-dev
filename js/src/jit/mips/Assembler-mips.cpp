@@ -34,11 +34,10 @@ ABIArgGenerator::next(MIRType type)
       case MIRType_Int32:
       case MIRType_Pointer:
         Register destReg;
-        if (GetIntArgReg(usedArgSlots_, &destReg)) {
+        if (GetIntArgReg(usedArgSlots_, &destReg))
             current_ = ABIArg(destReg);
-        } else {
+        else
             current_ = ABIArg(usedArgSlots_ * sizeof(intptr_t));
-        }
         usedArgSlots_++;
         break;
       case MIRType_Float32:
@@ -1573,22 +1572,4 @@ void Assembler::updateBoundsCheck(uint32_t heapSize, Instruction *inst)
 
     // Replace with new value
     Assembler::updateLuiOriValue(i0, i1, heapSize);
-
-    // NOTE: we don't update the Auto Flush Cache!  this function is currently
-    // only called from within AsmJSModule::patchHeapAccesses, which does that
-    // for us.  Don't call this!
-}
-
-static uintptr_t
-PageStart(uintptr_t p)
-{
-    static const size_t PageSize = 4096;
-    return p & ~(PageSize - 1);
-}
-
-static bool
-OnSamePage(uintptr_t start1, uintptr_t stop1, uintptr_t start2, uintptr_t stop2)
-{
-    // Return true if (parts of) the two ranges are on the same memory page.
-    return PageStart(stop1) == PageStart(start2) || PageStart(stop2) == PageStart(start1);
 }
