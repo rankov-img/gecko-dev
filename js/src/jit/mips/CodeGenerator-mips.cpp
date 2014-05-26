@@ -103,6 +103,9 @@ void
 CodeGeneratorMIPS::branchToBlock(Assembler::FloatFormat fmt, FloatRegister lhs, FloatRegister rhs,
                                  MBasicBlock *mir, Assembler::DoubleCondition cond)
 {
+    // Skip past trivial blocks.
+    mir = skipTrivialBlocks(mir);
+
     Label *label = mir->lir()->label();
     if (Label *oolEntry = labelForBackedgeWithImplicitCheck(mir)) {
         // Note: the backedge is initially a jump to the next instruction.
@@ -1032,7 +1035,7 @@ CodeGeneratorMIPS::visitOutOfLineTableSwitch(OutOfLineTableSwitch *ool)
         return false;
 
     for (size_t i = 0; i < mir->numCases(); i++) {
-        LBlock *caseblock = mir->getCase(i)->lir();
+        LBlock *caseblock = skipTrivialBlocks(mir->getCase(i))->lir();
         Label *caseheader = caseblock->label();
         uint32_t caseoffset = caseheader->offset();
 
@@ -1053,7 +1056,7 @@ bool
 CodeGeneratorMIPS::emitTableSwitchDispatch(MTableSwitch *mir, Register index,
                                            Register address)
 {
-    Label *defaultcase = mir->getDefault()->lir()->label();
+    Label *defaultcase = skipTrivialBlocks(mir->getDefault())->lir()->label();
 
     // Lower value with low value
     if (mir->low() != 0)

@@ -1040,6 +1040,49 @@ nsXMLHttpRequest::GetResponse(JSContext* aCx, ErrorResult& aRv)
   return JSVAL_NULL;
 }
 
+bool
+nsXMLHttpRequest::IsDeniedCrossSiteRequest()
+{
+  if ((mState & XML_HTTP_REQUEST_USE_XSITE_AC) && mChannel) {
+    nsresult rv;
+    mChannel->GetStatus(&rv);
+    if (NS_FAILED(rv)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/* readonly attribute AString responseURL; */
+void
+nsXMLHttpRequest::GetResponseURL(nsAString& aUrl)
+{
+  aUrl.Truncate();
+
+  uint16_t readyState;
+  GetReadyState(&readyState);
+  if ((readyState == UNSENT || readyState == OPENED) || !mChannel) {
+    return;
+  }
+
+  // Make sure we don't leak responseURL information from denied cross-site
+  // requests.
+  if (IsDeniedCrossSiteRequest()) {
+    return;
+  }
+
+  nsCOMPtr<nsIURI> responseUrl;
+  mChannel->GetURI(getter_AddRefs(responseUrl));
+
+  if (!responseUrl) {
+    return;
+  }
+
+  nsAutoCString temp;
+  responseUrl->GetSpec(temp);
+  CopyUTF8toUTF16(temp, aUrl);
+}
+
 /* readonly attribute unsigned long status; */
 NS_IMETHODIMP
 nsXMLHttpRequest::GetStatus(uint32_t *aStatus)
@@ -1051,16 +1094,10 @@ nsXMLHttpRequest::GetStatus(uint32_t *aStatus)
 uint32_t
 nsXMLHttpRequest::Status()
 {
-  if (mState & XML_HTTP_REQUEST_USE_XSITE_AC) {
-    // Make sure we don't leak status information from denied cross-site
-    // requests.
-    if (mChannel) {
-      nsresult status;
-      mChannel->GetStatus(&status);
-      if (NS_FAILED(status)) {
-        return 0;
-      }
-    }
+  // Make sure we don't leak status information from denied cross-site
+  // requests.
+  if (IsDeniedCrossSiteRequest()) {
+    return 0;
   }
 
   uint16_t readyState;
@@ -1119,16 +1156,10 @@ nsXMLHttpRequest::GetStatusText(nsCString& aStatusText)
     return;
   }
 
-  if (mState & XML_HTTP_REQUEST_USE_XSITE_AC) {
-    // Make sure we don't leak status information from denied cross-site
-    // requests.
-    if (mChannel) {
-      nsresult status;
-      mChannel->GetStatus(&status);
-      if (NS_FAILED(status)) {
-        return;
-      }
-    }
+  // Make sure we don't leak status information from denied cross-site
+  // requests.
+  if (IsDeniedCrossSiteRequest()) {
+    return;
   }
 
   httpChannel->GetResponseStatusText(aStatusText);
@@ -1348,7 +1379,7 @@ nsXMLHttpRequest::GetResponseHeader(const nsACString& header,
       nsCString value;
       if (NS_SUCCEEDED(mChannel->GetContentCharset(value)) &&
           !value.IsEmpty()) {
-        _retval.Append(";charset=");
+        _retval.AppendLiteral(";charset=");
         _retval.Append(value);
       }
     }
@@ -1571,17 +1602,17 @@ nsXMLHttpRequest::Open(const nsACString& inMethod, const nsACString& url,
   nsAutoCString method;
   // GET, POST, DELETE, HEAD, OPTIONS, PUT methods normalized to upper case
   if (inMethod.LowerCaseEqualsLiteral("get")) {
-    method.Assign(NS_LITERAL_CSTRING("GET"));
+    method.AssignLiteral("GET");
   } else if (inMethod.LowerCaseEqualsLiteral("post")) {
-    method.Assign(NS_LITERAL_CSTRING("POST"));
+    method.AssignLiteral("POST");
   } else if (inMethod.LowerCaseEqualsLiteral("delete")) {
-    method.Assign(NS_LITERAL_CSTRING("DELETE"));
+    method.AssignLiteral("DELETE");
   } else if (inMethod.LowerCaseEqualsLiteral("head")) {
-    method.Assign(NS_LITERAL_CSTRING("HEAD"));
+    method.AssignLiteral("HEAD");
   } else if (inMethod.LowerCaseEqualsLiteral("options")) {
-    method.Assign(NS_LITERAL_CSTRING("OPTIONS"));
+    method.AssignLiteral("OPTIONS");
   } else if (inMethod.LowerCaseEqualsLiteral("put")) {
-    method.Assign(NS_LITERAL_CSTRING("PUT"));
+    method.AssignLiteral("PUT");
   } else {
     method = inMethod; // other methods are not normalized
   }
@@ -1942,6 +1973,7 @@ nsXMLHttpRequest::OnStartRequest(nsIRequest *request, nsISupports *ctxt)
     if (mUploadTransferred < mUploadTotal) {
       mUploadTransferred = mUploadTotal;
       mProgressSinceLastProgressEvent = true;
+      mUploadLengthComputable = true;
       MaybeDispatchProgressEvents(true);
     }
     mUploadComplete = true;
@@ -3846,9 +3878,9 @@ nsHeaderVisitor::VisitHeader(const nsACString &header, const nsACString &value)
 {
   if (mXHR->IsSafeHeader(header, mHttpChannel)) {
     mHeaders.Append(header);
-    mHeaders.Append(": ");
+    mHeaders.AppendLiteral(": ");
     mHeaders.Append(value);
-    mHeaders.Append("\r\n");
+    mHeaders.AppendLiteral("\r\n");
   }
   return NS_OK;
 }

@@ -54,14 +54,13 @@
 #include "mozilla/Hal.h"
 #include "mozilla/HalTypes.h"
 
+namespace mozilla {
+namespace layers {
+
 using namespace base;
-using namespace mozilla;
 using namespace mozilla::ipc;
 using namespace mozilla::gfx;
 using namespace std;
-
-namespace mozilla {
-namespace layers {
 
 CompositorParent::LayerTreeState::LayerTreeState()
   : mParent(nullptr)
@@ -87,6 +86,9 @@ static MessageLoop* sMainLoop = nullptr;
 static PlatformThreadId sCompositorThreadID = 0;
 static MessageLoop* sCompositorLoop = nullptr;
 
+// See ImageBridgeChild.cpp
+void ReleaseImageBridgeParentSingleton();
+
 static void DeferredDeleteCompositorParent(CompositorParent* aNowReadyToDie)
 {
   aNowReadyToDie->Release();
@@ -95,6 +97,7 @@ static void DeferredDeleteCompositorParent(CompositorParent* aNowReadyToDie)
 static void DeleteCompositorThread()
 {
   if (NS_IsMainThread()){
+    ReleaseImageBridgeParentSingleton();
     delete sCompositorThread;
     sCompositorThread = nullptr;
     sCompositorLoop = nullptr;
@@ -1244,6 +1247,7 @@ RemoveIndirectTree(uint64_t aId)
 void
 CrossProcessCompositorParent::ActorDestroy(ActorDestroyReason aWhy)
 {
+  fprintf(stderr, " --- CrossProcessCompositorParent ActorDestroy\n");
   MessageLoop::current()->PostTask(
     FROM_HERE,
     NewRunnableMethod(this, &CrossProcessCompositorParent::DeferredDestroy));
@@ -1396,6 +1400,8 @@ CrossProcessCompositorParent::GetCompositionManager(LayerTransactionParent* aLay
 void
 CrossProcessCompositorParent::DeferredDestroy()
 {
+
+  fprintf(stderr, " --- CrossProcessCompositorParent DeferredDestroy\n");
   CrossProcessCompositorParent* self;
   mSelfRef.forget(&self);
 
@@ -1406,6 +1412,8 @@ CrossProcessCompositorParent::DeferredDestroy()
 
 CrossProcessCompositorParent::~CrossProcessCompositorParent()
 {
+  fprintf(stderr, " --- CrossProcessCompositorParent destructor\n");
+
   XRE_GetIOMessageLoop()->PostTask(FROM_HERE,
                                    new DeleteTask<Transport>(mTransport));
 }

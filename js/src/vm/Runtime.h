@@ -980,22 +980,12 @@ struct JSRuntime : public JS::shadow::Runtime,
 #endif
 
     void lockGC() {
-#ifdef JS_THREADSAFE
         assertCanLock(js::GCLock);
-        PR_Lock(gc.lock);
-        JS_ASSERT(!gc.lockOwner);
-#ifdef DEBUG
-        gc.lockOwner = PR_GetCurrentThread();
-#endif
-#endif
+        gc.lockGC();
     }
 
     void unlockGC() {
-#ifdef JS_THREADSAFE
-        JS_ASSERT(gc.lockOwner == PR_GetCurrentThread());
-        gc.lockOwner = nullptr;
-        PR_Unlock(gc.lock);
-#endif
+        gc.unlockGC();
     }
 
 #if defined(JS_ARM_SIMULATOR) || defined(JS_MIPS_SIMULATOR)
@@ -1326,6 +1316,9 @@ struct JSRuntime : public JS::shadow::Runtime,
     JS_FRIEND_API(void *) onOutOfMemory(void *p, size_t nbytes);
     JS_FRIEND_API(void *) onOutOfMemory(void *p, size_t nbytes, JSContext *cx);
 
+    /*  onOutOfMemory but can call the largeAllocationFailureCallback. */
+    JS_FRIEND_API(void *) onOutOfMemoryCanGC(void *p, size_t bytes);
+
     // Ways in which the interrupt callback on the runtime can be triggered,
     // varying based on which thread is triggering the callback.
     enum InterruptMode {
@@ -1402,8 +1395,11 @@ struct JSRuntime : public JS::shadow::Runtime,
 
     /* See comment for JS::SetLargeAllocationFailureCallback in jsapi.h. */
     JS::LargeAllocationFailureCallback largeAllocationFailureCallback;
+    void *largeAllocationFailureCallbackData;
+
     /* See comment for JS::SetOutOfMemoryCallback in jsapi.h. */
     JS::OutOfMemoryCallback oomCallback;
+    void *oomCallbackData;
 
     /*
      * These variations of malloc/calloc/realloc will call the
@@ -1416,20 +1412,14 @@ struct JSRuntime : public JS::shadow::Runtime,
         void *p = calloc_(bytes);
         if (MOZ_LIKELY(!!p))
             return p;
-        if (!largeAllocationFailureCallback || bytes < LARGE_ALLOCATION)
-            return nullptr;
-        largeAllocationFailureCallback();
-        return onOutOfMemory(reinterpret_cast<void *>(1), bytes);
+        return onOutOfMemoryCanGC(reinterpret_cast<void *>(1), bytes);
     }
 
     void *reallocCanGC(void *p, size_t bytes) {
         void *p2 = realloc_(p, bytes);
         if (MOZ_LIKELY(!!p2))
             return p2;
-        if (!largeAllocationFailureCallback || bytes < LARGE_ALLOCATION)
-            return nullptr;
-        largeAllocationFailureCallback();
-        return onOutOfMemory(p, bytes);
+        return onOutOfMemoryCanGC(p, bytes);
     }
 };
 
@@ -1494,7 +1484,7 @@ inline void
 FreeOp::free_(void *p)
 {
     if (shouldFreeLater()) {
-        runtime()->gc.helperThread.freeLater(p);
+        runtime()->gc.freeLater(p);
         return;
     }
     js_free(p);

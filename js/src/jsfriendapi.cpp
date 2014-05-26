@@ -658,11 +658,10 @@ js::GCThingTraceKind(void *thing)
 JS_FRIEND_API(void)
 js::VisitGrayWrapperTargets(Zone *zone, GCThingCallback callback, void *closure)
 {
-    JSRuntime *rt = zone->runtimeFromMainThread();
     for (CompartmentsInZoneIter comp(zone); !comp.done(); comp.next()) {
         for (JSCompartment::WrapperEnum e(comp); !e.empty(); e.popFront()) {
             gc::Cell *thing = e.front().key().wrapped;
-            if (!IsInsideNursery(rt, thing) && thing->isMarked(gc::GRAY))
+            if (!IsInsideNursery(thing) && thing->isMarked(gc::GRAY))
                 callback(closure, thing);
         }
     }
@@ -785,7 +784,7 @@ DumpHeapVisitCell(JSRuntime *rt, void *data, void *thing,
 static void
 DumpHeapVisitChild(JSTracer *trc, void **thingp, JSGCTraceKind kind)
 {
-    if (gc::IsInsideNursery(trc->runtime(), *thingp))
+    if (gc::IsInsideNursery((js::gc::Cell *)*thingp))
         return;
 
     DumpHeapTracer *dtrc = static_cast<DumpHeapTracer *>(trc);
@@ -797,7 +796,7 @@ DumpHeapVisitChild(JSTracer *trc, void **thingp, JSGCTraceKind kind)
 static void
 DumpHeapVisitRoot(JSTracer *trc, void **thingp, JSGCTraceKind kind)
 {
-    if (gc::IsInsideNursery(trc->runtime(), *thingp))
+    if (gc::IsInsideNursery((js::gc::Cell *)*thingp))
         return;
 
     DumpHeapTracer *dtrc = static_cast<DumpHeapTracer *>(trc);
@@ -928,37 +927,24 @@ JS::DisableIncrementalGC(JSRuntime *rt)
 }
 
 JS::AutoDisableGenerationalGC::AutoDisableGenerationalGC(JSRuntime *rt)
-  : runtime(rt)
+  : gc(&rt->gc)
 #if defined(JSGC_GENERATIONAL) && defined(JS_GC_ZEAL)
-  , restartVerifier(rt->gc.verifyPostData)
+  , restartVerifier(false)
 #endif
 {
-#ifdef JSGC_GENERATIONAL
-    if (IsGenerationalGCEnabled(rt)) {
-#ifdef JS_GC_ZEAL
-        if (restartVerifier)
-            gc::EndVerifyPostBarriers(rt);
+#if defined(JSGC_GENERATIONAL) && defined(JS_GC_ZEAL)
+    restartVerifier = gc->endVerifyPostBarriers();
 #endif
-        MinorGC(rt, JS::gcreason::API);
-        rt->gc.nursery.disable();
-        rt->gc.storeBuffer.disable();
-    }
-#endif
-    ++rt->gc.generationalDisabled;
+    gc->disableGenerationalGC();
 }
 
 JS::AutoDisableGenerationalGC::~AutoDisableGenerationalGC()
 {
-    JS_ASSERT(runtime->gc.generationalDisabled > 0);
-    --runtime->gc.generationalDisabled;
-#ifdef JSGC_GENERATIONAL
-    if (runtime->gc.generationalDisabled == 0) {
-        runtime->gc.nursery.enable();
-        runtime->gc.storeBuffer.enable();
-#ifdef JS_GC_ZEAL
-        if (restartVerifier)
-            gc::StartVerifyPostBarriers(runtime);
-#endif
+    gc->enableGenerationalGC();
+#if defined(JSGC_GENERATIONAL) && defined(JS_GC_ZEAL)
+    if (restartVerifier) {
+        JS_ASSERT(gc->isGenerationalGCEnabled());
+        gc->startVerifyPostBarriers();
     }
 #endif
 }
@@ -966,7 +952,7 @@ JS::AutoDisableGenerationalGC::~AutoDisableGenerationalGC()
 extern JS_FRIEND_API(bool)
 JS::IsGenerationalGCEnabled(JSRuntime *rt)
 {
-    return rt->gc.generationalDisabled == 0;
+    return rt->gc.isGenerationalGCEnabled();
 }
 
 JS_FRIEND_API(bool)
@@ -1241,7 +1227,7 @@ JS_StoreObjectPostBarrierCallback(JSContext* cx,
                                   JSObject *key, void *data)
 {
     JSRuntime *rt = cx->runtime();
-    if (IsInsideNursery(rt, key))
+    if (IsInsideNursery(key))
         rt->gc.storeBuffer.putCallback(callback, key, data);
 }
 
@@ -1251,7 +1237,7 @@ JS_StoreStringPostBarrierCallback(JSContext* cx,
                                   JSString *key, void *data)
 {
     JSRuntime *rt = cx->runtime();
-    if (IsInsideNursery(rt, key))
+    if (IsInsideNursery(key))
         rt->gc.storeBuffer.putCallback(callback, key, data);
 }
 #endif /* JSGC_GENERATIONAL */

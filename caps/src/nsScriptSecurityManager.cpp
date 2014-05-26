@@ -29,7 +29,6 @@
 #include "nsError.h"
 #include "nsDOMCID.h"
 #include "nsIXPConnect.h"
-#include "nsIXPCSecurityManager.h"
 #include "nsTextFormatter.h"
 #include "nsIStringBundle.h"
 #include "nsNetUtil.h"
@@ -78,12 +77,6 @@ nsIIOService    *nsScriptSecurityManager::sIOService = nullptr;
 nsIStringBundle *nsScriptSecurityManager::sStrBundle = nullptr;
 JSRuntime       *nsScriptSecurityManager::sRuntime   = 0;
 bool nsScriptSecurityManager::sStrictFileOriginPolicy = true;
-
-bool
-nsScriptSecurityManager::SubjectIsPrivileged()
-{
-    return nsContentUtils::IsCallerChrome();
-}
 
 ///////////////////////////
 // Convenience Functions //
@@ -325,7 +318,6 @@ nsScriptSecurityManager::IsSystemPrincipal(nsIPrincipal* aPrincipal,
 ////////////////////////////////////
 NS_IMPL_ISUPPORTS(nsScriptSecurityManager,
                   nsIScriptSecurityManager,
-                  nsIXPCSecurityManager,
                   nsIChannelEventSink,
                   nsIObserver)
 
@@ -489,7 +481,7 @@ nsScriptSecurityManager::CheckLoadURIFromScript(JSContext *cx, nsIURI *aURI)
         return NS_ERROR_FAILURE;
     if (isFile || isRes)
     {
-        if (SubjectIsPrivileged())
+        if (nsContentUtils::IsCallerChrome())
             return NS_OK;
     }
 
@@ -1033,10 +1025,6 @@ nsScriptSecurityManager::doGetObjectPrincipal(JSObject *aObj)
     return nsJSPrincipals::get(principals);
 }
 
-////////////////////////////////////////////////
-// Methods implementing nsIXPCSecurityManager //
-////////////////////////////////////////////////
-
 NS_IMETHODIMP
 nsScriptSecurityManager::CanCreateWrapper(JSContext *cx,
                                           const nsIID &aIID,
@@ -1056,7 +1044,7 @@ nsScriptSecurityManager::CanCreateWrapper(JSContext *cx,
         return NS_OK;
     }
 
-    if (SubjectIsPrivileged())
+    if (nsContentUtils::IsCallerChrome())
     {
         return NS_OK;
     }
@@ -1093,7 +1081,7 @@ NS_IMETHODIMP
 nsScriptSecurityManager::CanCreateInstance(JSContext *cx,
                                            const nsCID &aCID)
 {
-    if (SubjectIsPrivileged()) {
+    if (nsContentUtils::IsCallerChrome()) {
         return NS_OK;
     }
 
@@ -1110,7 +1098,7 @@ NS_IMETHODIMP
 nsScriptSecurityManager::CanGetService(JSContext *cx,
                                        const nsCID &aCID)
 {
-    if (SubjectIsPrivileged()) {
+    if (nsContentUtils::IsCallerChrome()) {
         return NS_OK;
     }
 

@@ -21,6 +21,7 @@ namespace jit {
     _(BitNot)                                   \
     _(BitOr)                                    \
     _(BitXor)                                   \
+    _(Ursh)                                     \
     _(Add)                                      \
     _(NewObject)                                \
     _(NewDerivedTypedObject)
@@ -103,10 +104,34 @@ class RBitNot MOZ_FINAL : public RInstruction
     bool recover(JSContext *cx, SnapshotIterator &iter) const;
 };
 
+class RBitOr MOZ_FINAL : public RInstruction
+{
+  public:
+    RINSTRUCTION_HEADER_(BitOr)
+
+    virtual uint32_t numOperands() const {
+        return 2;
+    }
+
+    bool recover(JSContext *cx, SnapshotIterator &iter) const;
+};
+
 class RBitXor MOZ_FINAL : public RInstruction
 {
   public:
     RINSTRUCTION_HEADER_(BitXor)
+
+    virtual uint32_t numOperands() const {
+        return 2;
+    }
+
+    bool recover(JSContext *cx, SnapshotIterator &iter) const;
+};
+
+class RUrsh MOZ_FINAL : public RInstruction
+{
+  public:
+    RINSTRUCTION_HEADER_(Ursh)
 
     virtual uint32_t numOperands() const {
         return 2;
@@ -152,18 +177,6 @@ class RNewDerivedTypedObject MOZ_FINAL : public RInstruction
 
     virtual uint32_t numOperands() const {
         return 3;
-    }
-
-    bool recover(JSContext *cx, SnapshotIterator &iter) const;
-};
-
-class RBitOr MOZ_FINAL : public RInstruction
-{
-  public:
-    RINSTRUCTION_HEADER_(BitOr)
-
-    virtual uint32_t numOperands() const {
-        return 2;
     }
 
     bool recover(JSContext *cx, SnapshotIterator &iter) const;

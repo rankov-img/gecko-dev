@@ -35,11 +35,11 @@
 #include "mozilla/layers/TextureHost.h"
 #include "nsThreadUtils.h"
 
-using namespace mozilla::ipc;
-using namespace mozilla::gfx;
-
 namespace mozilla {
 namespace layers {
+
+using namespace mozilla::ipc;
+using namespace mozilla::gfx;
 
 ImageBridgeParent::ImageBridgeParent(MessageLoop* aLoop, Transport* aTransport)
   : mMessageLoop(aLoop)
@@ -138,7 +138,7 @@ ImageBridgeParent::Create(Transport* aTransport, ProcessId aOtherProcess)
   return bridge.get();
 }
 
-bool ImageBridgeParent::RecvStop()
+bool ImageBridgeParent::RecvWillStop()
 {
   // If there is any texture still alive we have to force it to deallocate the
   // device data (GL textures, etc.) now because shortly after SenStop() returns
@@ -150,6 +150,13 @@ bool ImageBridgeParent::RecvStop()
     RefPtr<TextureHost> tex = TextureHost::AsTextureHost(textures[i]);
     tex->DeallocateDeviceData();
   }
+  return true;
+}
+
+bool ImageBridgeParent::RecvStop()
+{
+  // Nothing to do. This message just serves as synchronization between the
+  // child and parent threads during shutdown.
   return true;
 }
 

@@ -194,7 +194,6 @@ MediaDecoderStateMachine::MediaDecoderStateMachine(MediaDecoder* aDecoder,
   mAmpleAudioThresholdUsecs(AMPLE_AUDIO_USECS),
   mDispatchedAudioDecodeTask(false),
   mDispatchedVideoDecodeTask(false),
-  mIsReaderIdle(false),
   mAudioCaptured(false),
   mTransportSeekable(true),
   mMediaSeekable(true),
@@ -573,7 +572,6 @@ MediaDecoderStateMachine::DecodeVideo()
     mDispatchedVideoDecodeTask = false;
     return;
   }
-  EnsureActive();
 
   // We don't want to consider skipping to the next keyframe if we've
   // only just started up the decode loop, so wait until we've decoded
@@ -667,7 +665,6 @@ MediaDecoderStateMachine::DecodeAudio()
     mDispatchedAudioDecodeTask = false;
     return;
   }
-  EnsureActive();
 
   // We don't want to consider skipping to the next keyframe if we've
   // only just started up the decode loop, so wait until we've decoded
@@ -1443,7 +1440,6 @@ void MediaDecoderStateMachine::Seek(const SeekTarget& aTarget)
                "Can only seek in range [0,duration]");
   mSeekTarget = SeekTarget(seekTime, aTarget.mType);
 
-  mBasePosition = seekTime - mStartTime;
   DECODER_LOG(PR_LOG_DEBUG, "Changed state to SEEKING (to %lld)", mSeekTarget.mTime);
   mState = DECODER_STATE_SEEKING;
   if (mDecoder->GetDecodedStream()) {
@@ -1500,21 +1496,6 @@ MediaDecoderStateMachine::EnqueueDecodeMetadataTask()
 }
 
 void
-MediaDecoderStateMachine::EnsureActive()
-{
-  AssertCurrentThreadInMonitor();
-  MOZ_ASSERT(OnDecodeThread());
-  if (!mIsReaderIdle) {
-    return;
-  }
-  mIsReaderIdle = false;
-  {
-    ReentrantMonitorAutoExit exitMon(mDecoder->GetReentrantMonitor());
-    SetReaderActive();
-  }
-}
-
-void
 MediaDecoderStateMachine::SetReaderIdle()
 {
 #ifdef PR_LOGGING
@@ -1527,14 +1508,6 @@ MediaDecoderStateMachine::SetReaderIdle()
 #endif
   MOZ_ASSERT(OnDecodeThread());
   mReader->SetIdle();
-}
-
-void
-MediaDecoderStateMachine::SetReaderActive()
-{
-  DECODER_LOG(PR_LOG_DEBUG, "SetReaderActive()");
-  MOZ_ASSERT(OnDecodeThread());
-  mReader->SetActive();
 }
 
 void
@@ -1575,19 +1548,13 @@ MediaDecoderStateMachine::DispatchDecodeTasksIfNeeded()
     EnsureVideoDecodeTaskQueued();
   }
 
-  if (mIsReaderIdle == needIdle) {
-    return;
-  }
-  mIsReaderIdle = needIdle;
-  RefPtr<nsIRunnable> event;
-  if (mIsReaderIdle) {
-    event = NS_NewRunnableMethod(this, &MediaDecoderStateMachine::SetReaderIdle);
-  } else {
-    event = NS_NewRunnableMethod(this, &MediaDecoderStateMachine::SetReaderActive);
-  }
-  if (NS_FAILED(mDecodeTaskQueue->Dispatch(event.forget())) &&
-      mState != DECODER_STATE_SHUTDOWN) {
-    NS_WARNING("Failed to dispatch event to set decoder idle state");
+  if (needIdle) {
+    RefPtr<nsIRunnable> event = NS_NewRunnableMethod(
+        this, &MediaDecoderStateMachine::SetReaderIdle);
+    nsresult rv = mDecodeTaskQueue->Dispatch(event.forget());
+    if (NS_FAILED(rv) && mState != DECODER_STATE_SHUTDOWN) {
+      NS_WARNING("Failed to dispatch event to set decoder idle state");
+    }
   }
 }
 
@@ -1828,7 +1795,6 @@ nsresult MediaDecoderStateMachine::DecodeMetadata()
   if (mState != DECODER_STATE_DECODING_METADATA) {
     return NS_ERROR_FAILURE;
   }
-  EnsureActive();
 
   nsresult res;
   MediaInfo info;
@@ -1930,7 +1896,6 @@ void MediaDecoderStateMachine::DecodeSeek()
   if (mState != DECODER_STATE_SEEKING) {
     return;
   }
-  EnsureActive();
 
   // During the seek, don't have a lock on the decoder state,
   // otherwise long seek operations can block the main thread.
@@ -1953,6 +1918,12 @@ void MediaDecoderStateMachine::DecodeSeek()
     StopPlayback();
     UpdatePlaybackPositionInternal(seekTime);
   }
+
+  // Update mBasePosition only after StopPlayback() which will call GetClock()
+  // which will call GetVideoStreamPosition() which will read mBasePosition.
+  // If we update mBasePosition too early in Seek(), |pos -= mBasePosition|
+  // will be wrong and assertion will fail in GetVideoStreamPosition().
+  mBasePosition = seekTime - mStartTime;
 
   // SeekingStarted will do a UpdateReadyStateForData which will
   // inform the element and its users that we have no frames
@@ -2498,7 +2469,10 @@ void MediaDecoderStateMachine::AdvanceFrame()
     TimeStamp presTime = mPlayStartTime - UsecsToDuration(mPlayDuration) +
                           UsecsToDuration(currentFrame->mTime - mStartTime);
     NS_ASSERTION(currentFrame->mTime >= mStartTime, "Should have positive frame time");
-    {
+    // Filter out invalid frames by checking the frame time. FrameTime could be
+    // zero if it's a initial frame.
+    int64_t frameTime = currentFrame->mTime - mStartTime;
+    if (frameTime > 0  || (frameTime == 0 && mPlayDuration == 0)) {
       ReentrantMonitorAutoExit exitMon(mDecoder->GetReentrantMonitor());
       // If we have video, we want to increment the clock in steps of the frame
       // duration.

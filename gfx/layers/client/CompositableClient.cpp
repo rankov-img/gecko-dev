@@ -18,10 +18,10 @@
 #include "mozilla/layers/TextureD3D9.h"
 #endif
 
-using namespace mozilla::gfx;
-
 namespace mozilla {
 namespace layers {
+
+using namespace mozilla::gfx;
 
 /**
  * IPDL actor used by CompositableClient to match with its corresponding
@@ -194,6 +194,12 @@ CompositableClient::AddTextureClient(TextureClient* aClient)
 void
 CompositableClient::OnTransaction()
 {
+}
+
+void
+CompositableClient::RemoveTexture(TextureClient* aTexture)
+{
+  mForwarder->RemoveTextureFromCompositable(this, aTexture);
 }
 
 } // namespace layers

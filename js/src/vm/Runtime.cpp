@@ -273,10 +273,6 @@ JSRuntime::init(uint32_t maxbytes)
     if (!interruptLock)
         return false;
 
-    gc.lock = PR_NewLock();
-    if (!gc.lock)
-        return false;
-
     exclusiveAccessLock = PR_NewLock();
     if (!exclusiveAccessLock)
         return false;
@@ -440,11 +436,6 @@ JSRuntime::~JSRuntime()
     gc.finish();
     atomsCompartment_ = nullptr;
 
-#ifdef JS_THREADSAFE
-    if (gc.lock)
-        PR_DestroyLock(gc.lock);
-#endif
-
     js_free(defaultLocale);
 #ifdef JS_YARR
     js_delete(bumpAlloc_);
@@ -477,16 +468,18 @@ JSRuntime::~JSRuntime()
 void
 NewObjectCache::clearNurseryObjects(JSRuntime *rt)
 {
+#ifdef JSGC_GENERATIONAL
     for (unsigned i = 0; i < mozilla::ArrayLength(entries); ++i) {
         Entry &e = entries[i];
         JSObject *obj = reinterpret_cast<JSObject *>(&e.templateObject);
-        if (IsInsideNursery(rt, e.key) ||
-            IsInsideNursery(rt, obj->slots) ||
-            IsInsideNursery(rt, obj->elements))
+        if (IsInsideNursery(e.key) ||
+            rt->gc.nursery.isInside(obj->slots) ||
+            rt->gc.nursery.isInside(obj->elements))
         {
             PodZero(&e);
         }
     }
+#endif
 }
 
 void
@@ -760,18 +753,27 @@ JSRuntime::onOutOfMemory(void *p, size_t nbytes, JSContext *cx)
      * all the allocations and released the empty GC chunks.
      */
     JS::ShrinkGCBuffers(this);
-    gc.helperThread.waitBackgroundSweepOrAllocEnd();
+    gc.waitBackgroundSweepOrAllocEnd();
     if (!p)
         p = js_malloc(nbytes);
     else if (p == reinterpret_cast<void *>(1))
         p = js_calloc(nbytes);
     else
-      p = js_realloc(p, nbytes);
+        p = js_realloc(p, nbytes);
     if (p)
         return p;
     if (cx)
         js_ReportOutOfMemory(cx);
     return nullptr;
+}
+
+void *
+JSRuntime::onOutOfMemoryCanGC(void *p, size_t bytes)
+{
+    if (!largeAllocationFailureCallback || bytes < LARGE_ALLOCATION)
+        return nullptr;
+    largeAllocationFailureCallback(largeAllocationFailureCallbackData);
+    return onOutOfMemory(p, bytes);
 }
 
 bool
@@ -855,7 +857,7 @@ JSRuntime::assertCanLock(RuntimeLock which)
       case InterruptLock:
         JS_ASSERT(!currentThreadOwnsInterruptLock());
       case GCLock:
-        JS_ASSERT(gc.lockOwner != PR_GetCurrentThread());
+        gc.assertCanLock();
         break;
       default:
         MOZ_CRASH();

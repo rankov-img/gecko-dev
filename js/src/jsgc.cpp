@@ -409,7 +409,7 @@ ArenaHeader::checkSynchronizedWithFreeList() const
      * list in the zone can mutate at any moment. We cannot do any
      * checks in this case.
      */
-    if (IsBackgroundFinalized(getAllocKind()) && zone->runtimeFromAnyThread()->gc.helperThread.onBackgroundThread())
+    if (IsBackgroundFinalized(getAllocKind()) && zone->runtimeFromAnyThread()->gc.onBackgroundThread())
         return;
 
     FreeSpan firstSpan = firstFreeSpan.decompact(arenaAddress());
@@ -924,12 +924,12 @@ Chunk::releaseArena(ArenaHeader *aheader)
     Zone *zone = aheader->zone;
     JSRuntime *rt = zone->runtimeFromAnyThread();
     AutoLockGC maybeLock;
-    if (rt->gc.helperThread.sweeping())
+    if (rt->gc.isBackgroundSweeping())
         maybeLock.lock(rt);
 
     JS_ASSERT(rt->gc.bytes >= ArenaSize);
     JS_ASSERT(zone->gcBytes >= ArenaSize);
-    if (rt->gc.helperThread.sweeping())
+    if (rt->gc.isBackgroundSweeping())
         zone->reduceGCTriggerBytes(zone->gcHeapGrowthFactor * ArenaSize);
     rt->gc.bytes -= ArenaSize;
     zone->gcBytes -= ArenaSize;
@@ -1179,6 +1179,12 @@ static const int64_t JIT_SCRIPT_RELEASE_TYPES_INTERVAL = 60 * 1000 * 1000;
 bool
 GCRuntime::init(uint32_t maxbytes)
 {
+#ifdef JS_THREADSAFE
+    lock = PR_NewLock();
+    if (!lock)
+        return false;
+#endif
+
     if (!chunkSet.init(INITIAL_CHUNK_CAPACITY))
         return false;
 
@@ -1219,7 +1225,7 @@ GCRuntime::init(uint32_t maxbytes)
 }
 
 void
-GCRuntime::recordNativeStackTopForGC()
+GCRuntime::recordNativeStackTop()
 {
 #ifdef JS_THREADSAFE
     /* Record the stack top here only if we are called from a request. */
@@ -1240,7 +1246,7 @@ GCRuntime::finish()
 
 #ifdef JS_GC_ZEAL
     /* Free memory associated with GC verification. */
-    FinishVerifier(rt);
+    finishVerifier();
 #endif
 
     /* Delete all remaining zones. */
@@ -1268,6 +1274,13 @@ GCRuntime::finish()
         rootsHash.clear();
 
     FinishPersistentRootedChains(rt);
+
+#ifdef JS_THREADSAFE
+    if (lock) {
+        PR_DestroyLock(lock);
+        lock = nullptr;
+    }
+#endif
 }
 
 void
@@ -2978,9 +2991,9 @@ GCRuntime::beginMarkPhase()
     if (isFull)
         UnmarkScriptData(rt);
 
-    MarkRuntime(gcmarker);
+    markRuntime(gcmarker);
     if (isIncremental)
-        BufferGrayRoots(gcmarker);
+        bufferGrayRoots();
 
     /*
      * This code ensures that if a zone is "dead", then it will be
@@ -3213,7 +3226,7 @@ js::gc::MarkingValidator::nonIncrementalMark()
     {
         gcstats::AutoPhase ap1(gc->stats, gcstats::PHASE_MARK);
         gcstats::AutoPhase ap2(gc->stats, gcstats::PHASE_MARK_ROOTS);
-        MarkRuntime(gcmarker, true);
+        gc->markRuntime(gcmarker, true);
     }
 
     {
@@ -4232,7 +4245,7 @@ AutoTraceSession::AutoTraceSession(JSRuntime *rt, js::HeapState heapState)
     runtime(rt),
     prevState(rt->gc.heapState)
 {
-    JS_ASSERT(!rt->gc.noGCOrAllocationCheck);
+    JS_ASSERT(rt->gc.isAllocAllowed());
     JS_ASSERT(rt->gc.heapState == Idle);
     JS_ASSERT(heapState != Idle);
 #ifdef JSGC_GENERATIONAL
@@ -4806,7 +4819,7 @@ GCRuntime::collect(bool incremental, int64_t budget, JSGCInvocationKind gckind,
     AutoStopVerifyingBarriers av(rt, reason == JS::gcreason::SHUTDOWN_CC ||
                                      reason == JS::gcreason::DESTROY_RUNTIME);
 
-    recordNativeStackTopForGC();
+    recordNativeStackTop();
 
     int zoneCount = 0;
     int compartmentCount = 0;
@@ -4952,7 +4965,7 @@ JS::ShrinkGCBuffers(JSRuntime *rt)
     if (!rt->useHelperThreads())
         ExpireChunksAndArenas(rt, true);
     else
-        rt->gc.helperThread.startBackgroundShrink();
+        rt->gc.startBackgroundShrink();
 }
 
 void
@@ -4997,6 +5010,32 @@ GCRuntime::minorGC(JSContext *cx, JS::gcreason::Reason reason)
 }
 
 void
+GCRuntime::disableGenerationalGC()
+{
+#ifdef JSGC_GENERATIONAL
+    if (isGenerationalGCEnabled()) {
+        minorGC(JS::gcreason::API);
+        nursery.disable();
+        storeBuffer.disable();
+    }
+#endif
+    ++rt->gc.generationalDisabled;
+}
+
+void
+GCRuntime::enableGenerationalGC()
+{
+    JS_ASSERT(generationalDisabled > 0);
+    --generationalDisabled;
+#ifdef JSGC_GENERATIONAL
+    if (generationalDisabled == 0) {
+        nursery.enable();
+        storeBuffer.enable();
+    }
+#endif
+}
+
+void
 js::gc::GCIfNeeded(JSContext *cx)
 {
     cx->runtime()->gc.gcIfNeeded(cx);
@@ -5021,7 +5060,7 @@ GCRuntime::gcIfNeeded(JSContext *cx)
 void
 js::gc::FinishBackgroundFinalize(JSRuntime *rt)
 {
-    rt->gc.helperThread.waitBackgroundSweepEnd();
+    rt->gc.waitBackgroundSweepEnd();
 }
 
 AutoFinishGC::AutoFinishGC(JSRuntime *rt)
@@ -5039,7 +5078,7 @@ AutoPrepareForTracing::AutoPrepareForTracing(JSRuntime *rt, ZoneSelector selecto
     session(rt),
     copy(rt, selector)
 {
-    rt->gc.recordNativeStackTopForGC();
+    rt->gc.recordNativeStackTop();
 }
 
 JSCompartment *
@@ -5512,9 +5551,9 @@ AutoSuppressGC::AutoSuppressGC(JSRuntime *rt)
 }
 
 bool
-js::UninlinedIsInsideNursery(JSRuntime *rt, const void *thing)
+js::UninlinedIsInsideNursery(const gc::Cell *cell)
 {
-    return IsInsideNursery(rt, thing);
+    return IsInsideNursery(cell);
 }
 
 #ifdef DEBUG
@@ -5531,6 +5570,18 @@ JS::AssertGCThingMustBeTenured(JSObject *obj)
 {
     JS_ASSERT((!IsNurseryAllocable(obj->tenuredGetAllocKind()) || obj->getClass()->finalize) &&
               obj->isTenured());
+}
+
+JS_FRIEND_API(void)
+js::gc::AssertGCThingHasType(js::gc::Cell *cell, JSGCTraceKind kind)
+{
+#ifdef DEBUG
+    JS_ASSERT(cell);
+    if (IsInsideNursery(cell))
+        JS_ASSERT(kind == JSTRACE_OBJECT);
+    else
+        JS_ASSERT(MapAllocToTraceKind(cell->tenuredGetAllocKind()) == kind);
+#endif
 }
 
 JS_FRIEND_API(size_t)

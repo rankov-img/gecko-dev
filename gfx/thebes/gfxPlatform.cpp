@@ -500,16 +500,6 @@ gfxPlatform::Shutdown()
     mozilla::gl::GLContextProviderEGL::Shutdown();
 #endif
 
-    // This will block this thread untill the ImageBridge protocol is completely
-    // deleted.
-    ImageBridgeChild::ShutDown();
-#ifdef MOZ_WIDGET_GONK
-    SharedBufferManagerChild::ShutDown();
-#endif
-    CompositorParent::ShutDown();
-
-    AsyncTransactionTracker::Finalize();
-
     delete gGfxPlatformPrefsLock;
 
     gfxPrefs::DestroySingleton();
@@ -1179,7 +1169,7 @@ AppendGenericFontFromPref(nsString& aFonts, nsIAtom *aLangGroup, const char *aGe
         genericDotLang = Preferences::GetCString(prefName.get());
     }
 
-    genericDotLang.AppendLiteral(".");
+    genericDotLang.Append('.');
     genericDotLang.Append(langGroupString);
 
     // fetch font.name.xxx value
@@ -1229,7 +1219,7 @@ bool gfxPlatform::ForEachPrefFont(eFontPrefLang aLangArray[], uint32_t aLangArra
         prefName.Append(langGroup);
         nsAdoptingCString genericDotLang = Preferences::GetCString(prefName.get());
 
-        genericDotLang.AppendLiteral(".");
+        genericDotLang.Append('.');
         genericDotLang.Append(langGroup);
 
         // fetch font.name.xxx value

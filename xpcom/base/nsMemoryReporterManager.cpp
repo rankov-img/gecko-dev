@@ -1426,7 +1426,7 @@ public:
     // create artificial (i.e. deterministic) reporters -- which allows us
     // to precisely test nsMemoryReporterManager.explicit -- but we can't
     // do that for distinguished amounts.
-    if (aPath.Equals("heap-allocated") ||
+    if (aPath.EqualsLiteral("heap-allocated") ||
         (aKind == nsIMemoryReporter::KIND_NONHEAP &&
          PromiseFlatCString(aPath).Find("explicit") == 0)) {
       Int64Wrapper* wrappedInt64 = static_cast<Int64Wrapper*>(aWrappedExplicit);
@@ -1641,6 +1641,28 @@ nsMemoryReporterManager::GetHasMozMallocUsableSize(bool* aHas)
   size_t usable = moz_malloc_usable_size(p);
   free(p);
   *aHas = !!(usable > 0);
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsMemoryReporterManager::GetIsDMDEnabled(bool* aIsEnabled)
+{
+#ifdef MOZ_DMD
+  *aIsEnabled = true;
+#else
+  *aIsEnabled = false;
+#endif
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsMemoryReporterManager::GetIsDMDRunning(bool* aIsRunning)
+{
+#ifdef MOZ_DMD
+  *aIsRunning = dmd::IsRunning();
+#else
+  *aIsRunning = false;
+#endif
   return NS_OK;
 }
 

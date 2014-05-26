@@ -55,8 +55,7 @@ def isTypeCopyConstructible(type):
 def wantsAddProperty(desc):
     return (desc.concrete and
             desc.wrapperCache and
-            not (desc.workers and
-                 desc.interface.getExtendedAttribute("Global")))
+            not desc.interface.getExtendedAttribute("Global"))
 
 
 # We'll want to insert the indent at the beginnings of lines, but we
@@ -70,7 +69,7 @@ def indent(s, indentLevel=2):
     Indent C++ code.
 
     Weird secret feature: this doesn't indent lines that start with # (such as
-    #include lines).
+    #include lines or #ifdef/#endif).
     """
     if s == "":
         return s
@@ -1345,8 +1344,18 @@ class CGAbstractMethod(CGThing):
             return self._define(True)
         return "%s%s%s(%s);\n" % (self._template(), self._decorators(), self.name, self._argstring(True))
 
+    def indent_body(self, body):
+        """
+        Indent the code returned by self.definition_body(). Most classes
+        simply indent everything two spaces. This is here for
+        CGRegisterProtos, which needs custom indentation.
+        """
+        return indent(body)
+
     def _define(self, fromDeclare=False):
-        return self.definition_prologue(fromDeclare) + self.definition_body() + self.definition_epilogue()
+        return (self.definition_prologue(fromDeclare) +
+                self.indent_body(self.definition_body()) +
+                self.definition_epilogue())
 
     def define(self):
         return "" if self.inline else self._define()
@@ -1387,7 +1396,7 @@ class CGAbstractClassHook(CGAbstractStaticMethod):
 
     def definition_body_prologue(self):
         return ("\n"  # BOGUS extra blank line at start of function
-                "  %s* self = UnwrapDOMObject<%s>(obj);\n" %
+                "%s* self = UnwrapDOMObject<%s>(obj);\n" %
                 (self.descriptor.nativeType, self.descriptor.nativeType))
 
     def definition_body(self):
@@ -1403,7 +1412,7 @@ class CGGetJSClassMethod(CGAbstractMethod):
                                   [])
 
     def definition_body(self):
-        return "  return Class.ToJSClass();\n"
+        return "return Class.ToJSClass();\n"
 
 
 class CGAddPropertyHook(CGAbstractClassHook):
@@ -1420,13 +1429,13 @@ class CGAddPropertyHook(CGAbstractClassHook):
 
     def generate_code(self):
         assert self.descriptor.wrapperCache
-        return indent(dedent("""
+        return dedent("""
             // We don't want to preserve if we don't have a wrapper.
             if (self->GetWrapperPreserveColor()) {
               PreserveWrapper(self);
             }
             return true;
-            """))
+            """)
 
 
 def DeferredFinalizeSmartPtr(descriptor):
@@ -1460,7 +1469,7 @@ class CGClassFinalizeHook(CGAbstractClassHook):
                                      'void', args)
 
     def generate_code(self):
-        return indent(finalizeHook(self.descriptor, self.name, self.args[0].name).define())
+        return finalizeHook(self.descriptor, self.name, self.args[0].name).define()
 
 
 class CGClassConstructor(CGAbstractStaticMethod):
@@ -1532,7 +1541,7 @@ class CGClassConstructor(CGAbstractStaticMethod):
         callGenerator = CGMethodCall(nativeName, True, self.descriptor,
                                      self._ctor, isConstructor=True,
                                      constructorName=ctorName)
-        return indent(preamble) + callGenerator.define()
+        return preamble + callGenerator.define()
 
 
 # Encapsulate the constructor in a helper method to share genConstructorBody with CGJSImplMethod.
@@ -1549,7 +1558,7 @@ class CGConstructNavigatorObjectHelper(CGAbstractStaticMethod):
         CGAbstractStaticMethod.__init__(self, descriptor, name, rtype, args)
 
     def definition_body(self):
-        return indent(genConstructorBody(self.descriptor))
+        return genConstructorBody(self.descriptor)
 
 
 class CGConstructNavigatorObject(CGAbstractMethod):
@@ -1565,7 +1574,7 @@ class CGConstructNavigatorObject(CGAbstractMethod):
         if not self.descriptor.interface.isJSImplemented():
             raise TypeError("Only JS-implemented classes are currently supported "
                             "on navigator. See bug 856820.")
-        return indent(fill(
+        return fill(
             """
             GlobalObject global(aCx, aObj);
             if (global.Failed()) {
@@ -1586,7 +1595,7 @@ class CGConstructNavigatorObject(CGAbstractMethod):
             }
             return &v.toObject();
             """,
-            descriptorName=self.descriptor.name))
+            descriptorName=self.descriptor.name)
 
 
 class CGClassConstructHookHolder(CGGeneric):
@@ -1685,7 +1694,7 @@ class CGClassHasInstanceHook(CGAbstractStaticMethod):
             JS::Rooted<JSObject*> instance(cx, &vp.toObject());
             """)
         if self.descriptor.interface.hasInterfacePrototypeObject():
-            return indent(
+            return (
                 header +
                 fill(
                     """
@@ -1737,7 +1746,7 @@ class CGClassHasInstanceHook(CGAbstractStaticMethod):
                 name=iface.identifier.name,
                 setBp=setBp)
         hasInstanceCode += "return true;\n"
-        return indent(header + hasInstanceCode)
+        return header + hasInstanceCode
 
 
 def isChromeOnly(m):
@@ -2477,11 +2486,6 @@ class CGCreateInterfaceObjectsMethod(CGAbstractMethod):
             interfaceClass = "nullptr"
             interfaceCache = "nullptr"
 
-        if self.descriptor.concrete:
-            domClass = "&Class.mClass"
-        else:
-            domClass = "nullptr"
-
         isGlobal = self.descriptor.interface.getExtendedAttribute("Global") is not None
         if not isGlobal and self.properties.hasNonChromeOnly():
             properties = "&sNativeProperties"
@@ -2502,7 +2506,6 @@ class CGCreateInterfaceObjectsMethod(CGAbstractMethod):
                                         ${protoClass}, ${protoCache},
                                         constructorProto, ${interfaceClass}, ${constructHookHolder}, ${constructArgs}, ${namedConstructors},
                                         ${interfaceCache},
-                                        ${domClass},
                                         ${properties},
                                         ${chromeProperties},
                                         ${name}, aDefineOnGlobal);
@@ -2514,7 +2517,6 @@ class CGCreateInterfaceObjectsMethod(CGAbstractMethod):
             constructArgs=constructArgs,
             namedConstructors=namedConstructors,
             interfaceCache=interfaceCache,
-            domClass=domClass,
             properties=properties,
             chromeProperties=chromeProperties,
             name='"' + self.descriptor.interface.identifier.name + '"' if needInterfaceObject else "nullptr")
@@ -2532,11 +2534,10 @@ class CGCreateInterfaceObjectsMethod(CGAbstractMethod):
                 name=self.descriptor.name))
         else:
             setUnforgeableHolder = None
-        functionBody = CGList(
+        return CGList(
             [CGGeneric(getParentProto), CGGeneric(getConstructorProto), initIds,
              prefCache, createUnforgeableHolder, CGGeneric(call), setUnforgeableHolder],
-            "\n")
-        return CGIndenter(functionBody).define()
+            "\n").define()
 
 
 class CGGetPerInterfaceObject(CGAbstractMethod):
@@ -2554,7 +2555,7 @@ class CGGetPerInterfaceObject(CGAbstractMethod):
     def definition_body(self):
         # BOGUS extra blank line at the beginning of the code below
         # BOGUS - should be a blank line between an if-block and following comment below
-        return indent(fill(
+        return fill(
             """
 
             /* Make sure our global is sane.  Hopefully we can remove this sometime */
@@ -2576,7 +2577,7 @@ class CGGetPerInterfaceObject(CGAbstractMethod):
              */
             return JS::Handle<JSObject*>::fromMarkedLocation(protoAndIfaceCache.EntrySlotMustExist(${id}).address());
             """,
-            id=self.id))
+            id=self.id)
 
 
 class CGGetProtoObjectMethod(CGGetPerInterfaceObject):
@@ -2589,12 +2590,12 @@ class CGGetProtoObjectMethod(CGGetPerInterfaceObject):
 
     def definition_body(self):
         # BOGUS extra blank line at start of method
-        return indent(dedent("""
+        return dedent("""
 
             /* Get the interface prototype object for this class.  This will create the
                object as needed. */
             bool aDefineOnGlobal = true;
-            """)) + CGGetPerInterfaceObject.definition_body(self)
+            """) + CGGetPerInterfaceObject.definition_body(self)
 
 
 class CGGetConstructorObjectMethod(CGGetPerInterfaceObject):
@@ -2609,11 +2610,11 @@ class CGGetConstructorObjectMethod(CGGetPerInterfaceObject):
 
     def definition_body(self):
         # BOGUS extra blank line at start of method
-        return indent(dedent("""
+        return dedent("""
 
             /* Get the interface object for this class.  This will create the object as
                needed. */
-            """)) + CGGetPerInterfaceObject.definition_body(self)
+            """) + CGGetPerInterfaceObject.definition_body(self)
 
 
 class CGDefineDOMInterfaceMethod(CGAbstractMethod):
@@ -2640,7 +2641,7 @@ class CGDefineDOMInterfaceMethod(CGAbstractMethod):
 
     def definition_body(self):
         if len(self.descriptor.interface.namedConstructors) > 0:
-            getConstructor = indent(dedent("""
+            getConstructor = dedent("""
                 JSObject* interfaceObject = GetConstructorObject(aCx, aGlobal, aDefineOnGlobal);
                 if (!interfaceObject) {
                   return nullptr;
@@ -2652,9 +2653,9 @@ class CGDefineDOMInterfaceMethod(CGAbstractMethod):
                   }
                 }
                 return interfaceObject;
-                """))
+                """)
         else:
-            getConstructor = "  return GetConstructorObject(aCx, aGlobal, aDefineOnGlobal);\n"
+            getConstructor = "return GetConstructorObject(aCx, aGlobal, aDefineOnGlobal);\n"
         return getConstructor
 
 
@@ -2688,10 +2689,9 @@ class CGConstructorEnabled(CGAbstractMethod):
             conditions.append("%s(aCx, aObj)" % availableIn)
         # We should really have some conditions
         assert len(conditions)
-        body = CGWrapper(CGList((CGGeneric(cond) for cond in conditions),
+        return CGWrapper(CGList((CGGeneric(cond) for cond in conditions),
                                 " &&\n"),
-                         pre="return ", post=";\n", reindent=True)
-        return CGIndenter(body).define()
+                         pre="return ", post=";\n", reindent=True).define()
 
 
 def CreateBindingJSObject(descriptor, properties, parent):
@@ -2805,11 +2805,11 @@ def AssertInheritanceChain(descriptor):
     while iface:
         desc = descriptor.getDescriptor(iface.identifier.name)
         asserts += (
-            "  MOZ_ASSERT(static_cast<%s*>(aObject) == \n"
-            "             reinterpret_cast<%s*>(aObject));\n" %
+            "MOZ_ASSERT(static_cast<%s*>(aObject) == \n"
+            "           reinterpret_cast<%s*>(aObject));\n" %
             (desc.nativeType, desc.nativeType))
         iface = iface.parent
-    asserts += "  MOZ_ASSERT(ToSupportsIsCorrect(aObject));\n"
+    asserts += "MOZ_ASSERT(ToSupportsIsCorrect(aObject));\n"
     return asserts
 
 
@@ -2851,41 +2851,42 @@ class CGWrapWithCacheMethod(CGAbstractMethod):
     def definition_body(self):
         return fill(
             """
-            ${assertion}
-              MOZ_ASSERT(ToSupportsIsOnPrimaryInheritanceChain(aObject, aCache),
-                         "nsISupports must be on our primary inheritance chain");
+            $*{assertion}
 
-              JS::Rooted<JSObject*> parent(aCx,
-                GetRealParentObject(aObject,
-                                    WrapNativeParent(aCx, aObject->GetParentObject())));
-              if (!parent) {
-                return nullptr;
+            MOZ_ASSERT(ToSupportsIsOnPrimaryInheritanceChain(aObject, aCache),
+                       "nsISupports must be on our primary inheritance chain");
+
+            JS::Rooted<JSObject*> parent(aCx,
+              GetRealParentObject(aObject,
+                                  WrapNativeParent(aCx, aObject->GetParentObject())));
+            if (!parent) {
+              return nullptr;
+            }
+
+            // That might have ended up wrapping us already, due to the wonders
+            // of XBL.  Check for that, and bail out as needed.  Scope so we don't
+            // collide with the "obj" we declare in CreateBindingJSObject.
+            {
+              JSObject* obj = aCache->GetWrapper();
+              if (obj) {
+                return obj;
               }
+            }
 
-              // That might have ended up wrapping us already, due to the wonders
-              // of XBL.  Check for that, and bail out as needed.  Scope so we don't
-              // collide with the "obj" we declare in CreateBindingJSObject.
-              {
-                JSObject* obj = aCache->GetWrapper();
-                if (obj) {
-                  return obj;
-                }
-              }
+            JSAutoCompartment ac(aCx, parent);
+            JS::Rooted<JSObject*> global(aCx, JS_GetGlobalForObject(aCx, parent));
+            JS::Handle<JSObject*> proto = GetProtoObject(aCx, global);
+            if (!proto) {
+              return nullptr;
+            }
 
-              JSAutoCompartment ac(aCx, parent);
-              JS::Rooted<JSObject*> global(aCx, JS_GetGlobalForObject(aCx, parent));
-              JS::Handle<JSObject*> proto = GetProtoObject(aCx, global);
-              if (!proto) {
-                return nullptr;
-              }
+            $*{parent}
 
-              $*{parent}
+            $*{unforgeable}
 
-              $*{unforgeable}
-
-              aCache->SetWrapper(obj);
-              $*{slots}
-              return obj;
+            aCache->SetWrapper(obj);
+            $*{slots}
+            return obj;
             """,
             assertion=AssertInheritanceChain(self.descriptor),
             parent=CreateBindingJSObject(self.descriptor, self.properties,
@@ -2904,7 +2905,7 @@ class CGWrapMethod(CGAbstractMethod):
                                   inline=True, templateArgs=["class T"])
 
     def definition_body(self):
-        return "  return Wrap(aCx, aObject, aObject);\n"
+        return "return Wrap(aCx, aObject, aObject);\n"
 
 
 class CGWrapNonWrapperCacheMethod(CGAbstractMethod):
@@ -2927,19 +2928,20 @@ class CGWrapNonWrapperCacheMethod(CGAbstractMethod):
     def definition_body(self):
         return fill(
             """
-            ${assertions}
-              JS::Rooted<JSObject*> global(aCx, JS::CurrentGlobalOrNull(aCx));
-              JS::Handle<JSObject*> proto = GetProtoObject(aCx, global);
-              if (!proto) {
-                return nullptr;
-              }
+            $*{assertions}
 
-              $*{global_}
+            JS::Rooted<JSObject*> global(aCx, JS::CurrentGlobalOrNull(aCx));
+            JS::Handle<JSObject*> proto = GetProtoObject(aCx, global);
+            if (!proto) {
+              return nullptr;
+            }
 
-              $*{unforgeable}
+            $*{global_}
 
-              $*{slots}
-              return obj;
+            $*{unforgeable}
+
+            $*{slots}
+            return obj;
             """,
             assertions=AssertInheritanceChain(self.descriptor),
             global_=CreateBindingJSObject(self.descriptor, self.properties,
@@ -2986,36 +2988,36 @@ class CGWrapGlobalMethod(CGAbstractMethod):
 
         return fill(
             """
-            ${assertions}
-              MOZ_ASSERT(ToSupportsIsOnPrimaryInheritanceChain(aObject, aCache),
-                         "nsISupports must be on our primary inheritance chain");
+            $*{assertions}
+            MOZ_ASSERT(ToSupportsIsOnPrimaryInheritanceChain(aObject, aCache),
+                       "nsISupports must be on our primary inheritance chain");
 
-              JS::Rooted<JSObject*> obj(aCx);
-              CreateGlobal<${nativeType}, GetProtoObject>(aCx,
-                                               aObject,
-                                               aCache,
-                                               Class.ToJSClass(),
-                                               aOptions,
-                                               aPrincipal,
-                                               aInitStandardClasses,
-                                               &obj);
-              if (!obj) {
-                return nullptr;
-              }
+            JS::Rooted<JSObject*> obj(aCx);
+            CreateGlobal<${nativeType}, GetProtoObject>(aCx,
+                                             aObject,
+                                             aCache,
+                                             Class.ToJSClass(),
+                                             aOptions,
+                                             aPrincipal,
+                                             aInitStandardClasses,
+                                             &obj);
+            if (!obj) {
+              return nullptr;
+            }
 
-              // obj is a new global, so has a new compartment.  Enter it
-              // before doing anything with it.
-              JSAutoCompartment ac(aCx, obj);
+            // obj is a new global, so has a new compartment.  Enter it
+            // before doing anything with it.
+            JSAutoCompartment ac(aCx, obj);
 
-              if (!DefineProperties(aCx, obj, ${properties}, ${chromeProperties})) {
-                return nullptr;
-              }
-              $*{unforgeable}
+            if (!DefineProperties(aCx, obj, ${properties}, ${chromeProperties})) {
+              return nullptr;
+            }
+            $*{unforgeable}
 
-              $*{slots}
-              $*{fireOnNewGlobal}
+            $*{slots}
+            $*{fireOnNewGlobal}
 
-              return obj;
+            return obj;
             """,
             assertions=AssertInheritanceChain(self.descriptor),
             nativeType=self.descriptor.nativeType,
@@ -3053,7 +3055,7 @@ class CGUpdateMemberSlotsMethod(CGAbstractStaticMethod):
                     member=m.identifier.name)
 
         body += "\nreturn true;\n"
-        return indent(body)
+        return body
 
 
 class CGClearCachedValueMethod(CGAbstractMethod):
@@ -3100,7 +3102,7 @@ class CGClearCachedValueMethod(CGAbstractMethod):
             saveMember = ""
             regetMember = ""
 
-        return indent(fill(
+        return fill(
             """
             $*{declObj}
             obj = aObject->GetWrapper();
@@ -3115,7 +3117,7 @@ class CGClearCachedValueMethod(CGAbstractMethod):
             noopRetval=noopRetval,
             saveMember=saveMember,
             slotIndex=slotIndex,
-            regetMember=regetMember))
+            regetMember=regetMember)
 
 
 class CGIsPermittedMethod(CGAbstractMethod):
@@ -3157,7 +3159,7 @@ class CGIsPermittedMethod(CGAbstractMethod):
         for firstLetter in sorted(cases.keys()):
             caseList.append(CGCase("'%s'" % firstLetter, cases[firstLetter]))
         switch = CGSwitch("propFirstChar", caseList)
-        return indent(switch.define() + "\nreturn false;\n")
+        return switch.define() + "\nreturn false;\n"
 
 builtinNames = {
     IDLType.Tags.bool: 'bool',
@@ -6123,11 +6125,11 @@ class CGMethodCall(CGThing):
             # here for our one signature and not worry about switching
             # on anything.
             signature = signatures[0]
-            self.cgRoot = CGList([CGIndenter(getPerSignatureCall(signature))])
+            self.cgRoot = CGList([getPerSignatureCall(signature)])
             requiredArgs = requiredArgCount(signature)
 
             if requiredArgs > 0:
-                code = indent(fill(  # BOGUS extra blank line
+                code = fill(  # BOGUS extra blank line
                     """
 
                     if (args.length() < ${requiredArgs}) {
@@ -6135,7 +6137,7 @@ class CGMethodCall(CGThing):
                     }
                     """,
                     requiredArgs=requiredArgs,
-                    methodName=methodName))
+                    methodName=methodName)
                 self.cgRoot.prepend(CGGeneric(code))
             return
 
@@ -6478,8 +6480,7 @@ class CGMethodCall(CGThing):
         overloadCGThings.append(
             CGGeneric('MOZ_CRASH("We have an always-returning default case");\n'
                       'return false;\n'))
-        self.cgRoot = CGWrapper(CGIndenter(CGList(overloadCGThings)),
-                                pre="\n")
+        self.cgRoot = CGWrapper(CGList(overloadCGThings), pre="\n")
 
     def define(self):
         return self.cgRoot.define()
@@ -6620,7 +6621,7 @@ class CGAbstractBindingMethod(CGAbstractStaticMethod):
             "obj", "self", self.unwrapFailureCode,
             allowCrossOriginObj=self.allowCrossOriginThis))
 
-        return indent(body) + self.generate_code().define()
+        return body + self.generate_code().define()
 
     def generate_code(self):
         assert False  # Override me
@@ -6643,11 +6644,11 @@ class CGAbstractStaticBindingMethod(CGAbstractStaticMethod):
     def definition_body(self):
         # Make sure that "obj" is in the same compartment as "cx", since we'll
         # later use it to wrap return values.
-        unwrap = indent(dedent("""
+        unwrap = dedent("""
             JS::CallArgs args = JS::CallArgsFromVp(argc, vp);
             JS::Rooted<JSObject*> obj(cx, &args.callee());
 
-            """))
+            """)
         return unwrap + self.generate_code().define()
 
     def generate_code(self):
@@ -6679,12 +6680,18 @@ class CGGenericMethod(CGAbstractBindingMethod):
                                          allowCrossOriginThis=allowCrossOriginThis)
 
     def generate_code(self):
-        return CGGeneric(indent(dedent("""
+        return CGGeneric(dedent("""
             const JSJitInfo *info = FUNCTION_VALUE_TO_JITINFO(args.calleev());
             MOZ_ASSERT(info->type() == JSJitInfo::Method);
             JSJitMethodOp method = info->method;
-            return method(cx, obj, self, JSJitMethodCallArgs(args));
-            """)))
+            bool ok = method(cx, obj, self, JSJitMethodCallArgs(args));
+            #ifdef DEBUG
+            if (ok) {
+              AssertReturnTypeMatchesJitinfo(info, args.rval());
+            }
+            #endif
+            return ok;
+            """))
 
 
 class CGSpecializedMethod(CGAbstractStaticMethod):
@@ -6725,7 +6732,7 @@ class CGMethodPromiseWrapper(CGAbstractStaticMethod):
         CGAbstractStaticMethod.__init__(self, descriptor, name, 'bool', args)
 
     def definition_body(self):
-        return indent(fill(
+        return fill(
             """
             // Make sure to save the callee before someone maybe messes
             // with rval().
@@ -6738,7 +6745,7 @@ class CGMethodPromiseWrapper(CGAbstractStaticMethod):
                                              args.rval());
             """,
             methodName=self.method.name,
-            args=", ".join(arg.name for arg in self.args)))
+            args=", ".join(arg.name for arg in self.args))
 
     @staticmethod
     def makeName(methodName):
@@ -6775,7 +6782,7 @@ class CGJsonifierMethod(CGSpecializedMethod):
 
         ret += ('args.rval().setObject(*result);\n'
                 'return true;\n')
-        return indent(ret)
+        return ret
 
 
 class CGLegacyCallHook(CGAbstractBindingMethod):
@@ -6821,7 +6828,7 @@ class CGNewResolveHook(CGAbstractBindingMethod):
             args, getThisObj="", callArgs="")
 
     def generate_code(self):
-        return CGGeneric(indent(dedent("""
+        return CGGeneric(dedent("""
             JS::Rooted<JSPropertyDescriptor> desc(cx);
             if (!self->DoNewResolve(cx, obj, id, &desc)) {
               return false;
@@ -6840,12 +6847,12 @@ class CGNewResolveHook(CGAbstractBindingMethod):
             }
             objp.set(obj);
             return true;
-            """)))
+            """))
 
     def definition_body(self):
         if self.descriptor.interface.getExtendedAttribute("Global"):
             # Resolve standard classes
-            prefix = indent(dedent("""
+            prefix = dedent("""
                 if (!ResolveGlobal(cx, obj, id, objp)) {
                   return false;
                 }
@@ -6853,7 +6860,7 @@ class CGNewResolveHook(CGAbstractBindingMethod):
                   return true;
                 }
 
-                """))
+                """)
         else:
             prefix = ""
         return prefix + CGAbstractBindingMethod.definition_body(self)
@@ -6874,7 +6881,7 @@ class CGEnumerateHook(CGAbstractBindingMethod):
             args, getThisObj="", callArgs="")
 
     def generate_code(self):
-        return CGGeneric(indent(dedent("""
+        return CGGeneric(dedent("""
             nsAutoTArray<nsString, 8> names;
             ErrorResult rv;
             self->GetOwnPropertyNames(cx, names, rv);
@@ -6889,17 +6896,17 @@ class CGEnumerateHook(CGAbstractBindingMethod):
               }
             }
             return true;
-            """)))
+            """))
 
     def definition_body(self):
         if self.descriptor.interface.getExtendedAttribute("Global"):
             # Enumerate standard classes
-            prefix = indent(dedent("""
+            prefix = dedent("""
                 if (!EnumerateGlobal(cx, obj)) {
                   return false;
                 }
 
-                """))
+                """)
         else:
             prefix = ""
         return prefix + CGAbstractBindingMethod.definition_body(self)
@@ -6977,12 +6984,18 @@ class CGGenericGetter(CGAbstractBindingMethod):
                                          allowCrossOriginThis=allowCrossOriginThis)
 
     def generate_code(self):
-        return CGGeneric(indent(dedent("""
+        return CGGeneric(dedent("""
             const JSJitInfo *info = FUNCTION_VALUE_TO_JITINFO(args.calleev());
             MOZ_ASSERT(info->type() == JSJitInfo::Getter);
             JSJitGetterOp getter = info->getter;
-            return getter(cx, obj, self, JSJitGetterCallArgs(args));
-            """)))
+            bool ok = getter(cx, obj, self, JSJitGetterCallArgs(args));
+            #ifdef DEBUG
+            if (ok) {
+              AssertReturnTypeMatchesJitinfo(info, args.rval());
+            }
+            #endif
+            return ok;
+            """))
 
 
 class CGSpecializedGetter(CGAbstractStaticMethod):
@@ -7012,7 +7025,7 @@ class CGSpecializedGetter(CGAbstractStaticMethod):
                                 "can't use our slot for property '%s'!" %
                                 (self.descriptor.interface.identifier.name,
                                  self.attr.identifier.name))
-            prefix = indent(fill(
+            prefix = fill(
                 """
                 // Have to either root across the getter call or reget after.
                 JS::Rooted<JSObject*> reflector(cx);
@@ -7033,13 +7046,13 @@ class CGSpecializedGetter(CGAbstractStaticMethod):
 
                 """,
                 slot=memberReservedSlot(self.attr),
-                maybeWrap=getMaybeWrapValueFuncForType(self.attr.type)))
+                maybeWrap=getMaybeWrapValueFuncForType(self.attr.type))
         else:
             prefix = ""
 
         return (prefix +
-                indent(CGGetterCall(self.attr.type, nativeName,
-                                    self.descriptor, self.attr).define()))
+                CGGetterCall(self.attr.type, nativeName,
+                             self.descriptor, self.attr).define())
 
     @staticmethod
     def makeNativeName(descriptor, attr):
@@ -7068,8 +7081,8 @@ class CGStaticGetter(CGAbstractStaticBindingMethod):
     def generate_code(self):
         nativeName = CGSpecializedGetter.makeNativeName(self.descriptor,
                                                         self.attr)
-        return CGIndenter(CGGetterCall(self.attr.type, nativeName,
-                                       self.descriptor, self.attr))
+        return CGGetterCall(self.attr.type, nativeName, self.descriptor,
+                            self.attr)
 
 
 class CGGenericSetter(CGAbstractBindingMethod):
@@ -7104,7 +7117,7 @@ class CGGenericSetter(CGAbstractBindingMethod):
                                          allowCrossOriginThis=allowCrossOriginThis)
 
     def generate_code(self):
-        return CGGeneric(indent(fill(
+        return CGGeneric(fill(
             """
             if (args.length() == 0) {
               return ThrowErrorMessage(cx, MSG_MISSING_ARGUMENTS, "${name} attribute setter");
@@ -7116,9 +7129,12 @@ class CGGenericSetter(CGAbstractBindingMethod):
               return false;
             }
             args.rval().set(JSVAL_VOID);
+            #ifdef DEBUG
+            AssertReturnTypeMatchesJitinfo(info, args.rval());
+            #endif
             return true;
             """,
-            name=self.descriptor.interface.identifier.name)))
+            name=self.descriptor.interface.identifier.name))
 
 
 class CGSpecializedSetter(CGAbstractStaticMethod):
@@ -7138,8 +7154,8 @@ class CGSpecializedSetter(CGAbstractStaticMethod):
     def definition_body(self):
         nativeName = CGSpecializedSetter.makeNativeName(self.descriptor,
                                                         self.attr)
-        return CGIndenter(CGSetterCall(self.attr.type, nativeName,
-                                       self.descriptor, self.attr)).define()
+        return CGSetterCall(self.attr.type, nativeName, self.descriptor,
+                            self.attr).define()
 
     @staticmethod
     def makeNativeName(descriptor, attr):
@@ -7168,7 +7184,7 @@ class CGStaticSetter(CGAbstractStaticBindingMethod):
             name=self.attr.identifier.name))
         call = CGSetterCall(self.attr.type, nativeName, self.descriptor,
                             self.attr)
-        return CGIndenter(CGList([checkForArg, call]))
+        return CGList([checkForArg, call])
 
 
 class CGSpecializedForwardingSetter(CGSpecializedSetter):
@@ -7185,7 +7201,7 @@ class CGSpecializedForwardingSetter(CGSpecializedSetter):
         # JS_GetProperty and JS_SetProperty can only deal with ASCII
         assert all(ord(c) < 128 for c in attrName)
         assert all(ord(c) < 128 for c in forwardToAttrName)
-        return indent(fill(
+        return fill(
             """
             JS::Rooted<JS::Value> v(cx);
             if (!JS_GetProperty(cx, obj, "${attr}", &v)) {
@@ -7201,7 +7217,7 @@ class CGSpecializedForwardingSetter(CGSpecializedSetter):
             """,
             attr=attrName,
             interface=self.descriptor.interface.identifier.name,
-            forwardToAttrName=forwardToAttrName))
+            forwardToAttrName=forwardToAttrName)
 
 
 class CGSpecializedReplaceableSetter(CGSpecializedSetter):
@@ -7216,8 +7232,8 @@ class CGSpecializedReplaceableSetter(CGSpecializedSetter):
         attrName = self.attr.identifier.name
         # JS_DefineProperty can only deal with ASCII
         assert all(ord(c) < 128 for c in attrName)
-        return indent('return JS_DefineProperty(cx, obj, "%s", args[0], JSPROP_ENUMERATE);\n' %
-                      attrName)
+        return ('return JS_DefineProperty(cx, obj, "%s", args[0], JSPROP_ENUMERATE);\n' %
+                attrName)
 
 
 def memberReturnsNewObject(member):
@@ -8702,7 +8718,7 @@ class CGResolveOwnProperty(CGAbstractStaticMethod):
 
     def definition_body(self):
         # BOGUS extra blank line at end of function
-        return "  return js::GetProxyHandler(obj)->getOwnPropertyDescriptor(cx, wrapper, id, desc);\n\n"
+        return "return js::GetProxyHandler(obj)->getOwnPropertyDescriptor(cx, wrapper, id, desc);\n\n"
 
 
 class CGResolveOwnPropertyViaNewresolve(CGAbstractBindingMethod):
@@ -8722,7 +8738,7 @@ class CGResolveOwnPropertyViaNewresolve(CGAbstractBindingMethod):
                                          callArgs="")
 
     def generate_code(self):
-        return CGGeneric(indent(dedent("""
+        return CGGeneric(dedent("""
             {
               // Since we're dealing with an Xray, do the resolve on the
               // underlying object first.  That gives it a chance to
@@ -8747,7 +8763,7 @@ class CGResolveOwnPropertyViaNewresolve(CGAbstractBindingMethod):
               }
             }
             return self->DoNewResolve(cx, wrapper, id, desc);
-            """)))
+            """))
 
 
 class CGEnumerateOwnProperties(CGAbstractStaticMethod):
@@ -8761,7 +8777,7 @@ class CGEnumerateOwnProperties(CGAbstractStaticMethod):
 
     def definition_body(self):
         # BOGUS extra newline
-        return "  return js::GetProxyHandler(obj)->getOwnPropertyNames(cx, wrapper, props);\n\n"
+        return "return js::GetProxyHandler(obj)->getOwnPropertyNames(cx, wrapper, props);\n\n"
 
 
 class CGEnumerateOwnPropertiesViaGetOwnPropertyNames(CGAbstractBindingMethod):
@@ -8780,7 +8796,7 @@ class CGEnumerateOwnPropertiesViaGetOwnPropertyNames(CGAbstractBindingMethod):
                                          callArgs="")
 
     def generate_code(self):
-        return CGIndenter(CGGeneric(dedent("""
+        return CGGeneric(dedent("""
             nsAutoTArray<nsString, 8> names;
             ErrorResult rv;
             self->GetOwnPropertyNames(cx, names, rv);
@@ -8791,7 +8807,7 @@ class CGEnumerateOwnPropertiesViaGetOwnPropertyNames(CGAbstractBindingMethod):
             // OK to pass null as "proxy" because it's ignored if
             // shadowPrototypeProperties is true
             return AppendNamedPropertyIds(cx, JS::NullPtr(), names, true, props);
-            """)))
+            """))
 
 
 class CGPrototypeTraitsClass(CGClass):
@@ -9090,7 +9106,7 @@ class CGProxyIsProxy(CGAbstractMethod):
         return ""
 
     def definition_body(self):
-        return "  return js::IsProxy(obj) && js::GetProxyHandler(obj) == DOMProxyHandler::getInstance();\n"
+        return "return js::IsProxy(obj) && js::GetProxyHandler(obj) == DOMProxyHandler::getInstance();\n"
 
 
 class CGProxyUnwrap(CGAbstractMethod):
@@ -9102,7 +9118,7 @@ class CGProxyUnwrap(CGAbstractMethod):
         return ""
 
     def definition_body(self):
-        return indent(fill(
+        return fill(
             """
             MOZ_ASSERT(js::IsProxy(obj));
             if (js::GetProxyHandler(obj) != DOMProxyHandler::getInstance()) {
@@ -9112,7 +9128,7 @@ class CGProxyUnwrap(CGAbstractMethod):
             MOZ_ASSERT(IsProxy(obj));
             return static_cast<${type}*>(js::GetProxyPrivate(obj).toPrivate());
             """,
-            type=self.descriptor.nativeType))
+            type=self.descriptor.nativeType)
 
 
 class CGDOMJSProxyHandler_getOwnPropertyDescriptor(ClassMethod):
@@ -10798,6 +10814,10 @@ class CGRegisterProtos(CGAbstractMethod):
             assert propName
             lines.append('REGISTER_NAVIGATOR_CONSTRUCTOR("%s", %s, %s);\n' % (propName, desc.name, getCheck(desc)))
         return ''.join(lines)
+
+    def indent_body(self, body):
+        # Don't indent the body of this method, as it's all preprocessor gunk.
+        return body
 
     def definition_body(self):
         return "\n" + self._defineMacro() + "\n" + self._registerProtos() + "\n" + self._undefineMacro()

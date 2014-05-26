@@ -484,9 +484,6 @@ class MOZ_NONHEAP_CLASS Handle : public js::HandleBase<T>
     bool operator!=(const T &other) const { return *ptr != other; }
     bool operator==(const T &other) const { return *ptr == other; }
 
-    /* Change this handle to point to the same rooted location RHS does. */
-    void repoint(const Handle &rhs) { ptr = rhs.address(); }
-
   private:
     Handle() {}
 
@@ -1168,7 +1165,9 @@ class PersistentRooted : private mozilla::LinkedListElement<PersistentRooted<T> 
         registerWithRuntime(rt);
     }
 
-    PersistentRooted(PersistentRooted &rhs) : ptr(rhs.ptr)
+    PersistentRooted(PersistentRooted &rhs)
+      : mozilla::LinkedListElement<PersistentRooted<T> >(),
+        ptr(rhs.ptr)
     {
         /*
          * Copy construction takes advantage of the fact that the original
