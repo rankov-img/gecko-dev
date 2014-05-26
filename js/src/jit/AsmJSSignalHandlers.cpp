@@ -393,13 +393,7 @@ HandleSimulatorInterrupt(JSRuntime *rt, AsmJSActivation *activation, void *fault
 static uint8_t **
 ContextToPC(CONTEXT *context)
 {
-#ifndef JS_CPU_MIPS
-    JS_STATIC_ASSERT(sizeof(PC_sig(context)) == sizeof(void*));
     return reinterpret_cast<uint8_t**>(&PC_sig(context));
-#else
-    JS_STATIC_ASSERT(sizeof(PC_sig(context)) == 2*sizeof(void*));
-    return reinterpret_cast<uint8_t**>(&PC_sig(context));
-#endif
 }
 
 # if defined(JS_CODEGEN_X64)

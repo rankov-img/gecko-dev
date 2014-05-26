@@ -370,8 +370,38 @@ class AsmJSModule
 
     struct RelativeLink
     {
+        enum Kind
+        {
+            RawPointer,
+            CodeLabel,
+            InstructionImmediate
+        };
+
+        RelativeLink()
+        { }
+
+        RelativeLink(Kind kind)
+        {
+#if defined(JS_CODEGEN_MIPS)
+            kind_ = kind;
+#elif defined(JS_CODEGEN_ARM)
+            // On ARM, CodeLabels are only used to label raw pointers, so in
+            // all cases on ARM, a RelativePatch means patching a raw pointer.
+            JS_ASSERT(kind == CodeLabel || kind == RawPointer);
+#endif
+            // On X64 and X86, all RelativePatch-es are patched as raw pointers.
+        }
+
+        bool isRawPointerPatch() {
+#if defined(JS_CODEGEN_MIPS)
+            return kind_ == RawPointer;
+#else
+            return true;
+#endif
+        }
+
 #ifdef JS_CODEGEN_MIPS
-        bool isTableEntry;
+        Kind kind_;
 #endif
         uint32_t patchAtOffset;
         uint32_t targetOffset;
@@ -720,8 +750,7 @@ class AsmJSModule
     // offset codeBytes_) in the module's linear allocation. The global data
     // are laid out in this order:
     //   0. a pointer/descriptor for the heap that was linked to the module
-    //   0.1 On MIPS we need scratch slot for OperationCallbackExit() and also
-    //       to align the data.
+    //   0.1 On MIPS we need a padding slot to align the data.
     //   1. global variable state (elements are sizeof(uint64_t))
     //   2. interleaved function-pointer tables and exits. These are allocated
     //      while type checking function bodies (as exits and uses of
@@ -736,7 +765,7 @@ class AsmJSModule
     size_t globalDataBytes() const {
         return sizeof(void*) +
 #ifdef JS_CODEGEN_MIPS
-               // MIPS scratch slot
+               // MIPS padding slot
                sizeof(void*) +
 #endif
                pod.numGlobalVars_ * sizeof(uint64_t) +
@@ -752,7 +781,7 @@ class AsmJSModule
         JS_ASSERT(i < pod.numGlobalVars_);
         return sizeof(void*) +
 #ifdef JS_CODEGEN_MIPS
-               // MIPS scratch slot
+               // MIPS padding slot
                sizeof(void*) +
 #endif
                i * sizeof(uint64_t);

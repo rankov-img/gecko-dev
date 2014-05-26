@@ -1570,20 +1570,14 @@ class MOZ_STACK_CLASS ModuleCompiler
             // instruction.
             while (labelOffset != LabelBase::INVALID_OFFSET) {
                 size_t patchAtOffset = masm_.labelOffsetToPatchOffset(labelOffset);
-                AsmJSModule::RelativeLink link;
+                AsmJSModule::RelativeLink link(AsmJSModule::RelativeLink::CodeLabel);
                 link.patchAtOffset = patchAtOffset;
                 link.targetOffset = targetOffset;
-#ifdef JS_CODEGEN_MIPS
-                link.isTableEntry = false;
-#endif
                 if (!module_->addRelativeLink(link))
                     return false;
-#ifndef JS_CODEGEN_MIPS
-                labelOffset = *(uintptr_t *)(module_->codeBase() + patchAtOffset);
-#else
-                InstImm *inst = (InstImm *)(module_->codeBase() + patchAtOffset);
-                labelOffset = Assembler::extractLuiOriValue(inst, inst->next());
-#endif
+
+                labelOffset = Assembler::extractCodeLabelOffset(module_->codeBase() +
+                                                                patchAtOffset);
             }
         }
 
@@ -1592,12 +1586,9 @@ class MOZ_STACK_CLASS ModuleCompiler
             FuncPtrTable &table = funcPtrTables_[tableIndex];
             unsigned tableBaseOffset = module_->offsetOfGlobalData() + table.globalDataOffset();
             for (unsigned elemIndex = 0; elemIndex < table.numElems(); elemIndex++) {
-                AsmJSModule::RelativeLink link;
+                AsmJSModule::RelativeLink link(AsmJSModule::RelativeLink::RawPointer);
                 link.patchAtOffset = tableBaseOffset + elemIndex * sizeof(uint8_t*);
                 link.targetOffset = masm_.actualOffset(table.elem(elemIndex).code()->offset());
-#ifdef JS_CODEGEN_MIPS
-                link.isTableEntry = true;
-#endif
                 if (!module_->addRelativeLink(link))
                     return false;
             }
@@ -1609,7 +1600,7 @@ class MOZ_STACK_CLASS ModuleCompiler
         // code section so we can just use an RelativeLink.
         for (unsigned i = 0; i < masm_.numAsmJSGlobalAccesses(); i++) {
             AsmJSGlobalAccess a = masm_.asmJSGlobalAccess(i);
-            AsmJSModule::RelativeLink link;
+            AsmJSModule::RelativeLink link(AsmJSModule::RelativeLink::InstructionImmediate);
             link.patchAtOffset = masm_.labelOffsetToPatchOffset(a.patchAt.offset());
             link.targetOffset = module_->offsetOfGlobalData() + a.globalDataOffset;
             if (!module_->addRelativeLink(link))
@@ -1633,13 +1624,12 @@ class MOZ_STACK_CLASS ModuleCompiler
         for (size_t i = 0; i < masm_.numLongJumps(); i++) {
             uint32_t patchAtOffset = masm_.longJump(i);
 
-            AsmJSModule::RelativeLink link;
+            AsmJSModule::RelativeLink link(AsmJSModule::RelativeLink::InstructionImmediate);
             link.patchAtOffset = patchAtOffset;
 
             InstImm *inst = (InstImm *)(module_->codeBase() + patchAtOffset);
             link.targetOffset = Assembler::extractLuiOriValue(inst, inst->next()) -
                                 (uint32_t)module_->codeBase();
-            link.isTableEntry = false;
 
             if (!module_->addRelativeLink(link))
                 return false;
@@ -6084,10 +6074,10 @@ static const unsigned FramePushedAfterSave = NonVolatileRegs.gprs().size() * siz
                                              NonVolatileRegs.fpus().size() * sizeof(double);
 #endif
 
-// On arm, we need to include an extra word of space at the top of the stack so
-// we can explicitly store the return address before making the call to C++ or
-// Ion. On x86/x64, this isn't necessary since the call instruction pushes the
-// return address.
+// On ARM/MIPS, we need to include an extra word of space at the top of the
+// stack so we can explicitly store the return address before making the call
+// to C++ or Ion. On x86/x64, this isn't necessary since the call instruction
+// pushes the return address.
 #if defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_MIPS)
 static const unsigned MaybeRetAddr = sizeof(void*);
 #else
@@ -6120,10 +6110,7 @@ GenerateEntry(ModuleCompiler &m, const AsmJSModule::ExportedFunction &exportedFu
     // ARM and MIPS have a globally-pinned GlobalReg (x64 uses RIP-relative
     // addressing, x86 uses immediates in effective addresses) and NaN register
     // (used as part of the out-of-bounds handling in heap loads/stores).
-#if defined(JS_CODEGEN_ARM)
-    masm.movePtr(IntArgReg1, GlobalReg);
-    masm.ma_vimm(GenericNaN(), NANReg);
-#elif defined(JS_CODEGEN_MIPS)
+#if defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_MIPS)
     masm.movePtr(IntArgReg1, GlobalReg);
     masm.loadConstantDouble(GenericNaN(), NANReg);
 #endif
@@ -6364,8 +6351,6 @@ GenerateFFIInterpreterExit(ModuleCompiler &m, const ModuleCompiler::ExitDescript
 #endif
 #if defined(JS_CODEGEN_MIPS)
     masm.Push(ra);
-    // Make sure that arguments buffer is properly aligned.
-    masm.reserveStack(StackAlignment - sizeof(uintptr_t));
 #endif
 
     MIRType typeArray[] = { MIRType_Pointer,   // cx
@@ -6375,15 +6360,17 @@ GenerateFFIInterpreterExit(ModuleCompiler &m, const ModuleCompiler::ExitDescript
     MIRTypeVector invokeArgTypes(m.cx());
     invokeArgTypes.infallibleAppend(typeArray, ArrayLength(typeArray));
 
-    // The stack layout looks like:
-    // | return address | stack arguments | array of values |
-    unsigned arraySize = Max<size_t>(1, exit.sig().args().length()) * sizeof(Value);
-    unsigned stackDec = StackDecrementForCall(masm, invokeArgTypes, arraySize + MaybeRetAddr);
+    // At the point of the call, the stack layout shall be (sp grows to the left):
+    // | retaddr | stack args | padding | Value argv[] | padding | retaddr | caller stack args |
+    // The first padding ensures double-alignment of argv; the second ensures
+    // sp is aligned.
+    unsigned offsetToArgv = AlignBytes(StackArgBytes(invokeArgTypes) + MaybeRetAddr, StackAlignment);
+    unsigned argvBytes = Max<size_t>(1, exit.sig().args().length()) * sizeof(Value);
+    unsigned stackDec = StackDecrementForCall(masm, offsetToArgv + argvBytes + MaybeRetAddr);
     masm.reserveStack(stackDec);
 
     // Fill the argument array.
     unsigned offsetToCallerStackArgs = AlignmentAtPrologue + masm.framePushed();
-    unsigned offsetToArgv = stackDec - arraySize;
     Register scratch = ABIArgGenerator::NonArgReturnVolatileReg0;
     FillArgumentArray(m, exit.sig().args(), offsetToArgv, offsetToCallerStackArgs, scratch);
 
@@ -6460,9 +6447,6 @@ GenerateFFIInterpreterExit(ModuleCompiler &m, const ModuleCompiler::ExitDescript
     // Note: the caller is IonMonkey code which means there are no non-volatile
     // registers to restore.
     masm.freeStack(stackDec);
-#if defined(JS_CODEGEN_MIPS)
-    masm.freeStack(StackAlignment - sizeof(uintptr_t));
-#endif
     masm.ret();
 }
 
@@ -6952,13 +6936,12 @@ GenerateInterruptExit(ModuleCompiler &m, Label *throwLabel)
     masm.movePtr(s0, StackPointer);
     masm.PopRegsInMask(AllRegsExceptSP);
 
-    // Pop resumePC into PC. Use a slot in Global Data to save the scratch.
-    // Look at globalDataBytes()
-    masm.ma_sw(ScratchRegister, Address(GlobalReg, sizeof(intptr_t)));
-    masm.pop(ScratchRegister);
-    // Use delay slot to restore scratch register.
-    masm.as_jr(ScratchRegister);
-    masm.ma_lw(ScratchRegister, Address(GlobalReg, sizeof(intptr_t)));
+    // Pop resumePC into PC. Clobber HeapReg to make the jump and restore it
+    // during jump delay slot.
+    JS_ASSERT(Imm16::isInSignedRange(m.module().heapOffset()));
+    masm.pop(HeapReg);
+    masm.as_jr(HeapReg);
+    masm.loadPtr(Address(GlobalReg, m.module().heapOffset()), HeapReg);
 #elif defined(JS_CODEGEN_ARM)
     masm.setFramePushed(0);         // set to zero so we can use masm.framePushed() below
     masm.PushRegsInMask(RegisterSet(GeneralRegisterSet(Registers::AllMask & ~(1<<Registers::sp)), FloatRegisterSet(uint32_t(0))));   // save all GP registers,excep sp

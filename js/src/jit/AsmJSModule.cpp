@@ -313,16 +313,12 @@ AsmJSModule::staticallyLink(ExclusiveContext *cx)
 
     for (size_t i = 0; i < staticLinkData_.relativeLinks.length(); i++) {
         RelativeLink link = staticLinkData_.relativeLinks[i];
-#ifndef JS_CODEGEN_MIPS
-        *(void **)(code_ + link.patchAtOffset) = code_ + link.targetOffset;
-#else
-        if (link.isTableEntry) {
-            *(void **)(code_ + link.patchAtOffset) = code_ + link.targetOffset;
-        } else {
-            InstImm *inst = (InstImm *)(code_ + link.patchAtOffset);
-            Assembler::updateLuiOriValue(inst, inst->next(), (uint32_t)code_ + link.targetOffset);
-        }
-#endif
+        uint8_t *patchAt = code_ + link.patchAtOffset;
+        uint8_t *target = code_ + link.targetOffset;
+        if (link.isRawPointerPatch())
+            *(uint8_t **)(patchAt) = target;
+        else
+            Assembler::patchInstructionImmediate(patchAt, PatchedImmPtr(target));
     }
 
     for (size_t i = 0; i < staticLinkData_.absoluteLinks.length(); i++) {
