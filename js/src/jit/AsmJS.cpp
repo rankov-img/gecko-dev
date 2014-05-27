@@ -6366,7 +6366,7 @@ GenerateFFIInterpreterExit(ModuleCompiler &m, const ModuleCompiler::ExitDescript
     // sp is aligned.
     unsigned offsetToArgv = AlignBytes(StackArgBytes(invokeArgTypes) + MaybeRetAddr, StackAlignment);
     unsigned argvBytes = Max<size_t>(1, exit.sig().args().length()) * sizeof(Value);
-    unsigned stackDec = StackDecrementForCall(masm, offsetToArgv + argvBytes + MaybeRetAddr);
+    unsigned stackDec = StackDecrementForCall(masm, offsetToArgv + argvBytes);
     masm.reserveStack(stackDec);
 
     // Fill the argument array.
@@ -6416,11 +6416,6 @@ GenerateFFIInterpreterExit(ModuleCompiler &m, const ModuleCompiler::ExitDescript
     }
     i++;
     JS_ASSERT(i.done());
-
-#if defined(JS_CODEGEN_MIPS)
-    masm.store32(Imm32(i.stackBytesConsumedSoFar()),
-                 Address(activation, AsmJSActivation::offsetOfRetAddressOffset()));
-#endif
 
     // Make the call, test whether it succeeded, and extract the return value.
     AssertStackAlignment(masm);
@@ -6496,11 +6491,6 @@ GenerateOOLConvert(ModuleCompiler &m, RetType retType, Label *throwLabel)
     }
     i++;
     JS_ASSERT(i.done());
-
-#if defined(JS_CODEGEN_MIPS)
-    masm.store32(Imm32(i.stackBytesConsumedSoFar()),
-                 Address(activation, AsmJSActivation::offsetOfRetAddressOffset()));
-#endif
 
     // Call
     AssertStackAlignment(masm);
@@ -6647,9 +6637,14 @@ GenerateFFIIonExit(ModuleCompiler &m, const ModuleCompiler::ExitDescriptor &exit
         LoadAsmJSActivationIntoRegister(masm, reg0);
 
         // Record sp in the AsmJSActivation for stack-walking.
-        masm.storePtr(StackPointer, Address(reg0, AsmJSActivation::offsetOfExitSP()));
 #if defined(JS_CODEGEN_MIPS)
-        masm.store32(Imm32(0), Address(reg0, AsmJSActivation::offsetOfRetAddressOffset()));
+        // Add a flag to indicate to AsmJSFrameIterator that we are calling
+        // into Ion, since the offset from SP to the return address is
+        // different when calling Ion vs. the native ABI.
+        masm.ma_or(reg1, StackPointer, Imm32(0x1));
+        masm.storePtr(reg1, Address(reg0, AsmJSActivation::offsetOfExitSP()));
+#else
+        masm.storePtr(StackPointer, Address(reg0, AsmJSActivation::offsetOfExitSP()));
 #endif
 
         // The following is inlined:
@@ -6827,11 +6822,6 @@ GenerateStackOverflowExit(ModuleCompiler &m, Label *throwLabel)
     i++;
 
     JS_ASSERT(i.done());
-
-#if defined(JS_CODEGEN_MIPS)
-    masm.store32(Imm32(i.stackBytesConsumedSoFar()),
-                 Address(activation, AsmJSActivation::offsetOfRetAddressOffset()));
-#endif
 
     AssertStackAlignment(masm);
     masm.callExit(AsmJSImm_ReportOverRecursed, i.stackBytesConsumedSoFar());

@@ -749,8 +749,8 @@ class AsmJSModule
     // The global data section is placed after the executable code (i.e., at
     // offset codeBytes_) in the module's linear allocation. The global data
     // are laid out in this order:
-    //   0. a pointer/descriptor for the heap that was linked to the module
-    //   0.1 On MIPS we need a padding slot to align the data.
+    //   0. a pointer (padded up to 8 bytes to ensure double-alignment of
+    //      globals) for the heap that was linked to the module.
     //   1. global variable state (elements are sizeof(uint64_t))
     //   2. interleaved function-pointer tables and exits. These are allocated
     //      while type checking function bodies (as exits and uses of
@@ -763,11 +763,7 @@ class AsmJSModule
         return code_ + offsetOfGlobalData();
     }
     size_t globalDataBytes() const {
-        return sizeof(void*) +
-#ifdef JS_CODEGEN_MIPS
-               // MIPS padding slot
-               sizeof(void*) +
-#endif
+        return sizeof(uint64_t) +
                pod.numGlobalVars_ * sizeof(uint64_t) +
                pod.funcPtrTableAndExitBytes_;
     }
@@ -779,11 +775,7 @@ class AsmJSModule
     }
     unsigned globalVarIndexToGlobalDataOffset(unsigned i) const {
         JS_ASSERT(i < pod.numGlobalVars_);
-        return sizeof(void*) +
-#ifdef JS_CODEGEN_MIPS
-               // MIPS padding slot
-               sizeof(void*) +
-#endif
+        return sizeof(uint64_t) +
                i * sizeof(uint64_t);
     }
     void *globalVarIndexToGlobalDatum(unsigned i) const {

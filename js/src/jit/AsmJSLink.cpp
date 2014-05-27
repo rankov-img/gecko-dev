@@ -60,11 +60,21 @@ AsmJSFrameIterator::AsmJSFrameIterator(const AsmJSActivation *activation)
     // return address.
     returnAddress_ = *(uint8_t**)sp_;
 #elif defined(JS_CODEGEN_MIPS)
-    // On MIPS, we cannot push return address just before call to C++ function.
-    // MIPS ABI doesn't allow this. Because of this, we need to remember the
-    // offset of the loaction where return address is stored.
-    int32_t retAddressOffset = activation->retAddressOffset();
-    returnAddress_ = *(uint8_t**)(sp_ + retAddressOffset);
+    // On MIPS we have two cases. Exit to C++ will store return addres at
+    // sp + 16, While on exits to Ion, the return address will be stored at
+    // sp + 0. We indicate exits to ion by setting the lowest bit of stored sp.
+
+    // Check if this is the exit to Ion.
+    if (uint32_t(sp_) & 0x1) {
+        // Clear the low bit.
+        sp_ -= 0x1;
+        returnAddress_ = *(uint8_t**)sp_;
+    } else {
+        // This is exit to C++
+        returnAddress_ = *(uint8_t**)(sp_ + 4 * sizeof(uintptr_t));
+    }
+#else
+# error "Unknown architecture!"
 #endif
 
     settle();
