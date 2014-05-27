@@ -581,6 +581,7 @@ class MacroAssemblerMIPSCompat : public MacroAssemblerMIPS
     void unboxString(const ValueOperand &operand, Register dest);
     void unboxString(const Address &src, Register dest);
     void unboxObject(const ValueOperand &src, Register dest);
+    void unboxObject(const Address &src, Register dest);
     void unboxValue(const ValueOperand &src, AnyRegister dest);
     void unboxPrivate(const ValueOperand &src, Register dest);
 
@@ -1168,6 +1169,10 @@ public:
     }
     void addPtr(ImmPtr imm, const Register dest) {
         addPtr(ImmWord(uintptr_t(imm.value)), dest);
+    }
+    void mulBy3(const Register &src, const Register &dest) {
+        as_addu(dest, src, src);
+        as_addu(dest, dest, src);
     }
 
     void breakpoint();
