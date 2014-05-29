@@ -2014,7 +2014,6 @@ powerpc-*)
     ;;
 mips*-*)
     ENABLE_ION=1
-    ENABLE_YARR_JIT=1
     AC_DEFINE(JS_CPU_MIPS)
     AC_DEFINE(JS_NUNBOX32)
     ;;
@@ -3001,20 +3000,6 @@ if test "$ENABLE_TRACE_LOGGING"; then
 fi
 
 dnl ========================================================
-dnl = Enable yarr regexp engine
-dnl ========================================================
-MOZ_ARG_ENABLE_BOOL(yarr,
-[  --enable-yarr   Enable yarr regexp engine],
-    ENABLE_YARR=1,
-    ENABLE_YARR= )
-
-AC_SUBST(ENABLE_YARR)
-
-if test "$ENABLE_YARR"; then
-    AC_DEFINE(JS_YARR)
-fi
-
-dnl ========================================================
 dnl = Enable any treating of compile warnings as errors
 dnl ========================================================
 MOZ_ARG_DISABLE_BOOL(warnings-as-errors,
@@ -3263,6 +3248,7 @@ elif test -n "$JS_MIPS_SIMULATOR"; then
     AC_DEFINE(JS_MIPS_SIMULATOR)
     AC_DEFINE(JS_CODEGEN_MIPS)
     JS_CODEGEN_MIPS=1
+    ENABLE_YARR=1
 elif test "$CPU_ARCH" = "x86"; then
     AC_DEFINE(JS_CODEGEN_X86)
     JS_CODEGEN_X86=1
@@ -3275,6 +3261,20 @@ elif test "$CPU_ARCH" = "arm"; then
 elif test "$CPU_ARCH" = "mips"; then
     AC_DEFINE(JS_CODEGEN_MIPS)
     JS_CODEGEN_MIPS=1
+    ENABLE_YARR=1
+fi
+
+dnl ========================================================
+dnl = Enable yarr regexp engine
+dnl ========================================================
+MOZ_ARG_ENABLE_BOOL(yarr,
+[  --enable-yarr   Enable yarr regexp engine],
+    ENABLE_YARR=1)
+
+AC_SUBST(ENABLE_YARR)
+
+if test "$ENABLE_YARR"; then
+    AC_DEFINE(JS_YARR)
 fi
 
 AC_SUBST(JS_ARM_SIMULATOR)
