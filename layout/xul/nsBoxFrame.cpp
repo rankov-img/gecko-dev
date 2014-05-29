@@ -138,22 +138,16 @@ nsBoxFrame::~nsBoxFrame()
 {
 }
 
-nsresult
+void
 nsBoxFrame::SetInitialChildList(ChildListID     aListID,
                                 nsFrameList&    aChildList)
 {
-  nsresult r = nsContainerFrame::SetInitialChildList(aListID, aChildList);
-  if (r == NS_OK) {
-    // initialize our list of infos.
-    nsBoxLayoutState state(PresContext());
-    CheckBoxOrder();
-    if (mLayoutManager)
-      mLayoutManager->ChildrenSet(this, state, mFrames.FirstChild());
-  } else {
-    NS_WARNING("Warning add child failed!!\n");
-  }
-
-  return r;
+  nsContainerFrame::SetInitialChildList(aListID, aChildList);
+  // initialize our list of infos.
+  nsBoxLayoutState state(PresContext());
+  CheckBoxOrder();
+  if (mLayoutManager)
+    mLayoutManager->ChildrenSet(this, state, mFrames.FirstChild());
 }
 
 /* virtual */ void
@@ -170,9 +164,9 @@ nsBoxFrame::DidSetStyleContext(nsStyleContext* aOldStyleContext)
  * Initialize us. This is a good time to get the alignment of the box
  */
 void
-nsBoxFrame::Init(nsIContent*      aContent,
-                 nsIFrame*        aParent,
-                 nsIFrame*        aPrevInFlow)
+nsBoxFrame::Init(nsIContent*       aContent,
+                 nsContainerFrame* aParent,
+                 nsIFrame*         aPrevInFlow)
 {
   nsContainerFrame::Init(aContent, aParent, aPrevInFlow);
 
@@ -999,7 +993,7 @@ nsBoxFrame::MarkIntrinsicWidthsDirty()
   // IsBoxWrapped check.
 }
 
-nsresult
+void
 nsBoxFrame::RemoveFrame(ChildListID     aListID,
                         nsIFrame*       aOldFrame)
 {
@@ -1021,10 +1015,9 @@ nsBoxFrame::RemoveFrame(ChildListID     aListID,
   PresContext()->PresShell()->
     FrameNeedsReflow(this, nsIPresShell::eTreeChange,
                      NS_FRAME_HAS_DIRTY_CHILDREN);
-  return NS_OK;
 }
 
-nsresult
+void
 nsBoxFrame::InsertFrames(ChildListID     aListID,
                          nsIFrame*       aPrevFrame,
                          nsFrameList&    aFrameList)
@@ -1059,11 +1052,10 @@ nsBoxFrame::InsertFrames(ChildListID     aListID,
    PresContext()->PresShell()->
      FrameNeedsReflow(this, nsIPresShell::eTreeChange,
                       NS_FRAME_HAS_DIRTY_CHILDREN);
-   return NS_OK;
 }
 
 
-nsresult
+void
 nsBoxFrame::AppendFrames(ChildListID     aListID,
                          nsFrameList&    aFrameList)
 {
@@ -1095,10 +1087,9 @@ nsBoxFrame::AppendFrames(ChildListID     aListID,
        FrameNeedsReflow(this, nsIPresShell::eTreeChange,
                         NS_FRAME_HAS_DIRTY_CHILDREN);
    }
-   return NS_OK;
 }
 
-/* virtual */ nsIFrame*
+/* virtual */ nsContainerFrame*
 nsBoxFrame::GetContentInsertionFrame()
 {
   if (GetStateBits() & NS_STATE_BOX_WRAPS_KIDS_IN_BLOCK)
@@ -1225,7 +1216,7 @@ nsBoxFrame::AttributeChanged(int32_t aNameSpaceID,
   }
   else if (aAttribute == nsGkAtoms::ordinal) {
     nsBoxLayoutState state(PresContext());
-    nsIFrame* parent = GetParentBox();
+    nsIFrame* parent = GetParentBox(this);
     // If our parent is not a box, there's not much we can do... but in that
     // case our ordinal doesn't matter anyway, so that's ok.
     // Also don't bother with popup frames since they are kept on the 
@@ -1478,7 +1469,7 @@ nsBoxFrame::PaintXULDebugOverlay(nsRenderingContext& aRenderingContext,
 
   nscoord onePixel = GetPresContext()->IntScaledPixelsToTwips(1);
 
-  kid = GetChildBox();
+  kid = nsBox::GetChildBox(this);
   while (nullptr != kid) {
     bool isHorizontal = IsHorizontal();
 
@@ -1516,7 +1507,7 @@ nsBoxFrame::PaintXULDebugOverlay(nsRenderingContext& aRenderingContext,
       DrawSpacer(GetPresContext(), aRenderingContext, isHorizontal, flex, x, y, borderSize, spacerSize);
     }
 
-    kid = kid->GetNextBox();
+    kid = GetNextBox(kid);
   }
 }
 #endif
@@ -1733,7 +1724,7 @@ nsBoxFrame::DisplayDebugInfoFor(nsIFrame*  aBox,
     //printf("%%%%%% inside box %%%%%%%\n");
 
     int count = 0;
-    nsIFrame* child = aBox->GetChildBox();
+    nsIFrame* child = nsBox::GetChildBox(aBox);
 
     nsMargin m;
     nsMargin m2;
@@ -1822,7 +1813,7 @@ nsBoxFrame::DisplayDebugInfoFor(nsIFrame*  aBox,
                     return NS_OK;   
             }
 
-          child = child->GetNextBox();
+          child = GetNextBox(child);
           count++;
         }
     } else {
@@ -1836,11 +1827,11 @@ nsBoxFrame::DisplayDebugInfoFor(nsIFrame*  aBox,
 void
 nsBoxFrame::SetDebugOnChildList(nsBoxLayoutState& aState, nsIFrame* aChild, bool aDebug)
 {
-    nsIFrame* child = GetChildBox();
+    nsIFrame* child = nsBox::GetChildBox(this);
      while (child)
      {
         child->SetDebug(aState, aDebug);
-        child = child->GetNextBox();
+        child = GetNextBox(child);
      }
 }
 
@@ -1957,7 +1948,7 @@ nsBoxFrame::RelayoutChildAtOrdinal(nsBoxLayoutState& aState, nsIFrame* aChild)
       newPrevSib = child;
     }
 
-    child = child->GetNextBox();
+    child = GetNextBox(child);
   }
 
   if (aChild->GetPrevSibling() == newPrevSib) {

@@ -388,7 +388,7 @@
 #endif
 @BINPATH@/components/SiteSpecificUserAgent.js
 @BINPATH@/components/SiteSpecificUserAgent.manifest
-@BINPATH@/components/storage-mozStorage.js
+@BINPATH@/components/storage-json.js
 @BINPATH@/components/crypto-SDR.js
 @BINPATH@/components/jsconsole-clhandler.manifest
 @BINPATH@/components/jsconsole-clhandler.js
@@ -627,7 +627,11 @@
 
 ; [Default Preferences]
 ; All the pref files must be part of base to prevent migration bugs
+#ifdef MOZ_MULET
+@BINPATH@/defaults/pref/b2g.js
+#else
 @BINPATH@/@PREF_DIR@/b2g.js
+#endif
 @BINPATH@/@PREF_DIR@/channel-prefs.js
 @BINPATH@/greprefs.js
 @BINPATH@/defaults/autoconfig/platform.js
@@ -792,6 +796,7 @@ bin/components/@DLL_PREFIX@nkgnomevfs@DLL_SUFFIX@
 @BINPATH@/components/FilePicker.js
 @BINPATH@/components/HelperAppDialog.js
 @BINPATH@/components/DownloadsUI.js
+@BINPATH@/components/InterAppCommUIGlue.js
 
 #ifndef MOZ_WIDGET_GONK
 @BINPATH@/components/SimulatorScreen.js

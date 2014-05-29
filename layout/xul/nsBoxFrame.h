@@ -71,9 +71,9 @@ public:
 
   // ----- public methods -------
   
-  virtual void Init(nsIContent*      aContent,
-                    nsIFrame*        aParent,
-                    nsIFrame*        asPrevInFlow) MOZ_OVERRIDE;
+  virtual void Init(nsIContent*       aContent,
+                    nsContainerFrame* aParent,
+                    nsIFrame*         aPrevInFlow) MOZ_OVERRIDE;
 
  
   virtual nsresult AttributeChanged(int32_t         aNameSpaceID,
@@ -89,20 +89,17 @@ public:
                       const nsHTMLReflowState& aReflowState,
                       nsReflowStatus&          aStatus) MOZ_OVERRIDE;
 
-  virtual nsresult  AppendFrames(ChildListID     aListID,
-                                 nsFrameList&    aFrameList) MOZ_OVERRIDE;
+  virtual void SetInitialChildList(ChildListID  aListID,
+                                   nsFrameList& aChildList) MOZ_OVERRIDE;
+  virtual void AppendFrames(ChildListID     aListID,
+                            nsFrameList&    aFrameList) MOZ_OVERRIDE;
+  virtual void InsertFrames(ChildListID     aListID,
+                            nsIFrame*       aPrevFrame,
+                            nsFrameList&    aFrameList) MOZ_OVERRIDE;
+  virtual void RemoveFrame(ChildListID     aListID,
+                           nsIFrame*       aOldFrame) MOZ_OVERRIDE;
 
-  virtual nsresult  InsertFrames(ChildListID     aListID,
-                                 nsIFrame*       aPrevFrame,
-                                 nsFrameList&    aFrameList) MOZ_OVERRIDE;
-
-  virtual nsresult  RemoveFrame(ChildListID     aListID,
-                                nsIFrame*       aOldFrame) MOZ_OVERRIDE;
-
-  virtual nsIFrame* GetContentInsertionFrame() MOZ_OVERRIDE;
-
-  virtual nsresult  SetInitialChildList(ChildListID  aListID,
-                                        nsFrameList& aChildList) MOZ_OVERRIDE;
+  virtual nsContainerFrame* GetContentInsertionFrame() MOZ_OVERRIDE;
 
   virtual void DidSetStyleContext(nsStyleContext* aOldStyleContext) MOZ_OVERRIDE;
 

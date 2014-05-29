@@ -61,14 +61,14 @@ js::intrinsic_ToObject(JSContext *cx, unsigned argc, Value *vp)
     return true;
 }
 
-static bool
-intrinsic_ToInteger(JSContext *cx, unsigned argc, Value *vp)
+bool
+js::intrinsic_ToInteger(JSContext *cx, unsigned argc, Value *vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
     double result;
     if (!ToInteger(cx, args[0], &result))
         return false;
-    args.rval().setDouble(result);
+    args.rval().setNumber(result);
     return true;
 }
 
@@ -1157,7 +1157,7 @@ CloneObject(JSContext *cx, HandleObject selfHostedObject)
         clone = NewDenseEmptyArray(cx, nullptr, TenuredObject);
     } else {
         JS_ASSERT(selfHostedObject->isNative());
-        clone = NewObjectWithGivenProto(cx, selfHostedObject->getClass(), nullptr, cx->global(),
+        clone = NewObjectWithGivenProto(cx, selfHostedObject->getClass(), TaggedProto(nullptr), cx->global(),
                                         selfHostedObject->tenuredGetAllocKind(),
                                         SingletonObject);
     }

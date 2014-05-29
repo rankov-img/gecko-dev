@@ -563,7 +563,7 @@ HandleExceptionBaseline(JSContext *cx, const JitFrameIterator &frame, ResumeFrom
 struct AutoDeleteDebugModeOSRInfo
 {
     BaselineFrame *frame;
-    AutoDeleteDebugModeOSRInfo(BaselineFrame *frame) : frame(frame) { MOZ_ASSERT(frame); }
+    explicit AutoDeleteDebugModeOSRInfo(BaselineFrame *frame) : frame(frame) { MOZ_ASSERT(frame); }
     ~AutoDeleteDebugModeOSRInfo() { frame->deleteDebugModeOSRInfo(); }
 };
 
@@ -1883,7 +1883,7 @@ SnapshotIterator::warnUnreadableAllocation()
 }
 
 struct DumpOp {
-    DumpOp(unsigned int i) : i_(i) {}
+    explicit DumpOp(unsigned int i) : i_(i) {}
 
     unsigned int i_;
     void operator()(const Value& v) {

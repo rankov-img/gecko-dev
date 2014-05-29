@@ -343,7 +343,12 @@ public:
     return mPendingMarkers.getPendingMarkers();
   }
 
-  void push(const char *aName, void *aStackAddress, uint32_t line, bool aCopy)
+  void push(const char *aName, uint32_t line)
+  {
+    push(aName, nullptr, false, line);
+  }
+
+  void push(const char *aName, void *aStackAddress, bool aCopy, uint32_t line)
   {
     if (size_t(mStackPointer) >= mozilla::ArrayLength(mStack)) {
       mStackPointer++;

@@ -21,7 +21,7 @@
 using namespace mozilla;
 using namespace mozilla::layout;
 
-nsIFrame*
+nsFirstLetterFrame*
 NS_NewFirstLetterFrame(nsIPresShell* aPresShell, nsStyleContext* aContext)
 {
   return new (aPresShell) nsFirstLetterFrame(aContext);
@@ -56,9 +56,9 @@ nsFirstLetterFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
 }
 
 void
-nsFirstLetterFrame::Init(nsIContent*      aContent,
-                         nsIFrame*        aParent,
-                         nsIFrame*        aPrevInFlow)
+nsFirstLetterFrame::Init(nsIContent*       aContent,
+                         nsContainerFrame* aParent,
+                         nsIFrame*         aPrevInFlow)
 {
   nsRefPtr<nsStyleContext> newSC;
   if (aPrevInFlow) {
@@ -76,7 +76,7 @@ nsFirstLetterFrame::Init(nsIContent*      aContent,
   nsContainerFrame::Init(aContent, aParent, aPrevInFlow);
 }
 
-nsresult
+void
 nsFirstLetterFrame::SetInitialChildList(ChildListID  aListID,
                                         nsFrameList& aChildList)
 {
@@ -89,7 +89,6 @@ nsFirstLetterFrame::SetInitialChildList(ChildListID  aListID,
   }
 
   mFrames.SetFrames(aChildList);
-  return NS_OK;
 }
 
 nsresult
@@ -245,8 +244,7 @@ nsFirstLetterFrame::Reflow(nsPresContext*          aPresContext,
       nsIFrame* kidNextInFlow = kid->GetNextInFlow();
       if (kidNextInFlow) {
         // Remove all of the childs next-in-flows
-        static_cast<nsContainerFrame*>(kidNextInFlow->GetParent())
-          ->DeleteNextInFlowChild(kidNextInFlow, true);
+        kidNextInFlow->GetParent()->DeleteNextInFlowChild(kidNextInFlow, true);
       }
     }
     else {
@@ -298,12 +296,11 @@ nsFirstLetterFrame::CreateContinuationForFloatingParent(nsPresContext* aPresCont
   NS_PRECONDITION(aContinuation, "bad args");
 
   *aContinuation = nullptr;
-  nsresult rv = NS_OK;
 
   nsIPresShell* presShell = aPresContext->PresShell();
   nsPlaceholderFrame* placeholderFrame =
     presShell->FrameManager()->GetPlaceholderFrameFor(this);
-  nsIFrame* parent = placeholderFrame->GetParent();
+  nsContainerFrame* parent = placeholderFrame->GetParent();
 
   nsIFrame* continuation = presShell->FrameConstructor()->
     CreateContinuingFrame(aPresContext, aChild, parent, aIsFluid);
@@ -324,10 +321,10 @@ nsFirstLetterFrame::CreateContinuationForFloatingParent(nsPresContext* aPresCont
   // except we have to insert it in a different place and we don't want a
   // reflow command to try to be issued.
   nsFrameList temp(continuation, continuation);
-  rv = parent->InsertFrames(kNoReflowPrincipalList, placeholderFrame, temp);
+  parent->InsertFrames(kNoReflowPrincipalList, placeholderFrame, temp);
 
   *aContinuation = continuation;
-  return rv;
+  return NS_OK;
 }
 
 void

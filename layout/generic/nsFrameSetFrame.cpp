@@ -241,9 +241,9 @@ nsHTMLFramesetFrame::FrameResizePrefCallback(const char* aPref, void* aClosure)
 }
 
 void
-nsHTMLFramesetFrame::Init(nsIContent*      aContent,
-                          nsIFrame*        aParent,
-                          nsIFrame*        aPrevInFlow)
+nsHTMLFramesetFrame::Init(nsIContent*       aContent,
+                          nsContainerFrame* aParent,
+                          nsIFrame*         aPrevInFlow)
 {
   nsContainerFrame::Init(aContent, aParent, aPrevInFlow);
   // find the highest ancestor that is a frameset
@@ -392,7 +392,7 @@ nsHTMLFramesetFrame::Init(nsIContent*      aContent,
   mNonBorderChildCount = mChildCount;
 }
 
-nsresult
+void
 nsHTMLFramesetFrame::SetInitialChildList(ChildListID  aListID,
                                          nsFrameList& aChildList)
 {
@@ -401,10 +401,10 @@ nsHTMLFramesetFrame::SetInitialChildList(ChildListID  aListID,
   // and null list name after the frame constructor is done creating us.  So
   // just ignore that call.
   if (aListID == kPrincipalList && aChildList.IsEmpty()) {
-    return NS_OK;
+    return;
   }
 
-  return nsContainerFrame::SetInitialChildList(aListID, aChildList);
+  nsContainerFrame::SetInitialChildList(aListID, aChildList);
 }
 
 // XXX should this try to allocate twips based on an even pixel boundary?
@@ -850,7 +850,7 @@ nsHTMLFramesetFrame::Reflow(nsPresContext*           aPresContext,
   nsIPresShell *shell = aPresContext->PresShell();
   nsStyleSet *styleSet = shell->StyleSet();
 
-  mParent->AddStateBits(NS_FRAME_CONTAINS_RELATIVE_HEIGHT);
+  GetParent()->AddStateBits(NS_FRAME_CONTAINS_RELATIVE_HEIGHT);
 
   //printf("FramesetFrame2::Reflow %X (%d,%d) \n", this, aReflowState.AvailableWidth(), aReflowState.AvailableHeight());
   // Always get the size so that the caller knows how big we are

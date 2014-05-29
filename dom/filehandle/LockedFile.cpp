@@ -756,6 +756,7 @@ already_AddRefed<nsIInputStream>
 LockedFile::GetInputStream(const ArrayBuffer& aValue, uint64_t* aInputLength,
                            ErrorResult& aRv)
 {
+  aValue.ComputeLengthAndData();
   const char* data = reinterpret_cast<const char*>(aValue.Data());
   uint32_t length = aValue.Length();
 
@@ -875,7 +876,7 @@ FinishHelper::Run()
     mStream = nullptr;
   }
 
-  return NS_DispatchToMainThread(this, NS_DISPATCH_NORMAL);
+  return NS_DispatchToMainThread(this);
 }
 
 nsresult

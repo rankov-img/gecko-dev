@@ -969,7 +969,7 @@ class AutoAssertNoException
 #endif
 
   public:
-    AutoAssertNoException(JSContext *cx)
+    explicit AutoAssertNoException(JSContext *cx)
 #ifdef DEBUG
       : cx(cx),
         hadException(cx->isExceptionPending())
@@ -991,7 +991,7 @@ class ContextAllocPolicy
     ThreadSafeContext *const cx_;
 
   public:
-    ContextAllocPolicy(ThreadSafeContext *cx) : cx_(cx) {}
+    MOZ_IMPLICIT ContextAllocPolicy(ThreadSafeContext *cx) : cx_(cx) {}
     ThreadSafeContext *context() const { return cx_; }
     void *malloc_(size_t bytes) { return cx_->malloc_(bytes); }
     void *calloc_(size_t bytes) { return cx_->calloc_(bytes); }
@@ -1002,6 +1002,7 @@ class ContextAllocPolicy
 
 /* Exposed intrinsics so that Ion may inline them. */
 bool intrinsic_ToObject(JSContext *cx, unsigned argc, Value *vp);
+bool intrinsic_ToInteger(JSContext *cx, unsigned argc, Value *vp);
 bool intrinsic_IsCallable(JSContext *cx, unsigned argc, Value *vp);
 bool intrinsic_ThrowError(JSContext *cx, unsigned argc, Value *vp);
 bool intrinsic_NewDenseArray(JSContext *cx, unsigned argc, Value *vp);
@@ -1047,11 +1048,11 @@ class AutoLockForExclusiveAccess
     }
 
   public:
-    AutoLockForExclusiveAccess(ExclusiveContext *cx MOZ_GUARD_OBJECT_NOTIFIER_PARAM) {
+    explicit AutoLockForExclusiveAccess(ExclusiveContext *cx MOZ_GUARD_OBJECT_NOTIFIER_PARAM) {
         MOZ_GUARD_OBJECT_NOTIFIER_INIT;
         init(cx->runtime_);
     }
-    AutoLockForExclusiveAccess(JSRuntime *rt MOZ_GUARD_OBJECT_NOTIFIER_PARAM) {
+    explicit AutoLockForExclusiveAccess(JSRuntime *rt MOZ_GUARD_OBJECT_NOTIFIER_PARAM) {
         MOZ_GUARD_OBJECT_NOTIFIER_INIT;
         init(rt);
     }

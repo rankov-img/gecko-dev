@@ -23,6 +23,8 @@
 #include "nsFrameManagerBase.h"
 #include "nsIContent.h"
 
+class nsContainerFrame;
+
 namespace mozilla {
 /**
  * Node in a linked list, containing the style for an element that
@@ -112,17 +114,17 @@ public:
   NS_HIDDEN_(void) ClearAllUndisplayedContentIn(nsIContent* aParentContent);
 
   // Functions for manipulating the frame model
-  NS_HIDDEN_(nsresult) AppendFrames(nsIFrame*       aParentFrame,
-                                    ChildListID     aListID,
-                                    nsFrameList&    aFrameList);
+  NS_HIDDEN_(void) AppendFrames(nsContainerFrame* aParentFrame,
+                                ChildListID       aListID,
+                                nsFrameList&      aFrameList);
 
-  NS_HIDDEN_(nsresult) InsertFrames(nsIFrame*       aParentFrame,
-                                    ChildListID     aListID,
-                                    nsIFrame*       aPrevFrame,
-                                    nsFrameList&    aFrameList);
+  NS_HIDDEN_(void) InsertFrames(nsContainerFrame* aParentFrame,
+                                ChildListID       aListID,
+                                nsIFrame*         aPrevFrame,
+                                nsFrameList&      aFrameList);
 
-  NS_HIDDEN_(nsresult) RemoveFrame(ChildListID     aListID,
-                                   nsIFrame*       aOldFrame);
+  NS_HIDDEN_(void) RemoveFrame(ChildListID     aListID,
+                               nsIFrame*       aOldFrame);
 
   /*
    * Notification that a frame is about to be destroyed. This allows any

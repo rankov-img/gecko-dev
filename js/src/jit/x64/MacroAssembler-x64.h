@@ -16,18 +16,18 @@ namespace jit {
 
 struct ImmShiftedTag : public ImmWord
 {
-    ImmShiftedTag(JSValueShiftedTag shtag)
+    explicit ImmShiftedTag(JSValueShiftedTag shtag)
       : ImmWord((uintptr_t)shtag)
     { }
 
-    ImmShiftedTag(JSValueType type)
+    explicit ImmShiftedTag(JSValueType type)
       : ImmWord(uintptr_t(JSValueShiftedTag(JSVAL_TYPE_TO_SHIFTED_TAG(type))))
     { }
 };
 
 struct ImmTag : public Imm32
 {
-    ImmTag(JSValueTag tag)
+    explicit ImmTag(JSValueTag tag)
       : Imm32(tag)
     { }
 };
@@ -50,7 +50,7 @@ class MacroAssemblerX64 : public MacroAssemblerX86Shared
     struct Double {
         double value;
         NonAssertingLabel uses;
-        Double(double value) : value(value) {}
+        explicit Double(double value) : value(value) {}
     };
     Vector<Double, 0, SystemAllocPolicy> doubles_;
 
@@ -60,7 +60,7 @@ class MacroAssemblerX64 : public MacroAssemblerX86Shared
     struct Float {
         float value;
         NonAssertingLabel uses;
-        Float(float value) : value(value) {}
+        explicit Float(float value) : value(value) {}
     };
     Vector<Float, 0, SystemAllocPolicy> floats_;
 
@@ -1301,23 +1301,11 @@ class MacroAssemblerX64 : public MacroAssemblerX86Shared
         orq(Imm32(type), frameSizeReg);
     }
 
-    // Save an exit frame (which must be aligned to the stack pointer) to
-    // PerThreadData::jitTop of the main thread.
-    void linkExitFrame() {
-        storePtr(StackPointer, AbsoluteAddress(GetIonContext()->runtime->addressOfJitTop()));
-    }
-
     void callWithExitFrame(JitCode *target, Register dynStack) {
         addPtr(Imm32(framePushed()), dynStack);
         makeFrameDescriptor(dynStack, JitFrame_IonJS);
         Push(dynStack);
         call(target);
-    }
-
-    // Save an exit frame to the thread data of the current thread, given a
-    // register that holds a PerThreadData *.
-    void linkParallelExitFrame(Register pt) {
-        storePtr(StackPointer, Address(pt, offsetof(PerThreadData, jitTop)));
     }
 
     // See CodeGeneratorX64 calls to noteAsmJSGlobalAccess.

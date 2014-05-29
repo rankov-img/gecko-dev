@@ -224,8 +224,8 @@ class MacroAssembler : public MacroAssemblerSpecific
 
     // This constructor should only be used when there is no IonContext active
     // (for example, Trampoline-$(ARCH).cpp and IonCaches.cpp).
-    MacroAssembler(JSContext *cx, IonScript *ion = nullptr,
-                   JSScript *script = nullptr, jsbytecode *pc = nullptr)
+    explicit MacroAssembler(JSContext *cx, IonScript *ion = nullptr,
+                            JSScript *script = nullptr, jsbytecode *pc = nullptr)
       : enoughMemory_(true),
         embedsNurseryPointers_(false),
         sps_(nullptr)
@@ -253,7 +253,7 @@ class MacroAssembler : public MacroAssemblerSpecific
 
     // asm.js compilation handles its own IonContet-pushing
     struct AsmJSToken {};
-    MacroAssembler(AsmJSToken)
+    explicit MacroAssembler(AsmJSToken)
       : enoughMemory_(true),
         embedsNurseryPointers_(false),
         sps_(nullptr)
@@ -850,6 +850,10 @@ class MacroAssembler : public MacroAssemblerSpecific
   private:
     CodeOffsetLabel exitCodePatch_;
 
+  private:
+    void linkExitFrame();
+    void linkParallelExitFrame(Register pt);
+
   public:
     void enterExitFrame(const VMFunction *f = nullptr) {
         linkExitFrame();
@@ -1390,7 +1394,7 @@ class MacroAssembler : public MacroAssemblerSpecific
   public:
     class AfterICSaveLive {
         friend class MacroAssembler;
-        AfterICSaveLive(uint32_t initialStack)
+        explicit AfterICSaveLive(uint32_t initialStack)
 #ifdef JS_DEBUG
           : initialStack(initialStack)
 #endif

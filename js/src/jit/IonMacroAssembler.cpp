@@ -39,7 +39,7 @@ class TypeWrapper {
     types::Type t_;
 
   public:
-    TypeWrapper(types::Type t) : t_(t) {}
+    explicit TypeWrapper(types::Type t) : t_(t) {}
 
     inline bool unknown() const {
         return t_.isUnknown();
@@ -890,6 +890,24 @@ MacroAssembler::checkInterruptFlagPar(Register tempReg, Label *fail)
 #else
     MOZ_ASSUME_UNREACHABLE("JSRuntime::interruptPar doesn't exist on non-threadsafe builds.");
 #endif
+}
+
+// Save an exit frame (which must be aligned to the stack pointer) to
+// PerThreadData::jitTop of the main thread.
+void
+MacroAssembler::linkExitFrame()
+{
+    AbsoluteAddress jitTop(GetIonContext()->runtime->addressOfJitTop());
+    storePtr(StackPointer, jitTop);
+}
+
+// Save an exit frame to the thread data of the current thread, given a
+// register that holds a PerThreadData *.
+void
+MacroAssembler::linkParallelExitFrame(Register pt)
+{
+    Address jitTop(pt, offsetof(PerThreadData, jitTop));
+    storePtr(StackPointer, jitTop);
 }
 
 static void

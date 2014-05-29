@@ -2909,20 +2909,6 @@ MacroAssemblerMIPSCompat::storeTypeTag(ImmTag tag, Register base, Register index
 }
 
 void
-MacroAssemblerMIPSCompat::linkExitFrame()
-{
-    uint8_t *dest = (uint8_t*)GetIonContext()->runtime->addressOfJitTop();
-    movePtr(ImmPtr(dest), ScratchRegister);
-    ma_sw(StackPointer, Address(ScratchRegister, 0));
-}
-
-void
-MacroAssemblerMIPSCompat::linkParallelExitFrame(Register pt)
-{
-    ma_sw(StackPointer, Address(pt, offsetof(PerThreadData, jitTop)));
-}
-
-void
 MacroAssemblerMIPS::ma_callIonNoPush(const Register r)
 {
     // This is a MIPS hack to push return address during jalr delay slot.

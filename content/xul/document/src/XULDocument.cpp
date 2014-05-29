@@ -202,7 +202,7 @@ XULDocument::XULDocument(void)
     mCharacterSet.AssignLiteral("UTF-8");
 
     mDefaultElementType = kNameSpaceID_XUL;
-    mIsXUL = true;
+    mType = eXUL;
 
     mDelayFrameLoaderInitialization = true;
 
@@ -3549,10 +3549,7 @@ XULDocument::OnStreamComplete(nsIStreamLoader* aLoader,
             mOffThreadCompileStringBuf = nullptr;
             mOffThreadCompileStringLength = 0;
 
-            rv = mCurrentScriptProto->Compile(srcBuf,
-                                              uri, 1, this,
-                                              mMasterPrototype,
-                                              this);
+            rv = mCurrentScriptProto->Compile(srcBuf, uri, 1, this, this);
             if (NS_SUCCEEDED(rv) && !mCurrentScriptProto->GetScriptObject()) {
                 // We will be notified via OnOffThreadCompileComplete when the
                 // compile finishes. Keep the contents of the compiled script
@@ -4249,7 +4246,7 @@ XULDocument::BroadcasterHookup::~BroadcasterHookup()
         }
         else {
             mObservesElement->GetAttr(kNameSpaceID_None, nsGkAtoms::observes, broadcasterID);
-            attribute.AssignLiteral("*");
+            attribute.Assign('*');
         }
 
         nsAutoCString attributeC,broadcasteridC;
@@ -4398,7 +4395,7 @@ XULDocument::FindBroadcaster(Element* aElement,
         *aListener = aElement;
         NS_ADDREF(*aListener);
 
-        aAttribute.AssignLiteral("*");
+        aAttribute.Assign('*');
     }
 
     // Make sure we got a valid listener.
@@ -4700,9 +4697,11 @@ XULDocument::ParserObserver::OnStopRequest(nsIRequest *request,
 already_AddRefed<nsPIWindowRoot>
 XULDocument::GetWindowRoot()
 {
-    nsCOMPtr<nsIInterfaceRequestor> ir(mDocumentContainer);
-    nsCOMPtr<nsIDOMWindow> window(do_GetInterface(ir));
-    nsCOMPtr<nsPIDOMWindow> piWin(do_QueryInterface(window));
+  if (!mDocumentContainer) {
+    return nullptr;
+  }
+
+    nsCOMPtr<nsPIDOMWindow> piWin = mDocumentContainer->GetWindow();
     return piWin ? piWin->GetTopWindowRoot() : nullptr;
 }
 

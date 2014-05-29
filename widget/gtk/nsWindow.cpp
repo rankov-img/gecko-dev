@@ -1507,8 +1507,9 @@ nsWindow::SetCursor(nsCursor aCursor)
     }
 
     // Only change cursor if it's actually been changed
-    if (aCursor != mCursor) {
+    if (aCursor != mCursor || mUpdateCursor) {
         GdkCursor *newCursor = nullptr;
+        mUpdateCursor = false;
 
         newCursor = get_gtk_cursor(aCursor);
 
@@ -3289,7 +3290,7 @@ GetBrandName(nsXPIDLString& brandName)
             getter_Copies(brandName));
 
     if (brandName.IsEmpty())
-        brandName.AssignLiteral("Mozilla");
+        brandName.AssignLiteral(MOZ_UTF16("Mozilla"));
 }
 
 static GdkWindow *

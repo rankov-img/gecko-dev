@@ -2720,7 +2720,7 @@ toolbarbutton.chevron > .toolbarbutton-menu-dropmarker {
     image-rendering: -moz-crisp-edges;
   }
 
-  .tab-throbber {
+  .tab-throbber[busy] {
     list-style-image: url("chrome://browser/skin/tabbrowser/connecting@2x.png");
   }
 
@@ -4429,4 +4429,11 @@ window > chatbox {
   #UITourTooltipClose > .toolbarbutton-icon {
     width: 16px;
   }
+}
+
+%include ../shared/contextmenu.inc.css
+
+#context-navigation > .menuitem-iconic {
+  padding-left: 0;
+  padding-right: 0;
 }

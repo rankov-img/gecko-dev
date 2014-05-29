@@ -132,9 +132,9 @@ nsTableRowFrame::~nsTableRowFrame()
 }
 
 void
-nsTableRowFrame::Init(nsIContent*      aContent,
-                      nsIFrame*        aParent,
-                      nsIFrame*        aPrevInFlow)
+nsTableRowFrame::Init(nsIContent*       aContent,
+                      nsContainerFrame* aParent,
+                      nsIFrame*         aPrevInFlow)
 {
   // Let the base class do its initialization
   nsContainerFrame::Init(aContent, aParent, aPrevInFlow);
@@ -176,7 +176,7 @@ nsTableRowFrame::DidSetStyleContext(nsStyleContext* aOldStyleContext)
   }
 }
 
-nsresult
+void
 nsTableRowFrame::AppendFrames(ChildListID     aListID,
                               nsFrameList&    aFrameList)
 {
@@ -195,12 +195,10 @@ nsTableRowFrame::AppendFrames(ChildListID     aListID,
   PresContext()->PresShell()->FrameNeedsReflow(this, nsIPresShell::eTreeChange,
                                                NS_FRAME_HAS_DIRTY_CHILDREN);
   tableFrame->SetGeometryDirty();
-
-  return NS_OK;
 }
 
 
-nsresult
+void
 nsTableRowFrame::InsertFrames(ChildListID     aListID,
                               nsIFrame*       aPrevFrame,
                               nsFrameList&    aFrameList)
@@ -231,38 +229,28 @@ nsTableRowFrame::InsertFrames(ChildListID     aListID,
   PresContext()->PresShell()->FrameNeedsReflow(this, nsIPresShell::eTreeChange,
                                                NS_FRAME_HAS_DIRTY_CHILDREN);
   tableFrame->SetGeometryDirty();
-
-  return NS_OK;
 }
 
-nsresult
+void
 nsTableRowFrame::RemoveFrame(ChildListID     aListID,
                              nsIFrame*       aOldFrame)
 {
   NS_ASSERTION(aListID == kPrincipalList, "unexpected child list");
 
+  MOZ_ASSERT((nsTableCellFrame*)do_QueryFrame(aOldFrame));
+  nsTableCellFrame* cellFrame = static_cast<nsTableCellFrame*>(aOldFrame);
+  // remove the cell from the cell map
   nsTableFrame* tableFrame = nsTableFrame::GetTableFrame(this);
-  nsTableCellFrame *cellFrame = do_QueryFrame(aOldFrame);
-  if (cellFrame) {
-    int32_t colIndex;
-    cellFrame->GetColIndex(colIndex);
-    // remove the cell from the cell map
-    tableFrame->RemoveCell(cellFrame, GetRowIndex());
+  tableFrame->RemoveCell(cellFrame, GetRowIndex());
 
-    // Remove the frame and destroy it
-    mFrames.DestroyFrame(aOldFrame);
+  // Remove the frame and destroy it
+  mFrames.DestroyFrame(aOldFrame);
 
-    PresContext()->PresShell()->
-      FrameNeedsReflow(this, nsIPresShell::eTreeChange,
-                       NS_FRAME_HAS_DIRTY_CHILDREN);
-    tableFrame->SetGeometryDirty();
-  }
-  else {
-    NS_ERROR("unexpected frame type");
-    return NS_ERROR_INVALID_ARG;
-  }
+  PresContext()->PresShell()->
+    FrameNeedsReflow(this, nsIPresShell::eTreeChange,
+                     NS_FRAME_HAS_DIRTY_CHILDREN);
 
-  return NS_OK;
+  tableFrame->SetGeometryDirty();
 }
 
 /* virtual */ nsMargin
@@ -1435,7 +1423,7 @@ nsTableRowFrame::InvalidateFrameWithRect(const nsRect& aRect, uint32_t aDisplayI
 
 /* ----- global methods ----- */
 
-nsIFrame* 
+nsTableRowFrame* 
 NS_NewTableRowFrame(nsIPresShell* aPresShell, nsStyleContext* aContext)
 {
   return new (aPresShell) nsTableRowFrame(aContext);

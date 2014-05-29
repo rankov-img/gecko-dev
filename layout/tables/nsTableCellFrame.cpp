@@ -67,9 +67,9 @@ nsTableCellFrame::GetNextCell() const
 }
 
 void
-nsTableCellFrame::Init(nsIContent*      aContent,
-                       nsIFrame*        aParent,
-                       nsIFrame*        aPrevInFlow)
+nsTableCellFrame::Init(nsIContent*       aContent,
+                       nsContainerFrame* aParent,
+                       nsIFrame*         aPrevInFlow)
 {
   // Let the base class do its initialization
   nsContainerFrame::Init(aContent, aParent, aPrevInFlow);
@@ -240,31 +240,29 @@ nsTableCellFrame::DidSetStyleContext(nsStyleContext* aOldStyleContext)
   }
 }
 
-
-nsresult
+#ifdef DEBUG
+void
 nsTableCellFrame::AppendFrames(ChildListID     aListID,
                                nsFrameList&    aFrameList)
 {
-  NS_PRECONDITION(false, "unsupported operation");
-  return NS_ERROR_NOT_IMPLEMENTED;
+  MOZ_CRASH("unsupported operation");
 }
 
-nsresult
+void
 nsTableCellFrame::InsertFrames(ChildListID     aListID,
                                nsIFrame*       aPrevFrame,
                                nsFrameList&    aFrameList)
 {
-  NS_PRECONDITION(false, "unsupported operation");
-  return NS_ERROR_NOT_IMPLEMENTED;
+  MOZ_CRASH("unsupported operation");
 }
 
-nsresult
+void
 nsTableCellFrame::RemoveFrame(ChildListID     aListID,
                               nsIFrame*       aOldFrame)
 {
-  NS_PRECONDITION(false, "unsupported operation");
-  return NS_ERROR_NOT_IMPLEMENTED;
+  MOZ_CRASH("unsupported operation");
 }
+#endif
 
 void nsTableCellFrame::SetColIndex(int32_t aColIndex)
 {
@@ -1047,7 +1045,7 @@ nsTableCellFrame::GetCellIndexes(int32_t &aRowIndex, int32_t &aColIndex)
   return  NS_OK;
 }
 
-nsIFrame*
+nsTableCellFrame*
 NS_NewTableCellFrame(nsIPresShell*   aPresShell,
                      nsStyleContext* aContext,
                      bool            aIsBorderCollapse)

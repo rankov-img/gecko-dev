@@ -20,7 +20,7 @@ using namespace mozilla::layout;
  *
  * XXX should we support CSS columns applied to table elements?
  */
-nsIFrame*
+nsContainerFrame*
 NS_NewColumnSetFrame(nsIPresShell* aPresShell, nsStyleContext* aContext, nsFrameState aStateFlags)
 {
   nsColumnSetFrame* it = new (aPresShell) nsColumnSetFrame(aContext);
@@ -118,22 +118,6 @@ nsColumnSetFrame::PaintColumnRule(nsRenderingContext* aCtx,
     child = nextSibling;
     nextSibling = nextSibling->GetNextSibling();
   }
-}
-
-nsresult
-nsColumnSetFrame::SetInitialChildList(ChildListID     aListID,
-                                      nsFrameList&    aChildList)
-{
-  if (aListID == kAbsoluteList) {
-    return nsContainerFrame::SetInitialChildList(aListID, aChildList);
-  }
-
-  NS_ASSERTION(aListID == kPrincipalList,
-               "Only default child list supported");
-  NS_ASSERTION(aChildList.OnlyChild(),
-               "initial child list must have exaisRevertingctly one child");
-  // Queue up the frames for the content frame
-  return nsContainerFrame::SetInitialChildList(kPrincipalList, aChildList);
 }
 
 static nscoord
@@ -1039,39 +1023,36 @@ nsColumnSetFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
   }
 }
 
-nsresult
+#ifdef DEBUG
+void
+nsColumnSetFrame::SetInitialChildList(ChildListID     aListID,
+                                      nsFrameList&    aChildList)
+{
+  MOZ_ASSERT(aListID == kPrincipalList, "unexpected child list");
+  MOZ_ASSERT(aChildList.OnlyChild(),
+             "initial child list must have exactly one child");
+  nsContainerFrame::SetInitialChildList(kPrincipalList, aChildList);
+}
+
+void
 nsColumnSetFrame::AppendFrames(ChildListID     aListID,
                                nsFrameList&    aFrameList)
 {
-  if (aListID == kAbsoluteList) {
-    return nsContainerFrame::AppendFrames(aListID, aFrameList);
-  }
-
-  NS_ERROR("unexpected child list");
-  return NS_ERROR_INVALID_ARG;
+  MOZ_CRASH("unsupported operation");
 }
 
-nsresult
+void
 nsColumnSetFrame::InsertFrames(ChildListID     aListID,
                                nsIFrame*       aPrevFrame,
                                nsFrameList&    aFrameList)
 {
-  if (aListID == kAbsoluteList) {
-    return nsContainerFrame::InsertFrames(aListID, aPrevFrame, aFrameList);
-  }
-
-  NS_ERROR("unexpected child list");
-  return NS_ERROR_INVALID_ARG;
+  MOZ_CRASH("unsupported operation");
 }
 
-nsresult
+void
 nsColumnSetFrame::RemoveFrame(ChildListID     aListID,
                               nsIFrame*       aOldFrame)
 {
-  if (aListID == kAbsoluteList) {
-    return nsContainerFrame::RemoveFrame(aListID, aOldFrame);
-  }
-
-  NS_ERROR("unexpected child list");
-  return NS_ERROR_INVALID_ARG;
+  MOZ_CRASH("unsupported operation");
 }
+#endif

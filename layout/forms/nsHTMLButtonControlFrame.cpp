@@ -19,7 +19,7 @@
 
 using namespace mozilla;
 
-nsIFrame*
+nsContainerFrame*
 NS_NewHTMLButtonControlFrame(nsIPresShell* aPresShell, nsStyleContext* aContext)
 {
   return new (aPresShell) nsHTMLButtonControlFrame(aContext);
@@ -44,10 +44,9 @@ nsHTMLButtonControlFrame::DestroyFrom(nsIFrame* aDestructRoot)
 }
 
 void
-nsHTMLButtonControlFrame::Init(
-              nsIContent*      aContent,
-              nsIFrame*        aParent,
-              nsIFrame*        aPrevInFlow)
+nsHTMLButtonControlFrame::Init(nsIContent*       aContent,
+                               nsContainerFrame* aParent,
+                               nsIFrame*         aPrevInFlow)
 {
   nsContainerFrame::Init(aContent, aParent, aPrevInFlow);
   mRenderer.SetFrame(this, PresContext());
@@ -374,27 +373,26 @@ nsHTMLButtonControlFrame::SetAdditionalStyleContext(int32_t aIndex,
   mRenderer.SetStyleContext(aIndex, aStyleContext);
 }
 
-nsresult 
+#ifdef DEBUG
+void
 nsHTMLButtonControlFrame::AppendFrames(ChildListID     aListID,
                                        nsFrameList&    aFrameList)
 {
-  NS_NOTREACHED("unsupported operation");
-  return NS_ERROR_UNEXPECTED;
+  MOZ_CRASH("unsupported operation");
 }
 
-nsresult
+void
 nsHTMLButtonControlFrame::InsertFrames(ChildListID     aListID,
                                        nsIFrame*       aPrevFrame,
                                        nsFrameList&    aFrameList)
 {
-  NS_NOTREACHED("unsupported operation");
-  return NS_ERROR_UNEXPECTED;
+  MOZ_CRASH("unsupported operation");
 }
 
-nsresult
+void
 nsHTMLButtonControlFrame::RemoveFrame(ChildListID     aListID,
                                       nsIFrame*       aOldFrame)
 {
-  NS_NOTREACHED("unsupported operation");
-  return NS_ERROR_UNEXPECTED;
+  MOZ_CRASH("unsupported operation");
 }
+#endif

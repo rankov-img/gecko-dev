@@ -17,7 +17,7 @@
 
 using namespace mozilla;
 
-nsIFrame*
+ViewportFrame*
 NS_NewViewportFrame(nsIPresShell* aPresShell, nsStyleContext* aContext)
 {
   return new (aPresShell) ViewportFrame(aContext);
@@ -29,9 +29,9 @@ NS_QUERYFRAME_HEAD(ViewportFrame)
 NS_QUERYFRAME_TAIL_INHERITING(nsContainerFrame)
 
 void
-ViewportFrame::Init(nsIContent*      aContent,
-                    nsIFrame*        aParent,
-                    nsIFrame*        aPrevInFlow)
+ViewportFrame::Init(nsIContent*       aContent,
+                    nsContainerFrame* aParent,
+                    nsIFrame*         aPrevInFlow)
 {
   Super::Init(aContent, aParent, aPrevInFlow);
 
@@ -41,17 +41,6 @@ ViewportFrame::Init(nsIContent*      aContent,
 
     mState |= state & (NS_FRAME_IN_POPUP);
   }
-}
-
-nsresult
-ViewportFrame::SetInitialChildList(ChildListID     aListID,
-                                   nsFrameList&    aChildList)
-{
-  // See which child list to add the frames to
-#ifdef DEBUG
-  nsFrame::VerifyDirtyBitSet(aChildList);
-#endif
-  return nsContainerFrame::SetInitialChildList(aListID, aChildList);
 }
 
 void
@@ -70,37 +59,42 @@ ViewportFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
   BuildDisplayListForChild(aBuilder, kid, aDirtyRect, aLists);
 }
 
-nsresult
+#ifdef DEBUG
+void
+ViewportFrame::SetInitialChildList(ChildListID     aListID,
+                                   nsFrameList&    aChildList)
+{
+  nsFrame::VerifyDirtyBitSet(aChildList);
+  nsContainerFrame::SetInitialChildList(aListID, aChildList);
+}
+
+void
 ViewportFrame::AppendFrames(ChildListID     aListID,
                             nsFrameList&    aFrameList)
 {
-  NS_ASSERTION(aListID == kPrincipalList ||
-               aListID == GetAbsoluteListID(), "unexpected child list");
-  NS_ASSERTION(aListID != GetAbsoluteListID() ||
-               GetChildList(aListID).IsEmpty(), "Shouldn't have any kids!");
-  return nsContainerFrame::AppendFrames(aListID, aFrameList);
+  NS_ASSERTION(aListID == kPrincipalList, "unexpected child list");
+  NS_ASSERTION(GetChildList(aListID).IsEmpty(), "Shouldn't have any kids!");
+  nsContainerFrame::AppendFrames(aListID, aFrameList);
 }
 
-nsresult
+void
 ViewportFrame::InsertFrames(ChildListID     aListID,
                             nsIFrame*       aPrevFrame,
                             nsFrameList&    aFrameList)
 {
-  NS_ASSERTION(aListID == kPrincipalList ||
-               aListID == GetAbsoluteListID(), "unexpected child list");
-  NS_ASSERTION(aListID != GetAbsoluteListID() ||
-               GetChildList(aListID).IsEmpty(), "Shouldn't have any kids!");
-  return nsContainerFrame::InsertFrames(aListID, aPrevFrame, aFrameList);
+  NS_ASSERTION(aListID == kPrincipalList, "unexpected child list");
+  NS_ASSERTION(GetChildList(aListID).IsEmpty(), "Shouldn't have any kids!");
+  nsContainerFrame::InsertFrames(aListID, aPrevFrame, aFrameList);
 }
 
-nsresult
+void
 ViewportFrame::RemoveFrame(ChildListID     aListID,
                            nsIFrame*       aOldFrame)
 {
-  NS_ASSERTION(aListID == kPrincipalList ||
-               aListID == GetAbsoluteListID(), "unexpected child list");
-  return nsContainerFrame::RemoveFrame(aListID, aOldFrame);
+  NS_ASSERTION(aListID == kPrincipalList, "unexpected child list");
+  nsContainerFrame::RemoveFrame(aListID, aOldFrame);
 }
+#endif
 
 /* virtual */ nscoord
 ViewportFrame::GetMinWidth(nsRenderingContext *aRenderingContext)

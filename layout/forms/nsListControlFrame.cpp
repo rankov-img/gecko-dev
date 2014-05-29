@@ -75,7 +75,7 @@ private:
 };
 
 //---------------------------------------------------------
-nsIFrame*
+nsContainerFrame*
 NS_NewListControlFrame(nsIPresShell* aPresShell, nsStyleContext* aContext)
 {
   nsListControlFrame* it =
@@ -596,7 +596,7 @@ nsListControlFrame::ShouldPropagateComputedHeightToScrolledContent() const
 }
 
 //---------------------------------------------------------
-nsIFrame*
+nsContainerFrame*
 nsListControlFrame::GetContentInsertionFrame() {
   return GetOptionsContainer()->GetContentInsertionFrame();
 }
@@ -895,7 +895,7 @@ nsListControlFrame::HandleEvent(nsPresContext* aPresContext,
 
 
 //---------------------------------------------------------
-nsresult
+void
 nsListControlFrame::SetInitialChildList(ChildListID    aListID,
                                         nsFrameList&   aChildList)
 {
@@ -905,7 +905,7 @@ nsListControlFrame::SetInitialChildList(ChildListID    aListID,
     mIsAllFramesHere    = false;
     mHasBeenInitialized = false;
   }
-  nsresult rv = nsHTMLScrollFrame::SetInitialChildList(aListID, aChildList);
+  nsHTMLScrollFrame::SetInitialChildList(aListID, aChildList);
 
   // If all the content is here now check
   // to see if all the frames have been created
@@ -917,15 +917,13 @@ nsListControlFrame::SetInitialChildList(ChildListID    aListID,
       mHasBeenInitialized = true;
     }
   }*/
-
-  return rv;
 }
 
 //---------------------------------------------------------
 void
-nsListControlFrame::Init(nsIContent*     aContent,
-                         nsIFrame*       aParent,
-                         nsIFrame*       aPrevInFlow)
+nsListControlFrame::Init(nsIContent*       aContent,
+                         nsContainerFrame* aParent,
+                         nsIFrame*         aPrevInFlow)
 {
   nsHTMLScrollFrame::Init(aContent, aParent, aPrevInFlow);
 
