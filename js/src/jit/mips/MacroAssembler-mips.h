@@ -528,7 +528,7 @@ class MacroAssemblerMIPSCompat : public MacroAssemblerMIPS
     }
 
     CodeOffsetLabel movWithPatch(ImmWord imm, Register dest) {
-        CodeOffsetLabel label = currentOffset();
+        CodeOffsetLabel label = CodeOffsetLabel(currentOffset());
         ma_liPatchable(dest, Imm32(imm.value));
         return label;
     }

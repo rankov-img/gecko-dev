@@ -378,7 +378,7 @@ class YarrGenerator : private MacroAssembler {
     {
         ASSERT(!m_pattern.m_body->m_hasFixedSize);
         if (compileMode == IncludeSubpatterns)
-            store32(reg, output);
+            store32(reg, Address(output, 0));
         else
             move(reg, output);
     }
@@ -386,7 +386,7 @@ class YarrGenerator : private MacroAssembler {
     {
         ASSERT(!m_pattern.m_body->m_hasFixedSize);
         if (compileMode == IncludeSubpatterns)
-            load32(output, reg);
+            load32(Address(output, 0), reg);
         else
             move(output, reg);
     }
@@ -1459,7 +1459,7 @@ class YarrGenerator : private MacroAssembler {
                     if (priorAlternative->m_minimumSize)
                         sub32(Imm32(priorAlternative->m_minimumSize), returnRegister);
                     if (compileMode == IncludeSubpatterns)
-                        store32(returnRegister, output);
+                        store32(returnRegister, Address(output, 0));
                 } else
                     getMatchStart(returnRegister);
                 if (compileMode == IncludeSubpatterns)
