@@ -372,6 +372,7 @@ public:
         break;
 
       case ADDICECANDIDATEERROR:
+        mPC->OnAddIceCandidateError();
         mObserver->OnAddIceCandidateError(mCode, ObString(mReason.c_str()), rv);
         break;
 
@@ -481,7 +482,6 @@ PeerConnectionImpl::PeerConnectionImpl(const GlobalObject* aGlobal)
 : mTimeCard(PR_LOG_TEST(signalingLogInfo(),PR_LOG_ERROR) ?
             create_timecard() : nullptr)
   , mInternal(new Internal())
-  , mReadyState(PCImplReadyState::New)
   , mSignalingState(PCImplSignalingState::SignalingStable)
   , mIceConnectionState(PCImplIceConnectionState::New)
   , mIceGatheringState(PCImplIceGatheringState::New)
@@ -494,6 +494,7 @@ PeerConnectionImpl::PeerConnectionImpl(const GlobalObject* aGlobal)
   , mNumAudioStreams(0)
   , mNumVideoStreams(0)
   , mHaveDataStream(false)
+  , mAddCandidateErrorCount(0)
   , mTrickle(true) // TODO(ekr@rtfm.com): Use pref
 {
 #ifdef MOZILLA_INTERNAL_API
@@ -1129,47 +1130,6 @@ do_QueryObjectReferent(nsIWeakReference* aRawPtr) {
   return tmp3.forget();
 }
 
-void
-PeerConnectionImpl::NotifyConnection()
-{
-  PC_AUTO_ENTER_API_CALL_NO_CHECK();
-
-  CSFLogDebug(logTag, "%s", __FUNCTION__);
-
-#ifdef MOZILLA_INTERNAL_API
-  nsRefPtr<PeerConnectionObserver> pco = do_QueryObjectReferent(mPCObserver);
-  if (!pco) {
-    return;
-  }
-  WrappableJSErrorResult rv;
-  RUN_ON_THREAD(mThread,
-                WrapRunnable(pco,
-                             &PeerConnectionObserver::NotifyConnection,
-                             rv, static_cast<JSCompartment*>(nullptr)),
-                NS_DISPATCH_NORMAL);
-#endif
-}
-
-void
-PeerConnectionImpl::NotifyClosedConnection()
-{
-  PC_AUTO_ENTER_API_CALL_NO_CHECK();
-
-  CSFLogDebug(logTag, "%s", __FUNCTION__);
-
-#ifdef MOZILLA_INTERNAL_API
-  nsRefPtr<PeerConnectionObserver> pco = do_QueryObjectReferent(mPCObserver);
-  if (!pco) {
-    return;
-  }
-  WrappableJSErrorResult rv;
-  RUN_ON_THREAD(mThread,
-    WrapRunnable(pco, &PeerConnectionObserver::NotifyClosedConnection,
-                 rv, static_cast<JSCompartment*>(nullptr)),
-    NS_DISPATCH_NORMAL);
-#endif
-}
-
 
 #ifdef MOZILLA_INTERNAL_API
 // Not a member function so that we don't need to keep the PC live.
@@ -1412,10 +1372,6 @@ NS_IMETHODIMP
 PeerConnectionImpl::CloseStreams() {
   PC_AUTO_ENTER_API_CALL(false);
 
-  if (mReadyState != PCImplReadyState::Closed)  {
-    ChangeReadyState(PCImplReadyState::Closing);
-  }
-
   CSFLogInfo(logTag, "%s: Ending associated call", __FUNCTION__);
 
   mInternal->mCall->endCall();
@@ -1638,16 +1594,6 @@ PeerConnectionImpl::GetRemoteDescription(char** aSDP)
 }
 
 NS_IMETHODIMP
-PeerConnectionImpl::ReadyState(PCImplReadyState* aState)
-{
-  PC_AUTO_ENTER_API_CALL_NO_CHECK();
-  MOZ_ASSERT(aState);
-
-  *aState = mReadyState;
-  return NS_OK;
-}
-
-NS_IMETHODIMP
 PeerConnectionImpl::SignalingState(PCImplSignalingState* aState)
 {
   PC_AUTO_ENTER_API_CALL_NO_CHECK();
@@ -1701,7 +1647,7 @@ PeerConnectionImpl::CheckApiState(bool assert_ice_ready) const
   MOZ_ASSERT(mTrickle || !assert_ice_ready ||
              (mIceGatheringState == PCImplIceGatheringState::Complete));
 
-  if (mReadyState == PCImplReadyState::Closed) {
+  if (IsClosed()) {
     CSFLogError(logTag, "%s: called API while closed", __FUNCTION__);
     return NS_ERROR_FAILURE;
   }
@@ -1841,10 +1787,6 @@ PeerConnectionImpl::onCallEvent(const OnCallEventArgs& args)
       mRemoteSDP = aInfo->getSDP();
       break;
 
-    case CONNECTED:
-      CSFLogDebug(logTag, "Setting PeerConnnection state to kActive");
-      ChangeReadyState(PCImplReadyState::Active);
-      break;
     default:
       break;
   }
@@ -1863,26 +1805,6 @@ PeerConnectionImpl::onCallEvent(const OnCallEventArgs& args)
   }
   runnable->Run();
   delete runnable;
-}
-
-void
-PeerConnectionImpl::ChangeReadyState(PCImplReadyState aReadyState)
-{
-  PC_AUTO_ENTER_API_CALL_NO_CHECK();
-  mReadyState = aReadyState;
-
-  // Note that we are passing an nsRefPtr which keeps the observer live.
-  nsRefPtr<PeerConnectionObserver> pco = do_QueryObjectReferent(mPCObserver);
-  if (!pco) {
-    return;
-  }
-  WrappableJSErrorResult rv;
-  RUN_ON_THREAD(mThread,
-                WrapRunnable(pco,
-                             &PeerConnectionObserver::OnStateChange,
-                             PCObserverStateType::ReadyState,
-                             rv, static_cast<JSCompartment*>(nullptr)),
-                NS_DISPATCH_NORMAL);
 }
 
 void
@@ -2040,6 +1962,16 @@ PeerConnectionImpl::IceConnectionStateChange_m(PCImplIceConnectionState aState)
         Telemetry::Accumulate(Telemetry::WEBRTC_ICE_FAILURE_TIME,
                               timeDelta.ToMilliseconds());
       }
+    }
+
+    if (isSucceeded(aState)) {
+      Telemetry::Accumulate(
+          Telemetry::WEBRTC_ICE_ADD_CANDIDATE_ERRORS_GIVEN_SUCCESS,
+          mAddCandidateErrorCount);
+    } else if (isFailed(aState)) {
+      Telemetry::Accumulate(
+          Telemetry::WEBRTC_ICE_ADD_CANDIDATE_ERRORS_GIVEN_FAILURE,
+          mAddCandidateErrorCount);
     }
   }
 #endif

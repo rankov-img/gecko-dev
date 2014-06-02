@@ -50,9 +50,6 @@ JS_SetGrayGCRootsTracer(JSRuntime *rt, JSTraceDataOp traceOp, void *data);
 extern JS_FRIEND_API(JSString *)
 JS_GetAnonymousString(JSRuntime *rt);
 
-extern JS_FRIEND_API(void)
-JS_SetIsWorkerRuntime(JSRuntime *rt);
-
 extern JS_FRIEND_API(JSObject *)
 JS_FindCompilationScope(JSContext *cx, JS::HandleObject obj);
 
@@ -592,9 +589,9 @@ struct Atom {
     uint32_t flags;
     uint32_t length;
     union {
-        const char *nonInlineCharsLatin1;
+        const JS::Latin1Char *nonInlineCharsLatin1;
         const jschar *nonInlineCharsTwoByte;
-        char inlineStorageLatin1[1];
+        JS::Latin1Char inlineStorageLatin1[1];
         jschar inlineStorageTwoByte[1];
     };
 };

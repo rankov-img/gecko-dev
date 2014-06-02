@@ -308,16 +308,27 @@ CompositorOGL::Initialize()
     0.0f, 0.0f, 0.0f, 0.0f,
     1.0f, 0.0f, 0.0f, 0.0f,
     0.0f, 1.0f, 0.0f, 0.0f,
+    1.0f, 0.0f, 0.0f, 0.0f,
+    0.0f, 1.0f, 0.0f, 0.0f,
     1.0f, 1.0f, 0.0f, 0.0f,
+
     0.0f, 0.0f, 0.0f, 1.0f,
     1.0f, 0.0f, 0.0f, 1.0f,
     0.0f, 1.0f, 0.0f, 1.0f,
+    1.0f, 0.0f, 0.0f, 1.0f,
+    0.0f, 1.0f, 0.0f, 1.0f,
     1.0f, 1.0f, 0.0f, 1.0f,
+
     0.0f, 0.0f, 0.0f, 2.0f,
     1.0f, 0.0f, 0.0f, 2.0f,
     0.0f, 1.0f, 0.0f, 2.0f,
+    1.0f, 0.0f, 0.0f, 2.0f,
+    0.0f, 1.0f, 0.0f, 2.0f,
     1.0f, 1.0f, 0.0f, 2.0f,
+
     0.0f, 0.0f, 0.0f, 3.0f,
+    1.0f, 0.0f, 0.0f, 3.0f,
+    0.0f, 1.0f, 0.0f, 3.0f,
     1.0f, 0.0f, 0.0f, 3.0f,
     0.0f, 1.0f, 0.0f, 3.0f,
     1.0f, 1.0f, 0.0f, 3.0f,
@@ -674,7 +685,9 @@ CompositorOGL::BeginFrame(const nsIntRegion& aInvalidRegion,
                           Rect *aClipRectOut,
                           Rect *aRenderBoundsOut)
 {
-  PROFILER_LABEL("CompositorOGL", "BeginFrame");
+  PROFILER_LABEL("CompositorOGL", "BeginFrame",
+    js::ProfileEntry::Category::GRAPHICS);
+
   MOZ_ASSERT(!mFrameInProgress, "frame still in progress (should have called EndFrame or AbortFrame");
 
   LayerScope::BeginFrame(mGLContext, PR_Now());
@@ -738,10 +751,11 @@ CompositorOGL::BeginFrame(const nsIntRegion& aInvalidRegion,
     origin.y = -mRenderOffset.y;
   }
 
-  mCurrentRenderTarget = CompositingRenderTargetOGL::RenderTargetForWindow(this,
-                            origin,
-                            IntSize(width, height),
-                            aTransform);
+  mCurrentRenderTarget =
+    CompositingRenderTargetOGL::RenderTargetForWindow(this,
+                                                      origin,
+                                                      IntSize(width, height),
+                                                      aTransform);
   mCurrentRenderTarget->BindRenderTarget();
 #ifdef DEBUG
   mWindowRenderTarget = mCurrentRenderTarget;
@@ -972,7 +986,9 @@ CompositorOGL::DrawQuad(const Rect& aRect,
                         Float aOpacity,
                         const gfx::Matrix4x4 &aTransform)
 {
-  PROFILER_LABEL("CompositorOGL", "DrawQuad");
+  PROFILER_LABEL("CompositorOGL", "DrawQuad",
+    js::ProfileEntry::Category::GRAPHICS);
+
   MOZ_ASSERT(mFrameInProgress, "frame not started");
 
   IntRect intClipRect;
@@ -1243,7 +1259,9 @@ CompositorOGL::DrawQuad(const Rect& aRect,
 void
 CompositorOGL::EndFrame()
 {
-  PROFILER_LABEL("CompositorOGL", "EndFrame");
+  PROFILER_LABEL("CompositorOGL", "EndFrame",
+    js::ProfileEntry::Category::GRAPHICS);
+
   MOZ_ASSERT(mCurrentRenderTarget == mWindowRenderTarget, "Rendering target not properly restored");
 
 #ifdef MOZ_DUMP_PAINTING
@@ -1498,25 +1516,6 @@ CompositorOGL::MakeCurrent(MakeCurrentFlags aFlags) {
 }
 
 void
-CompositorOGL::BindQuadVBO() {
-  mGLContext->fBindBuffer(LOCAL_GL_ARRAY_BUFFER, mQuadVBO);
-}
-
-void
-CompositorOGL::QuadVBOVerticesAttrib(GLuint aAttribIndex) {
-  mGLContext->fVertexAttribPointer(aAttribIndex, 4,
-                                   LOCAL_GL_FLOAT, LOCAL_GL_FALSE, 0,
-                                   (GLvoid*) 0);
-}
-
-void
-CompositorOGL::QuadVBOTexCoordsAttrib(GLuint aAttribIndex) {
-  mGLContext->fVertexAttribPointer(aAttribIndex, 4,
-                                   LOCAL_GL_FLOAT, LOCAL_GL_FALSE, 0,
-                                   (GLvoid*) 0);
-}
-
-void
 CompositorOGL::BindAndDrawQuads(ShaderProgramOGL *aProg,
                                 int aQuads,
                                 const Rect* aLayerRects,
@@ -1524,23 +1523,22 @@ CompositorOGL::BindAndDrawQuads(ShaderProgramOGL *aProg,
 {
   NS_ASSERTION(aProg->HasInitialized(), "Shader program not correctly initialized");
 
+  const GLuint coordAttribIndex = 0;
+
+  mGLContext->fBindBuffer(LOCAL_GL_ARRAY_BUFFER, mQuadVBO);
+  mGLContext->fVertexAttribPointer(coordAttribIndex, 4,
+                                   LOCAL_GL_FLOAT, LOCAL_GL_FALSE, 0,
+                                   (GLvoid*) 0);
+  mGLContext->fEnableVertexAttribArray(coordAttribIndex);
+
   aProg->SetLayerRects(aLayerRects);
-
-  GLuint vertAttribIndex = aProg->AttribLocation(ShaderProgramOGL::VertexCoordAttrib);
-  GLuint texCoordAttribIndex = aProg->AttribLocation(ShaderProgramOGL::TexCoordAttrib);
-
-  BindQuadVBO();
-  QuadVBOVerticesAttrib(vertAttribIndex);
-
-  if (texCoordAttribIndex != GLuint(-1)) {
-    QuadVBOTexCoordsAttrib(texCoordAttribIndex);
-    mGLContext->fEnableVertexAttribArray(texCoordAttribIndex);
-
+  if (aProg->GetTextureCount() > 0) {
     aProg->SetTextureRects(aTextureRects);
   }
 
-  mGLContext->fEnableVertexAttribArray(vertAttribIndex);
-  mGLContext->fDrawArrays(LOCAL_GL_TRIANGLE_STRIP, 0, 4 * aQuads);
+  // We are using GL_TRIANGLES here because the Mac Intel drivers fail to properly
+  // process uniform arrays with GL_TRIANGLE_STRIP. Go figure.
+  mGLContext->fDrawArrays(LOCAL_GL_TRIANGLES, 0, 6 * aQuads);
 }
 
 GLuint

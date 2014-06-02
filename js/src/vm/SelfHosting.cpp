@@ -73,13 +73,13 @@ js::intrinsic_ToInteger(JSContext *cx, unsigned argc, Value *vp)
 }
 
 bool
-intrinsic_ToString(JSContext *cx, unsigned argc, Value *vp)
+js::intrinsic_ToString(JSContext *cx, unsigned argc, Value *vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
     RootedString str(cx);
     str = ToString<CanGC>(cx, args[0]);
-        if (!str)
-            return false;
+    if (!str)
+        return false;
     args.rval().setString(str);
     return true;
 }
@@ -279,11 +279,12 @@ intrinsic_ParallelSpew(ThreadSafeContext *cx, unsigned argc, Value *vp)
     JS_ASSERT(args.length() == 1);
     JS_ASSERT(args[0].isString());
 
+    AutoCheckCannotGC nogc;
     ScopedThreadSafeStringInspector inspector(args[0].toString());
-    if (!inspector.ensureChars(cx))
+    if (!inspector.ensureChars(cx, nogc))
         return false;
 
-    ScopedJSFreePtr<char> bytes(TwoByteCharsToNewUTF8CharsZ(cx, inspector.range()).c_str());
+    ScopedJSFreePtr<char> bytes(TwoByteCharsToNewUTF8CharsZ(cx, inspector.twoByteRange()).c_str());
     parallel::Spew(parallel::SpewOps, bytes);
 
     args.rval().setUndefined();

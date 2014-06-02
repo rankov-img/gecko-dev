@@ -612,7 +612,9 @@ void
 CompositorParent::CompositeToTarget(DrawTarget* aTarget, const nsIntRect* aRect)
 {
   profiler_tracing("Paint", "Composite", TRACING_INTERVAL_START);
-  PROFILER_LABEL("CompositorParent", "Composite");
+  PROFILER_LABEL("CompositorParent", "Composite",
+    js::ProfileEntry::Category::GRAPHICS);
+
   NS_ABORT_IF_FALSE(CompositorThreadID() == PlatformThread::CurrentId(),
                     "Composite can only be called on the compositor thread");
 
@@ -703,7 +705,9 @@ CompositorParent::CompositeToTarget(DrawTarget* aTarget, const nsIntRect* aRect)
 void
 CompositorParent::ForceComposeToTarget(DrawTarget* aTarget, const nsIntRect* aRect)
 {
-  PROFILER_LABEL("CompositorParent", "ForceComposeToTarget");
+  PROFILER_LABEL("CompositorParent", "ForceComposeToTarget",
+    js::ProfileEntry::Category::GRAPHICS);
+
   AutoRestore<bool> override(mOverrideComposeReadiness);
   mOverrideComposeReadiness = true;
 
@@ -1264,7 +1268,6 @@ RemoveIndirectTree(uint64_t aId)
 void
 CrossProcessCompositorParent::ActorDestroy(ActorDestroyReason aWhy)
 {
-  fprintf(stderr, " --- CrossProcessCompositorParent ActorDestroy\n");
   MessageLoop::current()->PostTask(
     FROM_HERE,
     NewRunnableMethod(this, &CrossProcessCompositorParent::DeferredDestroy));
@@ -1430,8 +1433,6 @@ CrossProcessCompositorParent::GetCompositionManager(LayerTransactionParent* aLay
 void
 CrossProcessCompositorParent::DeferredDestroy()
 {
-
-  fprintf(stderr, " --- CrossProcessCompositorParent DeferredDestroy\n");
   CrossProcessCompositorParent* self;
   mSelfRef.forget(&self);
 
@@ -1442,8 +1443,6 @@ CrossProcessCompositorParent::DeferredDestroy()
 
 CrossProcessCompositorParent::~CrossProcessCompositorParent()
 {
-  fprintf(stderr, " --- CrossProcessCompositorParent destructor\n");
-
   XRE_GetIOMessageLoop()->PostTask(FROM_HERE,
                                    new DeleteTask<Transport>(mTransport));
 }

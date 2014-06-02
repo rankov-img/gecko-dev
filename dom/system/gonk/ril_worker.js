@@ -3359,7 +3359,14 @@ RilObject.prototype = {
                                iccStatus.gsmUmtsSubscriptionAppIndex;
 
     if (RILQUIRKS_SUBSCRIPTION_CONTROL && index === -1) {
-      // Should enable uicc scription.
+      // Should enable uicc scription if index is not valid.
+      if (this.radioState !== GECKO_RADIOSTATE_READY) {
+        // Note: setUiccSubscription works abnormally when RADIO is OFF,
+        // which causes SMS function broken in Flame.
+        // See bug 1008557 for detailed info.
+        return;
+      }
+
       for (let i = 0; i < iccStatus.apps.length; i++) {
         this.setUiccSubscription({appIndex: i, enabled: true});
       }
@@ -14135,9 +14142,16 @@ ICCUtilsHelperObject.prototype = {
     // MCC is the first 3 digits of IMSI.
     let mcc = imsi.substr(0,3);
     if (!mncLength) {
-      // Check the MCC table to decide the length of MNC.
-      let index = MCC_TABLE_FOR_MNC_LENGTH_IS_3.indexOf(mcc);
-      mncLength = (index !== -1) ? 3 : 2;
+      // Check the MCC/MNC table for MNC length = 3 first for the case we don't
+      // have the 4th byte data from EF_AD.
+      if (PLMN_HAVING_3DIGITS_MNC[mcc] &&
+          PLMN_HAVING_3DIGITS_MNC[mcc].indexOf(imsi.substr(3, 3)) !== -1) {
+        mncLength = 3;
+      } else {
+        // Check the MCC table to decide the length of MNC.
+        let index = MCC_TABLE_FOR_MNC_LENGTH_IS_3.indexOf(mcc);
+        mncLength = (index !== -1) ? 3 : 2;
+      }
     }
     let mnc = imsi.substr(3, mncLength);
     if (DEBUG) {

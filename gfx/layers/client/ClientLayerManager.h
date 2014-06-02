@@ -191,6 +191,9 @@ public:
   {
     mApzTestData.StartNewRepaintRequest(aSequenceNumber);
   }
+  // TODO(botond): When we start using this and write a wrapper similar to
+  // nsLayoutUtils::LogTestDataForPaint(), make sure that wrapper checks
+  // gfxPrefs::APZTestLoggingEnabled().
   void LogTestDataForRepaintRequest(SequenceNumber aSequenceNumber,
                                     FrameMetrics::ViewID aScrollId,
                                     const std::string& aKey,

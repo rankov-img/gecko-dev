@@ -33,6 +33,7 @@
 #include "mozilla/ClearOnShutdown.h"
 #include "mozilla/dom/asmjscache/AsmJSCache.h"
 #include "mozilla/dom/Element.h"
+#include "mozilla/dom/DataStoreService.h"
 #include "mozilla/dom/ExternalHelperAppParent.h"
 #include "mozilla/dom/PFileDescriptorSetParent.h"
 #include "mozilla/dom/PCycleCollectWithLogsParent.h"
@@ -672,7 +673,7 @@ ContentParent::JoinAllSubprocesses()
 }
 
 /*static*/ already_AddRefed<ContentParent>
-ContentParent::GetNewOrUsed(bool aForBrowserElement)
+ContentParent::GetNewOrUsed(bool aForBrowserElement, ProcessPriority aPriority)
 {
     if (!sNonAppContentParents)
         sNonAppContentParents = new nsTArray<ContentParent*>();
@@ -703,7 +704,7 @@ ContentParent::GetNewOrUsed(bool aForBrowserElement)
         p = new ContentParent(/* app = */ nullptr,
                               aForBrowserElement,
                               /* isForPreallocated = */ false,
-                              PROCESS_PRIORITY_FOREGROUND);
+                              aPriority);
         p->Init();
     }
 
@@ -722,7 +723,7 @@ ContentParent::GetInitialProcessPriority(Element* aFrameElement)
     }
 
     if (aFrameElement->AttrValueIs(kNameSpaceID_None, nsGkAtoms::mozapptype,
-                                   NS_LITERAL_STRING("keyboard"), eCaseMatters)) {
+                                   NS_LITERAL_STRING("inputmethod"), eCaseMatters)) {
         return PROCESS_PRIORITY_FOREGROUND_KEYBOARD;
     } else if (!aFrameElement->AttrValueIs(kNameSpaceID_None, nsGkAtoms::mozapptype,
                                            NS_LITERAL_STRING("critical"), eCaseMatters)) {
@@ -766,8 +767,13 @@ ContentParent::CreateBrowserOrApp(const TabContext& aContext,
         return nullptr;
     }
 
+    ProcessPriority initialPriority = GetInitialProcessPriority(aFrameElement);
+
     if (aContext.IsBrowserElement() || !aContext.HasOwnApp()) {
-        if (nsRefPtr<ContentParent> cp = GetNewOrUsed(aContext.IsBrowserElement())) {
+        nsRefPtr<ContentParent> cp = GetNewOrUsed(aContext.IsBrowserElement(),
+                                                  initialPriority);
+
+        if (cp) {
             uint32_t chromeFlags = 0;
 
             // Propagate the private-browsing status of the element's parent
@@ -818,7 +824,6 @@ ContentParent::CreateBrowserOrApp(const TabContext& aContext,
         return nullptr;
     }
 
-    ProcessPriority initialPriority = GetInitialProcessPriority(aFrameElement);
     nsRefPtr<ContentParent> p = sAppContentParents->Get(manifestURL);
 
     if (!p && Preferences::GetBool("dom.ipc.reuse_parent_app")) {
@@ -1495,6 +1500,7 @@ ContentParent::InitializeMembers()
     mNumDestroyingTabs = 0;
     mIsAlive = true;
     mSendPermissionUpdates = false;
+    mSendDataStoreInfos = false;
     mCalledClose = false;
     mCalledCloseWithError = false;
     mCalledKillHard = false;
@@ -2074,6 +2080,26 @@ ContentParent::RecvAudioChannelChangeDefVolChannel(const int32_t& aChannel,
                                                        aHidden, mChildID);
     }
     return true;
+}
+
+bool
+ContentParent::RecvDataStoreGetStores(
+                                    const nsString& aName,
+                                    const IPC::Principal& aPrincipal,
+                                    InfallibleTArray<DataStoreSetting>* aValue)
+{
+  nsRefPtr<DataStoreService> service = DataStoreService::GetOrCreate();
+  if (NS_WARN_IF(!service)) {
+    return false;
+  }
+
+  nsresult rv = service->GetDataStoresFromIPC(aName, aPrincipal, aValue);
+  if (NS_WARN_IF(NS_FAILED(rv))) {
+    return false;
+  }
+
+  mSendDataStoreInfos = true;
+  return true;
 }
 
 bool
