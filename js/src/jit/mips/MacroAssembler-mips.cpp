@@ -1675,6 +1675,12 @@ MacroAssemblerMIPSCompat::not32(Register reg)
 
 // Logical operations
 void
+MacroAssemblerMIPSCompat::and32(Register src, Register dest)
+{
+    ma_and(dest, dest, src);
+}
+
+void
 MacroAssemblerMIPSCompat::and32(Imm32 imm, Register dest)
 {
     ma_and(dest, imm);
@@ -1851,6 +1857,21 @@ MacroAssemblerMIPSCompat::load32(AbsoluteAddress address, Register dest)
 {
     ma_li(ScratchRegister, Imm32((uint32_t)address.addr));
     as_lw(dest, ScratchRegister, 0);
+}
+
+void
+MacroAssemblerMIPSCompat::load32Unaligned(const BaseIndex &address, Register dest)
+{
+    computeScaledAddress(address, SecondScratchReg);
+
+    int32_t offset = address.offset;
+    if (Imm16::isInSignedRange(offset) && Imm16::isInSignedRange(offset + 3)) {
+        addPtr(Imm32(offset), SecondScratchReg);
+        offset = 0;
+    }
+
+    as_lwr(dest, SecondScratchReg, offset);
+    as_lwl(dest, SecondScratchReg, offset + 3);
 }
 
 void
@@ -2032,6 +2053,12 @@ MacroAssemblerMIPSCompat::storePtr(Register src, const Address &address)
 }
 
 void
+MacroAssemblerMIPSCompat::storePtr(Register src, const BaseIndex &address)
+{
+    ma_store(src, address, SizeWord);
+}
+
+void
 MacroAssemblerMIPSCompat::storePtr(Register src, AbsoluteAddress dest)
 {
     ma_li(ScratchRegister, Imm32((uint32_t)dest.addr));
@@ -2087,6 +2114,13 @@ void
 MacroAssemblerMIPSCompat::subPtr(Imm32 imm, const Register dest)
 {
     ma_subu(dest, dest, imm);
+}
+
+void
+MacroAssemblerMIPSCompat::subPtr(const Address &addr, const Register dest)
+{
+    loadPtr(addr, SecondScratchReg);
+    subPtr(SecondScratchReg, dest);
 }
 
 void

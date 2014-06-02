@@ -96,9 +96,11 @@ NativeRegExpMacroAssembler::NativeRegExpMacroAssembler(LifoAlloc *alloc, RegExpS
             savedNonVolatileRegisters.add(reg);
     }
 
-#ifdef JS_CODEGEN_ARM
+#if defined(JS_CODEGEN_ARM)
     // ARM additionally requires that the link register be saved.
     savedNonVolatileRegisters.add(Register::FromCode(Registers::lr));
+#elif defined(JS_CODEGEN_MIPS)
+    savedNonVolatileRegisters.add(Register::FromCode(Registers::ra));
 #endif
 
     masm.jump(&entry_label_);
@@ -393,8 +395,10 @@ NativeRegExpMacroAssembler::GenerateCode(JSContext *cx)
 
         // Save registers before calling C function
         RegisterSet volatileRegs = RegisterSet::Volatile();
-#ifdef JS_CODEGEN_ARM
+#if defined(JS_CODEGEN_ARM)
         volatileRegs.add(Register::FromCode(Registers::lr));
+#elif defined(JS_CODEGEN_ARM)
+        volatileRegs.add(Register::FromCode(Registers::ra));
 #endif
         volatileRegs.takeUnchecked(temp0);
         volatileRegs.takeUnchecked(temp1);
@@ -876,8 +880,9 @@ NativeRegExpMacroAssembler::LoadCurrentCharacterUnchecked(int cp_offset, int cha
         JS_ASSERT(mode_ == JSCHAR);
         JS_ASSERT(characters <= 2);
         BaseIndex address(input_end_pointer, current_position, TimesOne, cp_offset * sizeof(jschar));
+
         if (characters == 2)
-            masm.load32(address, current_character);
+            masm.load32Unaligned(address, current_character);
         else
             masm.load16ZeroExtend(address, current_character);
     }

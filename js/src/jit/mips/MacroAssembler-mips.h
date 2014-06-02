@@ -723,6 +723,10 @@ class MacroAssemblerMIPSCompat : public MacroAssemblerMIPS
     void branchTestBooleanTruthy(bool b, const ValueOperand &operand, Label *label);
 
     void branchTest32(Condition cond, Register lhs, Register rhs, Label *label) {
+        if (cond == Equal)
+            cond = Zero;
+        else if (cond == NotEqual)
+            cond = NonZero;
         MOZ_ASSERT(cond == Zero || cond == NonZero || cond == Signed || cond == NotSigned);
         if (lhs == rhs) {
             ma_b(lhs, rhs, label, cond);
@@ -1041,6 +1045,7 @@ public:
         }
     }
 
+    void and32(Register src, Register dest);
     void and32(Imm32 imm, Register dest);
     void and32(Imm32 imm, const Address &dest);
     void and32(const Address &src, Register dest);
@@ -1082,6 +1087,8 @@ public:
     void load32(const BaseIndex &address, Register dest);
     void load32(AbsoluteAddress address, Register dest);
 
+    void load32Unaligned(const BaseIndex &address, Register dest);
+
     void loadPtr(const Address &address, Register dest);
     void loadPtr(const BaseIndex &src, Register dest);
     void loadPtr(AbsoluteAddress address, Register dest);
@@ -1119,6 +1126,7 @@ public:
     void storePtr(ImmPtr imm, const Address &address);
     void storePtr(ImmGCPtr imm, const Address &address);
     void storePtr(Register src, const Address &address);
+    void storePtr(Register src, const BaseIndex &address);
     void storePtr(Register src, AbsoluteAddress dest);
     void storeDouble(FloatRegister src, Address addr) {
         ma_sd(src, addr);
@@ -1168,6 +1176,7 @@ public:
     }
 
     void subPtr(Imm32 imm, const Register dest);
+    void subPtr(const Address &addr, const Register dest);
     void subPtr(Register src, const Address &dest);
     void addPtr(Imm32 imm, const Register dest);
     void addPtr(Imm32 imm, const Address &dest);
@@ -1196,6 +1205,9 @@ public:
 
     void rshiftPtr(Imm32 imm, Register dest) {
         ma_srl(dest, dest, imm);
+    }
+    void rshiftPtrArithmetic(Imm32 imm, Register dest) {
+        ma_sra(dest, dest, imm);
     }
     void lshiftPtr(Imm32 imm, Register dest) {
         ma_sll(dest, dest, imm);
