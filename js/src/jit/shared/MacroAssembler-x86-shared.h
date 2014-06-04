@@ -382,9 +382,6 @@ class MacroAssemblerX86Shared : public Assembler
     void load32(const Operand &src, Register dest) {
         movl(src, dest);
     }
-    void load32Unaligned(const BaseIndex &address, Register dest) {
-        load32(address, dest);
-    }
     template <typename S, typename T>
     void store32(const S &src, const T &dest) {
         movl(src, Operand(dest));

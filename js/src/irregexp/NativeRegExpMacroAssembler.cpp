@@ -397,7 +397,7 @@ NativeRegExpMacroAssembler::GenerateCode(JSContext *cx)
         RegisterSet volatileRegs = RegisterSet::Volatile();
 #if defined(JS_CODEGEN_ARM)
         volatileRegs.add(Register::FromCode(Registers::lr));
-#elif defined(JS_CODEGEN_ARM)
+#elif defined(JS_CODEGEN_MIPS)
         volatileRegs.add(Register::FromCode(Registers::ra));
 #endif
         volatileRegs.takeUnchecked(temp0);
@@ -819,7 +819,7 @@ NativeRegExpMacroAssembler::CheckBitInTable(uint8_t *table, Label *on_bit_set)
     masm.and32(current_character, temp1);
 
     masm.load8ZeroExtend(BaseIndex(temp0, temp1, TimesOne), temp0);
-    masm.branchTest32(Assembler::NotEqual, temp0, temp0, BranchOrBacktrack(on_bit_set));
+    masm.branchTest32(Assembler::NonZero, temp0, temp0, BranchOrBacktrack(on_bit_set));
 }
 
 void
@@ -880,9 +880,8 @@ NativeRegExpMacroAssembler::LoadCurrentCharacterUnchecked(int cp_offset, int cha
         JS_ASSERT(mode_ == JSCHAR);
         JS_ASSERT(characters <= 2);
         BaseIndex address(input_end_pointer, current_position, TimesOne, cp_offset * sizeof(jschar));
-
         if (characters == 2)
-            masm.load32Unaligned(address, current_character);
+            masm.load32(address, current_character);
         else
             masm.load16ZeroExtend(address, current_character);
     }
@@ -1233,7 +1232,11 @@ NativeRegExpMacroAssembler::CheckSpecialCharacterClass(jschar type, Label* on_no
 bool
 NativeRegExpMacroAssembler::CanReadUnaligned()
 {
+#if defined(JS_CODEGEN_MIPS)
+    return false;
+#else
     return true;
+#endif
 }
 
 const uint8_t

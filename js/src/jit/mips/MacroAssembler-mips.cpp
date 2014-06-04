@@ -1860,21 +1860,6 @@ MacroAssemblerMIPSCompat::load32(AbsoluteAddress address, Register dest)
 }
 
 void
-MacroAssemblerMIPSCompat::load32Unaligned(const BaseIndex &address, Register dest)
-{
-    computeScaledAddress(address, SecondScratchReg);
-
-    int32_t offset = address.offset;
-    if (Imm16::isInSignedRange(offset) && Imm16::isInSignedRange(offset + 3)) {
-        addPtr(Imm32(offset), SecondScratchReg);
-        offset = 0;
-    }
-
-    as_lwr(dest, SecondScratchReg, offset);
-    as_lwl(dest, SecondScratchReg, offset + 3);
-}
-
-void
 MacroAssemblerMIPSCompat::loadPtr(const Address &address, Register dest)
 {
     ma_lw(dest, address);

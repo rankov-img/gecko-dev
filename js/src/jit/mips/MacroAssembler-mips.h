@@ -723,10 +723,6 @@ class MacroAssemblerMIPSCompat : public MacroAssemblerMIPS
     void branchTestBooleanTruthy(bool b, const ValueOperand &operand, Label *label);
 
     void branchTest32(Condition cond, Register lhs, Register rhs, Label *label) {
-        if (cond == Equal)
-            cond = Zero;
-        else if (cond == NotEqual)
-            cond = NonZero;
         MOZ_ASSERT(cond == Zero || cond == NonZero || cond == Signed || cond == NotSigned);
         if (lhs == rhs) {
             ma_b(lhs, rhs, label, cond);
@@ -1086,8 +1082,6 @@ public:
     void load32(const Address &address, Register dest);
     void load32(const BaseIndex &address, Register dest);
     void load32(AbsoluteAddress address, Register dest);
-
-    void load32Unaligned(const BaseIndex &address, Register dest);
 
     void loadPtr(const Address &address, Register dest);
     void loadPtr(const BaseIndex &src, Register dest);

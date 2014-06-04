@@ -1336,10 +1336,6 @@ class MacroAssemblerARMCompat : public MacroAssemblerARM
     void load32(const BaseIndex &address, Register dest);
     void load32(AbsoluteAddress address, Register dest);
 
-    void load32Unaligned(const BaseIndex &address, Register dest){
-        load32(address, dest);
-    }
-
     void loadPtr(const Address &address, Register dest);
     void loadPtr(const BaseIndex &src, Register dest);
     void loadPtr(AbsoluteAddress address, Register dest);
