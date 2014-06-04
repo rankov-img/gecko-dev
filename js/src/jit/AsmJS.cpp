@@ -6115,6 +6115,9 @@ GenerateEntry(ModuleCompiler &m, const AsmJSModule::ExportedFunction &exportedFu
     // pop.
     masm.push(lr);
 #endif // JS_CODEGEN_ARM
+#if defined(JS_CODEGEN_MIPS)
+    masm.push(ra);
+#endif
 
     masm.PushRegsInMask(NonVolatileRegs);
     JS_ASSERT(masm.framePushed() == FramePushedAfterSave);
@@ -6374,7 +6377,7 @@ GenerateFFIInterpreterExit(ModuleCompiler &m, const ModuleCompiler::ExitDescript
     masm.push(lr);
 #endif
 #if defined(JS_CODEGEN_MIPS)
-    masm.Push(ra);
+    masm.push(ra);
 #endif
 
     MIRType typeArray[] = { MIRType_Pointer,   // cx
@@ -6557,10 +6560,8 @@ GenerateFFIIonExit(ModuleCompiler &m, const ModuleCompiler::ExitDescriptor &exit
     // returning to asm.js code.
     masm.PushRegsInMask(GeneralRegisterSet((1<<GlobalReg.code()) | (1<<HeapReg.code())));
 #elif defined(JS_CODEGEN_MIPS)
-    masm.PushRegsInMask(RegisterSet(GeneralRegisterSet((1<<GlobalReg.code()) |
-                                                       (1<<HeapReg.code()) |
-                                                       (1<<ra.code())),
-                                    FloatRegisterSet(uint32_t(0))));
+    masm.push(ra);
+    masm.PushRegsInMask(GeneralRegisterSet((1<<GlobalReg.code()) | (1<<HeapReg.code())));
 #endif
 
     // The stack frame is used for the call into Ion and also for calls into C for OOL
@@ -6762,18 +6763,11 @@ GenerateFFIIonExit(ModuleCompiler &m, const ModuleCompiler::ExitDescriptor &exit
 
     masm.bind(&done);
     masm.freeStack(stackDec);
-#elif defined(JS_CODEGEN_MIPS)
-    masm.loadConstantDouble(GenericNaN(), NANReg);
-    masm.PopRegsInMask(RegisterSet(GeneralRegisterSet((1<<GlobalReg.code()) |
-                                                      (1<<HeapReg.code()) |
-                                                      (1<<ra.code())),
-                                   FloatRegisterSet(uint32_t(0))));
-    masm.abiret();
 #if defined(JS_CODEGEN_X64)
     masm.Pop(HeapReg);
 #endif
-#if defined(JS_CODEGEN_ARM)
-    masm.ma_vimm(GenericNaN(), NANReg);
+#if defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_MIPS)
+    masm.loadConstantDouble(GenericNaN(), NANReg);
     masm.PopRegsInMask(GeneralRegisterSet((1<<GlobalReg.code()) | (1<<HeapReg.code())));
 #endif
     masm.ret();

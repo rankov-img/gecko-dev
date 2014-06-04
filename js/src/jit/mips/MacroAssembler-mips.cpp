@@ -3201,7 +3201,7 @@ MacroAssemblerMIPSCompat::alignPointerUp(Register src, Register dest, uint32_t a
 }
 
 void
-MacroAssemblerMIPSCompat::callWithABIPre(uint32_t *stackAdjust)
+MacroAssemblerMIPSCompat::callWithABIPre(uint32_t *stackAdjust, bool callFromAsmJS)
 {
     MOZ_ASSERT(inCall_);
 
@@ -3212,10 +3212,13 @@ MacroAssemblerMIPSCompat::callWithABIPre(uint32_t *stackAdjust)
                     usedArgSlots_ * sizeof(intptr_t) :
                     NumIntArgRegs * sizeof(intptr_t);
 
+    uint32_t alignmentAtPrologue = (callFromAsmJS) ? AlignmentAtAsmJSPrologue : 0;
+
     if (dynamicAlignment_) {
         *stackAdjust += ComputeByteAlignment(*stackAdjust, StackAlignment);
     } else {
-        *stackAdjust += ComputeByteAlignment(framePushed_ + *stackAdjust, StackAlignment);
+        *stackAdjust += ComputeByteAlignment(framePushed_ + alignmentAtPrologue + *stackAdjust,
+                                             StackAlignment);
     }
 
     reserveStack(*stackAdjust);
@@ -3317,7 +3320,7 @@ void
 MacroAssemblerMIPSCompat::callWithABI(AsmJSImmPtr imm, MoveOp::Type result)
 {
     uint32_t stackAdjust;
-    callWithABIPre(&stackAdjust);
+    callWithABIPre(&stackAdjust, /* callFromAsmJS = */ true);
     call(imm);
     callWithABIPost(stackAdjust, result);
 }
