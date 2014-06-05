@@ -71,7 +71,7 @@ AsmJSFrameIterator::AsmJSFrameIterator(const AsmJSActivation *activation)
         returnAddress_ = *(uint8_t**)sp_;
     } else {
         // This is exit to C++
-        returnAddress_ = *(uint8_t**)(sp_ + 4 * sizeof(uintptr_t));
+        returnAddress_ = *(uint8_t**)(sp_ + ShadowStackSpace);
     }
 #else
 # error "Unknown architecture!"

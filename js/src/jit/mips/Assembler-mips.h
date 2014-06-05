@@ -89,7 +89,7 @@ class ABIArgGenerator
 
     uint32_t stackBytesConsumedSoFar() const {
         if (usedArgSlots_ <= 4)
-            return 4 * sizeof(intptr_t);
+            return ShadowStackSpace;
 
         return usedArgSlots_ * sizeof(intptr_t);
     }

@@ -3212,7 +3212,7 @@ MacroAssemblerMIPSCompat::callWithABIPre(uint32_t *stackAdjust, bool callFromAsm
                     usedArgSlots_ * sizeof(intptr_t) :
                     NumIntArgRegs * sizeof(intptr_t);
 
-    uint32_t alignmentAtPrologue = (callFromAsmJS) ? AlignmentAtAsmJSPrologue : 0;
+    uint32_t alignmentAtPrologue = callFromAsmJS ? AlignmentAtAsmJSPrologue : 0;
 
     if (dynamicAlignment_) {
         *stackAdjust += ComputeByteAlignment(*stackAdjust, StackAlignment);
