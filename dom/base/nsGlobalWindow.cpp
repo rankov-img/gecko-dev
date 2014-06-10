@@ -4307,11 +4307,6 @@ EnumerateGlobalName(const nsAString& aName,
   GlobalNameEnumeratorClosure* closure =
     static_cast<GlobalNameEnumeratorClosure*>(aClosure);
 
-  if (aNameStruct.mType == nsGlobalNameStruct::eTypeStaticNameSet) {
-    // We have no idea what names this might install.
-    return PL_DHASH_NEXT;
-  }
-
   if (nsWindowSH::NameStructEnabled(closure->mCx, closure->mWindow, aName,
                                     aNameStruct) &&
       (!aNameStruct.mConstructorEnabled ||
@@ -7905,7 +7900,7 @@ PostMessageReadTransferStructuredClone(JSContext* aCx,
   StructuredCloneInfo* scInfo = static_cast<StructuredCloneInfo*>(aClosure);
   NS_ASSERTION(scInfo, "Must have scInfo!");
 
-  if (MessageChannel::PrefEnabled() && tag == SCTAG_DOM_MAP_MESSAGEPORT) {
+  if (tag == SCTAG_DOM_MAP_MESSAGEPORT) {
     MessagePort* port = static_cast<MessagePort*>(aData);
     port->BindToOwner(scInfo->window);
     scInfo->ports.Put(port, nullptr);
@@ -7934,26 +7929,24 @@ PostMessageTransferStructuredClone(JSContext* aCx,
   StructuredCloneInfo* scInfo = static_cast<StructuredCloneInfo*>(aClosure);
   NS_ASSERTION(scInfo, "Must have scInfo!");
 
-  if (MessageChannel::PrefEnabled()) {
-    MessagePortBase* port = nullptr;
-    nsresult rv = UNWRAP_OBJECT(MessagePort, aObj, port);
-    if (NS_SUCCEEDED(rv)) {
-      nsRefPtr<MessagePortBase> newPort;
-      if (scInfo->ports.Get(port, getter_AddRefs(newPort))) {
-        // No duplicate.
-        return false;
-      }
-
-      newPort = port->Clone();
-      scInfo->ports.Put(port, newPort);
-
-      *aTag = SCTAG_DOM_MAP_MESSAGEPORT;
-      *aOwnership = JS::SCTAG_TMO_CUSTOM;
-      *aContent = newPort;
-      *aExtraData = 0;
-
-      return true;
+  MessagePortBase* port = nullptr;
+  nsresult rv = UNWRAP_OBJECT(MessagePort, aObj, port);
+  if (NS_SUCCEEDED(rv)) {
+    nsRefPtr<MessagePortBase> newPort;
+    if (scInfo->ports.Get(port, getter_AddRefs(newPort))) {
+      // No duplicate.
+      return false;
     }
+
+    newPort = port->Clone();
+    scInfo->ports.Put(port, newPort);
+
+    *aTag = SCTAG_DOM_MAP_MESSAGEPORT;
+    *aOwnership = JS::SCTAG_TMO_CUSTOM;
+    *aContent = newPort;
+    *aExtraData = 0;
+
+    return true;
   }
 
   return false;
@@ -7966,7 +7959,7 @@ PostMessageFreeTransferStructuredClone(uint32_t aTag, JS::TransferableOwnership 
   StructuredCloneInfo* scInfo = static_cast<StructuredCloneInfo*>(aClosure);
   NS_ASSERTION(scInfo, "Must have scInfo!");
 
-  if (MessageChannel::PrefEnabled() && aTag == SCTAG_DOM_MAP_MESSAGEPORT) {
+  if (aTag == SCTAG_DOM_MAP_MESSAGEPORT) {
     nsRefPtr<MessagePortBase> port(static_cast<MessagePort*>(aContent));
     scInfo->ports.Remove(port);
   }
@@ -11651,7 +11644,7 @@ nsGlobalWindow::OpenInternal(const nsAString& aUrl, const nsAString& aName,
       // !aCalledNoScript.
       rv = pwwatch->OpenWindow2(this, url.get(), name_ptr, options_ptr,
                                 /* aCalledFromScript = */ true,
-                                aDialog, aNavigate, argv,
+                                aDialog, aNavigate, nullptr, argv,
                                 getter_AddRefs(domReturn));
     } else {
       // Force a system caller here so that the window watcher won't screw us
@@ -11671,7 +11664,7 @@ nsGlobalWindow::OpenInternal(const nsAString& aUrl, const nsAString& aName,
 
       rv = pwwatch->OpenWindow2(this, url.get(), name_ptr, options_ptr,
                                 /* aCalledFromScript = */ false,
-                                aDialog, aNavigate, aExtraArgument,
+                                aDialog, aNavigate, nullptr, aExtraArgument,
                                 getter_AddRefs(domReturn));
 
     }
@@ -13636,6 +13629,11 @@ nsGlobalWindow::GetDialogArguments(JSContext* aCx, ErrorResult& aError)
 
   MOZ_ASSERT(IsModalContentWindow(),
              "This should only be called on modal windows!");
+
+  if (!mDialogArguments) {
+    MOZ_ASSERT(mIsClosed, "This window should be closed!");
+    return JS::UndefinedValue();
+  }
 
   // This does an internal origin check, and returns undefined if the subject
   // does not subsumes the origin of the arguments.

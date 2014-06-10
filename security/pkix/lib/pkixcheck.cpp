@@ -333,7 +333,7 @@ BackCert::GetConstrainedNames(/*out*/ const CERTGeneralName** result)
     }
 
     constrainedNames =
-      CERT_GetConstrainedCertificateNames(nssCert, arena.get(),
+      CERT_GetConstrainedCertificateNames(GetNSSCert(), arena.get(),
                                           includeCN == IncludeCN::Yes);
     if (!constrainedNames) {
       return MapSECStatus(SECFailure);
@@ -558,10 +558,8 @@ CheckIssuerIndependentProperties(TrustDomain& trustDomain,
   Result rv;
 
   TrustLevel trustLevel;
-  rv = MapSECStatus(trustDomain.GetCertTrust(endEntityOrCA,
-                                             requiredPolicy,
-                                             cert.GetNSSCert(),
-                                             &trustLevel));
+  rv = MapSECStatus(trustDomain.GetCertTrust(endEntityOrCA, requiredPolicy,
+                                             cert.GetDER(), &trustLevel));
   if (rv != Success) {
     return rv;
   }

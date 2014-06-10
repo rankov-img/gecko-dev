@@ -45,8 +45,8 @@ class JS_PUBLIC_API(AutoCheckRequestDepth)
 {
     JSContext *cx;
   public:
-    AutoCheckRequestDepth(JSContext *cx);
-    AutoCheckRequestDepth(js::ContextFriendFields *cx);
+    explicit AutoCheckRequestDepth(JSContext *cx);
+    explicit AutoCheckRequestDepth(js::ContextFriendFields *cx);
     ~AutoCheckRequestDepth();
 };
 
@@ -73,66 +73,6 @@ inline void AssertArgumentsAreSane(JSContext *cx, JS::HandleValue v) {
     /* Do nothing */
 }
 #endif /* JS_DEBUG */
-
-class JS_PUBLIC_API(AutoGCRooter) {
-  public:
-    AutoGCRooter(JSContext *cx, ptrdiff_t tag);
-    AutoGCRooter(js::ContextFriendFields *cx, ptrdiff_t tag);
-
-    ~AutoGCRooter() {
-        JS_ASSERT(this == *stackTop);
-        *stackTop = down;
-    }
-
-    /* Implemented in gc/RootMarking.cpp. */
-    inline void trace(JSTracer *trc);
-    static void traceAll(JSTracer *trc);
-    static void traceAllWrappers(JSTracer *trc);
-
-  protected:
-    AutoGCRooter * const down;
-
-    /*
-     * Discriminates actual subclass of this being used.  If non-negative, the
-     * subclass roots an array of values of the length stored in this field.
-     * If negative, meaning is indicated by the corresponding value in the enum
-     * below.  Any other negative value indicates some deeper problem such as
-     * memory corruption.
-     */
-    ptrdiff_t tag_;
-
-    enum {
-        VALARRAY =     -2, /* js::AutoValueArray */
-        PARSER =       -3, /* js::frontend::Parser */
-        SHAPEVECTOR =  -4, /* js::AutoShapeVector */
-        IDARRAY =      -6, /* js::AutoIdArray */
-        DESCRIPTORS =  -7, /* js::AutoPropDescArrayRooter */
-        VALVECTOR =   -10, /* js::AutoValueVector */
-        IDVECTOR =    -13, /* js::AutoIdVector */
-        OBJVECTOR =   -14, /* js::AutoObjectVector */
-        STRINGVECTOR =-15, /* js::AutoStringVector */
-        SCRIPTVECTOR =-16, /* js::AutoScriptVector */
-        NAMEVECTOR =  -17, /* js::AutoNameVector */
-        HASHABLEVALUE=-18, /* js::HashableValue */
-        IONMASM =     -19, /* js::jit::MacroAssembler */
-        IONALLOC =    -20, /* js::jit::AutoTempAllocatorRooter */
-        WRAPVECTOR =  -21, /* js::AutoWrapperVector */
-        WRAPPER =     -22, /* js::AutoWrapperRooter */
-        OBJOBJHASHMAP=-23, /* js::AutoObjectObjectHashMap */
-        OBJU32HASHMAP=-24, /* js::AutoObjectUnsigned32HashMap */
-        OBJHASHSET =  -25, /* js::AutoObjectHashSet */
-        JSONPARSER =  -26, /* js::JSONParser */
-        CUSTOM =      -27, /* js::CustomAutoRooter */
-        FUNVECTOR =   -28  /* js::AutoFunctionVector */
-    };
-
-  private:
-    AutoGCRooter ** const stackTop;
-
-    /* No copy or assignment semantics. */
-    AutoGCRooter(AutoGCRooter &ida) MOZ_DELETE;
-    void operator=(AutoGCRooter &ida) MOZ_DELETE;
-};
 
 /* AutoValueArray roots an internal fixed-size array of Values. */
 template <size_t N>
@@ -588,6 +528,43 @@ class JS_PUBLIC_API(CustomAutoRooter) : private AutoGCRooter
     virtual void trace(JSTracer *trc) = 0;
 
   private:
+    MOZ_DECL_USE_GUARD_OBJECT_NOTIFIER
+};
+
+/*
+ * RootedGeneric<T> allows a class to instantiate its own Rooted type by
+ * including the method:
+ *
+ *    void trace(JSTracer *trc);
+ *
+ * The trace() method must trace all of the class's fields.
+ */
+template <class T>
+class RootedGeneric : private CustomAutoRooter
+{
+  public:
+    template <typename CX>
+    explicit RootedGeneric(CX *cx MOZ_GUARD_OBJECT_NOTIFIER_PARAM)
+      : CustomAutoRooter(cx)
+    {
+        MOZ_GUARD_OBJECT_NOTIFIER_INIT;
+    }
+
+    template <typename CX>
+    explicit RootedGeneric(CX *cx, const T& initial MOZ_GUARD_OBJECT_NOTIFIER_PARAM)
+      : CustomAutoRooter(cx), value(initial)
+    {
+        MOZ_GUARD_OBJECT_NOTIFIER_INIT;
+    }
+
+    operator const T&() const { return value; }
+    T operator->() const { return value; }
+
+  private:
+    virtual void trace(JSTracer *trc) { value->trace(trc); }
+
+    T value;
+
     MOZ_DECL_USE_GUARD_OBJECT_NOTIFIER
 };
 
@@ -2878,6 +2855,8 @@ struct JSPropertyDescriptor {
     {}
 
     void trace(JSTracer *trc);
+
+    static js::ThingRootKind rootKind() { return js::THING_ROOT_PROPERTY_DESCRIPTOR; }
 };
 
 namespace JS {
@@ -2895,6 +2874,7 @@ class PropertyDescriptorOperations
     bool hasGetterObject() const { return desc()->attrs & JSPROP_GETTER; }
     bool hasSetterObject() const { return desc()->attrs & JSPROP_SETTER; }
     bool hasGetterOrSetterObject() const { return desc()->attrs & (JSPROP_GETTER | JSPROP_SETTER); }
+    bool hasGetterOrSetter() const { return desc()->getter || desc()->setter; }
     bool isShared() const { return desc()->attrs & JSPROP_SHARED; }
     bool isIndex() const { return desc()->attrs & JSPROP_INDEX; }
     bool hasAttributes(unsigned attrs) const { return desc()->attrs & attrs; }
@@ -2935,6 +2915,14 @@ class MutablePropertyDescriptorOperations : public PropertyDescriptorOperations<
         value().setUndefined();
     }
 
+    void assign(JSPropertyDescriptor &other) {
+        object().set(other.obj);
+        setAttributes(other.attrs);
+        setGetter(other.getter);
+        setSetter(other.setter);
+        value().set(other.value);
+    }
+
     JS::MutableHandleObject object() {
         return JS::MutableHandleObject::fromMarkedLocation(&desc()->obj);
     }
@@ -2961,7 +2949,6 @@ namespace js {
 template <>
 struct GCMethods<JSPropertyDescriptor> {
     static JSPropertyDescriptor initial() { return JSPropertyDescriptor(); }
-    static ThingRootKind kind() { return THING_ROOT_PROPERTY_DESCRIPTOR; }
     static bool poisoned(const JSPropertyDescriptor &desc) {
         return (desc.obj && JS::IsPoisonedPtr(desc.obj)) ||
                (desc.attrs & JSPROP_GETTER && desc.getter && JS::IsPoisonedPtr(desc.getter)) ||
@@ -4275,7 +4262,7 @@ class JSAutoByteString
         MOZ_GUARD_OBJECT_NOTIFIER_INIT;
     }
 
-    JSAutoByteString(MOZ_GUARD_OBJECT_NOTIFIER_ONLY_PARAM)
+    explicit JSAutoByteString(MOZ_GUARD_OBJECT_NOTIFIER_ONLY_PARAM)
       : mBytes(nullptr)
     {
         MOZ_GUARD_OBJECT_NOTIFIER_INIT;
@@ -4660,6 +4647,7 @@ class JS_PUBLIC_API(AutoSaveExceptionState)
 {
   private:
     JSContext *context;
+    bool wasPropagatingForcedReturn;
     bool wasThrowing;
     RootedValue exceptionValue;
 
@@ -4681,6 +4669,7 @@ class JS_PUBLIC_API(AutoSaveExceptionState)
      * If this is called, the destructor is a no-op.
      */
     void drop() {
+        wasPropagatingForcedReturn = false;
         wasThrowing = false;
         exceptionValue.setUndefined();
     }
@@ -5022,6 +5011,13 @@ class MOZ_STACK_CLASS JS_PUBLIC_API(ForOfIterator) {
      */
     bool init(JS::HandleValue iterable,
               NonIterableBehavior nonIterableBehavior = ThrowOnNonIterable);
+
+    /*
+     * This method assumes that |iterator| is already an iterator.  It will not
+     * check for, and call @@iterator.  Callers should make sure that the passed
+     * in value is in fact an iterator.
+     */
+    bool initWithIterator(JS::HandleValue aIterator);
 
     /*
      * Get the next value from the iterator.  If false *done is true

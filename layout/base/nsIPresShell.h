@@ -58,6 +58,7 @@ class nsAString;
 class nsCaret;
 namespace mozilla {
 class TouchCaret;
+class SelectionCarets;
 } // namespace mozilla
 class nsFrameSelection;
 class nsFrameManager;
@@ -541,7 +542,7 @@ public:
   // ShadowRoot has APIs that can change styles so we only
   // want to restyle elements in the ShadowRoot and not the whole
   // document.
-  virtual void RestyleShadowRoot(mozilla::dom::ShadowRoot* aShadowRoot) = 0;
+  virtual void RecordShadowStyleChange(mozilla::dom::ShadowRoot* aShadowRoot) = 0;
 
   /**
    * Determine if it is safe to flush all pending notifications
@@ -765,6 +766,21 @@ public:
    * Get the mMayHaveTouchCaret flag.
    */
   virtual bool MayHaveTouchCaret() = 0;
+
+  /**
+   * Get the selection caret, if it exists. AddRefs it.
+   */
+  virtual NS_HIDDEN_(already_AddRefed<mozilla::SelectionCarets>) GetSelectionCarets() const = 0;
+
+  /**
+   * Returns the start part of selection caret element of the presshell.
+   */
+  virtual NS_HIDDEN_(mozilla::dom::Element*) GetSelectionCaretsStartElement() const = 0;
+
+  /**
+   * Returns the end part of selection caret element of the presshell.
+   */
+  virtual NS_HIDDEN_(mozilla::dom::Element*) GetSelectionCaretsEndElement() const = 0;
 
   /**
    * Get the caret, if it exists. AddRefs it.
@@ -1449,7 +1465,8 @@ public:
 
   // Clears the current list of visible images on this presshell and replaces it
   // with images that are in the display list aList.
-  virtual void RebuildImageVisibility(const nsDisplayList& aList) = 0;
+  virtual void RebuildImageVisibilityDisplayList(const nsDisplayList& aList) = 0;
+  virtual void RebuildImageVisibility(nsRect* aRect = nullptr) = 0;
 
   // Ensures the image is in the list of visible images.
   virtual void EnsureImageInVisibleList(nsIImageLoadingContent* aImage) = 0;

@@ -27,7 +27,6 @@
 #include "mozilla/gfx/2D.h"
 #include "Units.h"
 #include "mozilla/ToString.h"
-#include "gfxPrefs.h"
 
 #include <limits>
 #include <algorithm>
@@ -480,6 +479,12 @@ public:
    */
   static bool IsFixedPosFrameInDisplayPort(const nsIFrame* aFrame,
                                            nsRect* aDisplayPort = nullptr);
+
+  /**
+   * Store whether aThumbFrame wants its own layer. This sets a property on
+   * the frame.
+   */
+  static void SetScrollbarThumbLayerization(nsIFrame* aThumbFrame, bool aLayerize);
 
   /**
    * Finds the nearest ancestor frame to aItem that is considered to have (or
@@ -1001,6 +1006,21 @@ public:
     DOMRectList* mRectList;
 
     RectListBuilder(DOMRectList* aList);
+    virtual void AddRect(const nsRect& aRect);
+  };
+
+  /**
+   * SelectionCaret draws carets base on range. The carets are at begin
+   * and end position of range's client rects. This class help us to
+   * collect first and last rect for drawing carets.
+   */
+  struct FirstAndLastRectCollector : public RectCallback {
+    nsRect mFirstRect;
+    nsRect mLastRect;
+    bool mSeenFirstRect;
+
+    FirstAndLastRectCollector();
+
     virtual void AddRect(const nsRect& aRect);
   };
 
@@ -2202,7 +2222,7 @@ public:
                                   ViewID aScrollId,
                                   const std::string& aKey,
                                   const std::string& aValue) {
-    if (gfxPrefs::APZTestLoggingEnabled()) {
+    if (IsAPZTestLoggingEnabled()) {
       DoLogTestDataForPaint(aPresShell, aScrollId, aKey, aValue);
     }
   }
@@ -2217,7 +2237,7 @@ public:
                                   ViewID aScrollId,
                                   const std::string& aKey,
                                   const Value& aValue) {
-    if (gfxPrefs::APZTestLoggingEnabled()) {
+    if (IsAPZTestLoggingEnabled()) {
       DoLogTestDataForPaint(aPresShell, aScrollId, aKey,
           mozilla::ToString(aValue));
     }
@@ -2262,6 +2282,8 @@ private:
                                     ViewID aScrollId,
                                     const std::string& aKey,
                                     const std::string& aValue);
+
+  static bool IsAPZTestLoggingEnabled();
 };
 
 MOZ_FINISH_NESTED_ENUM_CLASS(nsLayoutUtils::RepaintMode)

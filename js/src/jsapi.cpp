@@ -98,6 +98,8 @@ using mozilla::Maybe;
 using mozilla::PodCopy;
 using mozilla::PodZero;
 
+using JS::AutoGCRooter;
+
 using js::frontend::Parser;
 
 #ifdef HAVE_VA_LIST_AS_ARRAY
@@ -1088,6 +1090,7 @@ JS_TransplantObject(JSContext *cx, HandleObject origobj, HandleObject target)
     JS_ASSERT(!origobj->is<CrossCompartmentWrapperObject>());
     JS_ASSERT(!target->is<CrossCompartmentWrapperObject>());
 
+    AutoMaybeTouchDeadZones agc(cx);
     AutoDisableProxyCheck adpc(cx->runtime());
 
     JSCompartment *destination = target->compartment();
@@ -1615,20 +1618,13 @@ JS::RemoveScriptRootRT(JSRuntime *rt, JS::Heap<JSScript *> *rp)
 JS_PUBLIC_API(bool)
 JS_AddExtraGCRootsTracer(JSRuntime *rt, JSTraceDataOp traceOp, void *data)
 {
-    AssertHeapIsIdle(rt);
-    return !!rt->gc.blackRootTracers.append(Callback<JSTraceDataOp>(traceOp, data));
+    return rt->gc.addBlackRootsTracer(traceOp, data);
 }
 
 JS_PUBLIC_API(void)
 JS_RemoveExtraGCRootsTracer(JSRuntime *rt, JSTraceDataOp traceOp, void *data)
 {
-    for (size_t i = 0; i < rt->gc.blackRootTracers.length(); i++) {
-        Callback<JSTraceDataOp> *e = &rt->gc.blackRootTracers[i];
-        if (e->op == traceOp && e->data == data) {
-            rt->gc.blackRootTracers.erase(e);
-            break;
-        }
-    }
+    return rt->gc.removeBlackRootsTracer(traceOp, data);
 }
 
 #ifdef DEBUG
@@ -1899,28 +1895,20 @@ JS_PUBLIC_API(void)
 JS_SetGCCallback(JSRuntime *rt, JSGCCallback cb, void *data)
 {
     AssertHeapIsIdle(rt);
-    rt->gc.gcCallback = cb;
-    rt->gc.gcCallbackData = data;
+    rt->gc.setGCCallback(cb, data);
 }
 
 JS_PUBLIC_API(bool)
 JS_AddFinalizeCallback(JSRuntime *rt, JSFinalizeCallback cb, void *data)
 {
     AssertHeapIsIdle(rt);
-    return rt->gc.finalizeCallbacks.append(Callback<JSFinalizeCallback>(cb, data));
+    return rt->gc.addFinalizeCallback(cb, data);
 }
 
 JS_PUBLIC_API(void)
 JS_RemoveFinalizeCallback(JSRuntime *rt, JSFinalizeCallback cb)
 {
-    for (Callback<JSFinalizeCallback> *p = rt->gc.finalizeCallbacks.begin();
-         p < rt->gc.finalizeCallbacks.end(); p++)
-    {
-        if (p->op == cb) {
-            rt->gc.finalizeCallbacks.erase(p);
-            break;
-        }
-    }
+    rt->gc.removeFinalizeCallback(cb);
 }
 
 JS_PUBLIC_API(bool)
@@ -1945,7 +1933,7 @@ JS_SetGCParameter(JSRuntime *rt, JSGCParamKey key, uint32_t value)
         break;
       }
       case JSGC_MAX_MALLOC_BYTES:
-        rt->setGCMaxMallocBytes(value);
+        rt->gc.setMaxMallocBytes(value);
         break;
       case JSGC_SLICE_TIME_BUDGET:
         rt->gc.sliceBudget = SliceBudget::TimeBudget(value);
@@ -3631,7 +3619,7 @@ JS_DeletePropertyById2(JSContext *cx, HandleObject obj, HandleId id, bool *resul
     CHECK_REQUEST(cx);
     assertSameCompartment(cx, obj, id);
 
-    return JSObject::deleteByValue(cx, obj, IdToValue(id), result);
+    return JSObject::deleteGeneric(cx, obj, id, result);
 }
 
 JS_PUBLIC_API(bool)
@@ -3653,7 +3641,8 @@ JS_DeleteProperty2(JSContext *cx, HandleObject obj, const char *name, bool *resu
     JSAtom *atom = Atomize(cx, name, strlen(name));
     if (!atom)
         return false;
-    return JSObject::deleteByValue(cx, obj, StringValue(atom), result);
+    RootedId id(cx, AtomToId(atom));
+    return JSObject::deleteGeneric(cx, obj, id, result);
 }
 
 JS_PUBLIC_API(bool)
@@ -3666,7 +3655,8 @@ JS_DeleteUCProperty2(JSContext *cx, HandleObject obj, const jschar *name, size_t
     JSAtom *atom = AtomizeChars(cx, name, AUTO_NAMELEN(name, namelen));
     if (!atom)
         return false;
-    return JSObject::deleteByValue(cx, obj, StringValue(atom), result);
+    RootedId id(cx, AtomToId(atom));
+    return JSObject::deleteGeneric(cx, obj, id, result);
 }
 
 JS_PUBLIC_API(bool)
@@ -5880,7 +5870,7 @@ JS_NewRegExpObject(JSContext *cx, HandleObject obj, char *bytes, size_t length, 
 {
     AssertHeapIsIdle(cx);
     CHECK_REQUEST(cx);
-    jschar *chars = InflateString(cx, bytes, &length);
+    ScopedJSFreePtr<jschar> chars(InflateString(cx, bytes, &length));
     if (!chars)
         return nullptr;
 
@@ -5890,7 +5880,6 @@ JS_NewRegExpObject(JSContext *cx, HandleObject obj, char *bytes, size_t length, 
 
     RegExpObject *reobj = RegExpObject::create(cx, res, chars, length,
                                                RegExpFlag(flags), nullptr, cx->tempLifoAlloc());
-    js_free(chars);
     return reobj;
 }
 
@@ -6090,10 +6079,15 @@ JS_ReportPendingException(JSContext *cx)
 }
 
 JS::AutoSaveExceptionState::AutoSaveExceptionState(JSContext *cx)
-    : context(cx), wasThrowing(cx->throwing), exceptionValue(cx)
+  : context(cx),
+    wasPropagatingForcedReturn(cx->propagatingForcedReturn_),
+    wasThrowing(cx->throwing),
+    exceptionValue(cx)
 {
     AssertHeapIsIdle(cx);
     CHECK_REQUEST(cx);
+    if (wasPropagatingForcedReturn)
+        cx->clearPropagatingForcedReturn();
     if (wasThrowing) {
         exceptionValue = cx->unwrappedException_;
         cx->clearPendingException();
@@ -6103,6 +6097,7 @@ JS::AutoSaveExceptionState::AutoSaveExceptionState(JSContext *cx)
 void
 JS::AutoSaveExceptionState::restore()
 {
+    context->propagatingForcedReturn_ = wasPropagatingForcedReturn;
     context->throwing = wasThrowing;
     context->unwrappedException_ = exceptionValue;
     drop();
@@ -6110,6 +6105,8 @@ JS::AutoSaveExceptionState::restore()
 
 JS::AutoSaveExceptionState::~AutoSaveExceptionState()
 {
+    if (wasPropagatingForcedReturn && !context->isPropagatingForcedReturn())
+        context->setPropagatingForcedReturn();
     if (wasThrowing && !context->isExceptionPending()) {
         context->throwing = true;
         context->unwrappedException_ = exceptionValue;
@@ -6211,13 +6208,13 @@ JS_AbortIfWrongThread(JSRuntime *rt)
 JS_PUBLIC_API(void)
 JS_SetGCZeal(JSContext *cx, uint8_t zeal, uint32_t frequency)
 {
-    SetGCZeal(cx->runtime(), zeal, frequency);
+    cx->runtime()->gc.setZeal(zeal, frequency);
 }
 
 JS_PUBLIC_API(void)
 JS_ScheduleGC(JSContext *cx, uint32_t count)
 {
-    cx->runtime()->gc.nextScheduled = count;
+    cx->runtime()->gc.setNextScheduled(count);
 }
 #endif
 

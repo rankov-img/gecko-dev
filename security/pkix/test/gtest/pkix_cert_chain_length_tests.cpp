@@ -115,10 +115,10 @@ public:
 private:
   SECStatus GetCertTrust(EndEntityOrCA,
                          const CertPolicyId&,
-                         const CERTCertificate* candidateCert,
+                         const SECItem& candidateCert,
                          /*out*/ TrustLevel* trustLevel)
   {
-    if (candidateCert == certChainTail[0].get()) {
+    if (SECITEM_ItemsAreEqual(&candidateCert, &certChainTail[0]->derCert)) {
       *trustLevel = TrustLevel::TrustAnchor;
     } else {
       *trustLevel = TrustLevel::InheritsTrust;
@@ -136,9 +136,10 @@ private:
   }
 
   SECStatus VerifySignedData(const CERTSignedData* signedData,
-                             const CERTCertificate* cert)
+                             const SECItem& subjectPublicKeyInfo)
   {
-    return ::mozilla::pkix::VerifySignedData(signedData, cert, nullptr);
+    return ::mozilla::pkix::VerifySignedData(signedData, subjectPublicKeyInfo,
+                                             nullptr);
   }
 
   SECStatus CheckRevocation(EndEntityOrCA, const CERTCertificate*,

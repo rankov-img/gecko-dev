@@ -479,6 +479,7 @@ public:
         IDX_EXPOSEDPROPS            ,
         IDX_EVAL                    ,
         IDX_CONTROLLERS             ,
+        IDX_REALFRAMEELEMENT        ,
         IDX_TOTAL_COUNT // just a count of the above
     };
 
@@ -911,8 +912,7 @@ XPC_WN_JSOp_ThisObject(JSContext *cx, JS::HandleObject obj);
         nullptr, /* setElement    */                                          \
         nullptr, /* getGenericAttributes  */                                  \
         nullptr, /* setGenericAttributes  */                                  \
-        nullptr, /* deleteProperty */                                         \
-        nullptr, /* deleteElement */                                          \
+        nullptr, /* deleteGeneric */                                          \
         nullptr, nullptr, /* watch/unwatch */                                 \
         nullptr, /* slice */                                                  \
         XPC_WN_JSOp_Enumerate,                                                \
@@ -935,8 +935,7 @@ XPC_WN_JSOp_ThisObject(JSContext *cx, JS::HandleObject obj);
         nullptr, /* setElement    */                                          \
         nullptr, /* getGenericAttributes  */                                  \
         nullptr, /* setGenericAttributes  */                                  \
-        nullptr, /* deleteProperty */                                         \
-        nullptr, /* deleteElement */                                          \
+        nullptr, /* deleteGeneric */                                          \
         nullptr, nullptr, /* watch/unwatch */                                 \
         nullptr, /* slice */                                                  \
         XPC_WN_JSOp_Enumerate,                                                \

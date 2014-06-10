@@ -323,6 +323,7 @@ browser.jar:
         skin/classic/browser/devtools/responsiveui-screenshot.png   (../shared/devtools/images/responsivemode/responsiveui-screenshot.png)
         skin/classic/browser/devtools/responsiveui-screenshot@2x.png   (../shared/devtools/images/responsivemode/responsiveui-screenshot@2x.png)
         skin/classic/browser/devtools/toggle-tools.png              (../shared/devtools/images/toggle-tools.png)
+        skin/classic/browser/devtools/toggle-tools@2x.png              (../shared/devtools/images/toggle-tools@2x.png)
         skin/classic/browser/devtools/dock-bottom@2x.png            (../shared/devtools/images/dock-bottom@2x.png)
         skin/classic/browser/devtools/dock-side@2x.png              (../shared/devtools/images/dock-side@2x.png)
         skin/classic/browser/devtools/floating-scrollbars.css       (devtools/floating-scrollbars.css)
@@ -354,6 +355,7 @@ browser.jar:
         skin/classic/browser/devtools/font-inspector.css            (../shared/devtools/font-inspector.css)
         skin/classic/browser/devtools/computedview.css              (../shared/devtools/computedview.css)
         skin/classic/browser/devtools/arrow-e.png                   (../shared/devtools/images/arrow-e.png)
+        skin/classic/browser/devtools/arrow-e@2x.png                (../shared/devtools/images/arrow-e@2x.png)
         skin/classic/browser/devtools/projecteditor/projecteditor.css           (../shared/devtools/projecteditor/projecteditor.css)
         skin/classic/browser/devtools/projecteditor/file-icons-sheet@2x.png       (../shared/devtools/projecteditor/file-icons-sheet@2x.png)
         skin/classic/browser/devtools/app-manager/connection-footer.css     (../shared/devtools/app-manager/connection-footer.css)
@@ -439,11 +441,13 @@ browser.jar:
         skin/classic/aero/browser/livemark-folder.png                (livemark-folder-aero.png)
         skin/classic/aero/browser/menu-back.png                      (menu-back-aero.png)
         skin/classic/aero/browser/menu-forward.png                   (menu-forward-aero.png)
-        skin/classic/aero/browser/menuPanel.png                      (menuPanel-aero.png)
+        skin/classic/aero/browser/menuPanel.png
+        skin/classic/aero/browser/menuPanel-aero.png
         skin/classic/aero/browser/menuPanel-customize.png
         skin/classic/aero/browser/menuPanel-exit.png
         skin/classic/aero/browser/menuPanel-help.png
-        skin/classic/aero/browser/menuPanel-small.png                (menuPanel-small-aero.png)
+        skin/classic/aero/browser/menuPanel-small.png
+        skin/classic/aero/browser/menuPanel-small-aero.png
         skin/classic/aero/browser/Metro_Glyph.png                    (Metro_Glyph-aero.png)
         skin/classic/aero/browser/Metro_Glyph-inverted.png
         skin/classic/aero/browser/Metro_Glyph-menuPanel.png
@@ -723,6 +727,7 @@ browser.jar:
         skin/classic/aero/browser/devtools/responsiveui-screenshot.png      (../shared/devtools/images/responsivemode/responsiveui-screenshot.png)
         skin/classic/aero/browser/devtools/responsiveui-screenshot@2x.png   (../shared/devtools/images/responsivemode/responsiveui-screenshot@2x.png)
         skin/classic/aero/browser/devtools/toggle-tools.png          (../shared/devtools/images/toggle-tools.png)
+        skin/classic/aero/browser/devtools/toggle-tools@2x.png       (../shared/devtools/images/toggle-tools@2x.png)
         skin/classic/aero/browser/devtools/dock-bottom@2x.png        (../shared/devtools/images/dock-bottom@2x.png)
         skin/classic/aero/browser/devtools/dock-side@2x.png          (../shared/devtools/images/dock-side@2x.png)
         skin/classic/aero/browser/devtools/floating-scrollbars.css   (devtools/floating-scrollbars.css)
@@ -754,6 +759,7 @@ browser.jar:
         skin/classic/aero/browser/devtools/font-inspector.css        (../shared/devtools/font-inspector.css)
         skin/classic/aero/browser/devtools/computedview.css          (../shared/devtools/computedview.css)
         skin/classic/aero/browser/devtools/arrow-e.png               (../shared/devtools/images/arrow-e.png)
+        skin/classic/aero/browser/devtools/arrow-e.png               (../shared/devtools/images/arrow-e@2x.png)
         skin/classic/aero/browser/devtools/projecteditor/projecteditor.css       (../shared/devtools/projecteditor/projecteditor.css)
         skin/classic/aero/browser/devtools/projecteditor/file-icons-sheet@2x.png       (../shared/devtools/projecteditor/file-icons-sheet@2x.png)
         skin/classic/aero/browser/devtools/app-manager/connection-footer.css     (../shared/devtools/app-manager/connection-footer.css)
@@ -803,6 +809,12 @@ browser.jar:
 
 % override chrome://browser/skin/Toolbar.png               chrome://browser/skin/Toolbar-aero.png                  os=WINNT osversion=6
 % override chrome://browser/skin/Toolbar.png               chrome://browser/skin/Toolbar-aero.png                  os=WINNT osversion=6.1
+
+% override chrome://browser/skin/menuPanel.png             chrome://browser/skin/menuPanel-aero.png                os=WINNT osversion=6
+% override chrome://browser/skin/menuPanel.png             chrome://browser/skin/menuPanel-aero.png                os=WINNT osversion=6.1
+
+% override chrome://browser/skin/menuPanel-small.png       chrome://browser/skin/menuPanel-small-aero.png          os=WINNT osversion=6
+% override chrome://browser/skin/menuPanel-small.png       chrome://browser/skin/menuPanel-small-aero.png          os=WINNT osversion=6.1
 
 % override chrome://browser/skin/sync-horizontalbar.png          chrome://browser/skin/sync-horizontalbar-XPVista7.png          os=WINNT osversion<6.2
 % override chrome://browser/skin/syncProgress-horizontalbar.png  chrome://browser/skin/syncProgress-horizontalbar-XPVista7.png  os=WINNT osversion<6.2

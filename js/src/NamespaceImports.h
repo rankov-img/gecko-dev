@@ -32,16 +32,14 @@ class AutoValueVector;
 
 class AutoIdArray;
 
-class AutoGCRooter;
 template <typename T> class AutoVectorRooter;
 template<typename K, typename V> class AutoHashMapRooter;
 template<typename T> class AutoHashSetRooter;
+template<typename T> class RootedGeneric;
 
-class SourceBufferHolder;
+class MOZ_STACK_CLASS SourceBufferHolder;
 
 class HandleValueArray;
-
-class JS_PUBLIC_API(AutoCheckCannotGC);
 
 }
 
@@ -79,10 +77,10 @@ using JS::AutoValueVector;
 
 using JS::AutoIdArray;
 
-using JS::AutoGCRooter;
 using JS::AutoHashMapRooter;
 using JS::AutoHashSetRooter;
 using JS::AutoVectorRooter;
+using JS::RootedGeneric;
 
 using JS::CallArgs;
 using JS::CallNonGenericMethod;
@@ -132,8 +130,6 @@ using JS::UndefinedHandleValue;
 using JS::HandleValueArray;
 
 using JS::Zone;
-
-using JS::AutoCheckCannotGC;
 
 } /* namespace js */
 

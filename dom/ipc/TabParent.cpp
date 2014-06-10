@@ -61,6 +61,7 @@
 #include "TabChild.h"
 #include "LoadContext.h"
 #include "nsNetCID.h"
+#include "gfxPrefs.h"
 #include <algorithm>
 
 using namespace mozilla::dom;
@@ -199,7 +200,11 @@ TabParent* sEventCapturer;
 
 TabParent *TabParent::mIMETabParent = nullptr;
 
-NS_IMPL_ISUPPORTS(TabParent, nsITabParent, nsIAuthPromptProvider, nsISecureBrowserUI)
+NS_IMPL_ISUPPORTS(TabParent,
+                  nsITabParent,
+                  nsIAuthPromptProvider,
+                  nsISecureBrowserUI,
+                  nsISupportsWeakReference)
 
 TabParent::TabParent(ContentParent* aManager, const TabContext& aContext, uint32_t aChromeFlags)
   : TabContext(aContext)
@@ -1888,9 +1893,7 @@ bool
 TabParent::UseAsyncPanZoom()
 {
   bool usingOffMainThreadCompositing = !!CompositorParent::CompositorLoop();
-  bool asyncPanZoomEnabled =
-    Preferences::GetBool("layers.async-pan-zoom.enabled", false);
-  return (usingOffMainThreadCompositing && asyncPanZoomEnabled &&
+  return (usingOffMainThreadCompositing && gfxPrefs::AsyncPanZoomEnabled() &&
           GetScrollingBehavior() == ASYNC_PAN_ZOOM);
 }
 

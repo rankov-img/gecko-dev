@@ -476,8 +476,6 @@ class MacroAssemblerARMCompat : public MacroAssemblerARM
 #endif
     bool dynamicAlignment_;
 
-    bool enoughMemory_;
-
     // Used to work around the move resolver's lack of support for
     // moving into register pairs, which the softfp ABI needs.
     mozilla::Array<MoveOperand, 2> floatArgsInGPR;
@@ -505,12 +503,8 @@ class MacroAssemblerARMCompat : public MacroAssemblerARM
   public:
     MacroAssemblerARMCompat()
       : inCall_(false),
-        enoughMemory_(true),
         framePushed_(0)
     { }
-    bool oom() const {
-        return Assembler::oom() || !enoughMemory_;
-    }
 
   public:
     using MacroAssemblerARM::call;
@@ -978,6 +972,7 @@ class MacroAssemblerARMCompat : public MacroAssemblerARM
         ma_b(label, c);
     }
     void branchTest32(Condition cond, Register lhs, Register rhs, Label *label) {
+        JS_ASSERT(cond == Zero || cond == NonZero || cond == Signed || cond == NotSigned);
         // x86 likes test foo, foo rather than cmp foo, #0.
         // Convert the former into the latter.
         if (lhs == rhs && (cond == Zero || cond == NonZero))
@@ -987,6 +982,7 @@ class MacroAssemblerARMCompat : public MacroAssemblerARM
         ma_b(label, cond);
     }
     void branchTest32(Condition cond, Register lhs, Imm32 imm, Label *label) {
+        JS_ASSERT(cond == Zero || cond == NonZero || cond == Signed || cond == NotSigned);
         ma_tst(lhs, imm);
         ma_b(label, cond);
     }

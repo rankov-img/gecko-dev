@@ -88,7 +88,7 @@ NewFatInlineString(ExclusiveContext *cx, Handle<JSLinearString*> base, size_t st
     if (!s)
         return nullptr;
 
-    AutoCheckCannotGC nogc;
+    JS::AutoCheckCannotGC nogc;
     mozilla::PodCopy(chars, base->chars<CharT>(nogc) + start, length);
     chars[length] = 0;
     return s;
@@ -230,17 +230,27 @@ JSFlatString::init(const jschar *chars, size_t length)
     d.s.u2.nonInlineCharsTwoByte = chars;
 }
 
-template <js::AllowGC allowGC>
-MOZ_ALWAYS_INLINE JSFlatString *
-JSFlatString::new_(js::ThreadSafeContext *cx, const jschar *chars, size_t length)
+MOZ_ALWAYS_INLINE void
+JSFlatString::init(const JS::Latin1Char *chars, size_t length)
 {
-    JS_ASSERT(chars[length] == jschar(0));
+    d.u1.length = length;
+    d.u1.flags = FLAT_BIT | LATIN1_CHARS_BIT;
+    d.s.u2.nonInlineCharsLatin1 = chars;
+}
+
+template <js::AllowGC allowGC, typename CharT>
+MOZ_ALWAYS_INLINE JSFlatString *
+JSFlatString::new_(js::ThreadSafeContext *cx, const CharT *chars, size_t length)
+{
+    JS_ASSERT(chars[length] == CharT(0));
 
     if (!validateLength(cx, length))
         return nullptr;
+
     JSFlatString *str = (JSFlatString *)js_NewGCString<allowGC>(cx);
     if (!str)
         return nullptr;
+
     str->init(chars, length);
     return str;
 }

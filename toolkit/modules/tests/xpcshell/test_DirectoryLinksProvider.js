@@ -205,7 +205,7 @@ add_task(function test_fetchAndCacheLinks_malformedURI() {
 add_task(function test_fetchAndCacheLinks_unknownHost() {
   yield DirectoryLinksProvider.init();
   yield cleanJsonFile();
-  let nonExistentServer = "http://nosuchhost";
+  let nonExistentServer = "http://nosuchhost.localhost";
   try {
     yield DirectoryLinksProvider._fetchAndCacheLinks(nonExistentServer);
     do_throw("BAD URIs should fail");
@@ -259,7 +259,7 @@ add_task(function test_linksURL_locale() {
 
   links = yield fetchData();
   do_check_eq(links.length, 1);
-  expected_data = [{url: "http://example.com", title: "US", frecency: DIRECTORY_FRECENCY, lastVisitDate: 1}];
+  expected_data = [{url: "http://example.com", title: "US", frecency: DIRECTORY_FRECENCY, lastVisitDate: 1, directoryIndex: 0}];
   isIdentical(links, expected_data);
 
   yield promiseDirectoryDownloadOnPrefChange("general.useragent.locale", "zh-CN");
@@ -267,8 +267,8 @@ add_task(function test_linksURL_locale() {
   links = yield fetchData();
   do_check_eq(links.length, 2)
   expected_data = [
-    {url: "http://example.net", title: "CN", frecency: DIRECTORY_FRECENCY, lastVisitDate: 2},
-    {url: "http://example.net/2", title: "CN2", frecency: DIRECTORY_FRECENCY, lastVisitDate: 1}
+    {url: "http://example.net", title: "CN", frecency: DIRECTORY_FRECENCY, lastVisitDate: 2, directoryIndex: 0},
+    {url: "http://example.net/2", title: "CN2", frecency: DIRECTORY_FRECENCY, lastVisitDate: 1, directoryIndex: 1}
   ];
   isIdentical(links, expected_data);
 
@@ -280,13 +280,13 @@ add_task(function test_DirectoryLinksProvider__prefObserver_url() {
 
   let links = yield fetchData();
   do_check_eq(links.length, 1);
-  let expectedData =  [{url: "http://example.com", title: "LocalSource", frecency: DIRECTORY_FRECENCY, lastVisitDate: 1}];
+  let expectedData =  [{url: "http://example.com", title: "LocalSource", frecency: DIRECTORY_FRECENCY, lastVisitDate: 1, directoryIndex: 0}];
   isIdentical(links, expectedData);
 
   // tests these 2 things:
   // 1. _linksURL is properly set after the pref change
   // 2. invalid source url is correctly handled
-  let exampleUrl = 'http://nosuchhost/bad';
+  let exampleUrl = 'http://nosuchhost.localhost/bad';
   yield promiseDirectoryDownloadOnPrefChange(kSourceUrlPref, exampleUrl);
   do_check_eq(DirectoryLinksProvider._linksURL, exampleUrl);
 

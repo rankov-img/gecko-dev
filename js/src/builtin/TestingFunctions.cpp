@@ -520,7 +520,7 @@ SelectForGC(JSContext *cx, unsigned argc, Value *vp)
 
     for (unsigned i = 0; i < args.length(); i++) {
         if (args[i].isObject()) {
-            if (!rt->gc.selectedForMarking.append(&args[i].toObject()))
+            if (!rt->gc.selectForMarking(&args[i].toObject()))
                 return false;
         }
     }
@@ -599,7 +599,7 @@ DeterministicGC(JSContext *cx, unsigned argc, jsval *vp)
         return false;
     }
 
-    gc::SetDeterministicGC(cx, ToBoolean(args[0]));
+    cx->runtime()->gc.setDeterministic(ToBoolean(args[0]));
     args.rval().setUndefined();
     return true;
 }
@@ -641,7 +641,7 @@ ValidateGC(JSContext *cx, unsigned argc, jsval *vp)
         return false;
     }
 
-    gc::SetValidateGC(cx, ToBoolean(args[0]));
+    cx->runtime()->gc.setValidate(ToBoolean(args[0]));
     args.rval().setUndefined();
     return true;
 }
@@ -657,7 +657,7 @@ FullCompartmentChecks(JSContext *cx, unsigned argc, jsval *vp)
         return false;
     }
 
-    gc::SetFullCompartmentChecks(cx, ToBoolean(args[0]));
+    cx->runtime()->gc.setFullCompartmentChecks(ToBoolean(args[0]));
     args.rval().setUndefined();
     return true;
 }
@@ -1049,6 +1049,7 @@ static bool
 EnableSPSProfilingWithSlowAssertions(JSContext *cx, unsigned argc, jsval *vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
+    args.rval().setUndefined();
 
     if (cx->runtime()->spsProfiler.enabled()) {
         // If profiling already enabled with slow assertions disabled,
@@ -1070,15 +1071,16 @@ EnableSPSProfilingWithSlowAssertions(JSContext *cx, unsigned argc, jsval *vp)
     cx->runtime()->spsProfiler.enableSlowAssertions(true);
     cx->runtime()->spsProfiler.enable(true);
 
-    args.rval().setUndefined();
     return true;
 }
 
 static bool
 DisableSPSProfiling(JSContext *cx, unsigned argc, jsval *vp)
 {
+    CallArgs args = CallArgsFromVp(argc, vp);
     if (cx->runtime()->spsProfiler.installed())
         cx->runtime()->spsProfiler.enable(false);
+    args.rval().setUndefined();
     return true;
 }
 

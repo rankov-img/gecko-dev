@@ -6,6 +6,8 @@
 
 #include "jit/AsmJSModule.h"
 
+#include <errno.h>
+
 #ifndef XP_WIN
 # include <sys/mman.h>
 #endif
@@ -97,7 +99,7 @@ DeallocateExecutableMemory(uint8_t *code, size_t totalBytes)
 #ifdef XP_WIN
     JS_ALWAYS_TRUE(VirtualFree(code, 0, MEM_RELEASE));
 #else
-    JS_ALWAYS_TRUE(munmap(code, totalBytes) == 0);
+    JS_ALWAYS_TRUE(munmap(code, totalBytes) == 0 || errno == ENOMEM);
 #endif
 }
 
@@ -1277,6 +1279,13 @@ js::StoreAsmJSModuleInCache(AsmJSParser &parser,
                             const AsmJSModule &module,
                             ExclusiveContext *cx)
 {
+    // Don't serialize modules with information about basic block hit counts
+    // compiled in, which both affects code speed and uses absolute addresses
+    // that can't be serialized. (This is separate from normal profiling and
+    // requires an addon to activate).
+    if (module.numFunctionCounts())
+        return false;
+
     MachineId machineId;
     if (!machineId.extractCurrentState(cx))
         return false;
