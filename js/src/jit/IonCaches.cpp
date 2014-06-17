@@ -1973,6 +1973,9 @@ GenerateSetSlot(JSContext *cx, MacroAssembler &masm, IonCache::StubAttacher &att
             JS_ASSERT(propTypes);
             JS_ASSERT(!propTypes->unknown());
 
+            // guardTypeSet can read from type sets without triggering read barriers.
+            types::TypeSet::readBarrier(propTypes);
+
             Register scratchReg = object;
             masm.push(scratchReg);
 
@@ -2527,6 +2530,9 @@ GenerateAddSlot(JSContext *cx, MacroAssembler &masm, IonCache::StubAttacher &att
         types::HeapTypeSet *propTypes = type->maybeGetProperty(obj->lastProperty()->propid());
         JS_ASSERT(propTypes);
         JS_ASSERT(!propTypes->unknown());
+
+        // guardTypeSet can read from type sets without triggering read barriers.
+        types::TypeSet::readBarrier(propTypes);
 
         Register scratchReg = object;
         masm.guardTypeSet(valReg, propTypes, BarrierKind::TypeSet, scratchReg, &failuresPopObject);

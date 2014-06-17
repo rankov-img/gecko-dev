@@ -54,6 +54,8 @@
  **************************************************************
  **************************************************************/
 
+#include "gfx2DGlue.h"
+#include "gfxPlatform.h"
 #include "mozilla/MathAlgorithms.h"
 #include "mozilla/MiscEvents.h"
 #include "mozilla/MouseEvents.h"
@@ -184,6 +186,7 @@
 
 using namespace mozilla;
 using namespace mozilla::dom;
+using namespace mozilla::gfx;
 using namespace mozilla::layers;
 using namespace mozilla::widget;
 
@@ -3385,26 +3388,6 @@ nsWindow::GetLayerManager(PLayerTransactionChild* aShadowManager,
   NS_ASSERTION(mLayerManager, "Couldn't provide a valid layer manager.");
 
   return mLayerManager;
-}
-
-/**************************************************************
- *
- * SECTION: nsIWidget::GetThebesSurface
- *
- * Get the Thebes surface associated with this widget.
- *
- **************************************************************/
-
-gfxASurface *nsWindow::GetThebesSurface()
-{
-  if (mPaintDC)
-    return (new gfxWindowsSurface(mPaintDC));
-
-  uint32_t flags = gfxWindowsSurface::FLAG_TAKE_DC;
-  if (mTransparencyMode != eTransparencyOpaque) {
-      flags |= gfxWindowsSurface::FLAG_IS_TRANSPARENT;
-  }
-  return (new gfxWindowsSurface(mWnd, flags));
 }
 
 /**************************************************************
@@ -7022,9 +7005,10 @@ void nsWindow::SetupTranslucentWindowMemoryBitmap(nsTransparencyMode aMode)
 void nsWindow::ClearTranslucentWindow()
 {
   if (mTransparentSurface) {
-    nsRefPtr<gfxContext> thebesContext = new gfxContext(mTransparentSurface);
-    thebesContext->SetOperator(gfxContext::OPERATOR_CLEAR);
-    thebesContext->Paint();
+    IntSize size = ToIntSize(mTransparentSurface->GetSize());
+    RefPtr<DrawTarget> drawTarget = gfxPlatform::GetPlatform()->
+      CreateDrawTargetForSurface(mTransparentSurface, size);
+    drawTarget->ClearRect(Rect(0, 0, size.width, size.height));
     UpdateTranslucentWindow();
  }
 }

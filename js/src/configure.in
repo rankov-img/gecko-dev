@@ -476,6 +476,9 @@ case "$target" in
         INCREMENTAL_LINKER=1
 
         unset _MSVC_VER_FILTER
+
+        CFLAGS="$CFLAGS -D_HAS_EXCEPTIONS=0"
+        CXXFLAGS="$CXXFLAGS -D_HAS_EXCEPTIONS=0"
     elif test -z "$CLANG_CC"; then
         # Check w32api version
         _W32API_MAJOR_VERSION=`echo $W32API_VERSION | $AWK -F\. '{ print $1 }'`
@@ -2795,6 +2798,8 @@ MOZ_ARG_DISABLE_BOOL(threadsafe,
 if test -n "$JS_THREADSAFE"; then
     AC_DEFINE(JS_THREADSAFE)
 fi
+JS_THREADSAFE_CONFIGURED=$JS_THREADSAFE
+AC_SUBST(JS_THREADSAFE_CONFIGURED)
 
 if test "$_USE_SYSTEM_NSPR" || (test "$NSPR_CFLAGS" -o "$NSPR_LIBS"); then
   _HAS_NSPR=1
@@ -3004,20 +3009,6 @@ if test "$ENABLE_TRACE_LOGGING"; then
 fi
 
 dnl ========================================================
-dnl = Enable yarr regexp engine
-dnl ========================================================
-MOZ_ARG_ENABLE_BOOL(yarr,
-[  --enable-yarr   Enable yarr regexp engine],
-    ENABLE_YARR=1,
-    ENABLE_YARR= )
-
-AC_SUBST(ENABLE_YARR)
-
-if test "$ENABLE_YARR"; then
-    AC_DEFINE(JS_YARR)
-fi
-
-dnl ========================================================
 dnl = Enable any treating of compile warnings as errors
 dnl ========================================================
 MOZ_ARG_DISABLE_BOOL(warnings-as-errors,
@@ -3207,6 +3198,8 @@ MOZ_ARG_DISABLE_BOOL(gcgenerational,
 if test -n "$JSGC_GENERATIONAL"; then
     AC_DEFINE(JSGC_GENERATIONAL)
 fi
+JSGC_GENERATIONAL_CONFIGURED=$JSGC_GENERATIONAL
+AC_SUBST(JSGC_GENERATIONAL_CONFIGURED)
 
 dnl ========================================================
 dnl = Use exact stack rooting for GC

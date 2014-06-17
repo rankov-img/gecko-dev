@@ -416,6 +416,16 @@ abstract public class BrowserApp extends GeckoApp
         return values;
     }
 
+    void handleReaderRemoved(final String url) {
+        ThreadUtils.postToBackgroundThread(new Runnable() {
+            @Override
+            public void run() {
+                BrowserDB.removeReadingListItemWithURL(getContentResolver(), url);
+                showToast(R.string.page_removed, Toast.LENGTH_SHORT);
+            }
+        });
+    }
+
     private void handleReaderFaviconRequest(final String url) {
         (new UiAsyncTask<Void, Void, String>(ThreadUtils.getBackgroundHandler()) {
             @Override
@@ -477,7 +487,7 @@ abstract public class BrowserApp extends GeckoApp
             Telemetry.sendUIEvent(TelemetryContract.Event.LOAD_URL, TelemetryContract.Method.INTENT);
         }
 
-        ((GeckoApp.MainLayout) mMainLayout).setTouchEventInterceptor(new HideTabsTouchListener());
+        ((GeckoApp.MainLayout) mMainLayout).setTouchEventInterceptor(new HideOnTouchListener());
         ((GeckoApp.MainLayout) mMainLayout).setMotionEventInterceptor(new MotionEventInterceptor() {
             @Override
             public boolean onInterceptMotionEvent(View view, MotionEvent event) {
@@ -529,6 +539,7 @@ abstract public class BrowserApp extends GeckoApp
             "Menu:Add",
             "Menu:Remove",
             "Reader:ListStatusRequest",
+            "Reader:Removed",
             "Reader:Share",
             "Settings:Show",
             "Telemetry:Gather",
@@ -763,11 +774,6 @@ abstract public class BrowserApp extends GeckoApp
             return true;
         }
 
-        if (itemId == R.id.share) {
-            shareCurrentUrl();
-            return true;
-        }
-
         if (itemId == R.id.subscribe) {
             Tab tab = Tabs.getInstance().getSelectedTab();
             if (tab != null && tab.hasFeeds()) {
@@ -886,6 +892,7 @@ abstract public class BrowserApp extends GeckoApp
             "Menu:Add",
             "Menu:Remove",
             "Reader:ListStatusRequest",
+            "Reader:Removed",
             "Reader:Share",
             "Settings:Show",
             "Telemetry:Gather",
@@ -1215,6 +1222,10 @@ abstract public class BrowserApp extends GeckoApp
 
         } else if ("Reader:ListStatusRequest".equals(event)) {
             handleReaderListStatusRequest(message.getString("url"));
+
+        } else if ("Reader:Removed".equals(event)) {
+            final String url = message.getString("url");
+            handleReaderRemoved(url);
 
         } else if ("Reader:Share".equals(event)) {
             final String title = message.getString("title");
@@ -1974,11 +1985,20 @@ abstract public class BrowserApp extends GeckoApp
         mBrowserSearch.setUserVisibleHint(false);
     }
 
-    private class HideTabsTouchListener implements TouchEventInterceptor {
+    /**
+     * Hides certain UI elements (e.g. button toast, tabs tray) when the
+     * user touches the main layout.
+     */
+    private class HideOnTouchListener implements TouchEventInterceptor {
         private boolean mIsHidingTabs = false;
 
         @Override
         public boolean onInterceptTouchEvent(View view, MotionEvent event) {
+            // Only try to hide the button toast if it's already inflated.
+            if (mToast != null) {
+                mToast.hide(false, ButtonToast.ReasonHidden.TOUCH_OUTSIDE);
+            }
+
             // We need to account for scroll state for the touched view otherwise
             // tapping on an "empty" part of the view will still be considered a
             // valid touch event.
@@ -2320,10 +2340,9 @@ abstract public class BrowserApp extends GeckoApp
         }
 
         // Disable share menuitem for about:, chrome:, file:, and resource: URIs
-        String scheme = Uri.parse(url).getScheme();
-        share.setVisible(!GeckoProfile.get(this).inGuestMode());
-        share.setEnabled(!(scheme.equals("about") || scheme.equals("chrome") ||
-                           scheme.equals("file") || scheme.equals("resource")));
+        final boolean inGuestMode = GeckoProfile.get(this).inGuestMode();
+        share.setVisible(!inGuestMode);
+        share.setEnabled(StringUtils.isShareableUrl(url) && !inGuestMode);
 
         // NOTE: Use MenuUtils.safeSetEnabled because some actions might
         // be on the BrowserToolbar context menu
@@ -2617,9 +2636,24 @@ abstract public class BrowserApp extends GeckoApp
      */
     @Override
     protected void onNewIntent(Intent intent) {
-        super.onNewIntent(intent);
-
         String action = intent.getAction();
+
+        final boolean isViewAction = Intent.ACTION_VIEW.equals(action);
+        final boolean isBookmarkAction = GeckoApp.ACTION_BOOKMARK.equals(action);
+
+        if (mInitialized && (isViewAction || isBookmarkAction)) {
+            // Dismiss editing mode if the user is loading a URL from an external app.
+            mBrowserToolbar.cancelEdit();
+
+            // GeckoApp.ACTION_BOOKMARK means we're opening a bookmark that
+            // was added to Android's homescreen.
+            final TelemetryContract.Method method =
+                (isViewAction ? TelemetryContract.Method.INTENT : TelemetryContract.Method.HOMESCREEN);
+
+            Telemetry.sendUIEvent(TelemetryContract.Event.LOAD_URL, method);
+        }
+
+        super.onNewIntent(intent);
 
         if (AppConstants.MOZ_ANDROID_BEAM && Build.VERSION.SDK_INT >= 10 && NfcAdapter.ACTION_NDEF_DISCOVERED.equals(action)) {
             String uri = intent.getDataString();
@@ -2627,14 +2661,6 @@ abstract public class BrowserApp extends GeckoApp
         }
 
         if (!mInitialized) {
-            return;
-        }
-
-        if (Intent.ACTION_VIEW.equals(action)) {
-            // Dismiss editing mode if the user is loading a URL from an external app.
-            mBrowserToolbar.cancelEdit();
-
-            Telemetry.sendUIEvent(TelemetryContract.Event.LOAD_URL, TelemetryContract.Method.INTENT);
             return;
         }
 

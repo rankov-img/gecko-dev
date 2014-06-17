@@ -2455,9 +2455,9 @@ ElementRestyler::RestyleSelf(nsIFrame* aSelf, nsRestyleHint aRestyleHint)
     else {
       NS_ASSERTION(aSelf->GetContent(),
                    "non pseudo-element frame without content node");
-      // Skip flex-item style fixup for anonymous subtrees:
-      TreeMatchContext::AutoFlexOrGridItemStyleFixupSkipper
-        flexOrGridFixupSkipper(mTreeMatchContext,
+      // Skip parent display based style fixup for anonymous subtrees:
+      TreeMatchContext::AutoParentDisplayBasedStyleFixupSkipper
+        parentDisplayBasedFixupSkipper(mTreeMatchContext,
                                element->IsRootOfNativeAnonymousSubtree());
       newContext = styleSet->ResolveStyleFor(element, parentContext,
                                              mTreeMatchContext);
@@ -2936,10 +2936,9 @@ RestyleManager::ComputeStyleChangeFor(nsIFrame*          aFrame,
   TreeMatchContext treeMatchContext(true,
                                     nsRuleWalker::eRelevantLinkUnvisited,
                                     mPresContext->Document());
-  nsIContent *parent = content ? content->GetParent() : nullptr;
-  Element *parentElement =
-    parent && parent->IsElement() ? parent->AsElement() : nullptr;
-  treeMatchContext.InitAncestors(parentElement);
+  Element* parent =
+    content ? content->GetParentElementCrossingShadowRoot() : nullptr;
+  treeMatchContext.InitAncestors(parent);
   nsTArray<nsIContent*> visibleKidsOfHiddenElement;
   for (nsIFrame* ibSibling = aFrame; ibSibling;
        ibSibling = GetNextBlockInInlineSibling(propTable, ibSibling)) {

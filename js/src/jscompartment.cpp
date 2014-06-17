@@ -271,12 +271,13 @@ JSCompartment::wrap(JSContext *cx, JSString **strp)
 
     /* If the string is already in this compartment, we are done. */
     JSString *str = *strp;
-    if (str->zone() == zone())
+    if (str->zoneFromAnyThread() == zone())
         return true;
 
     /* If the string is an atom, we don't have to copy. */
     if (str->isAtom()) {
-        JS_ASSERT(cx->runtime()->isAtomsZone(str->zone()));
+        JS_ASSERT(str->isPermanentAtom() ||
+                  cx->runtime()->isAtomsZone(str->zone()));
         return true;
     }
 
@@ -401,7 +402,6 @@ JSCompartment::wrap(JSContext *cx, MutableHandleObject obj, HandleObject existin
         return true;
     }
 
-    RootedObject proto(cx, TaggedProto::LazyProto);
     RootedObject existing(cx, existingArg);
     if (existing) {
         // Is it possible to reuse |existing|?
@@ -415,7 +415,7 @@ JSCompartment::wrap(JSContext *cx, MutableHandleObject obj, HandleObject existin
         }
     }
 
-    obj.set(cb->wrap(cx, existing, obj, proto, global, flags));
+    obj.set(cb->wrap(cx, existing, obj, global, flags));
     if (!obj)
         return false;
 
@@ -612,7 +612,7 @@ JSCompartment::sweep(FreeOp *fop, bool releaseTypes)
 
 #ifdef JS_ION
         if (jitCompartment_)
-            jitCompartment_->sweep(fop);
+            jitCompartment_->sweep(fop, this);
 #endif
 
         /*

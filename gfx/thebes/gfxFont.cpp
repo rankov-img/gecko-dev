@@ -3983,7 +3983,6 @@ gfxFont::ShapeText(gfxContext      *aContext,
     if (!ok) {
         if (!mPlatformShaper) {
             CreatePlatformShaper();
-            NS_ASSERTION(mPlatformShaper, "no platform shaper available!");
         }
         if (mPlatformShaper) {
             ok = mPlatformShaper->ShapeText(aContext, aText, aOffset, aLength,
@@ -4870,6 +4869,11 @@ gfxFontGroup::ResolveGenericFontNames(FontFamilyType aGenericType,
     static const char kGeneric_monospace[] = "monospace";
     static const char kGeneric_cursive[] = "cursive";
     static const char kGeneric_fantasy[] = "fantasy";
+
+    // treat -moz-fixed as monospace
+    if (aGenericType == eFamily_moz_fixed) {
+        aGenericType = eFamily_monospace;
+    }
 
     // type should be standard generic type at this point
     NS_ASSERTION(aGenericType >= eFamily_serif &&

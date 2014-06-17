@@ -416,8 +416,7 @@ WebrtcAudioConduit::ConfigureSendMediaCodec(const AudioCodecConfig* codecConfig)
                                               codecConfig->mFreq,
                                               codecConfig->mPacSize,
                                               codecConfig->mChannels,
-                                              codecConfig->mRate,
-                                              codecConfig->mLoadManager);
+                                              codecConfig->mRate);
 
   mEngineTransmitting = true;
   return kMediaConduitNoError;
@@ -854,15 +853,15 @@ bool
 WebrtcAudioConduit::CodecConfigToWebRTCCodec(const AudioCodecConfig* codecInfo,
                                               webrtc::CodecInst& cinst)
  {
-  const unsigned int plNameLength = codecInfo->mName.length()+1;
+  const unsigned int plNameLength = codecInfo->mName.length();
   memset(&cinst, 0, sizeof(webrtc::CodecInst));
-  if(sizeof(cinst.plname) < plNameLength)
+  if(sizeof(cinst.plname) < plNameLength+1)
   {
     CSFLogError(logTag, "%s Payload name buffer capacity mismatch ",
                                                       __FUNCTION__);
     return false;
   }
-  memcpy(cinst.plname, codecInfo->mName.c_str(),codecInfo->mName.length());
+  memcpy(cinst.plname, codecInfo->mName.c_str(), plNameLength);
   cinst.plname[plNameLength]='\0';
   cinst.pltype   =  codecInfo->mType;
   cinst.rate     =  codecInfo->mRate;
@@ -910,8 +909,7 @@ WebrtcAudioConduit::CopyCodecToDB(const AudioCodecConfig* codecInfo)
                                                      codecInfo->mFreq,
                                                      codecInfo->mPacSize,
                                                      codecInfo->mChannels,
-                                                     codecInfo->mRate,
-                                                     codecInfo->mLoadManager);
+                                                     codecInfo->mRate);
   mRecvCodecList.push_back(cdcConfig);
   return true;
 }

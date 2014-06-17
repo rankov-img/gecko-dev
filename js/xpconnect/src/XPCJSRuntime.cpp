@@ -1571,8 +1571,8 @@ ReloadPrefsCallback(const char *pref, void *data)
     bool useNativeRegExp = Preferences::GetBool(JS_OPTIONS_DOT_STR "native_regexp") && !safeMode;
 
     bool parallelParsing = Preferences::GetBool(JS_OPTIONS_DOT_STR "parallel_parsing");
-    bool parallelIonCompilation = Preferences::GetBool(JS_OPTIONS_DOT_STR
-                                                       "ion.parallel_compilation");
+    bool offthreadIonCompilation = Preferences::GetBool(JS_OPTIONS_DOT_STR
+                                                       "ion.offthread_compilation");
     bool useBaselineEager = Preferences::GetBool(JS_OPTIONS_DOT_STR
                                                  "baselinejit.unsafe_eager_compilation");
     bool useIonEager = Preferences::GetBool(JS_OPTIONS_DOT_STR "ion.unsafe_eager_compilation");
@@ -1585,7 +1585,7 @@ ReloadPrefsCallback(const char *pref, void *data)
                              .setNativeRegExp(useNativeRegExp);
 
     JS_SetParallelParsingEnabled(rt, parallelParsing);
-    JS_SetParallelIonCompilationEnabled(rt, parallelIonCompilation);
+    JS_SetOffthreadIonCompilationEnabled(rt, offthreadIonCompilation);
     JS_SetGlobalJitCompilerOption(rt, JSJITCOMPILER_BASELINE_USECOUNT_TRIGGER,
                                   useBaselineEager ? 0 : -1);
     JS_SetGlobalJitCompilerOption(rt, JSJITCOMPILER_ION_USECOUNT_TRIGGER,
@@ -2322,12 +2322,6 @@ ReportJSRuntimeExplicitTreeStats(const JS::RuntimeStats &rtStats,
         KIND_HEAP, rtStats.runtime.temporary,
         "Transient data (mostly parse nodes) held by the JSRuntime during "
         "compilation.");
-
-#ifdef JS_YARR
-    RREPORT_BYTES(rtPath + NS_LITERAL_CSTRING("runtime/regexp-data"),
-        KIND_NONHEAP, rtStats.runtime.regexpData,
-        "Regexp JIT data.");
-#endif
 
     RREPORT_BYTES(rtPath + NS_LITERAL_CSTRING("runtime/interpreter-stack"),
         KIND_HEAP, rtStats.runtime.interpreterStack,
@@ -3125,8 +3119,8 @@ XPCJSRuntime::XPCJSRuntime(nsXPConnect* aXPConnect)
     const size_t kSystemCodeBuffer = 10 * 1024;
 
     // Our "default" stack is what we use in configurations where we don't have
-    // a compelling reason to do things differently. This is effectively 1MB on
-    // 32-bit platforms and 2MB on 64-bit platforms.
+    // a compelling reason to do things differently. This is effectively 512KB
+    // on 32-bit platforms and 1MB on 64-bit platforms.
     const size_t kDefaultStackQuota = 128 * sizeof(size_t) * 1024;
 
     // Set stack sizes for different configurations. It's probably not great for
@@ -3140,7 +3134,7 @@ XPCJSRuntime::XPCJSRuntime(nsXPConnect* aXPConnect)
     const size_t kTrustedScriptBuffer = 180 * 1024;
 #elif defined(MOZ_ASAN)
     // ASan requires more stack space due to red-zones, so give it double the
-    // default (2MB on 32-bit, 4MB on 64-bit). ASAN stack frame measurements
+    // default (1MB on 32-bit, 2MB on 64-bit). ASAN stack frame measurements
     // were not taken at the time of this writing, so we hazard a guess that
     // ASAN builds have roughly thrice the stack overhead as normal builds.
     // On normal builds, the largest stack frame size we might encounter is
@@ -3148,11 +3142,11 @@ XPCJSRuntime::XPCJSRuntime(nsXPConnect* aXPConnect)
     const size_t kStackQuota =  2 * kDefaultStackQuota;
     const size_t kTrustedScriptBuffer = 246 * 1024;
 #elif defined(XP_WIN)
-    // 1MB is the default stack size on Windows, so the default 1MB stack quota
-    // we'd get on win32 is slightly too large. Use 900k instead. And since
-    // windows stack frames are 3.4k each, let's use a buffer of 50k.
+    // 1MB is the default stack size on Windows, so use 900k. And since 32-bit
+    // Windows stack frames are 3.4k each, let's use a buffer of 48k and double
+    // that for 64-bit.
     const size_t kStackQuota = 900 * 1024;
-    const size_t kTrustedScriptBuffer = 50 * 1024;
+    const size_t kTrustedScriptBuffer = 12 * sizeof(size_t) * 1024;
     // The following two configurations are linux-only. Given the numbers above,
     // we use 50k and 100k trusted buffers on 32-bit and 64-bit respectively.
 #elif defined(DEBUG)

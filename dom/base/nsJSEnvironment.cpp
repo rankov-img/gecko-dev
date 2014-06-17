@@ -39,6 +39,7 @@
 #include "nsXPCOMCIDInternal.h"
 #include "nsIXULRuntime.h"
 #include "nsTextFormatter.h"
+#include "ScriptSettings.h"
 
 #include "xpcpublic.h"
 
@@ -1632,7 +1633,9 @@ nsresult
 nsJSContext::InitClasses(JS::Handle<JSObject*> aGlobalObj)
 {
   JSOptionChangedCallback(js_options_dot_str, this);
-  AutoPushJSContext cx(mContext);
+  AutoJSAPI jsapi;
+  JSContext* cx = jsapi.cx();
+  JSAutoCompartment ac(cx, aGlobalObj);
 
   // Attempt to initialize profiling functions
   ::JS_DefineProfilingFunctions(cx, aGlobalObj);
@@ -1807,6 +1810,12 @@ TimeUntilNow(TimeStamp start)
 
 struct CycleCollectorStats
 {
+  void Init()
+  {
+    Clear();
+    mMaxSliceTimeSinceClear = 0;
+  }
+
   void Clear()
   {
     mBeginSliceTime = TimeStamp();
@@ -1834,6 +1843,7 @@ struct CycleCollectorStats
     mEndSliceTime = TimeStamp::Now();
     uint32_t sliceTime = TimeBetween(mBeginSliceTime, mEndSliceTime);
     mMaxSliceTime = std::max(mMaxSliceTime, sliceTime);
+    mMaxSliceTimeSinceClear = std::max(mMaxSliceTimeSinceClear, sliceTime);
     mTotalSliceTime += sliceTime;
     mBeginSliceTime = TimeStamp();
     MOZ_ASSERT(mExtraForgetSkippableCalls == 0, "Forget to reset extra forget skippable calls?");
@@ -1865,6 +1875,9 @@ struct CycleCollectorStats
 
   // The longest pause of any slice in the current CC.
   uint32_t mMaxSliceTime;
+
+  // The longest slice time since ClearMaxCCSliceTime() was called.
+  uint32_t mMaxSliceTimeSinceClear;
 
   // The total amount of time spent actually running the current CC.
   uint32_t mTotalSliceTime;
@@ -1989,6 +2002,18 @@ nsJSContext::RunCycleCollectorWorkSlice(int64_t aWorkBudget)
   gCCStats.PrepareForCycleCollectionSlice();
   nsCycleCollector_collectSliceWork(aWorkBudget);
   gCCStats.FinishCycleCollectionSlice();
+}
+
+void
+nsJSContext::ClearMaxCCSliceTime()
+{
+  gCCStats.mMaxSliceTimeSinceClear = 0;
+}
+
+uint32_t
+nsJSContext::GetMaxCCSliceTimeSinceClear()
+{
+  return gCCStats.mMaxSliceTimeSinceClear;
 }
 
 static void
@@ -2716,7 +2741,7 @@ mozilla::dom::StartupJSEnvironment()
   sShuttingDown = false;
   sContextCount = 0;
   sSecurityManager = nullptr;
-  gCCStats.Clear();
+  gCCStats.Init();
   sExpensiveCollectorPokes = 0;
 }
 

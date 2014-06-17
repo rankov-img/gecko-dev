@@ -1805,7 +1805,7 @@ js::DecompileValueGenerator(JSContext *cx, int spindex, HandleValue v,
             return nullptr;
     }
 
-    Rooted<JSLinearString *> linear(cx, fallback->ensureLinear(cx));
+    RootedLinearString linear(cx, fallback->ensureLinear(cx));
     if (!linear)
         return nullptr;
     TwoByteChars tbchars(linear->chars(), linear->length());
@@ -1892,7 +1892,7 @@ js::DecompileArgument(JSContext *cx, int formalIndex, HandleValue v)
     if (!fallback)
         return nullptr;
 
-    Rooted<JSLinearString *> linear(cx, fallback->ensureLinear(cx));
+    RootedLinearString linear(cx, fallback->ensureLinear(cx));
     if (!linear)
         return nullptr;
     return LossyTwoByteCharsToNewLatin1CharsZ(cx, linear->range()).c_str();
@@ -2057,8 +2057,8 @@ AppendJSONProperty(StringBuffer &buf, const char *name, MaybeComma comma = COMMA
         buf.append(',');
 
     buf.append('\"');
-    buf.appendInflated(name, strlen(name));
-    buf.appendInflated("\":", 2);
+    buf.append(name, strlen(name));
+    buf.append("\":", 2);
 }
 
 static void
@@ -2234,7 +2234,7 @@ GetPCCountJSON(JSContext *cx, const ScriptAndCounts &sac, StringBuffer &buf)
             const char *name = js_CodeName[op];
             AppendJSONProperty(buf, "name");
             buf.append('\"');
-            buf.appendInflated(name, strlen(name));
+            buf.append(name, strlen(name));
             buf.append('\"');
         }
 

@@ -884,25 +884,22 @@ QueryInterface(JSContext* cx, unsigned argc, JS::Value* vp)
   return true;
 }
 
-JS::Value
+void
 GetInterfaceImpl(JSContext* aCx, nsIInterfaceRequestor* aRequestor,
-                 nsWrapperCache* aCache, nsIJSID* aIID, ErrorResult& aError)
+                 nsWrapperCache* aCache, nsIJSID* aIID,
+                 JS::MutableHandle<JS::Value> aRetval, ErrorResult& aError)
 {
   const nsID* iid = aIID->GetID();
 
   nsRefPtr<nsISupports> result;
   aError = aRequestor->GetInterface(*iid, getter_AddRefs(result));
   if (aError.Failed()) {
-    return JS::NullValue();
+    return;
   }
 
-  JS::Rooted<JS::Value> v(aCx, JSVAL_NULL);
-  if (!WrapObject(aCx, result, iid, &v)) {
+  if (!WrapObject(aCx, result, iid, aRetval)) {
     aError.Throw(NS_ERROR_FAILURE);
-    return JS::NullValue();
   }
-
-  return v;
 }
 
 bool
@@ -1838,6 +1835,7 @@ GlobalObject::GlobalObject(JSContext* aCx, JSObject* aObject)
     mCx(aCx),
     mGlobalObject(nullptr)
 {
+  MOZ_ASSERT(mCx);
   JS::Rooted<JSObject*> obj(aCx, aObject);
   if (js::IsWrapper(obj)) {
     obj = js::CheckedUnwrap(obj, /* stopAtOuter = */ false);
@@ -2440,7 +2438,7 @@ ConvertExceptionToPromise(JSContext* cx,
 
   JS_ClearPendingException(cx);
   ErrorResult rv;
-  nsRefPtr<Promise> promise = Promise::Reject(global, cx, exn, rv);
+  nsRefPtr<Promise> promise = Promise::Reject(global, exn, rv);
   if (rv.Failed()) {
     // We just give up.  Make sure to not leak memory on the
     // ErrorResult, but then just put the original exception back.

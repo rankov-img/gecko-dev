@@ -138,8 +138,12 @@ static MOZ_CONSTEXPR_VAR FloatRegister d15 = {FloatRegisters::d15};
 static const uint32_t StackAlignment = 8;
 static const uint32_t CodeAlignment = 8;
 static const bool StackKeptAligned = true;
-static const uint32_t NativeFrameSize = sizeof(void*);
-static const uint32_t AlignmentAtAsmJSPrologue = sizeof(void*);
+
+// As an invariant across architectures, within asm.js code:
+//    $sp % StackAlignment = (AsmJSSizeOfRetAddr + masm.framePushed) % StackAlignment
+// To achieve this on ARM, the first instruction of the asm.js prologue pushes
+// lr without incrementing masm.framePushed.
+static const uint32_t AsmJSSizeOfRetAddr = sizeof(void*);
 
 static const Scale ScalePointer = TimesFour;
 
@@ -984,7 +988,8 @@ class BOffImm
       : data ((offset - 8) >> 2 & 0x00ffffff)
     {
         JS_ASSERT((offset & 0x3) == 0);
-        JS_ASSERT(isInRange(offset));
+        if (!isInRange(offset))
+            CrashAtUnhandlableOOM("BOffImm");
     }
     static bool isInRange(int offset)
     {
@@ -1237,18 +1242,10 @@ class Assembler : public AssemblerShared
     // gets moved (executable copy, gc, etc.)
     struct RelativePatch
     {
-        // the offset within the code buffer where the value is loaded that
-        // we want to fix-up
-        BufferOffset offset;
         void *target;
         Relocation::Kind kind;
-        void fixOffset(ARMBuffer &m_buffer) {
-            offset = BufferOffset(offset.getOffset() + m_buffer.poolSizeBefore(offset.getOffset()));
-        }
-        RelativePatch(BufferOffset offset, void *target, Relocation::Kind kind)
-          : offset(offset),
-            target(target),
-            kind(kind)
+        RelativePatch(void *target, Relocation::Kind kind)
+            : target(target), kind(kind)
         { }
     };
 
@@ -1647,7 +1644,7 @@ class Assembler : public AssemblerShared
 
   protected:
     void addPendingJump(BufferOffset src, ImmPtr target, Relocation::Kind kind) {
-        enoughMemory_ &= jumps_.append(RelativePatch(src, target.value, kind));
+        enoughMemory_ &= jumps_.append(RelativePatch(target.value, kind));
         if (kind == Relocation::JITCODE)
             writeRelocation(src);
     }

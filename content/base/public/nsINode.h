@@ -817,6 +817,12 @@ public:
   }
 
   /**
+   * Get the parent Element of this node, traversing over a ShadowRoot
+   * to its host if necessary.
+   */
+  mozilla::dom::Element* GetParentElementCrossingShadowRoot() const;
+
+  /**
    * Get the root of the subtree this node belongs to.  This never returns
    * null.  It may return 'this' (e.g. for document nodes, and nodes that
    * are the roots of disconnected subtrees).
@@ -1344,6 +1350,8 @@ private:
     // Set if the element has a parser insertion mode other than "in body",
     // per the HTML5 "Parse state" section.
     ElementHasWeirdParserInsertionMode,
+    // Parser sets this flag if it has notified about the node.
+    ParserHasNotified,
     // Guard value
     BooleanFlagCount
   };
@@ -1484,6 +1492,8 @@ public:
   bool IsScopedStyleRoot() { return GetBoolFlag(ElementIsScopedStyleRoot); }
   bool HasRelevantHoverRules() const { return GetBoolFlag(NodeHasRelevantHoverRules); }
   void SetHasRelevantHoverRules() { SetBoolFlag(NodeHasRelevantHoverRules); }
+  void SetParserHasNotified() { SetBoolFlag(ParserHasNotified); };
+  bool HasParserNotified() { return GetBoolFlag(ParserHasNotified); }
 protected:
   void SetParentIsContent(bool aValue) { SetBoolFlag(ParentIsContent, aValue); }
   void SetInDocument() { SetBoolFlag(IsInDocument); }
@@ -1611,12 +1621,14 @@ public:
   // HasAttributes is defined inline in Element.h.
   bool HasAttributes() const;
   nsDOMAttributeMap* GetAttributes();
-  JS::Value SetUserData(JSContext* aCx, const nsAString& aKey,
-                        JS::Handle<JS::Value> aData,
-                        nsIDOMUserDataHandler* aHandler,
-                        mozilla::ErrorResult& aError);
-  JS::Value GetUserData(JSContext* aCx, const nsAString& aKey,
-                        mozilla::ErrorResult& aError);
+  void SetUserData(JSContext* aCx, const nsAString& aKey,
+                   JS::Handle<JS::Value> aData,
+                   nsIDOMUserDataHandler* aHandler,
+                   JS::MutableHandle<JS::Value> aRetval,
+                   mozilla::ErrorResult& aError);
+  void GetUserData(JSContext* aCx, const nsAString& aKey,
+                   JS::MutableHandle<JS::Value> aRetval,
+                   mozilla::ErrorResult& aError);
 
   // Helper method to remove this node from its parent. This is not exposed
   // through WebIDL.

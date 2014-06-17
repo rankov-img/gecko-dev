@@ -1573,7 +1573,7 @@ struct nsGenConInitializer {
 already_AddRefed<nsIContent>
 nsCSSFrameConstructor::CreateGenConTextNode(nsFrameConstructorState& aState,
                                             const nsString& aString,
-                                            nsCOMPtr<nsIDOMCharacterData>* aText,
+                                            nsRefPtr<nsTextNode>* aText,
                                             nsGenConInitializer* aInitializer)
 {
   nsRefPtr<nsTextNode> content = new nsTextNode(mDocument->NodeInfoManager());
@@ -1674,7 +1674,8 @@ nsCSSFrameConstructor::CreateGeneratedContent(nsFrameConstructorState& aState,
         return nullptr;
 
       nsCounterUseNode* node =
-        new nsCounterUseNode(counters, aContentIndex,
+        new nsCounterUseNode(mPresShell->GetPresContext(),
+                             counters, aContentIndex,
                              type == eStyleContentType_Counters);
 
       nsGenConInitializer* initializer =
@@ -3962,9 +3963,10 @@ nsCSSFrameConstructor::CreateAnonymousFrames(nsFrameConstructorState& aState,
     } else {
       FrameConstructionItemList items;
       {
-        // Skip flex item style-fixup during our AddFrameConstructionItems() call:
-        TreeMatchContext::AutoFlexOrGridItemStyleFixupSkipper
-          flexOrGridItemStyleFixupSkipper(aState.mTreeMatchContext);
+        // Skip parent display based style-fixup during our 
+        // AddFrameConstructionItems() call:
+        TreeMatchContext::AutoParentDisplayBasedStyleFixupSkipper
+          parentDisplayBasedStyleFixupSkipper(aState.mTreeMatchContext);
 
         AddFrameConstructionItems(aState, content, true, aParentFrame, items);
       }
@@ -8009,6 +8011,14 @@ nsCSSFrameConstructor::RecalcQuotesAndCounters()
 }
 
 void
+nsCSSFrameConstructor::NotifyCounterStylesAreDirty()
+{
+  NS_PRECONDITION(mUpdateCount != 0, "Should be in an update");
+  mCounterManager.SetAllCounterStylesDirty();
+  CountersDirty();
+}
+
+void
 nsCSSFrameConstructor::WillDestroyFrameTree()
 {
 #if defined(DEBUG_dbaron_off)
@@ -9346,8 +9356,8 @@ nsCSSFrameConstructor::AddFCItemsForAnonymousContent(
                       "Why is someone creating garbage anonymous content");
 
     nsRefPtr<nsStyleContext> styleContext;
-    TreeMatchContext::AutoFlexOrGridItemStyleFixupSkipper
-      flexOrGridItemStyleFixupSkipper(aState.mTreeMatchContext);
+    TreeMatchContext::AutoParentDisplayBasedStyleFixupSkipper
+      parentDisplayBasedStyleFixupSkipper(aState.mTreeMatchContext);
     if (aAnonymousItems[i].mStyleContext) {
       styleContext = aAnonymousItems[i].mStyleContext.forget();
     } else {

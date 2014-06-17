@@ -417,7 +417,8 @@ void MediaDecoderStateMachine::SendStreamData()
       }
       minLastAudioPacketTime = std::min(minLastAudioPacketTime, stream->mLastAudioPacketTime);
       endPosition = std::max(endPosition,
-          TicksToTimeRoundDown(mInfo.mAudio.mRate, stream->mAudioFramesWritten));
+          mediaStream->TicksToTimeRoundDown(mInfo.mAudio.mRate,
+                                            stream->mAudioFramesWritten));
     }
 
     if (mInfo.HasVideo()) {
@@ -460,7 +461,7 @@ void MediaDecoderStateMachine::SendStreamData()
         stream->mHaveSentFinishVideo = true;
       }
       endPosition = std::max(endPosition,
-          TicksToTimeRoundDown(RATE_VIDEO, stream->mNextVideoTime - stream->mInitialTime));
+          mediaStream->TicksToTimeRoundDown(RATE_VIDEO, stream->mNextVideoTime - stream->mInitialTime));
     }
 
     if (!stream->mHaveSentFinish) {
@@ -1081,8 +1082,8 @@ int64_t MediaDecoderStateMachine::GetCurrentTimeViaMediaStreamSync()
   AssertCurrentThreadInMonitor();
   NS_ASSERTION(mSyncPointInDecodedStream >= 0, "Should have set up sync point");
   DecodedStreamData* stream = mDecoder->GetDecodedStream();
-  StreamTime streamDelta = stream->GetLastOutputTime() - mSyncPointInMediaStream;
-  return mSyncPointInDecodedStream + MediaTimeToMicroseconds(streamDelta);
+  int64_t streamDelta = stream->GetLastOutputTime() - mSyncPointInMediaStream;
+  return mSyncPointInDecodedStream + streamDelta;
 }
 
 void MediaDecoderStateMachine::StartPlayback()
@@ -1963,6 +1964,25 @@ void MediaDecoderStateMachine::DecodeSeek()
       {
         ReentrantMonitorAutoExit exitMon(mDecoder->GetReentrantMonitor());
         video = mReader->FindStartTime(nextSampleStartTime);
+      }
+
+      if (seekTime > mediaTime &&
+          nextSampleStartTime < mediaTime &&
+          mSeekTarget.mType == SeekTarget::PrevSyncPoint) {
+        // We are doing a fastSeek, but we ended up *before* the previous
+        // playback position. This is surprising UX, so switch to an accurate
+        // seek and decode to the seek target. This is not conformant to the
+        // spec, fastSeek should always be fast, but until we get the time to
+        // change all Readers to seek to the keyframe after the currentTime
+        // in this case, we'll just decode forward. Bug 1026330.
+        ResetPlayback();
+        {
+          ReentrantMonitorAutoExit exitMon(mDecoder->GetReentrantMonitor());
+          res = mReader->DecodeToTarget(seekTime);
+          if (NS_SUCCEEDED(res)) {
+            video = mReader->FindStartTime(nextSampleStartTime);
+          }
+        }
       }
 
       // Setup timestamp state.

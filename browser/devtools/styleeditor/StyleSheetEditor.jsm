@@ -15,7 +15,6 @@ const require = Cu.import("resource://gre/modules/devtools/Loader.jsm", {}).devt
 const Editor  = require("devtools/sourceeditor/editor");
 const {Promise: promise} = Cu.import("resource://gre/modules/Promise.jsm", {});
 const {CssLogic} = require("devtools/styleinspector/css-logic");
-const AutoCompleter = require("devtools/sourceeditor/autocomplete");
 
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/FileUtils.jsm");
@@ -501,7 +500,7 @@ StyleSheetEditor.prototype = {
       converter.charset = "UTF-8";
       let istream = converter.convertToInputStream(this._state.text);
 
-      NetUtil.asyncCopy(istream, ostream, function onStreamCopied(status) {
+      NetUtil.asyncCopy(istream, ostream, (status) => {
         if (!Components.isSuccessCode(status)) {
           if (callback) {
             callback(null);
@@ -516,7 +515,7 @@ StyleSheetEditor.prototype = {
         if (callback) {
           callback(returnFile);
         }
-      }.bind(this));
+      });
     };
 
     let defaultName;

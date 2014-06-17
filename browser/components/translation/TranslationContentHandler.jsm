@@ -131,13 +131,21 @@ TranslationContentHandler.prototype = {
         translationDocument.translationError = false;
 
         bingTranslation.translate().then(
-          success => {
-            this.global.sendAsyncMessage("Translation:Finished", {success: true});
+          result => {
+            this.global.sendAsyncMessage("Translation:Finished", {
+              characterCount: result.characterCount,
+              from: msg.data.from,
+              to: msg.data.to,
+              success: true
+            });
             translationDocument.showTranslation();
           },
           error => {
             translationDocument.translationError = true;
-            this.global.sendAsyncMessage("Translation:Finished", {success: false});
+            let data = {success: false};
+            if (error == "unavailable")
+              data.unavailable = true;
+            this.global.sendAsyncMessage("Translation:Finished", data);
           }
         );
         break;

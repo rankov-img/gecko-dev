@@ -541,9 +541,6 @@ Assembler::finish()
     JS_ASSERT(!isFinished);
     isFinished = true;
 
-    for (size_t i = 0; i < jumps_.length(); i++)
-        jumps_[i].fixOffset(m_buffer);
-
     for (unsigned int i = 0; i < tmpDataRelocations_.length(); i++) {
         int offset = tmpDataRelocations_[i].getOffset();
         int real_offset = offset + m_buffer.poolSizeBefore(offset);
@@ -1861,7 +1858,7 @@ Assembler::as_b(Label *l, Condition c, bool isPatchable)
         // This will currently throw an assertion if we couldn't actually
         // encode the offset of the branch.
         if (!BOffImm::isInRange(old)) {
-            m_buffer.bail();
+            m_buffer.fail_bail();
             return ret;
         }
         ret = as_b(BOffImm(old), c, isPatchable);
@@ -1923,7 +1920,7 @@ Assembler::as_bl(Label *l, Condition c)
         // encode the offset of the branch.
         old = l->offset();
         if (!BOffImm::isInRange(old)) {
-            m_buffer.bail();
+            m_buffer.fail_bail();
             return ret;
         }
         ret = as_bl(BOffImm(old), c);

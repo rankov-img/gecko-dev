@@ -85,6 +85,12 @@
                           oncommand="document.getBindingParent(this).translate();"/>
             </xul:hbox>
 
+            <!-- unavailable -->
+            <xul:vbox class="translation-unavailable" pack="center">
+              <xul:label class="translate-infobar-element"
+                         value="&translation.serviceUnavailable.label;"/>
+            </xul:vbox>
+
           </xul:deck>
           <xul:spacer flex="1"/>
 
@@ -134,6 +140,9 @@
           }
           this.setAttribute("state", stateName);
 
+          if (val == Translation.STATE_TRANSLATED)
+            this._handleButtonHiding();
+
           deck.selectedIndex = val;
           ]]>
         </setter>
@@ -143,6 +152,11 @@
         <parameter name="aTranslation"/>
         <body>
           <![CDATA[
+            if (Translation.serviceUnavailable) {
+              this.state = Translation.STATE_UNAVAILABLE;
+              return;
+            }
+
             this.translation = aTranslation;
             let bundle = Cc["@mozilla.org/intl/stringbundle;1"]
                            .getService(Ci.nsIStringBundleService)
@@ -172,8 +186,6 @@
 
             if (aTranslation.state)
               this.state = aTranslation.state;
-
-            this._handleButtonHiding(aTranslation.originalShown);
           ]]>
         </body>
       </method>
@@ -195,7 +207,6 @@
                 Translation.defaultTargetLanguage;
             }
 
-            this._handleButtonHiding(false);
             this.translation.translate(this._getAnonElt("fromLanguage").value,
                                        this._getAnonElt("toLanguage").value);
           ]]>
@@ -203,11 +214,11 @@
       </method>
 
       <method name="_handleButtonHiding">
-        <parameter name="aOriginalShown"/>
         <body>
           <![CDATA[
-            this._getAnonElt("showOriginal").hidden = aOriginalShown;
-            this._getAnonElt("showTranslation").hidden = !aOriginalShown;
+            let originalShown = this.translation.originalShown;
+            this._getAnonElt("showOriginal").hidden = originalShown;
+            this._getAnonElt("showTranslation").hidden = !originalShown;
           ]]>
         </body>
       </method>
@@ -215,8 +226,8 @@
       <method name="showOriginal">
         <body>
           <![CDATA[
-            this._handleButtonHiding(true);
             this.translation.showOriginalContent();
+            this._handleButtonHiding();
           ]]>
         </body>
       </method>
@@ -224,8 +235,8 @@
       <method name="showTranslation">
         <body>
           <![CDATA[
-            this._handleButtonHiding(false);
             this.translation.showTranslatedContent();
+            this._handleButtonHiding();
           ]]>
         </body>
       </method>

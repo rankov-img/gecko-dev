@@ -606,14 +606,14 @@ AsyncPanZoomController::GetSharedFrameMetricsCompositor()
 }
 
 already_AddRefed<GeckoContentController>
-AsyncPanZoomController::GetGeckoContentController() {
+AsyncPanZoomController::GetGeckoContentController() const {
   MonitorAutoLock lock(mRefPtrMonitor);
   nsRefPtr<GeckoContentController> controller = mGeckoContentController;
   return controller.forget();
 }
 
 already_AddRefed<GestureEventListener>
-AsyncPanZoomController::GetGestureEventListener() {
+AsyncPanZoomController::GetGestureEventListener() const {
   MonitorAutoLock lock(mRefPtrMonitor);
   nsRefPtr<GestureEventListener> listener = mGestureEventListener;
   return listener.forget();
@@ -1842,6 +1842,11 @@ bool AsyncPanZoomController::IsPannable() const {
   return mX.CanScroll() || mY.CanScroll();
 }
 
+int32_t AsyncPanZoomController::GetLastTouchIdentifier() const {
+  nsRefPtr<GestureEventListener> listener = GetGestureEventListener();
+  return listener ? listener->GetLastTouchIdentifier() : -1;
+}
+
 void AsyncPanZoomController::RequestContentRepaint() {
   RequestContentRepaint(mFrameMetrics);
 }
@@ -2261,13 +2266,16 @@ void AsyncPanZoomController::NotifyLayersUpdated(const FrameMetrics& aLayerMetri
     mFrameMetrics.mHasScrollgrab = aLayerMetrics.mHasScrollgrab;
 
     if (scrollOffsetUpdated) {
-      CancelAnimation();
-
       APZC_LOG("%p updating scroll offset from (%f, %f) to (%f, %f)\n", this,
         mFrameMetrics.GetScrollOffset().x, mFrameMetrics.GetScrollOffset().y,
         aLayerMetrics.GetScrollOffset().x, aLayerMetrics.GetScrollOffset().y);
 
       mFrameMetrics.CopyScrollInfoFrom(aLayerMetrics);
+
+      // Cancel the animation (which will also trigger a repaint request)
+      // after we update the scroll offset above. Otherwise we can be left
+      // in a state where things are out of sync.
+      CancelAnimation();
 
       // Because of the scroll offset update, any inflight paint requests are
       // going to be ignored by layout, and so mLastDispatchedPaintMetrics

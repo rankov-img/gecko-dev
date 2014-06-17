@@ -116,6 +116,7 @@ let UI = {
         this.updateTitle();
         this.updateCommands();
         this.updateProjectButton();
+        this.updateProjectEditorHeader();
         break;
     };
   },
@@ -157,15 +158,18 @@ let UI = {
   unbusy: function() {
     document.querySelector("window").classList.remove("busy")
     this.updateCommands();
+    this._busyPromise = null;
   },
 
   busyUntil: function(promise, operationDescription) {
     // Freeze the UI until the promise is resolved. A 30s timeout
     // will unfreeze the UI, just in case the promise never gets
     // resolved.
+    this._busyPromise = promise;
     let timeout = setTimeout(() => {
       this.unbusy();
       UI.reportError("error_operationTimeout", operationDescription);
+      promise.reject("promise timeout: " + operationDescription);
     }, 30000);
     this.busy();
     promise.then(() => {
@@ -287,6 +291,25 @@ let UI = {
     return this.projecteditor.loaded;
   },
 
+  updateProjectEditorHeader: function() {
+    let project = AppManager.selectedProject;
+    if (!project || !this.projecteditor) {
+      return;
+    }
+    let status = project.validationStatus || "unknown";
+    if (status == "error warning") {
+      status = "error";
+    }
+    this.getProjectEditor().then((projecteditor) => {
+      projecteditor.setProjectToAppPath(project.location, {
+        name: project.name,
+        iconUrl: project.icon,
+        projectOverviewURL: "chrome://webide/content/details.xhtml",
+        validationStatus: status
+      });
+    }, console.error);
+  },
+
   isProjectEditorEnabled: function() {
     return Services.prefs.getBoolPref("devtools.webide.showProjectEditor");
   },
@@ -330,12 +353,8 @@ let UI = {
     detailsIframe.setAttribute("hidden", "true");
     projecteditorIframe.removeAttribute("hidden");
 
-    this.getProjectEditor().then((projecteditor) => {
-      projecteditor.setProjectToAppPath(project.location, {
-        name: project.name,
-        iconUrl: project.icon,
-        projectOverviewURL: "chrome://webide/content/details.xhtml"
-      });
+    this.getProjectEditor().then(() => {
+      this.updateProjectEditorHeader();
     }, console.error);
 
     if (project.location) {
