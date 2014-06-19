@@ -2188,7 +2188,7 @@ LIRGenerator::visitInterruptCheck(MInterruptCheck *ins)
     // Implicit interrupt checks require asm.js signal handlers to be
     // installed. ARM does not yet use implicit interrupt checks, see
     // bug 864220.
-#ifndef JS_CODEGEN_ARM
+#if !defined(JS_CODEGEN_ARM) && !defined(JS_CODEGEN_MIPS)
     if (GetIonContext()->runtime->signalHandlersInstalled()) {
         LInterruptCheckImplicit *lir = new(alloc()) LInterruptCheckImplicit();
         return add(lir, ins) && assignSafepoint(lir, ins);
