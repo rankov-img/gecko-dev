@@ -6482,7 +6482,7 @@ GenerateOOLConvert(ModuleCompiler &m, RetType retType, Label *throwLabel)
     // the stack usage here needs to kept in sync with GenerateFFIIonExit.
 
     // Store value
-    unsigned offsetToArgv = StackArgBytes(callArgTypes) + MaybeRetAddr;
+    unsigned offsetToArgv = AlignBytes(StackArgBytes(callArgTypes) + MaybeRetAddr, StackAlignment);
     masm.storeValue(JSReturnOperand, Address(StackPointer, offsetToArgv));
 
     Register scratch = ABIArgGenerator::NonArgReturnVolatileReg0;
@@ -6573,8 +6573,9 @@ GenerateFFIIonExit(ModuleCompiler &m, const ModuleCompiler::ExitDescriptor &exit
     MIRType typeArray[] = { MIRType_Pointer, MIRType_Pointer }; // cx, argv
     MIRTypeVector callArgTypes(m.cx());
     callArgTypes.infallibleAppend(typeArray, ArrayLength(typeArray));
-    unsigned oolExtraBytes = sizeof(Value) + MaybeRetAddr;
-    unsigned stackDecForOOLCall = StackDecrementForCall(masm, callArgTypes, oolExtraBytes);
+    unsigned offsetToOOLArgv = AlignBytes(StackArgBytes(callArgTypes) + MaybeRetAddr,
+                                          StackAlignment);
+    unsigned stackDecForOOLCall = StackDecrementForCall(masm, offsetToOOLArgv + sizeof(Value));
 
     // Allocate a frame large enough for both of the above calls.
     unsigned stackDec = Max(stackDecForIonCall, stackDecForOOLCall);
