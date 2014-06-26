@@ -1,4 +1,4 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
+/* -*- indent-tabs-mode: nil; js-indent-level: 2 -*-
  * vim: sw=2 ts=2 sts=2 et filetype=javascript
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
@@ -283,28 +283,6 @@ MmsConnection.prototype = {
     Services.obs.addObserver(this, kNetworkConnStateChangedTopic,
                              false);
     Services.obs.addObserver(this, NS_XPCOM_SHUTDOWN_OBSERVER_ID, false);
-
-    this.connected = this.radioInterface.getDataCallStateByType("mms") ==
-      Ci.nsINetworkInterface.NETWORK_STATE_CONNECTED;
-    // If the MMS network is connected during the initialization, it means the
-    // MMS network must share the same APN with the mobile network by default.
-    // Under this case, |networkManager.active| should keep the mobile network,
-    // which is supposed be an instance of |nsIRilNetworkInterface| for sure.
-    if (this.connected) {
-      let networkManager =
-        Cc["@mozilla.org/network/manager;1"].getService(Ci.nsINetworkManager);
-      let activeNetwork = networkManager.active;
-
-      let rilNetwork = activeNetwork.QueryInterface(Ci.nsIRilNetworkInterface);
-      if (rilNetwork.serviceId != this.serviceId) {
-        if (DEBUG) debug("Sevice ID between active/MMS network doesn't match.");
-        return;
-      }
-
-      // Set up the MMS APN setting based on the connected MMS network,
-      // which is going to be used for the HTTP requests later.
-      this.setApnSetting(rilNetwork);
-    }
   },
 
   /**
@@ -328,14 +306,24 @@ MmsConnection.prototype = {
    * @see nsIDOMMozCdmaIccInfo
    */
   getPhoneNumber: function() {
-    let iccInfo = this.radioInterface.rilContext.iccInfo;
-
-    if (!iccInfo) {
+    let number;
+    // Get the proper IccInfo based on the current card type.
+    try {
+      let iccInfo = null;
+      let baseIccInfo = this.radioInterface.rilContext.iccInfo;
+      if (baseIccInfo.iccType === 'ruim' || baseIccInfo.iccType === 'csim') {
+        iccInfo = baseIccInfo.QueryInterface(Ci.nsIDOMMozCdmaIccInfo);
+        number = iccInfo.mdn;
+      } else {
+        iccInfo = baseIccInfo.QueryInterface(Ci.nsIDOMMozGsmIccInfo);
+        number = iccInfo.msisdn;
+      }
+    } catch (e) {
+      if (DEBUG) {
+       debug("Exception - QueryInterface failed on iccinfo for GSM/CDMA info");
+      }
       return null;
     }
-
-    let number = (iccInfo instanceof Ci.nsIDOMMozGsmIccInfo)
-               ? iccInfo.msisdn : iccInfo.mdn;
 
     // Workaround an xpconnect issue with undefined string objects.
     // See bug 808220
@@ -463,15 +451,13 @@ MmsConnection.prototype = {
 
         // Check if the network state change belongs to this service.
         let network = subject.QueryInterface(Ci.nsIRilNetworkInterface);
-        if (network.serviceId != this.serviceId) {
+        if (network.serviceId != this.serviceId ||
+            network.type != Ci.nsINetworkInterface.NETWORK_TYPE_MOBILE_MMS) {
           return;
         }
 
-        // We only need to capture the state change of MMS network. Using
-        // |network.state| isn't reliable due to the possibilty of shared APN.
         let connected =
-          this.radioInterface.getDataCallStateByType("mms") ==
-            Ci.nsINetworkInterface.NETWORK_STATE_CONNECTED;
+          network.state == Ci.nsINetworkInterface.NETWORK_STATE_CONNECTED;
 
         // Return if the MMS network state doesn't change, where the network
         // state change can come from other non-MMS networks.
@@ -1135,8 +1121,8 @@ function SendTransaction(mmsConnection, cancellableId, msg, requestDeliveryRepor
   // Insert Phone number if available.
   // Otherwise, Let MMS Proxy Relay insert from address automatically for us.
   let phoneNumber = mmsConnection.getPhoneNumber();
-  msg.headers["from"] = (phoneNumber) ?
-                          { address: phoneNumber, type: "PLMN" } : null;
+  let from = (phoneNumber) ? { address: phoneNumber, type: "PLMN" } : null;
+  msg.headers["from"] = from;
 
   msg.headers["date"] = new Date();
   msg.headers["x-mms-message-class"] = "personal";
@@ -1433,8 +1419,8 @@ function ReadRecTransaction(mmsConnection, messageID, toAddress) {
   // Insert Phone number if available.
   // Otherwise, Let MMS Proxy Relay insert from address automatically for us.
   let phoneNumber = mmsConnection.getPhoneNumber();
-  headers["from"] = (phoneNumber) ?
-                      { address: phoneNumber, type: "PLMN" } : null;
+  let from = (phoneNumber) ? { address: phoneNumber, type: "PLMN" } : null;
+  headers["from"] = from;
   headers["x-mms-read-status"] = MMS.MMS_PDU_READ_STATUS_READ;
 
   this.istream = MMS.PduHelper.compose(null, {headers: headers});

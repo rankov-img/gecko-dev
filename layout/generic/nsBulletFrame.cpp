@@ -302,7 +302,7 @@ nsBulletFrame::PaintBullet(nsRenderingContext& aRenderingContext, nsPoint aPt,
         nsRect dest(mPadding.left, mPadding.top,
                     mRect.width - (mPadding.left + mPadding.right),
                     mRect.height - (mPadding.top + mPadding.bottom));
-        nsLayoutUtils::DrawSingleImage(&aRenderingContext,
+        nsLayoutUtils::DrawSingleImage(&aRenderingContext, PresContext(),
              imageCon, nsLayoutUtils::GetGraphicsFilterForFrame(this),
              dest + aPt, aDirtyRect, nullptr, aFlags);
         return;
@@ -781,11 +781,11 @@ nsBulletFrame::GetImage() const
 }
 
 nscoord
-nsBulletFrame::GetBaseline() const
+nsBulletFrame::GetLogicalBaseline(WritingMode aWritingMode) const
 {
   nscoord ascent = 0, bottomPadding;
   if (GetStateBits() & BULLET_FRAME_IMAGE_LOADING) {
-    ascent = GetRect().height;
+    ascent = BSize(aWritingMode);
   } else {
     nsRefPtr<nsFontMetrics> fm;
     nsLayoutUtils::GetFontMetricsForFrame(this, getter_AddRefs(fm),
@@ -820,7 +820,8 @@ nsBulletFrame::GetBaseline() const
         break;
     }
   }
-  return ascent + GetUsedBorderAndPadding().top;
+  return ascent +
+    GetLogicalUsedMargin(aWritingMode).BStart(aWritingMode);
 }
 
 void
