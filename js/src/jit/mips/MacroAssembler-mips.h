@@ -1192,7 +1192,16 @@ public:
 
     void checkStackAlignment();
 
-    void alignPointerUp(Register src, Register dest, uint32_t alignment);
+    void alignStack();
+    void restoreStackAlignment();
+    static void calculateAlignedStackPointer(void **stackPointer);
+
+    void alignStackForDoubleData() {
+        alignStack();
+    }
+    void restoreStackAlignedForDoubleData() {
+        restoreStackAlignment();
+    }
 
     void rshiftPtr(Imm32 imm, Register dest) {
         ma_srl(dest, dest, imm);

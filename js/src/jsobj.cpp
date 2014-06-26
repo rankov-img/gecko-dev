@@ -5621,18 +5621,8 @@ js::PrimitiveToObject(JSContext *cx, const Value &v)
         return StringObject::create(cx, str);
     }
 
-// :TODO: (Bug 1007156) This is temporary fix for unaligned access to Value
-// To fix this properly arguments part of VMFunction will have to be redesigned.
-#ifdef JS_CODEGEN_MIPS
-    if (v.isNumber()) {
-        Value val;
-        memcpy(&val, &v, sizeof(Value));
-        return NumberObject::create(cx, val.toNumber());
-    }
-#else
     if (v.isNumber())
         return NumberObject::create(cx, v.toNumber());
-#endif
 
     JS_ASSERT(v.isBoolean());
     return BooleanObject::create(cx, v.toBoolean());

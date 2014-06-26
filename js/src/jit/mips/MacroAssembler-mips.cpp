@@ -3192,11 +3192,18 @@ MacroAssemblerMIPSCompat::checkStackAlignment()
 }
 
 void
-MacroAssemblerMIPSCompat::alignPointerUp(Register src, Register dest, uint32_t alignment)
+MacroAssemblerMIPSCompat::alignStack()
 {
-    MOZ_ASSERT(alignment > 1);
-    ma_addu(dest, src, Imm32(alignment - 1));
-    ma_and(dest, dest, Imm32(~(alignment - 1)));
+    movePtr(StackPointer, SecondScratchReg);
+    subPtr(Imm32(sizeof(uintptr_t)), StackPointer);
+    andPtr(Imm32(~(StackAlignment - 1)), StackPointer);
+    storePtr(SecondScratchReg, Address(StackPointer, 0));
+}
+
+void
+MacroAssemblerMIPSCompat::restoreStackAlignment()
+{
+    loadPtr(Address(StackPointer, 0), StackPointer);
 }
 
 void
