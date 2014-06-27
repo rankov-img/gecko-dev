@@ -74,7 +74,75 @@ FloatRegisters::FromName(const char *name)
     return Invalid;
 }
 
+FloatRegister
+FloatRegister::doubleOverlay(unsigned int which) const
+{
+    MOZ_ASSERT(!isInvalid());
+    if (kind_ != Double)
+        return FloatRegister(code_ & ~1, Double);
+    return *this;
+}
 
+FloatRegister
+FloatRegister::singleOverlay(unsigned int which) const
+{
+    MOZ_ASSERT(!isInvalid());
+    if (kind_ == Double) {
+        // Only even registers are double
+        MOZ_ASSERT(code_ % 2 == 0);
+        MOZ_ASSERT(which < 2);
+        return FloatRegister(code_ + which, Single);
+    }
+    MOZ_ASSERT(which == 0);
+    return FloatRegister(code_, Single);
+}
+
+FloatRegisterSet
+FloatRegister::ReduceSetForPush(const FloatRegisterSet &s)
+{
+    FloatRegisterSet mod;
+    for (TypedRegisterIterator<FloatRegister> iter(s); iter.more(); iter++) {
+        if ((*iter).isSingle()) {
+            // add in just this float
+            mod.addUnchecked(*iter);
+        } else if ((*iter).id() & 1 == 0) {
+            // a double with an overlay, add in both floats
+            mod.addUnchecked((*iter).singleOverlay(0));
+            mod.addUnchecked((*iter).singleOverlay(1));
+        } else {
+            // add in the lone double
+            mod.addUnchecked(*iter);
+        }
+    }
+    return mod;
+}
+
+uint32_t
+FloatRegister::GetSizeInBytes(const FloatRegisterSet &s)
+{
+    uint64_t bits = s.bits();
+    uint32_t ret = mozilla::CountPopulation32(bits&0xffffffff) * sizeof(float);
+    ret +=  mozilla::CountPopulation32(bits >> 32) * sizeof(double);
+    return ret;
+}
+uint32_t
+FloatRegister::GetPushSizeInBytes(const FloatRegisterSet &s)
+{
+    FloatRegisterSet ss = s.reduceSetForPush();
+    uint64_t bits = ss.bits();
+    uint32_t ret = mozilla::CountPopulation32(bits&0xffffffff) * sizeof(float);
+    ret +=  mozilla::CountPopulation32(bits >> 32) * sizeof(double);
+    return ret;
+}
+uint32_t
+FloatRegister::getRegisterDumpOffsetInBytes()
+{
+    if (isSingle())
+        return id() * sizeof(float);
+    if (isDouble())
+        return id() * sizeof(double);
+    MOZ_ASSUME_UNREACHABLE();
+}
 
 } // namespace ion
 } // namespace js

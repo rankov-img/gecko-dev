@@ -269,8 +269,6 @@ class FloatRegisters
     static const Code Invalid = invalid_freg;
 
     static const uint32_t Total = 32;
-    // :TODO: (Bug 972836) // Fix this once odd regs can be used as float32
-    // only. For now we don't allocate odd regs for O32 ABI.
     static const uint32_t Allocatable = 14;
 
     static const uint32_t AllMask = 0xffffffff;
@@ -296,8 +294,8 @@ class FloatRegisters
 
     static const uint32_t WrapperMask = VolatileMask;
 
-    // :TODO: (Bug 972836) // Fix this once odd regs can be used as float32
-    // only. For now we don't allocate odd regs for O32 ABI.
+    // Only create mask for double registers. Float32 registers will be
+    // handled trough aliassing API.
     static const uint32_t NonAllocatableMask =
         (1 << FloatRegisters::f1) |
         (1 << FloatRegisters::f3) |
@@ -323,10 +321,167 @@ class FloatRegisters
     static const uint32_t TempMask = VolatileMask & ~NonAllocatableMask;
 
     static const uint32_t AllocatableMask = AllMask & ~NonAllocatableMask;
+
+    typedef uint32_t SetType;
+};
+
+template <typename T>
+class TypedRegisterSet;
+
+class FloatRegister
+{
+  public:
+    enum RegType {
+        Single = 0x0,
+        Double = 0x1,
+    };
+
+    typedef FloatRegisters Codes;
+    typedef Codes::Code Code;
+
+  protected:
+    RegType kind_ : 1;
+  public:
+    Code code_ : 6;
+  protected:
+
+  public:
+    MOZ_CONSTEXPR FloatRegister(uint32_t code, RegType kind = Double)
+      : kind_(kind), code_ (Code(code))
+    { }
+    MOZ_CONSTEXPR FloatRegister()
+      : kind_(Double), code_(Code(FloatRegisters::invalid_freg))
+    { }
+
+    bool operator==(const FloatRegister &other) const {
+        JS_ASSERT(!isInvalid());
+        JS_ASSERT(!other.isInvalid());
+        return kind_ == other.kind_ && code_ == other.code_;
+    }
+    bool isDouble() const { return kind_ == Double; }
+    bool isSingle() const { return kind_ == Single; }
+    bool isFloat() const { return (kind_ == Double) || (kind_ == Single); }
+    bool equiv(FloatRegister other) const { return other.kind_ == kind_; }
+    size_t size() const { return (kind_ == Double) ? 8 : 4; }
+    bool isInvalid() const {
+        return code_ == FloatRegisters::invalid_freg;
+    }
+
+    FloatRegister doubleOverlay(unsigned int which = 0) const;
+    FloatRegister singleOverlay(unsigned int which = 0) const;
+    FloatRegister sintOverlay(unsigned int which = 0) const;
+    FloatRegister uintOverlay(unsigned int which = 0) const;
+
+    Code code() const {
+        JS_ASSERT(!isInvalid());
+        JS_ASSERT(isFloat());
+        return Code(code_);
+    }
+    uint32_t id() const {
+        return code_;
+    }
+    static FloatRegister FromCode(uint32_t i) {
+        uint32_t code = i & 31;
+        return FloatRegister(code, Double);
+    }
+    bool volatile_() const {
+        if (isDouble())
+            return !!(code_ & FloatRegisters::VolatileMask);
+        return !!((code_ & ~1) & FloatRegisters::VolatileMask);
+    }
+    const char *name() const {
+        return FloatRegisters::GetName(code_);
+    }
+    bool operator != (const FloatRegister &other) const {
+        return other.kind_ != kind_ || code_ != other.code_;
+    }
+    bool aliases(const FloatRegister &other) {
+        if (kind_ == other.kind_)
+            return code_ == other.code_;
+        return doubleOverlay() == other.doubleOverlay();
+    }
+    uint32_t numAliased() const {
+        return 1;
+#ifdef EVERYONE_KNOWS_ABOUT_ALIASING
+        if (isDouble()) {
+            MOZ_ASSERT((code_ & 1) == 0);
+            return 3;
+        }
+        return 2;
+#endif
+    }
+    void aliased(uint32_t aliasIdx, FloatRegister *ret) {
+        if (aliasIdx == 0) {
+            *ret = *this;
+            return;
+        }
+        if (isDouble()) {
+            MOZ_ASSERT((code_ & 1) == 0);
+            MOZ_ASSERT(aliasIdx <= 2);
+            *ret = singleOverlay(aliasIdx - 1);
+            return;
+        }
+        MOZ_ASSERT(aliasIdx == 1);
+        *ret = doubleOverlay(aliasIdx - 1);
+    }
+    uint32_t numAlignedAliased() const {
+        if (isDouble()) {
+            MOZ_ASSERT((code_ & 1) == 0);
+            return 2;
+        }
+        // f1-float32 has 0 other aligned aliases, 1 total.
+        // s0-float32 has 1 other aligned alias, 2 total.
+        return 2 - (code_ & 1);
+    }
+    // |        f0-double        |
+    // | f0-float32 | f1-float32 |
+    // if we've stored f0-float32 and f1-float32 in memory, we also want to
+    // say that f0-double is stored there, but it is only stored at the
+    // location where it is aligned e.g. at f0-float32, not f1-float32.
+    void alignedAliased(uint32_t aliasIdx, FloatRegister *ret) {
+        if (aliasIdx == 0) {
+            *ret = *this;
+            return;
+        }
+        JS_ASSERT(aliasIdx == 1);
+        if (isDouble()) {
+            MOZ_ASSERT((code_ & 1) == 0);
+            *ret = singleOverlay(aliasIdx - 1);
+            return;
+        }
+        MOZ_ASSERT((code_ & 1) == 0);
+        *ret = doubleOverlay(aliasIdx - 1);
+        return;
+    }
+    typedef FloatRegisters::SetType SetType;
+    static uint32_t SetSize(SetType x) {
+        static_assert(sizeof(SetType) == 4, "SetType must be 32 bits");
+        return mozilla::CountPopulation32(x);
+    }
+    static Code FromName(const char *name) {
+        return FloatRegisters::FromName(name);
+    }
+    static TypedRegisterSet<FloatRegister> ReduceSetForPush(const TypedRegisterSet<FloatRegister> &s);
+    static uint32_t GetSizeInBytes(const TypedRegisterSet<FloatRegister> &s);
+    static uint32_t GetPushSizeInBytes(const TypedRegisterSet<FloatRegister> &s);
+    uint32_t getRegisterDumpOffsetInBytes();
+
 };
 
 uint32_t GetMIPSFlags();
 bool hasFPU();
+
+// MIPS doesn't have double registers that can NOT be treated as float32.
+static bool hasUnaliasedDouble() {
+    return false;
+}
+
+// On MIPS, fn-double aliases both fn-float32 and fn+1-float32, so if you need
+// to convert a float32 to a double as a temporary, you need a temporary
+// double register.
+static bool hasMultiAlias() {
+    return true;
+}
 
 } // namespace jit
 } // namespace js

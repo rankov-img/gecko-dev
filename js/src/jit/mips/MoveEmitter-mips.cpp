@@ -83,7 +83,7 @@ MoveEmitterMIPS::breakCycle(const MoveOperand &from, const MoveOperand &to, Move
     switch (type) {
       case MoveOp::FLOAT32:
         if (to.isMemory()) {
-            FloatRegister temp = ScratchFloatReg;
+            FloatRegister temp = ScratchFloat32Reg;
             masm.loadFloat32(getAdjustedAddress(to), temp);
             masm.storeFloat32(temp, cycleSlot());
         } else {
@@ -92,7 +92,7 @@ MoveEmitterMIPS::breakCycle(const MoveOperand &from, const MoveOperand &to, Move
         break;
       case MoveOp::DOUBLE:
         if (to.isMemory()) {
-            FloatRegister temp = ScratchFloatReg;
+            FloatRegister temp = ScratchDoubleReg;
             masm.loadDouble(getAdjustedAddress(to), temp);
             masm.storeDouble(temp, cycleSlot());
         } else {
@@ -129,7 +129,7 @@ MoveEmitterMIPS::completeCycle(const MoveOperand &from, const MoveOperand &to, M
     switch (type) {
       case MoveOp::FLOAT32:
         if (to.isMemory()) {
-            FloatRegister temp = ScratchFloatReg;
+            FloatRegister temp = ScratchFloat32Reg;
             masm.loadFloat32(cycleSlot(), temp);
             masm.storeFloat32(temp, getAdjustedAddress(to));
         } else {
@@ -138,7 +138,7 @@ MoveEmitterMIPS::completeCycle(const MoveOperand &from, const MoveOperand &to, M
         break;
       case MoveOp::DOUBLE:
         if (to.isMemory()) {
-            FloatRegister temp = ScratchFloatReg;
+            FloatRegister temp = ScratchDoubleReg;
             masm.loadDouble(cycleSlot(), temp);
             masm.storeDouble(temp, getAdjustedAddress(to));
         } else {
@@ -202,9 +202,9 @@ MoveEmitterMIPS::emitMove(const MoveOperand &from, const MoveOperand &to)
 void
 MoveEmitterMIPS::emitFloat32Move(const MoveOperand &from, const MoveOperand &to)
 {
-    // Ensure that we can use ScratchFloatReg in memory move.
-    MOZ_ASSERT_IF(from.isFloatReg(), from.floatReg() != ScratchFloatReg);
-    MOZ_ASSERT_IF(to.isFloatReg(), to.floatReg() != ScratchFloatReg);
+    // Ensure that we can use ScratchFloat32Reg in memory move.
+    MOZ_ASSERT_IF(from.isFloatReg(), from.floatReg() != ScratchFloat32Reg);
+    MOZ_ASSERT_IF(to.isFloatReg(), to.floatReg() != ScratchFloat32Reg);
 
     if (from.isFloatReg()) {
         if (to.isFloatReg()) {
@@ -228,17 +228,17 @@ MoveEmitterMIPS::emitFloat32Move(const MoveOperand &from, const MoveOperand &to)
     } else {
         MOZ_ASSERT(from.isMemory());
         MOZ_ASSERT(to.isMemory());
-        masm.loadFloat32(getAdjustedAddress(from), ScratchFloatReg);
-        masm.storeFloat32(ScratchFloatReg, getAdjustedAddress(to));
+        masm.loadFloat32(getAdjustedAddress(from), ScratchFloat32Reg);
+        masm.storeFloat32(ScratchFloat32Reg, getAdjustedAddress(to));
     }
 }
 
 void
 MoveEmitterMIPS::emitDoubleMove(const MoveOperand &from, const MoveOperand &to)
 {
-    // Ensure that we can use ScratchFloatReg in memory move.
-    MOZ_ASSERT_IF(from.isFloatReg(), from.floatReg() != ScratchFloatReg);
-    MOZ_ASSERT_IF(to.isFloatReg(), to.floatReg() != ScratchFloatReg);
+    // Ensure that we can use ScratchDoubleReg in memory move.
+    MOZ_ASSERT_IF(from.isFloatReg(), from.floatReg() != ScratchDoubleReg);
+    MOZ_ASSERT_IF(to.isFloatReg(), to.floatReg() != ScratchDoubleReg);
 
     if (from.isFloatReg()) {
         if (to.isFloatReg()) {
@@ -274,8 +274,8 @@ MoveEmitterMIPS::emitDoubleMove(const MoveOperand &from, const MoveOperand &to)
     } else {
         MOZ_ASSERT(from.isMemory());
         MOZ_ASSERT(to.isMemory());
-        masm.loadDouble(getAdjustedAddress(from), ScratchFloatReg);
-        masm.storeDouble(ScratchFloatReg, getAdjustedAddress(to));
+        masm.loadDouble(getAdjustedAddress(from), ScratchDoubleReg);
+        masm.storeDouble(ScratchDoubleReg, getAdjustedAddress(to));
     }
 }
 
