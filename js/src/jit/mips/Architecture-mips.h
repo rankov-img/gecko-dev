@@ -472,14 +472,16 @@ uint32_t GetMIPSFlags();
 bool hasFPU();
 
 // MIPS doesn't have double registers that can NOT be treated as float32.
-static bool hasUnaliasedDouble() {
+inline bool
+hasUnaliasedDouble() {
     return false;
 }
 
 // On MIPS, fn-double aliases both fn-float32 and fn+1-float32, so if you need
 // to convert a float32 to a double as a temporary, you need a temporary
 // double register.
-static bool hasMultiAlias() {
+inline bool
+hasMultiAlias() {
     return true;
 }
 
