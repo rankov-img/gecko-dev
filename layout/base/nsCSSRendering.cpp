@@ -303,7 +303,7 @@ protected:
     nsIFrame* inlineFrame = GetPrevContinuation(aFrame);
     while (inlineFrame) {
       if (!mLeftBorderData.mFrame &&
-          !(inlineFrame->GetSkipSides() & SIDE_BIT_LEFT)) {
+          !inlineFrame->GetSkipSides().Left()) {
         mLeftBorderData.mFrame = inlineFrame;
       }
       nsRect rect = inlineFrame->GetRect();
@@ -321,7 +321,7 @@ protected:
     inlineFrame = aFrame;
     while (inlineFrame) {
       if (!mLeftBorderData.mFrame &&
-          !(inlineFrame->GetSkipSides() & SIDE_BIT_LEFT)) {
+          !inlineFrame->GetSkipSides().Left()) {
         mLeftBorderData.mFrame = inlineFrame;
       }
       nsRect rect = inlineFrame->GetRect();
@@ -362,7 +362,7 @@ static void DrawBorderImage(nsPresContext* aPresContext,
                             const nsRect& aBorderArea,
                             const nsStyleBorder& aStyleBorder,
                             const nsRect& aDirtyRect,
-                            int aSkipSides);
+                            Sides aSkipSides);
 
 static nscolor MakeBevelColor(mozilla::css::Side whichSide, uint8_t style,
                               nscolor aBackgroundColor,
@@ -439,10 +439,10 @@ GetRadii(nsIFrame* aForFrame, const nsStyleBorder& aBorder,
   nsSize frameSize = aForFrame->GetSize();
   if (&aBorder == aForFrame->StyleBorder() &&
       frameSize == aOrigBorderArea.Size()) {
-    haveRoundedCorners = aForFrame->GetBorderRadii(sz, sz, 0, radii);
+    haveRoundedCorners = aForFrame->GetBorderRadii(sz, sz, Sides(), radii);
    } else {
     haveRoundedCorners =
-      nsIFrame::ComputeBorderRadii(aBorder.mBorderRadius, frameSize, sz, 0, radii);
+      nsIFrame::ComputeBorderRadii(aBorder.mBorderRadius, frameSize, sz, Sides(), radii);
   }
   if (haveRoundedCorners) {
     auto d2a = aForFrame->PresContext()->AppUnitsPerDevPixel();
@@ -561,7 +561,7 @@ nsCSSRendering::PaintBorder(nsPresContext* aPresContext,
                             const nsRect& aDirtyRect,
                             const nsRect& aBorderArea,
                             nsStyleContext* aStyleContext,
-                            int aSkipSides)
+                            Sides aSkipSides)
 {
   PROFILER_LABEL("nsCSSRendering", "PaintBorder",
     js::ProfileEntry::Category::GRAPHICS);
@@ -606,7 +606,7 @@ nsCSSRendering::PaintBorderWithStyleBorder(nsPresContext* aPresContext,
                                            const nsRect& aBorderArea,
                                            const nsStyleBorder& aStyleBorder,
                                            nsStyleContext* aStyleContext,
-                                           int aSkipSides)
+                                           Sides aSkipSides)
 {
   SN("++ PaintBorder");
 
@@ -660,7 +660,7 @@ nsCSSRendering::PaintBorderWithStyleBorder(nsPresContext* aPresContext,
   ctx->Save();
 
   if (::IsBoxDecorationSlice(aStyleBorder)) {
-    if (aSkipSides == 0) {
+    if (aSkipSides.IsEmpty()) {
       // No continuations most likely, or ::first-letter that wants all border-
       // sides on the first continuation.
       joinedBorderArea = aBorderArea;
@@ -675,7 +675,7 @@ nsCSSRendering::PaintBorderWithStyleBorder(nsPresContext* aPresContext,
   } else {
     MOZ_ASSERT(joinedBorderArea.IsEqualEdges(aBorderArea),
                "Should use aBorderArea for box-decoration-break:clone");
-    MOZ_ASSERT(aForFrame->GetSkipSides() == 0,
+    MOZ_ASSERT(aForFrame->GetSkipSides().IsEmpty(),
                "Should not skip sides for box-decoration-break:clone except "
                "::first-letter/line continuations or other frame types that "
                "don't have borders but those shouldn't reach this point.");
@@ -801,7 +801,7 @@ nsCSSRendering::PaintOutline(nsPresContext* aPresContext,
 
   // get the radius for our outline
   nsIFrame::ComputeBorderRadii(ourOutline->mOutlineRadius, aBorderArea.Size(),
-                               outerRect.Size(), 0, twipsRadii);
+                               outerRect.Size(), Sides(), twipsRadii);
 
   // Get our conversion values
   nscoord twipsPerPixel = aPresContext->DevPixelsToAppUnits(1);
@@ -814,20 +814,22 @@ nsCSSRendering::PaintOutline(nsPresContext* aPresContext,
   gfxCornerSizes outlineRadii;
   ComputePixelRadii(twipsRadii, twipsPerPixel, &outlineRadii);
 
-  if (outlineStyle == NS_STYLE_BORDER_STYLE_AUTO) {
-    nsITheme* theme = aPresContext->GetTheme();
-    if (theme && theme->ThemeSupportsWidget(aPresContext, aForFrame,
-                                            NS_THEME_FOCUS_OUTLINE)) {
-      theme->DrawWidgetBackground(&aRenderingContext, aForFrame,
-                                  NS_THEME_FOCUS_OUTLINE, innerRect,
-                                  aDirtyRect);
-      return;
-    } else if (width == 0) {
-      return; // empty outline
+  if (nsLayoutUtils::IsOutlineStyleAutoEnabled()) {
+    if (outlineStyle == NS_STYLE_BORDER_STYLE_AUTO) {
+      nsITheme* theme = aPresContext->GetTheme();
+      if (theme && theme->ThemeSupportsWidget(aPresContext, aForFrame,
+                                              NS_THEME_FOCUS_OUTLINE)) {
+        theme->DrawWidgetBackground(&aRenderingContext, aForFrame,
+                                    NS_THEME_FOCUS_OUTLINE, innerRect,
+                                    aDirtyRect);
+        return;
+      } else if (width == 0) {
+        return; // empty outline
+      }
+      // http://dev.w3.org/csswg/css-ui/#outline
+      // "User agents may treat 'auto' as 'solid'."
+      outlineStyle = NS_STYLE_BORDER_STYLE_SOLID;
     }
-    // http://dev.w3.org/csswg/css-ui/#outline
-    // "User agents may treat 'auto' as 'solid'."
-    outlineStyle = NS_STYLE_BORDER_STYLE_SOLID;
   }
 
   uint8_t outlineStyles[4] = { outlineStyle, outlineStyle,
@@ -1199,7 +1201,7 @@ nsCSSRendering::PaintBoxShadowOuter(nsPresContext* aPresContext,
     NS_ASSERTION(aFrameArea.Size() == aForFrame->VisualBorderRectRelativeToSelf().Size(),
                  "unexpected size");
     nsSize sz = frameRect.Size();
-    hasBorderRadius = aForFrame->GetBorderRadii(sz, sz, 0, twipsRadii);
+    hasBorderRadius = aForFrame->GetBorderRadii(sz, sz, Sides(), twipsRadii);
     if (hasBorderRadius) {
       ComputePixelRadii(twipsRadii, twipsPerPixel, &borderRadii);
     }
@@ -1228,7 +1230,7 @@ nsCSSRendering::PaintBoxShadowOuter(nsPresContext* aPresContext,
         std::max(borderRadii[C_BL].height, borderRadii[C_BR].height), 0));
   }
 
-  int skipSides = aForFrame->GetSkipSides();
+  Sides skipSides = aForFrame->GetSkipSides();
   for (uint32_t i = shadows->Length(); i > 0; --i) {
     nsCSSShadowItem* shadowItem = shadows->ShadowAt(i - 1);
     if (shadowItem->mInset)
@@ -1323,25 +1325,25 @@ nsCSSRendering::PaintBoxShadowOuter(nsPresContext* aPresContext,
 
       // Clip the shadow so that we only get the part that applies to aForFrame.
       nsRect fragmentClip = shadowRectPlusBlur;
-      if (skipSides) {
-        if (skipSides & SIDE_BIT_LEFT) {
+      if (!skipSides.IsEmpty()) {
+        if (skipSides.Left()) {
           nscoord xmost = fragmentClip.XMost();
           fragmentClip.x = aFrameArea.x;
           fragmentClip.width = xmost - fragmentClip.x;
         }
-        if (skipSides & SIDE_BIT_RIGHT) {
+        if (skipSides.Right()) {
           nscoord xmost = fragmentClip.XMost();
           nscoord overflow = xmost - aFrameArea.XMost();
           if (overflow > 0) {
             fragmentClip.width -= overflow;
           }
         }
-        if (skipSides & SIDE_BIT_TOP) {
+        if (skipSides.Top()) {
           nscoord ymost = fragmentClip.YMost();
           fragmentClip.y = aFrameArea.y;
           fragmentClip.height = ymost - fragmentClip.y;
         }
-        if (skipSides & SIDE_BIT_BOTTOM) {
+        if (skipSides.Bottom()) {
           nscoord ymost = fragmentClip.YMost();
           nscoord overflow = ymost - aFrameArea.YMost();
           if (overflow > 0) {
@@ -1412,7 +1414,7 @@ nsCSSRendering::PaintBoxShadowInner(nsPresContext* aPresContext,
   // if the frame does.
   nscoord twipsRadii[8];
   nsSize sz = frameRect.Size();
-  bool hasBorderRadius = aForFrame->GetBorderRadii(sz, sz, 0, twipsRadii);
+  bool hasBorderRadius = aForFrame->GetBorderRadii(sz, sz, Sides(), twipsRadii);
   const nscoord twipsPerPixel = aPresContext->DevPixelsToAppUnits(1);
 
   gfxCornerSizes innerRadii;
@@ -3294,7 +3296,7 @@ DrawBorderImage(nsPresContext*       aPresContext,
                 const nsRect&        aBorderArea,
                 const nsStyleBorder& aStyleBorder,
                 const nsRect&        aDirtyRect,
-                int                  aSkipSides)
+                Sides                aSkipSides)
 {
   NS_PRECONDITION(aStyleBorder.IsBorderImageLoaded(),
                   "drawing border image that isn't successfully loaded");
@@ -3327,7 +3329,7 @@ DrawBorderImage(nsPresContext*       aPresContext,
   nsRect borderImgArea;
   nsMargin borderWidths(aStyleBorder.GetComputedBorder());
   nsMargin imageOutset(aStyleBorder.GetImageOutset());
-  if (::IsBoxDecorationSlice(aStyleBorder) && aSkipSides != 0) {
+  if (::IsBoxDecorationSlice(aStyleBorder) && !aSkipSides.IsEmpty()) {
     borderImgArea =
       ::BoxDecorationRectForBorder(aForFrame, aBorderArea, &aStyleBorder);
     if (borderImgArea.IsEqualEdges(aBorderArea)) {

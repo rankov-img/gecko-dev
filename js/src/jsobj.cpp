@@ -269,9 +269,10 @@ js::NewPropertyDescriptorObject(JSContext *cx, Handle<PropertyDescriptor> desc,
     Rooted<PropDesc> d(cx);
 
     d.initFromPropertyDescriptor(desc);
-    if (!d.makeObject(cx))
+    RootedObject descObj(cx);
+    if (!d.makeObject(cx, &descObj))
         return false;
-    vp.set(d.descriptorValue());
+    vp.setObject(*descObj);
     return true;
 }
 
@@ -284,7 +285,6 @@ PropDesc::initFromPropertyDescriptor(Handle<PropertyDescriptor> desc)
         return;
 
     isUndefined_ = false;
-    descObj_ = nullptr;
     attrs = uint8_t(desc.attributes());
     JS_ASSERT_IF(attrs & JSPROP_READONLY, !(attrs & (JSPROP_GETTER | JSPROP_SETTER)));
     if (desc.hasGetterOrSetterObject()) {
@@ -328,11 +328,11 @@ PropDesc::populatePropertyDescriptor(HandleObject obj, MutableHandle<PropertyDes
 }
 
 bool
-PropDesc::makeObject(JSContext *cx)
+PropDesc::makeObject(JSContext *cx, MutableHandleObject obj)
 {
     MOZ_ASSERT(!isUndefined());
 
-    RootedObject obj(cx, NewBuiltinClassInstance(cx, &JSObject::class_));
+    obj.set(NewBuiltinClassInstance(cx, &JSObject::class_));
     if (!obj)
         return false;
 
@@ -356,7 +356,6 @@ PropDesc::makeObject(JSContext *cx)
         return false;
     }
 
-    descObj_ = obj;
     return true;
 }
 
@@ -465,9 +464,6 @@ PropDesc::initialize(JSContext *cx, const Value &origval, bool checkAccessors)
         return false;
     }
     RootedObject desc(cx, &v.toObject());
-
-    /* Make a copy of the descriptor. We might need it later. */
-    descObj_ = desc;
 
     isUndefined_ = false;
 
@@ -1430,10 +1426,10 @@ NewObject(ExclusiveContext *cx, types::TypeObject *type_, JSObject *parent, gc::
         if (!cx->shouldBeJSContext())
             return nullptr;
         JSRuntime *rt = cx->asJSContext()->runtime();
-        rt->gc.disableIncrementalGC();
+        rt->gc.disallowIncrementalGC();
 
 #ifdef DEBUG
-        if (rt->gcMode() == JSGC_MODE_INCREMENTAL) {
+        if (rt->gc.gcMode() == JSGC_MODE_INCREMENTAL) {
             fprintf(stderr,
                     "The class %s has a trace hook but does not declare the\n"
                     "JSCLASS_IMPLEMENTS_BARRIERS flag. Please ensure that it correctly\n"
@@ -2836,7 +2832,7 @@ AllocateSlots(ThreadSafeContext *cx, JSObject *obj, uint32_t nslots)
 #endif
 #ifdef JSGC_FJGENERATIONAL
     if (cx->isForkJoinContext())
-        return cx->asForkJoinContext()->fjNursery().allocateSlots(obj, nslots);
+        return cx->asForkJoinContext()->nursery().allocateSlots(obj, nslots);
 #endif
     return cx->pod_malloc<HeapSlot>(nslots);
 }
@@ -2858,8 +2854,8 @@ ReallocateSlots(ThreadSafeContext *cx, JSObject *obj, HeapSlot *oldSlots,
 #endif
 #ifdef JSGC_FJGENERATIONAL
     if (cx->isForkJoinContext()) {
-        return cx->asForkJoinContext()->fjNursery().reallocateSlots(obj, oldSlots,
-                                                                    oldCount, newCount);
+        return cx->asForkJoinContext()->nursery().reallocateSlots(obj, oldSlots,
+                                                                  oldCount, newCount);
     }
 #endif
     return (HeapSlot *)cx->realloc_(oldSlots, oldCount * sizeof(HeapSlot),
@@ -2938,7 +2934,7 @@ FreeSlots(ThreadSafeContext *cx, HeapSlot *slots)
 #endif
 #ifdef JSGC_FJGENERATIONAL
     if (cx->isForkJoinContext())
-        return cx->asForkJoinContext()->fjNursery().freeSlots(slots);
+        return cx->asForkJoinContext()->nursery().freeSlots(slots);
 #endif
     js_free(slots);
 }
@@ -3166,7 +3162,7 @@ AllocateElements(ThreadSafeContext *cx, JSObject *obj, uint32_t nelems)
 #endif
 #ifdef JSGC_FJGENERATIONAL
     if (cx->isForkJoinContext())
-        return cx->asForkJoinContext()->fjNursery().allocateElements(obj, nelems);
+        return cx->asForkJoinContext()->nursery().allocateElements(obj, nelems);
 #endif
 
     return static_cast<js::ObjectElements *>(cx->malloc_(nelems * sizeof(HeapValue)));
@@ -3187,8 +3183,8 @@ ReallocateElements(ThreadSafeContext *cx, JSObject *obj, ObjectElements *oldHead
 #endif
 #ifdef JSGC_FJGENERATIONAL
     if (cx->isForkJoinContext()) {
-        return cx->asForkJoinContext()->fjNursery().reallocateElements(obj, oldHeader,
-                                                                       oldCount, newCount);
+        return cx->asForkJoinContext()->nursery().reallocateElements(obj, oldHeader,
+                                                                     oldCount, newCount);
     }
 #endif
 
@@ -4905,7 +4901,7 @@ bool
 JSObject::reportReadOnly(ThreadSafeContext *cxArg, jsid id, unsigned report)
 {
     if (cxArg->isForkJoinContext())
-        return cxArg->asForkJoinContext()->reportError(ParallelBailoutUnsupportedVM, report);
+        return cxArg->asForkJoinContext()->reportError(report);
 
     if (!cxArg->isJSContext())
         return true;
@@ -4921,7 +4917,7 @@ bool
 JSObject::reportNotConfigurable(ThreadSafeContext *cxArg, jsid id, unsigned report)
 {
     if (cxArg->isForkJoinContext())
-        return cxArg->asForkJoinContext()->reportError(ParallelBailoutUnsupportedVM, report);
+        return cxArg->asForkJoinContext()->reportError(report);
 
     if (!cxArg->isJSContext())
         return true;
@@ -4937,7 +4933,7 @@ bool
 JSObject::reportNotExtensible(ThreadSafeContext *cxArg, unsigned report)
 {
     if (cxArg->isForkJoinContext())
-        return cxArg->asForkJoinContext()->reportError(ParallelBailoutUnsupportedVM, report);
+        return cxArg->asForkJoinContext()->reportError(report);
 
     if (!cxArg->isJSContext())
         return true;

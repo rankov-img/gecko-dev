@@ -27,9 +27,8 @@ const Strings = Services.strings.createBundle("chrome://webide/content/webide.pr
 const HTML = "http://www.w3.org/1999/xhtml";
 const HELP_URL = "https://developer.mozilla.org/Firefox_OS/Using_the_App_Manager#Troubleshooting";
 
-// download some JSON early.
+// download template index early
 GetTemplatesJSON(true);
-GetAddonsJSON(true);
 
 // See bug 989619
 console.log = console.log.bind(console);
@@ -233,7 +232,15 @@ let UI = {
   /********** RUNTIME **********/
 
   updateRuntimeList: function() {
+    let wifiHeaderNode = document.querySelector("#runtime-header-wifi-devices");
+    if (AppManager.isWiFiScanningEnabled) {
+      wifiHeaderNode.removeAttribute("hidden");
+    } else {
+      wifiHeaderNode.setAttribute("hidden", "true");
+    }
+
     let USBListNode = document.querySelector("#runtime-panel-usbruntime");
+    let WiFiListNode = document.querySelector("#runtime-panel-wifi-devices");
     let simulatorListNode = document.querySelector("#runtime-panel-simulators");
     let customListNode = document.querySelector("#runtime-panel-custom");
 
@@ -261,6 +268,7 @@ let UI = {
 
     for (let [type, parent] of [
       ["usb", USBListNode],
+      ["wifi", WiFiListNode],
       ["simulator", simulatorListNode],
       ["custom", customListNode],
     ]) {
@@ -321,13 +329,34 @@ let UI = {
 
   // ProjectEditor & details screen
 
+  destroyProjectEditor: function() {
+    if (this.projecteditor) {
+      this.projecteditor.destroy();
+      this.projecteditor = null;
+    }
+  },
+
+  updateProjectEditorMenusVisibility: function() {
+    if (this.projecteditor) {
+      let panel = document.querySelector("#deck").selectedPanel;
+      if (panel && panel.id == "deck-panel-projecteditor") {
+        this.projecteditor.menuEnabled = true;
+      } else {
+        this.projecteditor.menuEnabled = false;
+      }
+    }
+  },
+
   getProjectEditor: function() {
     if (this.projecteditor) {
       return this.projecteditor.loaded;
     }
 
     let projecteditorIframe = document.querySelector("#deck-panel-projecteditor");
-    this.projecteditor = ProjectEditor.ProjectEditor(projecteditorIframe);
+    this.projecteditor = ProjectEditor.ProjectEditor(projecteditorIframe, {
+      menubar: document.querySelector("#main-menubar"),
+      menuindex: 1
+    });
     this.projecteditor.on("onEditorSave", (editor, resource) => {
       AppManager.validateProject(AppManager.selectedProject);
     });
@@ -409,12 +438,14 @@ let UI = {
     let deck = document.querySelector("#deck");
     let panel = deck.querySelector("#deck-panel-" + id);
     deck.selectedPanel = panel;
+    this.updateProjectEditorMenusVisibility();
   },
 
   resetDeck: function() {
     this.resetFocus();
     let deck = document.querySelector("#deck");
     deck.selectedPanel = null;
+    this.updateProjectEditorMenusVisibility();
   },
 
   /********** COMMANDS **********/
@@ -752,6 +783,8 @@ let Cmds = {
   },
 
   showRuntimePanel: function() {
+    AppManager.scanForWiFiRuntimes();
+
     let panel = document.querySelector("#runtime-panel");
     let anchor = document.querySelector("#runtime-panel-button > .panel-button-anchor");
 
@@ -822,7 +855,11 @@ let Cmds = {
   },
 
   toggleEditors: function() {
-    Services.prefs.setBoolPref("devtools.webide.showProjectEditor", !UI.isProjectEditorEnabled());
+    let isNowEnabled = !UI.isProjectEditorEnabled();
+    Services.prefs.setBoolPref("devtools.webide.showProjectEditor", isNowEnabled);
+    if (!isNowEnabled) {
+      UI.destroyProjectEditor();
+    }
     UI.openProject();
   },
 

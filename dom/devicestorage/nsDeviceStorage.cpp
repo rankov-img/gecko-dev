@@ -1714,9 +1714,10 @@ nsIFileToJsval(nsPIDOMWindow* aWindow, DeviceStorageFile* aFile)
   MOZ_ASSERT(aFile->mLength != UINT64_MAX);
   MOZ_ASSERT(aFile->mLastModifiedDate != UINT64_MAX);
 
-  nsCOMPtr<nsIDOMBlob> blob = new nsDOMFileFile(fullPath, aFile->mMimeType,
-                                                aFile->mLength, aFile->mFile,
-                                                aFile->mLastModifiedDate);
+  nsCOMPtr<nsIDOMBlob> blob = new DOMFile(
+    new DOMFileImplFile(fullPath, aFile->mMimeType,
+                        aFile->mLength, aFile->mFile,
+                        aFile->mLastModifiedDate));
   return InterfaceToJsval(aWindow, blob, &NS_GET_IID(nsIDOMBlob));
 }
 
@@ -2395,11 +2396,11 @@ private:
 class WriteFileEvent : public nsRunnable
 {
 public:
-  WriteFileEvent(nsIDOMBlob* aBlob,
+  WriteFileEvent(DOMFileImpl* aBlobImpl,
                  DeviceStorageFile *aFile,
                  already_AddRefed<DOMRequest> aRequest,
                  int32_t aRequestType)
-    : mBlob(aBlob)
+    : mBlobImpl(aBlobImpl)
     , mFile(aFile)
     , mRequest(aRequest)
     , mRequestType(aRequestType)
@@ -2416,7 +2417,7 @@ public:
     MOZ_ASSERT(!NS_IsMainThread());
 
     nsCOMPtr<nsIInputStream> stream;
-    mBlob->GetInternalStream(getter_AddRefs(stream));
+    mBlobImpl->GetInternalStream(getter_AddRefs(stream));
 
     bool check = false;
     mFile->mFile->Exists(&check);
@@ -2460,7 +2461,7 @@ public:
   }
 
 private:
-  nsCOMPtr<nsIDOMBlob> mBlob;
+  nsRefPtr<DOMFileImpl> mBlobImpl;
   nsRefPtr<DeviceStorageFile> mFile;
   nsRefPtr<DOMRequest> mRequest;
   int32_t mRequestType;
@@ -2886,7 +2887,10 @@ public:
             ->SendPDeviceStorageRequestConstructor(child, params);
           return NS_OK;
         }
-        r = new WriteFileEvent(mBlob, mFile, mRequest.forget(), mRequestType);
+
+        DOMFile* blob = static_cast<DOMFile*>(mBlob.get());
+        r = new WriteFileEvent(blob->Impl(), mFile, mRequest.forget(),
+                               mRequestType);
         break;
       }
 
@@ -2928,7 +2932,10 @@ public:
             ->SendPDeviceStorageRequestConstructor(child, params);
           return NS_OK;
         }
-        r = new WriteFileEvent(mBlob, mFile, mRequest.forget(), mRequestType);
+
+        DOMFile* blob = static_cast<DOMFile*>(mBlob.get());
+        r = new WriteFileEvent(blob->Impl(), mFile, mRequest.forget(),
+                               mRequestType);
         break;
       }
 
@@ -4227,9 +4234,9 @@ nsDOMDeviceStorage::Observe(nsISupports *aSubject,
     // these notifications are specific for apps storage.
     nsRefPtr<DeviceStorageFile> file =
       new DeviceStorageFile(mStorageType, mStorageName);
-    if (!strcmp(NS_ConvertUTF16toUTF8(aData).get(), "full")) {
+    if (!NS_strcmp(aData, MOZ_UTF16("full"))) {
       Notify("low-disk-space", file);
-    } else if (!strcmp(NS_ConvertUTF16toUTF8(aData).get(), "free")) {
+    } else if (!NS_strcmp(aData, MOZ_UTF16("free"))) {
       Notify("available-disk-space", file);
     }
     return NS_OK;

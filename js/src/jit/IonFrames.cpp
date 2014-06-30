@@ -33,6 +33,7 @@
 #include "vm/TraceLogging.h"
 
 #include "jsscriptinlines.h"
+#include "gc/Nursery-inl.h"
 #include "jit/JitFrameIterator-inl.h"
 #include "vm/Probes-inl.h"
 
@@ -762,7 +763,12 @@ HandleParallelFailure(ResumeFromException *rfe)
     ForkJoinContext *cx = ForkJoinContext::current();
     JitFrameIterator frameIter(cx);
 
-    cx->bailoutRecord->joinCause(ParallelBailoutUnsupportedVM);
+    // Advance to the first Ion frame so we can pull out the BailoutKind.
+    while (!frameIter.isIonJS())
+        ++frameIter;
+    SnapshotIterator snapIter(frameIter);
+
+    cx->bailoutRecord->setIonBailoutKind(snapIter.bailoutKind());
     cx->bailoutRecord->rematerializeFrames(cx, frameIter);
 
     rfe->kind = ResumeFromException::RESUME_ENTRY_FRAME;
@@ -947,7 +953,8 @@ MarkIonJSFrame(JSTracer *trc, const JitFrameIterator &frame)
 }
 
 #ifdef JSGC_GENERATIONAL
-static void
+template <typename T>
+void
 UpdateIonJSFrameForMinorGC(JSTracer *trc, const JitFrameIterator &frame)
 {
     // Minor GCs may move slots/elements allocated in the nursery. Update
@@ -971,16 +978,8 @@ UpdateIonJSFrameForMinorGC(JSTracer *trc, const JitFrameIterator &frame)
     uintptr_t *spill = frame.spillBase();
     for (GeneralRegisterBackwardIterator iter(safepoint.allGprSpills()); iter.more(); iter++) {
         --spill;
-        if (slotsRegs.has(*iter)) {
-#ifdef JSGC_FJGENERATIONAL
-            if (trc->callback == gc::ForkJoinNursery::MinorGCCallback) {
-                gc::ForkJoinNursery::forwardBufferPointer(trc,
-                                                          reinterpret_cast<HeapSlot **>(spill));
-                continue;
-            }
-#endif
-            trc->runtime()->gc.nursery.forwardBufferPointer(reinterpret_cast<HeapSlot **>(spill));
-        }
+        if (slotsRegs.has(*iter))
+            T::forwardBufferPointer(trc, reinterpret_cast<HeapSlot **>(spill));
     }
 
     // Skip to the right place in the safepoint
@@ -1323,20 +1322,8 @@ TopmostIonActivationCompartment(JSRuntime *rt)
 }
 
 #ifdef JSGC_GENERATIONAL
-void
-UpdateJitActivationsForMinorGC(JSRuntime *rt, JSTracer *trc)
-{
-    JS_ASSERT(trc->runtime()->isHeapMinorCollecting());
-    for (JitActivationIterator activations(rt); !activations.done(); ++activations) {
-        for (JitFrameIterator frames(activations); !frames.done(); ++frames) {
-            if (frames.type() == JitFrame_IonJS)
-                UpdateIonJSFrameForMinorGC(trc, frames);
-        }
-    }
-}
-
-void
-UpdateJitActivationsForMinorGC(PerThreadData *ptd, JSTracer *trc)
+template <typename T>
+void UpdateJitActivationsForMinorGC(PerThreadData *ptd, JSTracer *trc)
 {
 #ifdef JSGC_FJGENERATIONAL
     JS_ASSERT(trc->runtime()->isHeapMinorCollecting() || trc->runtime()->isFJMinorCollecting());
@@ -1346,10 +1333,19 @@ UpdateJitActivationsForMinorGC(PerThreadData *ptd, JSTracer *trc)
     for (JitActivationIterator activations(ptd); !activations.done(); ++activations) {
         for (JitFrameIterator frames(activations); !frames.done(); ++frames) {
             if (frames.type() == JitFrame_IonJS)
-                UpdateIonJSFrameForMinorGC(trc, frames);
+                UpdateIonJSFrameForMinorGC<T>(trc, frames);
         }
     }
 }
+
+template
+void UpdateJitActivationsForMinorGC<Nursery>(PerThreadData *ptd, JSTracer *trc);
+
+#ifdef JSGC_FJGENERATIONAL
+template
+void UpdateJitActivationsForMinorGC<gc::ForkJoinNursery>(PerThreadData *ptd, JSTracer *trc);
+#endif
+
 #endif
 
 void
@@ -1394,7 +1390,7 @@ GetPcScript(JSContext *cx, JSScript **scriptRes, jsbytecode **pcRes)
     if (MOZ_UNLIKELY(rt->ionPcScriptCache == nullptr)) {
         rt->ionPcScriptCache = (PcScriptCache *)js_malloc(sizeof(struct PcScriptCache));
         if (rt->ionPcScriptCache)
-            rt->ionPcScriptCache->clear(rt->gc.number);
+            rt->ionPcScriptCache->clear(rt->gc.gcNumber());
     }
 
     // Attempt to lookup address in cache.

@@ -237,7 +237,7 @@ struct SortComparatorIds
                 *lessOrEqualp = uint32_t(ca) <= uint32_t(cb);
                 return true;
             }
-            JS_ASSERT(ca == JS::SymbolCode::InSymbolRegistry || ca == JS::SymbolCode::Unique);
+            JS_ASSERT(ca == JS::SymbolCode::InSymbolRegistry || ca == JS::SymbolCode::UniqueSymbol);
             astr = JSID_TO_SYMBOL(a)->description();
             bstr = JSID_TO_SYMBOL(b)->description();
             if (!astr || !bstr) {
@@ -1921,13 +1921,6 @@ star_generator_next(JSContext *cx, CallArgs args)
         return true;
     }
 
-    if (gen->state == JSGEN_NEWBORN && args.hasDefined(0)) {
-        RootedValue val(cx, args[0]);
-        js_ReportValueError(cx, JSMSG_BAD_GENERATOR_SEND,
-                            JSDVG_SEARCH_STACK, val, js::NullPtr());
-        return false;
-    }
-
     return SendToGenerator(cx, JSGENOP_SEND, thisObj, gen, args.get(0), StarGenerator,
                            args.rval());
 }
@@ -1955,13 +1948,6 @@ legacy_generator_next(JSContext *cx, CallArgs args)
     JSGenerator *gen = thisObj->as<LegacyGeneratorObject>().getGenerator();
     if (gen->state == JSGEN_CLOSED)
         return js_ThrowStopIteration(cx);
-
-    if (gen->state == JSGEN_NEWBORN && args.hasDefined(0)) {
-        RootedValue val(cx, args[0]);
-        js_ReportValueError(cx, JSMSG_BAD_GENERATOR_SEND,
-                            JSDVG_SEARCH_STACK, val, js::NullPtr());
-        return false;
-    }
 
     return SendToGenerator(cx, JSGENOP_SEND, thisObj, gen, args.get(0), LegacyGenerator,
                            args.rval());

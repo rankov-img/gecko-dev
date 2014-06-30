@@ -20,7 +20,8 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=355063
     //
     SpecialPowers.addChromeEventListener("DOMFormHasPassword", function eventFired() {
       SpecialPowers.removeChromeEventListener("DOMFormHasPassword", eventFired);
-      setTimeout(checkForm, 300);
+      var passField = $("p1");
+      passField.addEventListener("input", checkForm);
     });
     addForm();
   }

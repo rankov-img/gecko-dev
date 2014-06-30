@@ -2784,7 +2784,8 @@ nsDOMWindowUtils::WrapDOMFile(nsIFile *aFile,
     return NS_ERROR_FAILURE;
   }
 
-  NS_ADDREF(*aDOMFile = new nsDOMFileFile(aFile));
+  nsRefPtr<DOMFile> file = DOMFile::CreateFromFile(aFile);
+  file.forget(aDOMFile);
   return NS_OK;
 }
 
@@ -2937,82 +2938,6 @@ nsDOMWindowUtils::AreDialogsEnabled(bool* aResult)
   NS_ENSURE_TRUE(window, NS_ERROR_FAILURE);
 
   *aResult = static_cast<nsGlobalWindow*>(window.get())->AreDialogsEnabled();
-  return NS_OK;
-}
-
-static nsIDOMBlob*
-GetXPConnectNative(JSContext* aCx, JSObject* aObj) {
-  nsCOMPtr<nsIDOMBlob> blob = do_QueryInterface(
-    nsContentUtils::XPConnect()->GetNativeOfWrapper(aCx, aObj));
-  return blob;
-}
-
-static nsresult
-GetFileOrBlob(const nsAString& aName, JS::Handle<JS::Value> aBlobParts,
-              JS::Handle<JS::Value> aParameters, JSContext* aCx,
-              uint8_t aOptionalArgCount, nsISupports** aResult)
-{
-  MOZ_RELEASE_ASSERT(nsContentUtils::IsCallerChrome());
-
-  nsresult rv;
-
-  nsCOMPtr<nsISupports> file;
-
-  if (aName.IsVoid()) {
-    rv = nsDOMMultipartFile::NewBlob(getter_AddRefs(file));
-  }
-  else {
-    rv = nsDOMMultipartFile::NewFile(aName, getter_AddRefs(file));
-  }
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  nsDOMMultipartFile* domFile =
-    static_cast<nsDOMMultipartFile*>(static_cast<nsIDOMFile*>(file.get()));
-
-  JS::AutoValueArray<2> args(aCx);
-  args[0].set(aBlobParts);
-  args[1].set(aParameters);
-
-  rv = domFile->InitBlob(aCx, aOptionalArgCount, args.begin(), GetXPConnectNative);
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  file.forget(aResult);
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-nsDOMWindowUtils::GetFile(const nsAString& aName, JS::Handle<JS::Value> aBlobParts,
-                          JS::Handle<JS::Value> aParameters, JSContext* aCx,
-                          uint8_t aOptionalArgCount, nsIDOMFile** aResult)
-{
-  MOZ_RELEASE_ASSERT(nsContentUtils::IsCallerChrome());
-
-  nsCOMPtr<nsISupports> file;
-  nsresult rv = GetFileOrBlob(aName, aBlobParts, aParameters, aCx,
-                              aOptionalArgCount, getter_AddRefs(file));
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  nsCOMPtr<nsIDOMFile> result = do_QueryInterface(file);
-  result.forget(aResult);
-
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-nsDOMWindowUtils::GetBlob(JS::Handle<JS::Value> aBlobParts,
-                          JS::Handle<JS::Value> aParameters, JSContext* aCx,
-                          uint8_t aOptionalArgCount, nsIDOMBlob** aResult)
-{
-  MOZ_RELEASE_ASSERT(nsContentUtils::IsCallerChrome());
-
-  nsCOMPtr<nsISupports> blob;
-  nsresult rv = GetFileOrBlob(NullString(), aBlobParts, aParameters, aCx,
-                              aOptionalArgCount, getter_AddRefs(blob));
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  nsCOMPtr<nsIDOMBlob> result = do_QueryInterface(blob);
-  result.forget(aResult);
-
   return NS_OK;
 }
 
