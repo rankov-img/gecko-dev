@@ -1065,6 +1065,7 @@ alignDoubleSpillWithOffset(uint8_t **pointer, int32_t offset)
     address = (address - offset) & ~(StackAlignment - 1);
     *pointer = reinterpret_cast<uint8_t *>(address);
 }
+
 static void
 MarkJitExitFrameCopiedArguments(JSTracer *trc, const VMFunction *f, IonExitFooterFrame *footer)
 {
@@ -1091,6 +1092,7 @@ alignDoubleSpillWithOffset(uint8_t **pointer, int32_t offset)
 {
     // This is NO-OP on other platforms.
 }
+
 static void
 MarkJitExitFrameCopiedArguments(JSTracer *trc, const VMFunction *f, IonExitFooterFrame *footer)
 {

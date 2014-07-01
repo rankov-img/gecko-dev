@@ -1470,13 +1470,6 @@ class MacroAssemblerARMCompat : public MacroAssemblerARM
 
     void checkStackAlignment();
 
-    void alignStackForDoubleData() {
-        // Exists for MIPS compatibility.
-    }
-    void restoreStackAlignedForDoubleData() {
-        // Exists for MIPS compatibility.
-    }
-
     void rshiftPtr(Imm32 imm, Register dest) {
         ma_lsr(imm, dest, dest);
     }

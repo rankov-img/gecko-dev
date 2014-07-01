@@ -2742,7 +2742,7 @@ MacroAssemblerMIPSCompat::getType(const Value &val)
 template <typename T>
 void
 MacroAssemblerMIPSCompat::storeUnboxedValue(ConstantOrRegister value, MIRType valueType, const T &dest,
-                                           MIRType slotType)
+                                            MIRType slotType)
 {
     if (valueType == MIRType_Double) {
         storeDouble(value.reg().typedReg().fpu(), dest);
@@ -2762,11 +2762,11 @@ MacroAssemblerMIPSCompat::storeUnboxedValue(ConstantOrRegister value, MIRType va
 
 template void
 MacroAssemblerMIPSCompat::storeUnboxedValue(ConstantOrRegister value, MIRType valueType, const Address &dest,
-                                           MIRType slotType);
+                                            MIRType slotType);
 
 template void
 MacroAssemblerMIPSCompat::storeUnboxedValue(ConstantOrRegister value, MIRType valueType, const BaseIndex &dest,
-                                           MIRType slotType);
+                                            MIRType slotType);
 
 void
 MacroAssemblerMIPSCompat::moveData(const Value &val, Register data)
@@ -3232,6 +3232,26 @@ void
 MacroAssemblerMIPSCompat::restoreStackAlignment()
 {
     loadPtr(Address(StackPointer, 0), StackPointer);
+}
+
+void
+MacroAssembler::alignFrameForICArguments(AfterICSaveLive &aic)
+{
+    if (framePushed() % StackAlignment != 0){
+        aic.alignmentPadding = StackAlignment - (framePushed() % StackAlignment);
+        reserveStack(aic.alignmentPadding);
+    } else {
+        aic.alignmentPadding = 0;
+    }
+    MOZ_ASSERT(framePushed() % StackAlignment == 0);
+    checkStackAlignment();
+}
+
+void
+MacroAssembler::restoreFrameAlignmentForICArguments(AfterICSaveLive &aic)
+{
+    if (aic.alignmentPadding != 0)
+        freeStack(aic.alignmentPadding);
 }
 
 void
