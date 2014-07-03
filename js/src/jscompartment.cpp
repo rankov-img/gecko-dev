@@ -308,7 +308,7 @@ CopyStringPure(JSContext *cx, JSString *str)
     if (!str->asRope().copyTwoByteCharsZ(cx, copiedChars))
         return nullptr;
 
-    return NewString<CanGC>(cx, copiedChars.forget(), len);
+    return NewStringDontDeflate<CanGC>(cx, copiedChars.forget(), len);
 }
 
 bool
@@ -924,7 +924,7 @@ JSCompartment::removeDebuggeeUnderGC(FreeOp *fop,
 }
 
 void
-JSCompartment::clearBreakpointsIn(FreeOp *fop, js::Debugger *dbg, JSObject *handler)
+JSCompartment::clearBreakpointsIn(FreeOp *fop, js::Debugger *dbg, HandleObject handler)
 {
     for (gc::ZoneCellIter i(zone(), gc::FINALIZE_SCRIPT); !i.done(); i.next()) {
         JSScript *script = i.get<JSScript>();

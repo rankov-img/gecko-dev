@@ -263,7 +263,8 @@ class MacroAssemblerARM : public Assembler
 
     // fast mod, uses scratch registers, and thus needs to be in the assembler
     // implicitly assumes that we can overwrite dest at the beginning of the sequence
-    void ma_mod_mask(Register src, Register dest, Register hold, int32_t shift);
+    void ma_mod_mask(Register src, Register dest, Register hold, Register tmp,
+                     int32_t shift);
 
     // mod, depends on integer divide instructions being supported
     void ma_smod(Register num, Register div, Register dest);
@@ -1508,6 +1509,12 @@ class MacroAssemblerARMCompat : public MacroAssemblerARM
         cond = testNull(cond, value);
         emitSet(cond, dest);
     }
+
+    void testObjectSet(Condition cond, const ValueOperand &value, Register dest) {
+        cond = testObject(cond, value);
+        emitSet(cond, dest);
+    }
+
     void testUndefinedSet(Condition cond, const ValueOperand &value, Register dest) {
         cond = testUndefined(cond, value);
         emitSet(cond, dest);
