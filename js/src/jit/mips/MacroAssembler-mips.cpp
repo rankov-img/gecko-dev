@@ -3226,7 +3226,7 @@ MacroAssemblerMIPSCompat::checkStackAlignment()
 }
 
 void
-MacroAssemblerMIPSCompat::alignStack()
+MacroAssemblerMIPSCompat::alignStackPointer()
 {
     movePtr(StackPointer, SecondScratchReg);
     subPtr(Imm32(sizeof(uintptr_t)), StackPointer);
@@ -3235,7 +3235,7 @@ MacroAssemblerMIPSCompat::alignStack()
 }
 
 void
-MacroAssemblerMIPSCompat::restoreStackAlignment()
+MacroAssemblerMIPSCompat::restoreStackPointer()
 {
     loadPtr(Address(StackPointer, 0), StackPointer);
 }
@@ -3243,7 +3243,7 @@ MacroAssemblerMIPSCompat::restoreStackAlignment()
 void
 MacroAssembler::alignFrameForICArguments(AfterICSaveLive &aic)
 {
-    if (framePushed() % StackAlignment != 0){
+    if (framePushed() % StackAlignment != 0) {
         aic.alignmentPadding = StackAlignment - (framePushed() % StackAlignment);
         reserveStack(aic.alignmentPadding);
     } else {

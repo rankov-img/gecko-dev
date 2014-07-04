@@ -1198,8 +1198,8 @@ public:
 
     void checkStackAlignment();
 
-    void alignStack();
-    void restoreStackAlignment();
+    void alignStackPointer();
+    void restoreStackPointer();
     static void calculateAlignedStackPointer(void **stackPointer);
 
     void rshiftPtr(Imm32 imm, Register dest) {

@@ -351,9 +351,9 @@ JitFrameIterator::machineState() const
     for (GeneralRegisterBackwardIterator iter(reader.allGprSpills()); iter.more(); iter++)
         machine.setRegisterLocation(*iter, --spill);
 
-    alignDoubleSpillWithOffset(reinterpret_cast<uint8_t **>(&spill), 0);
+    uint8_t *spillAlign = alignDoubleSpillWithOffset(reinterpret_cast<uint8_t *>(spill), 0);
 
-    double *floatSpill = reinterpret_cast<double *>(spill);
+    double *floatSpill = reinterpret_cast<double *>(spillAlign);
     for (FloatRegisterBackwardIterator iter(reader.allFloatSpills()); iter.more(); iter++)
         machine.setRegisterLocation(*iter, --floatSpill);
 
@@ -1058,19 +1058,19 @@ JitActivationIterator::jitStackRange(uintptr_t *&min, uintptr_t *&end)
 }
 
 #ifdef JS_CODEGEN_MIPS
-void
-alignDoubleSpillWithOffset(uint8_t **pointer, int32_t offset)
+uint8_t *
+alignDoubleSpillWithOffset(uint8_t *pointer, int32_t offset)
 {
-    uint32_t address = reinterpret_cast<uint32_t>(*pointer);
+    uint32_t address = reinterpret_cast<uint32_t>(pointer);
     address = (address - offset) & ~(StackAlignment - 1);
-    *pointer = reinterpret_cast<uint8_t *>(address);
+    return reinterpret_cast<uint8_t *>(address);
 }
 
 static void
 MarkJitExitFrameCopiedArguments(JSTracer *trc, const VMFunction *f, IonExitFooterFrame *footer)
 {
     uint8_t *doubleArgs = reinterpret_cast<uint8_t *>(footer);
-    alignDoubleSpillWithOffset(&doubleArgs, sizeof(intptr_t));
+    doubleArgs = alignDoubleSpillWithOffset(doubleArgs, sizeof(intptr_t));
     if (f->outParam == Type_Handle)
         doubleArgs -= sizeof(Value);
     doubleArgs -= f->doubleByRefArgs() * sizeof(double);
@@ -1087,12 +1087,6 @@ MarkJitExitFrameCopiedArguments(JSTracer *trc, const VMFunction *f, IonExitFoote
     }
 }
 #else
-void
-alignDoubleSpillWithOffset(uint8_t **pointer, int32_t offset)
-{
-    // This is NO-OP on other platforms.
-}
-
 static void
 MarkJitExitFrameCopiedArguments(JSTracer *trc, const VMFunction *f, IonExitFooterFrame *footer)
 {

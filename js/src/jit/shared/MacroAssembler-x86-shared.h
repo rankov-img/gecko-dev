@@ -690,7 +690,7 @@ class MacroAssemblerX86Shared : public Assembler
     }
 
     void checkStackAlignment() {
-        // Exists for ARM/MIPS compatibility.
+        // Exists for ARM compatibility.
     }
 
     CodeOffsetLabel labelForPatch() {

@@ -302,7 +302,16 @@ GetTopIonJSScript(uint8_t *jitTop, void **returnAddrOut, ExecutionMode mode)
     return iter.script();
 }
 
-void alignDoubleSpillWithOffset(uint8_t **pointer, int32_t offset);
+#ifdef JS_CODEGEN_MIPS
+uint8_t *alignDoubleSpillWithOffset(uint8_t *pointer, int32_t offset);
+#else
+inline uint8_t *
+alignDoubleSpillWithOffset(uint8_t *pointer, int32_t offset)
+{
+    // This is NO-OP on non-MIPS platforms.
+    return pointer;
+}
+#endif
 
 // Layout of the frame prefix. This assumes the stack architecture grows down.
 // If this is ever not the case, we'll have to refactor.
@@ -447,7 +456,7 @@ class IonExitFooterFrame
     template <typename T>
     T *outParam() {
         uint8_t *address = reinterpret_cast<uint8_t *>(this);
-        alignDoubleSpillWithOffset(&address, sizeof(intptr_t));
+        address = alignDoubleSpillWithOffset(address, sizeof(intptr_t));
         return reinterpret_cast<T *>(address - sizeof(T));
     }
 };
