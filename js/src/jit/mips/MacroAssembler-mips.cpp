@@ -117,21 +117,20 @@ MacroAssemblerMIPS::convertDoubleToInt32(FloatRegister src, Register dest,
     // Convert double to int, then convert back and check if we have the
     // same number.
     as_cvtwd(ScratchDoubleReg, src);
-    as_mfc1(SecondScratchReg, ScratchDoubleReg);
+    as_mfc1(dest, ScratchDoubleReg);
     as_cvtdw(ScratchDoubleReg, ScratchDoubleReg);
     ma_bc1d(src, ScratchDoubleReg, fail, Assembler::DoubleNotEqualOrUnordered);
 
     if (negativeZeroCheck) {
         Label notZero;
-        ma_b(SecondScratchReg, Imm32(0), &notZero, Assembler::NotEqual, ShortJump);
+        ma_b(dest, Imm32(0), &notZero, Assembler::NotEqual, ShortJump);
         // Test and bail for -0.0, when integer result is 0
         // Move the top word of the double into the output reg, if it is
         // non-zero, then the original value was -0.0
-        moveFromDoubleHi(src, SecondScratchReg);
-        ma_b(SecondScratchReg, Imm32(INT32_MIN), fail, Assembler::Equal);
+        moveFromDoubleHi(src, dest);
+        ma_b(dest, Imm32(INT32_MIN), fail, Assembler::Equal);
         bind(&notZero);
     }
-    ma_move(dest, SecondScratchReg);
 }
 
 // Checks whether a float32 is representable as a 32-bit integer. If so, the
