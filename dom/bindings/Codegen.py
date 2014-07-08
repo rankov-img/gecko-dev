@@ -492,7 +492,7 @@ def PrototypeIDAndDepth(descriptor):
 def UseHolderForUnforgeable(descriptor):
     return (descriptor.concrete and
             descriptor.proxy and
-            any(m for m in descriptor.interface.members if m.isAttr() and m.isUnforgeable()))
+            any(m for m in descriptor.interface.members if (m.isAttr() or m.isMethod()) and m.isUnforgeable()))
 
 
 def CallOnUnforgeableHolder(descriptor, code, isXrayCheck=None,
@@ -1987,7 +1987,8 @@ class MethodDefiner(PropertyDefiner):
     """
     A class for defining methods on a prototype object.
     """
-    def __init__(self, descriptor, name, static):
+    def __init__(self, descriptor, name, static, unforgeable=False):
+        assert not (static and unforgeable)
         PropertyDefiner.__init__(self, descriptor, name)
 
         # FIXME https://bugzilla.mozilla.org/show_bug.cgi?id=772822
@@ -1998,6 +1999,7 @@ class MethodDefiner(PropertyDefiner):
         if descriptor.interface.hasInterfacePrototypeObject() or static:
             methods = [m for m in descriptor.interface.members if
                        m.isMethod() and m.isStatic() == static and
+                       m.isUnforgeable() == unforgeable and
                        not m.isIdentifierLess()]
         else:
             methods = []
@@ -2106,6 +2108,8 @@ class MethodDefiner(PropertyDefiner):
                 "condition": MemberCondition(None, None)
             })
 
+        self.unforgeable = unforgeable
+
         if static:
             if not descriptor.interface.hasInterfaceObject():
                 # static methods go on the interface object
@@ -2121,6 +2125,10 @@ class MethodDefiner(PropertyDefiner):
 
         def condition(m, d):
             return m["condition"]
+
+        def flags(m):
+            unforgeable = " | JSPROP_PERMANENT" if self.unforgeable else ""
+            return m["flags"] + unforgeable
 
         def specData(m):
             if "selfHostedName" in m:
@@ -2157,7 +2165,7 @@ class MethodDefiner(PropertyDefiner):
                     else:
                         jitinfo = "nullptr"
 
-            return (m["name"], accessor, jitinfo, m["length"], m["flags"], selfHostedName)
+            return (m["name"], accessor, jitinfo, m["length"], flags(m), selfHostedName)
 
         return self.generatePrefableArray(
             array, name,
@@ -2287,6 +2295,8 @@ class PropertyArrays():
                                        static=True)
         self.methods = MethodDefiner(descriptor, "Methods", static=False)
         self.attrs = AttrDefiner(descriptor, "Attributes", static=False)
+        self.unforgeableMethods = MethodDefiner(descriptor, "UnforgeableMethods",
+                                                static=False, unforgeable=True)
         self.unforgeableAttrs = AttrDefiner(descriptor, "UnforgeableAttributes",
                                             static=False, unforgeable=True)
         self.consts = ConstDefiner(descriptor, "Constants")
@@ -2294,7 +2304,7 @@ class PropertyArrays():
     @staticmethod
     def arrayNames():
         return ["staticMethods", "staticAttrs", "methods", "attrs",
-                "unforgeableAttrs", "consts"]
+                "unforgeableMethods", "unforgeableAttrs", "consts"]
 
     def hasChromeOnly(self):
         return any(getattr(self, a).hasChromeOnly() for a in self.arrayNames())
@@ -2774,7 +2784,9 @@ def InitUnforgeablePropertiesOnObject(descriptor, obj, properties, failureReturn
     """
     properties is a PropertyArrays instance
     """
-    defineUnforgeables = fill(
+    unforgeables = []
+
+    defineUnforgeableAttrs = fill(
         """
         if (!DefineUnforgeableAttributes(aCx, ${obj}, %s)) {
           return${rv};
@@ -2782,17 +2794,27 @@ def InitUnforgeablePropertiesOnObject(descriptor, obj, properties, failureReturn
         """,
         obj=obj,
         rv=" " + failureReturnValue if failureReturnValue else "")
+    defineUnforgeableMethods = fill(
+        """
+        if (!DefineUnforgeableMethods(aCx, ${obj}, %s)) {
+          return${rv};
+        }
+        """,
+        obj=obj,
+        rv=" " + failureReturnValue if failureReturnValue else "")
 
-    unforgeableAttrs = properties.unforgeableAttrs
-    unforgeables = []
-    if unforgeableAttrs.hasNonChromeOnly():
-        unforgeables.append(CGGeneric(defineUnforgeables %
-                                      unforgeableAttrs.variableName(False)))
-    if unforgeableAttrs.hasChromeOnly():
-        unforgeables.append(
-            CGIfWrapper(CGGeneric(defineUnforgeables %
-                                  unforgeableAttrs.variableName(True)),
-                        "nsContentUtils::ThreadsafeIsCallerChrome()"))
+    unforgeableMembers = [
+        (defineUnforgeableAttrs, properties.unforgeableAttrs),
+        (defineUnforgeableMethods, properties.unforgeableMethods)
+    ]
+    for (template, array) in unforgeableMembers:
+        if array.hasNonChromeOnly():
+            unforgeables.append(CGGeneric(template % array.variableName(False)))
+        if array.hasChromeOnly():
+            unforgeables.append(
+                CGIfWrapper(CGGeneric(template % array.variableName(True)),
+                            "nsContentUtils::ThreadsafeIsCallerChrome()"))
+
     return CGList(unforgeables)
 
 
@@ -3367,7 +3389,6 @@ class JSToNativeConversionInfo():
                   template substitution performed on it as follows:
 
           ${val} is a handle to the JS::Value in question
-          ${mutableVal} is a mutable handle to the JS::Value in question
           ${holderName} replaced by the holder's name, if any
           ${declName} replaced by the declaration's name
           ${haveValue} replaced by an expression that evaluates to a boolean
@@ -3715,7 +3736,6 @@ def getJSToNativeConversionInfo(type, descriptorProvider, failureCode=None,
 
         elementConversion = string.Template(elementInfo.template).substitute({
                 "val": "temp",
-                "mutableVal": "&temp",
                 "declName": "slot",
                 # We only need holderName here to handle isExternal()
                 # interfaces, which use an internal holder for the
@@ -3820,7 +3840,6 @@ def getJSToNativeConversionInfo(type, descriptorProvider, failureCode=None,
 
         valueConversion = string.Template(valueInfo.template).substitute({
                 "val": "temp",
-                "mutableVal": "&temp",
                 "declName": "slot",
                 # We only need holderName here to handle isExternal()
                 # interfaces, which use an internal holder for the
@@ -3845,11 +3864,11 @@ def getJSToNativeConversionInfo(type, descriptorProvider, failureCode=None,
               // getting the value can trigger GC but our name is a dependent
               // string.
               curId = ids[i];
-              binding_detail::FakeDependentString propName;
+              binding_detail::FakeString propName;
               if (!JS_GetPropertyById(cx, mozMapObj, curId, &temp) ||
                   !JS_IdToValue(cx, curId, &propNameValue) ||
-                  !ConvertJSValueToString(cx, propNameValue, &propNameValue,
-                                          eStringify, eStringify, propName)) {
+                  !ConvertJSValueToString(cx, propNameValue, eStringify,
+                                          eStringify, propName)) {
                 $*{exceptionCode}
               }
 
@@ -3915,7 +3934,7 @@ def getJSToNativeConversionInfo(type, descriptorProvider, failureCode=None,
             for memberType in interfaceMemberTypes:
                 name = getUnionMemberName(memberType)
                 interfaceObject.append(
-                    CGGeneric("(failed = !%s.TrySetTo%s(cx, ${val}, ${mutableVal}, tryNext)) || !tryNext" %
+                    CGGeneric("(failed = !%s.TrySetTo%s(cx, ${val}, tryNext)) || !tryNext" %
                               (unionArgumentObj, name)))
                 names.append(name)
             interfaceObject = CGWrapper(CGList(interfaceObject, " ||\n"),
@@ -3928,7 +3947,7 @@ def getJSToNativeConversionInfo(type, descriptorProvider, failureCode=None,
             assert len(arrayObjectMemberTypes) == 1
             name = getUnionMemberName(arrayObjectMemberTypes[0])
             arrayObject = CGGeneric(
-                "done = (failed = !%s.TrySetTo%s(cx, ${val}, ${mutableVal}, tryNext)) || !tryNext;\n" %
+                "done = (failed = !%s.TrySetTo%s(cx, ${val}, tryNext)) || !tryNext;\n" %
                 (unionArgumentObj, name))
             names.append(name)
         else:
@@ -3939,7 +3958,7 @@ def getJSToNativeConversionInfo(type, descriptorProvider, failureCode=None,
             assert len(dateObjectMemberTypes) == 1
             memberType = dateObjectMemberTypes[0]
             name = getUnionMemberName(memberType)
-            dateObject = CGGeneric("%s.SetTo%s(cx, ${val}, ${mutableVal});\n"
+            dateObject = CGGeneric("%s.SetTo%s(cx, ${val});\n"
                                    "done = true;\n" % (unionArgumentObj, name))
             dateObject = CGIfWrapper(dateObject, "JS_ObjectIsDate(cx, argObj)")
             names.append(name)
@@ -3952,7 +3971,7 @@ def getJSToNativeConversionInfo(type, descriptorProvider, failureCode=None,
             memberType = callbackMemberTypes[0]
             name = getUnionMemberName(memberType)
             callbackObject = CGGeneric(
-                "done = (failed = !%s.TrySetTo%s(cx, ${val}, ${mutableVal}, tryNext)) || !tryNext;\n" %
+                "done = (failed = !%s.TrySetTo%s(cx, ${val}, tryNext)) || !tryNext;\n" %
                 (unionArgumentObj, name))
             names.append(name)
         else:
@@ -3963,7 +3982,7 @@ def getJSToNativeConversionInfo(type, descriptorProvider, failureCode=None,
             assert len(dictionaryMemberTypes) == 1
             name = getUnionMemberName(dictionaryMemberTypes[0])
             setDictionary = CGGeneric(
-                "done = (failed = !%s.TrySetTo%s(cx, ${val}, ${mutableVal}, tryNext)) || !tryNext;\n" %
+                "done = (failed = !%s.TrySetTo%s(cx, ${val}, tryNext)) || !tryNext;\n" %
                 (unionArgumentObj, name))
             names.append(name)
         else:
@@ -3974,7 +3993,7 @@ def getJSToNativeConversionInfo(type, descriptorProvider, failureCode=None,
             assert len(mozMapMemberTypes) == 1
             name = getUnionMemberName(mozMapMemberTypes[0])
             mozMapObject = CGGeneric(
-                "done = (failed = !%s.TrySetTo%s(cx, ${val}, ${mutableVal}, tryNext)) || !tryNext;\n" %
+                "done = (failed = !%s.TrySetTo%s(cx, ${val}, tryNext)) || !tryNext;\n" %
                 (unionArgumentObj, name))
             names.append(name)
         else:
@@ -4040,7 +4059,7 @@ def getJSToNativeConversionInfo(type, descriptorProvider, failureCode=None,
             # can use "break" for flow control.
             def getStringOrPrimitiveConversion(memberType):
                 name = getUnionMemberName(memberType)
-                return CGGeneric("done = (failed = !%s.TrySetTo%s(cx, ${val}, ${mutableVal}, tryNext)) || !tryNext;\n"
+                return CGGeneric("done = (failed = !%s.TrySetTo%s(cx, ${val}, tryNext)) || !tryNext;\n"
                                  "break;\n" % (unionArgumentObj, name))
             other = CGList([])
             stringConversion = map(getStringOrPrimitiveConversion, stringTypes)
@@ -4426,7 +4445,7 @@ def getJSToNativeConversionInfo(type, descriptorProvider, failureCode=None,
 
         def getConversionCode(varName):
             conversionCode = (
-                "if (!ConvertJSValueToString(cx, ${val}, ${mutableVal}, %s, %s, %s)) {\n"
+                "if (!ConvertJSValueToString(cx, ${val}, %s, %s, %s)) {\n"
                 "%s"
                 "}\n" % (nullBehavior, undefinedBehavior, varName,
                          exceptionCodeIndented.define()))
@@ -4442,37 +4461,21 @@ def getJSToNativeConversionInfo(type, descriptorProvider, failureCode=None,
             return handleDefault(conversionCode, defaultCode + ";\n")
 
         if isMember:
-            # We have to make a copy, except in the variadic case, because our
-            # jsval may well not live as long as our string needs to.
+            # Convert directly into the nsString member we have.
             declType = CGGeneric("nsString")
-            if isMember == "Variadic":
-                # The string is kept alive by the argument, so we can just
-                # depend on it.
-                assignString = "${declName}.Rebind(str.Data(), str.Length());\n"
-            else:
-                assignString = "${declName} = str;\n"
             return JSToNativeConversionInfo(
-                fill(
-                    """
-                    {
-                      binding_detail::FakeDependentString str;
-                      $*{convert}
-                      $*{assign}
-                    }
-                    """,
-                    convert=getConversionCode("str"),
-                    assign=assignString),
+                getConversionCode("${declName}"),
                 declType=declType,
                 dealWithOptional=isOptional)
 
         if isOptional:
             declType = "Optional<nsAString>"
-            holderType = CGGeneric("binding_detail::FakeDependentString")
+            holderType = CGGeneric("binding_detail::FakeString")
             conversionCode = ("%s"
                               "${declName} = &${holderName};\n" %
                               getConversionCode("${holderName}"))
         else:
-            declType = "binding_detail::FakeDependentString"
+            declType = "binding_detail::FakeString"
             holderType = None
             conversionCode = getConversionCode("${declName}")
 
@@ -4488,7 +4491,7 @@ def getJSToNativeConversionInfo(type, descriptorProvider, failureCode=None,
         nullable = toStringBool(type.nullable())
 
         conversionCode = (
-            "if (!ConvertJSValueToByteString(cx, ${val}, ${mutableVal}, %s, ${declName})) {\n"
+            "if (!ConvertJSValueToByteString(cx, ${val}, %s, ${declName})) {\n"
             "%s"
             "}\n" % (nullable, exceptionCodeIndented.define()))
         # ByteString arguments cannot have a default value.
@@ -4975,7 +4978,6 @@ class CGArgumentConverter(CGThing):
         }
         self.replacementVariables["val"] = string.Template(
             "args[${index}]").substitute(replacer)
-        self.replacementVariables["mutableVal"] = self.replacementVariables["val"]
         haveValueCheck = string.Template(
             "args.hasDefined(${index})").substitute(replacer)
         self.replacementVariables["haveValue"] = haveValueCheck
@@ -5044,7 +5046,6 @@ class CGArgumentConverter(CGThing):
         variadicConversion += indent(
             string.Template(typeConversion.template).substitute({
                 "val": val,
-                "mutableVal": val,
                 "declName": "slot",
                 # We only need holderName here to handle isExternal()
                 # interfaces, which use an internal holder for the
@@ -6524,7 +6525,6 @@ class CGMethodCall(CGThing):
                         "declName": "arg%d" % distinguishingIndex,
                         "holderName": ("arg%d" % distinguishingIndex) + "_holder",
                         "val": distinguishingArg,
-                        "mutableVal": distinguishingArg,
                         "obj": "obj",
                         "haveValue": "args.hasDefined(%d)" % distinguishingIndex
                     },
@@ -8117,7 +8117,6 @@ def getUnionTypeTemplateVars(unionType, type, descriptorProvider,
         jsConversion = fill(
             initHolder + conversionInfo.template,
             val="value",
-            mutableVal="pvalue",
             declName="memberSlot",
             holderName=(holderName if ownsMembers else "%s.ref()" % holderName),
             destroyHolder=destroyHolder)
@@ -8139,7 +8138,6 @@ def getUnionTypeTemplateVars(unionType, type, descriptorProvider,
         setter = ClassMethod("TrySetTo" + name, "bool",
                              [Argument("JSContext*", "cx"),
                               Argument("JS::Handle<JS::Value>", "value"),
-                              Argument("JS::MutableHandle<JS::Value>", "pvalue"),
                               Argument("bool&", "tryNext")],
                              inline=not ownsMembers,
                              bodyInHeader=not ownsMembers,
@@ -9232,7 +9230,6 @@ class CGProxySpecialOperation(CGPerSignatureCall):
                 "declName": argument.identifier.name,
                 "holderName": argument.identifier.name + "_holder",
                 "val": argumentMutableValue,
-                "mutableVal": argumentMutableValue,
                 "obj": "obj"
             }
             self.cgRoot.prepend(instantiateJSToNativeConversion(info, templateValues))
@@ -9363,8 +9360,8 @@ class CGProxyNamedOperation(CGProxySpecialOperation):
             idName = "id"
         unwrapString = fill(
             """
-            if (!ConvertJSValueToString(cx, nameVal, &nameVal,
-                                        eStringify, eStringify, ${argName})) {
+            if (!ConvertJSValueToString(cx, nameVal, eStringify, eStringify,
+                                        ${argName})) {
               return false;
             }
             """,
@@ -9374,10 +9371,10 @@ class CGProxyNamedOperation(CGProxySpecialOperation):
             # fast path here.
             unwrapString = fill(
                 """
-                if (MOZ_LIKELY(JSID_IS_ATOM(${idName}))) {
-                  JS::AutoCheckCannotGC nogc;
-                  JSAtom* atom = JSID_TO_ATOM(${idName});
-                  ${argName}.Rebind(js::GetTwoByteAtomChars(nogc, atom), js::GetAtomLength(atom));
+                if (MOZ_LIKELY(JSID_IS_STRING(${idName}))) {
+                  if (!AssignJSString(cx, ${argName}, JSID_TO_STRING(${idName}))) {
+                    return false;
+                  }
                 } else {
                   nameVal = js::IdToValue(${idName});
                   $*{unwrapString}
@@ -9397,7 +9394,7 @@ class CGProxyNamedOperation(CGProxySpecialOperation):
             """
             JS::Rooted<JS::Value> nameVal(cx);
             $*{idDecl}
-            binding_detail::FakeDependentString ${argName};
+            binding_detail::FakeString ${argName};
             $*{unwrapString}
 
             ${nativeType}* self = UnwrapProxy(proxy);
@@ -10945,7 +10942,6 @@ class CGDictionary(CGThing):
         member, conversionInfo = memberInfo
         replacements = {
             "val": "temp.ref()",
-            "mutableVal": "&temp.ref()",
             "declName": self.makeMemberName(member.identifier.name),
             # We need a holder name for external interfaces, but
             # it's scoped down to the conversion so we can just use
@@ -12954,7 +12950,6 @@ class CallbackMember(CGNativeMember):
     def getResultConversion(self):
         replacements = {
             "val": "rval",
-            "mutableVal": "&rval",
             "holderName": "rvalHolder",
             "declName": "rvalDecl",
             # We actually want to pass in a null scope object here, because
@@ -13543,7 +13538,7 @@ class GlobalGenRoots():
         includes.add("mozilla/dom/OwningNonNull.h")
         includes.add("mozilla/dom/UnionMember.h")
         includes.add("mozilla/dom/BindingDeclarations.h")
-        # Need BindingUtils.h for FakeDependentString
+        # Need BindingUtils.h for FakeString
         includes.add("mozilla/dom/BindingUtils.h")
         implincludes.add("mozilla/dom/PrimitiveConversions.h")
 
@@ -13799,7 +13794,27 @@ class CGEventMethod(CGNativeMember):
                                cgClass.descriptor.interface).identifier.name == "Event":
                         continue
                     name = CGDictionary.makeMemberName(m.identifier.name)
-                    members += "e->%s = %s.%s;\n" % (name, self.args[1].name, name)
+                    if m.type.isSequence():
+                        # For sequences we may not be able to do a simple
+                        # assignment because the underlying types may not match.
+                        # For example, the argument can be a
+                        # Sequence<OwningNonNull<SomeInterface>> while our
+                        # member is an nsTArray<nsRefPtr<SomeInterface>>.  So
+                        # use AppendElements, which is actually a template on
+                        # the incoming type on nsTArray and does the right thing
+                        # for this case.
+                        target = name;
+                        source = "%s.%s" % (self.args[1].name, name)
+                        sequenceCopy = "e->%s.AppendElements(%s);\n"
+                        if m.type.nullable():
+                            sequenceCopy = CGIfWrapper(
+                                CGGeneric(sequenceCopy),
+                                "!%s.IsNull()" % source).define()
+                            target += ".SetValue()"
+                            source += ".Value()"
+                        members += sequenceCopy % (target, source)
+                    else:
+                        members += "e->%s = %s.%s;\n" % (name, self.args[1].name, name)
                     if m.type.isAny() or m.type.isObject() or m.type.isSpiderMonkeyInterface():
                         holdJS = "mozilla::HoldJSObjects(e.get());\n"
             iface = iface.parent

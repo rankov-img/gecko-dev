@@ -185,13 +185,6 @@ static const uint32_t StackAlignment = 16;
 static const bool StackKeptAligned = false;
 static const uint32_t CodeAlignment = 8;
 
-// As an invariant across architectures, within asm.js code:
-//   $sp % StackAlignment = (AsmJSFrameSize + masm.framePushed) % StackAlignment
-// On x64, this naturally falls out of the fact that the 'call' instruction
-// pushes the return address on the stack and masm.framePushed = 0 at the first
-// instruction of the prologue.
-static const uint32_t AsmJSFrameSize = sizeof(void*);
-
 static const Scale ScalePointer = TimesEight;
 
 } // namespace jit
@@ -552,7 +545,7 @@ class Assembler : public AssemblerX86Shared
     }
     void mov(AsmJSImmPtr imm, Register dest) {
         masm.movq_i64r(-1, dest.code());
-        enoughMemory_ &= append(AsmJSAbsoluteLink(CodeOffsetLabel(masm.currentOffset()), imm.kind()));
+        append(AsmJSAbsoluteLink(CodeOffsetLabel(masm.currentOffset()), imm.kind()));
     }
     void mov(const Operand &src, Register dest) {
         movq(src, dest);
@@ -707,11 +700,11 @@ class Assembler : public AssemblerX86Shared
         CodeOffsetLabel offset(size());
         JmpSrc src = enabled ? masm.call() : masm.cmp_eax();
         addPendingJump(src, ImmPtr(target->raw()), Relocation::JITCODE);
-        JS_ASSERT(size() - offset.offset() == ToggledCallSize());
+        JS_ASSERT(size() - offset.offset() == ToggledCallSize(nullptr));
         return offset;
     }
 
-    static size_t ToggledCallSize() {
+    static size_t ToggledCallSize(uint8_t *code) {
         // Size of a call instruction.
         return 5;
     }

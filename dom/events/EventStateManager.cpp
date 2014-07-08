@@ -1562,17 +1562,6 @@ EventStateManager::GenerateDragGesture(nsPresContext* aPresContext,
       return;
     }
 
-    // Check if selection is tracking drag gestures, if so
-    // don't interfere!
-    if (mCurrentTarget)
-    {
-      nsRefPtr<nsFrameSelection> frameSel = mCurrentTarget->GetFrameSelection();
-      if (frameSel && frameSel->GetMouseDownState()) {
-        StopTrackingDragGesture();
-        return;
-      }
-    }
-
     // If non-native code is capturing the mouse don't start a drag.
     if (nsIPresShell::IsMouseCapturePreventingDrag()) {
       StopTrackingDragGesture();
@@ -1596,12 +1585,49 @@ EventStateManager::GenerateDragGesture(nsPresContext* aPresContext,
     // fire drag gesture if mouse has moved enough
     LayoutDeviceIntPoint pt = aEvent->refPoint +
       LayoutDeviceIntPoint::FromUntyped(aEvent->widget->WidgetToScreenOffset());
-    if (DeprecatedAbs(pt.x - mGestureDownPoint.x) > pixelThresholdX ||
-        DeprecatedAbs(pt.y - mGestureDownPoint.y) > pixelThresholdY) {
+    if (Abs(pt.x - mGestureDownPoint.x) > Abs(pixelThresholdX) ||
+        Abs(pt.y - mGestureDownPoint.y) > Abs(pixelThresholdY)) {
       if (Prefs::ClickHoldContextMenu()) {
         // stop the click-hold before we fire off the drag gesture, in case
         // it takes a long time
         KillClickHoldTimer();
+      }
+
+      nsCOMPtr<nsIContent> eventContent;
+      mCurrentTarget->GetContentForEvent(aEvent, getter_AddRefs(eventContent));
+
+      // Make it easier to select link text by only dragging in the vertical direction
+      bool isLinkDraggedVertical = false;
+      bool isDraggableLink = false;
+      nsCOMPtr<nsIContent> dragLinkNode = eventContent;
+      while (dragLinkNode) {
+        if (nsContentUtils::IsDraggableLink(dragLinkNode)) {
+          isDraggableLink = true;
+          // Treat as vertical drag when cursor exceeds the top or bottom of the threshold box
+          isLinkDraggedVertical = Abs(pt.y - mGestureDownPoint.y) > Abs(pixelThresholdY);
+          break;
+        }
+        dragLinkNode = dragLinkNode->GetParent();
+      }
+
+      // Check if selection is tracking drag gestures, if so
+      // don't interfere!
+      if (mCurrentTarget) {
+        nsRefPtr<nsFrameSelection> frameSel = mCurrentTarget->GetFrameSelection();
+        if (frameSel && frameSel->GetMouseDownState()) {
+          if (isLinkDraggedVertical) {
+            // Stop selecting when link dragged vertically
+            frameSel->SetMouseDownState(PR_FALSE);
+            // Clear any selection to prevent it being dragged instead of link
+            frameSel->ClearNormalSelection();
+          } else {
+            StopTrackingDragGesture();
+            // Don't register click for draggable links when selecting
+            if (isDraggableLink)
+              mLClickCount = 0;
+            return;
+          }
+        }
       }
 
       nsCOMPtr<nsISupports> container = aPresContext->GetContainerWeak();
@@ -1613,8 +1639,7 @@ EventStateManager::GenerateDragGesture(nsPresContext* aPresContext,
         new DataTransfer(window, NS_DRAGDROP_START, false, -1);
 
       nsCOMPtr<nsISelection> selection;
-      nsCOMPtr<nsIContent> eventContent, targetContent;
-      mCurrentTarget->GetContentForEvent(aEvent, getter_AddRefs(eventContent));
+      nsCOMPtr<nsIContent> targetContent;
       if (eventContent)
         DetermineDragTarget(window, eventContent, dataTransfer,
                             getter_AddRefs(selection), getter_AddRefs(targetContent));
@@ -5071,7 +5096,7 @@ EventStateManager::DeltaAccumulator::InitLineOrPageDelta(
   if (IsInTransaction()) {
     // If wheel event type is changed, reset the values.
     if (mHandlingDeltaMode != aEvent->deltaMode ||
-        mHandlingPixelOnlyDevice != aEvent->isPixelOnlyDevice) {
+        mIsNoLineOrPageDeltaDevice != aEvent->mIsNoLineOrPageDelta) {
       Reset();
     } else {
       // If the delta direction is changed, we should reset only the
@@ -5086,13 +5111,12 @@ EventStateManager::DeltaAccumulator::InitLineOrPageDelta(
   }
 
   mHandlingDeltaMode = aEvent->deltaMode;
-  mHandlingPixelOnlyDevice = aEvent->isPixelOnlyDevice;
+  mIsNoLineOrPageDeltaDevice = aEvent->mIsNoLineOrPageDelta;
 
-  // If it's handling neither pixel scroll mode for pixel only device nor
-  // delta values multiplied by prefs, we must not modify lineOrPageDelta
+  // If it's handling neither a device that does not provide line or page deltas
+  // nor delta values multiplied by prefs, we must not modify lineOrPageDelta
   // values.
-  if (!(mHandlingDeltaMode == nsIDOMWheelEvent::DOM_DELTA_PIXEL &&
-        mHandlingPixelOnlyDevice) &&
+  if (!mIsNoLineOrPageDeltaDevice &&
       !EventStateManager::WheelPrefs::GetInstance()->
         NeedToComputeLineOrPageDelta(aEvent)) {
     // Set the delta values to mX and mY.  They would be used when above block
@@ -5153,7 +5177,7 @@ EventStateManager::DeltaAccumulator::Reset()
   mX = mY = 0.0;
   mPendingScrollAmountX = mPendingScrollAmountY = 0.0;
   mHandlingDeltaMode = UINT32_MAX;
-  mHandlingPixelOnlyDevice = false;
+  mIsNoLineOrPageDeltaDevice = false;
 }
 
 nsIntPoint

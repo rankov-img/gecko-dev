@@ -430,7 +430,7 @@ gfxFontEntry::NotifyGlyphsChanged()
 }
 
 bool
-gfxFontEntry::TryGetMathTable(gfxFont* aFont)
+gfxFontEntry::TryGetMathTable()
 {
     if (!mMathInitialized) {
         mMathInitialized = true;
@@ -5226,6 +5226,19 @@ gfxFontGroup::~gfxFontGroup()
     mFonts.Clear();
 }
 
+gfxFont *
+gfxFontGroup::GetFirstMathFont()
+{
+    uint32_t count = mFonts.Length();
+    for (uint32_t i = 0; i < count; ++i) {
+        gfxFont* font = GetFontAt(i);
+        if (font->GetFontEntry()->TryGetMathTable()) {
+            return font;
+        }
+    }
+    return nullptr;
+}
+
 gfxFontGroup *
 gfxFontGroup::Copy(const gfxFontStyle *aStyle)
 {
@@ -5751,6 +5764,9 @@ gfxFont::InitFakeSmallCapsRun(gfxContext     *aContext,
     uint32_t runStart = 0;
 
     for (uint32_t i = 0; i <= aLength; ++i) {
+        uint32_t extraCodeUnits = 0; // Will be set to 1 if we need to consume
+                                     // a trailing surrogate as well as the
+                                     // current code unit.
         RunCaseAction chAction = kNoChange;
         // Unless we're at the end, figure out what treatment the current
         // character will need.
@@ -5759,6 +5775,7 @@ gfxFont::InitFakeSmallCapsRun(gfxContext     *aContext,
             if (NS_IS_HIGH_SURROGATE(ch) && i < aLength - 1 &&
                 NS_IS_LOW_SURROGATE(aText[i + 1])) {
                 ch = SURROGATE_TO_UCS4(ch, aText[i + 1]);
+                extraCodeUnits = 1;
             }
             // Characters that aren't the start of a cluster are ignored here.
             // They get added to whatever lowercase/non-lowercase run we're in.
@@ -5872,6 +5889,7 @@ gfxFont::InitFakeSmallCapsRun(gfxContext     *aContext,
             runStart = i;
         }
 
+        i += extraCodeUnits;
         if (i < aLength) {
             runAction = chAction;
         }

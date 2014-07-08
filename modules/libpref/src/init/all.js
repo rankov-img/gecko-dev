@@ -285,7 +285,8 @@ pref("media.peerconnection.enabled", true);
 pref("media.peerconnection.video.enabled", true);
 pref("media.navigator.video.max_fs", 0); // unrestricted
 pref("media.navigator.video.max_fr", 0); // unrestricted
-+pref("media.getusermedia.aec", 1);
+pref("media.peerconnection.video.h264_enabled", false);
+pref("media.getusermedia.aec", 1);
 #endif
 pref("media.peerconnection.video.min_bitrate", 200);
 pref("media.peerconnection.video.start_bitrate", 300);
@@ -344,6 +345,9 @@ pref("media.tabstreaming.time_per_frame", 40);
 // TextTrack support
 pref("media.webvtt.enabled", true);
 pref("media.webvtt.regions.enabled", false);
+
+// AudioTrack and VideoTrack support
+pref("media.track.enabled", false);
 
 // Whether to enable MediaSource support
 pref("media.mediasource.enabled", false);
@@ -819,6 +823,8 @@ pref("privacy.donottrackheader.enabled",    false);
 //   0 = tracking is acceptable
 //   1 = tracking is unacceptable
 pref("privacy.donottrackheader.value",      1);
+// Enforce tracking protection
+pref("privacy.trackingprotection.enabled",  false);
 
 pref("dom.event.contextmenu.enabled",       true);
 pref("dom.event.clipboardevents.enabled",   true);
@@ -1953,7 +1959,7 @@ pref("layout.css.overflow-clip-box.enabled", false);
 pref("layout.css.grid.enabled", false);
 
 // Is support for CSS box-decoration-break enabled?
-pref("layout.css.box-decoration-break.enabled", false);
+pref("layout.css.box-decoration-break.enabled", true);
 
 // Is layout of CSS outline-style:auto enabled?
 pref("layout.css.outline-style-auto.enabled", false);
@@ -3699,7 +3705,12 @@ pref("canvas.image.cache.limit", 0);
 pref("image.onload.decode.limit", 0);
 
 // WebGL prefs
+#ifdef ANDROID
+// Disable MSAA on mobile.
+pref("gl.msaa-level", 0);
+#else
 pref("gl.msaa-level", 2);
+#endif
 pref("webgl.force-enabled", false);
 pref("webgl.disabled", false);
 pref("webgl.shader_validator", true);
@@ -4187,11 +4198,17 @@ pref("dom.voicemail.defaultServiceId", 0);
 pref("dom.inter-app-communication-api.enabled", false);
 
 // The tables used for Safebrowsing phishing and malware checks.
-pref("urlclassifier.malware_table", "goog-malware-shavar,test-malware-simple");
-pref("urlclassifier.phish_table", "goog-phish-shavar,test-phish-simple");
+pref("urlclassifier.malwareTable", "goog-malware-shavar,test-malware-simple");
+pref("urlclassifier.phishTable", "goog-phish-shavar,test-phish-simple");
 pref("urlclassifier.downloadBlockTable", "");
 pref("urlclassifier.downloadAllowTable", "");
-pref("urlclassifier.disallow_completions", "test-malware-simple,test-phish-simple,goog-downloadwhite-digest256");
+pref("urlclassifier.disallow_completions", "test-malware-simple,test-phish-simple,goog-downloadwhite-digest256,mozpub-track-digest256");
+
+// The table and update/gethash URLs for Safebrowsing phishing and malware
+// checks.
+pref("urlclassifier.trackingTable", "mozpub-track-digest256");
+pref("browser.trackingprotection.updateURL", "https://tracking.services.mozilla.com/update?client=SAFEBROWSING_ID&appver=%VERSION%&pver=2.2");
+pref("browser.trackingprotection.gethashURL", "https://tracking.services.mozilla.com/gethash?client=SAFEBROWSING_ID&appver=%VERSION%&pver=2.2");
 
 // Turn off Spatial navigation by default.
 pref("snav.enabled", false);

@@ -1,10 +1,11 @@
 /* Any copyright is dedicated to the Public Domain.
    http://creativecommons.org/publicdomain/zero/1.0/ */
 
+const Cu = SpecialPowers.Cu;
+
 let pendingEmulatorCmdCount = 0;
 
-let Promise =
-  SpecialPowers.Cu.import("resource://gre/modules/Promise.jsm").Promise;
+let Promise = Cu.import("resource://gre/modules/Promise.jsm").Promise;
 let nfc = window.navigator.mozNfc;
 
 SpecialPowers.addPermission("nfc-manager", true, document);
@@ -38,6 +39,18 @@ let emulator = (function() {
 
     this.run(cmd, function(result) {
       is(result.pop(), 'OK', 'check activation of RE' + re);
+      deferred.resolve();
+    });
+
+    return deferred.promise;
+  };
+
+ function deactivate() {
+    let deferred = Promise.defer();
+    let cmd = 'nfc nci rf_intf_deactivate_ntf';
+
+    this.run(cmd, function(result) {
+      is(result.pop(), 'OK', 'check deactivate');
       deferred.resolve();
     });
 
@@ -87,6 +100,7 @@ let emulator = (function() {
   return {
     run: run,
     activateRE: activateRE,
+    deactivate: deactivate,
     notifyDiscoverRE: notifyDiscoverRE,
     setTagData: setTagData,
     snepPutNdef: snepPutNdef
@@ -188,8 +202,8 @@ const NDEF = {
       is(record1.tnf, record2.tnf, "test for equal TNF fields");
       let fields = ["type", "id", "payload"];
       fields.forEach(function(value) {
-        let field1 = record1[value];
-        let field2 = record2[value];
+        let field1 = Cu.waiveXrays(record1)[value];
+        let field2 = Cu.waiveXrays(record2)[value];
         is(field1.length, field2.length,
            value + " fields have the same length");
         let eq = true;

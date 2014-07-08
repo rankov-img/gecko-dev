@@ -75,10 +75,10 @@ DeallocateExecutableMemory(uint8_t *code, size_t totalBytes)
 #endif
 }
 
-AsmJSModule::AsmJSModule(ScriptSource *scriptSource, uint32_t funcStart,
-                         uint32_t offsetToEndOfUseAsm, bool strict)
-  : funcStart_(funcStart),
-    offsetToEndOfUseAsm_(offsetToEndOfUseAsm),
+AsmJSModule::AsmJSModule(ScriptSource *scriptSource, uint32_t srcStart, uint32_t srcBodyStart,
+                         bool strict)
+  : srcStart_(srcStart),
+    srcBodyStart_(srcBodyStart),
     scriptSource_(scriptSource),
     globalArgumentName_(nullptr),
     importArgumentName_(nullptr),
@@ -167,6 +167,7 @@ AsmJSModule::addSizeOfMisc(mozilla::MallocSizeOf mallocSizeOf, size_t *asmJSModu
                         exits_.sizeOfExcludingThis(mallocSizeOf) +
                         exports_.sizeOfExcludingThis(mallocSizeOf) +
                         callSites_.sizeOfExcludingThis(mallocSizeOf) +
+                        codeRanges_.sizeOfExcludingThis(mallocSizeOf) +
                         functionNames_.sizeOfExcludingThis(mallocSizeOf) +
                         heapAccesses_.sizeOfExcludingThis(mallocSizeOf) +
                         functionCounts_.sizeOfExcludingThis(mallocSizeOf) +
@@ -189,11 +190,11 @@ struct CallSiteRetAddrOffset
 };
 
 const CallSite *
-AsmJSModule::lookupCallSite(uint8_t *returnAddress) const
+AsmJSModule::lookupCallSite(void *returnAddress) const
 {
     JS_ASSERT(isFinished());
 
-    uint32_t target = returnAddress - code_;
+    uint32_t target = ((uint8_t*)returnAddress) - code_;
     size_t lowerBound = 0;
     size_t upperBound = callSites_.length();
 
@@ -202,6 +203,45 @@ AsmJSModule::lookupCallSite(uint8_t *returnAddress) const
         return nullptr;
 
     return &callSites_[match];
+}
+
+namespace js {
+
+// Create an ordering on CodeRange and pc offsets suitable for BinarySearch.
+// Stick these in the same namespace as AsmJSModule so that argument-dependent
+// lookup will find it.
+bool
+operator==(size_t pcOffset, const AsmJSModule::CodeRange &rhs)
+{
+    return pcOffset >= rhs.begin() && pcOffset < rhs.end();
+}
+bool
+operator<=(const AsmJSModule::CodeRange &lhs, const AsmJSModule::CodeRange &rhs)
+{
+    return lhs.begin() <= rhs.begin();
+}
+bool
+operator<(size_t pcOffset, const AsmJSModule::CodeRange &rhs)
+{
+    return pcOffset < rhs.begin();
+}
+
+} // namespace js
+
+const AsmJSModule::CodeRange *
+AsmJSModule::lookupCodeRange(void *pc) const
+{
+    JS_ASSERT(isFinished());
+
+    uint32_t target = ((uint8_t*)pc) - code_;
+    size_t lowerBound = 0;
+    size_t upperBound = codeRanges_.length();
+
+    size_t match;
+    if (!BinarySearch(codeRanges_, lowerBound, upperBound, target, &match))
+        return nullptr;
+
+    return &codeRanges_[match];
 }
 
 struct HeapAccessOffset
@@ -214,12 +254,12 @@ struct HeapAccessOffset
 };
 
 const AsmJSHeapAccess *
-AsmJSModule::lookupHeapAccess(uint8_t *pc) const
+AsmJSModule::lookupHeapAccess(void *pc) const
 {
     JS_ASSERT(isFinished());
     JS_ASSERT(containsPC(pc));
 
-    uint32_t target = pc - code_;
+    uint32_t target = ((uint8_t*)pc) - code_;
     size_t lowerBound = 0;
     size_t upperBound = heapAccesses_.length();
 
@@ -238,10 +278,10 @@ AsmJSModule::finish(ExclusiveContext *cx, TokenStream &tokenStream, MacroAssembl
 
     uint32_t endBeforeCurly = tokenStream.currentToken().pos.end;
     uint32_t endAfterCurly = tokenStream.peekTokenPos().end;
-    JS_ASSERT(endBeforeCurly >= offsetToEndOfUseAsm_);
-    JS_ASSERT(endAfterCurly >= offsetToEndOfUseAsm_);
-    pod.funcLength_ = endBeforeCurly - funcStart_;
-    pod.funcLengthWithRightBrace_ = endAfterCurly - funcStart_;
+    JS_ASSERT(endBeforeCurly >= srcBodyStart_);
+    JS_ASSERT(endAfterCurly >= srcBodyStart_);
+    pod.srcLength_ = endBeforeCurly - srcStart_;
+    pod.srcLengthWithRightBrace_ = endAfterCurly - srcStart_;
 
     // The global data section sits immediately after the executable (and
     // other) data allocated by the MacroAssembler, so ensure it is
@@ -292,6 +332,13 @@ AsmJSModule::finish(ExclusiveContext *cx, TokenStream &tokenStream, MacroAssembl
     for (size_t i = 0; i < callSites_.length(); i++) {
         CallSite &c = callSites_[i];
         c.setReturnAddressOffset(masm.actualOffset(c.returnAddressOffset()));
+    }
+    for (size_t i = 0; i < codeRanges_.length(); i++) {
+        CodeRange &c = codeRanges_[i];
+        c.begin_ = masm.actualOffset(c.begin_);
+        c.end_ = masm.actualOffset(c.end_);
+        JS_ASSERT(c.begin_ <= c.end_);
+        JS_ASSERT_IF(i > 0, codeRanges_[i - 1].end_ <= c.begin_);
     }
 #endif
     JS_ASSERT(pod.functionBytes_ % AsmJSPageSize == 0);
@@ -465,14 +512,6 @@ RedirectCall(void *fun, ABIFunctionType type)
     return fun;
 }
 
-#ifdef DEBUG
-static void
-AssumeUnreachable()
-{
-    MOZ_CRASH("Reached unreachable code in asm.js");
-}
-#endif
-
 static void *
 AddressOf(AsmJSImmKind kind, ExclusiveContext *cx)
 {
@@ -533,10 +572,6 @@ AddressOf(AsmJSImmKind kind, ExclusiveContext *cx)
         return RedirectCall(FuncCast(ecmaPow), Args_Double_DoubleDouble);
       case AsmJSImm_ATan2D:
         return RedirectCall(FuncCast(ecmaAtan2), Args_Double_DoubleDouble);
-#ifdef DEBUG
-      case AsmJSImm_AssumeUnreachable:
-        return RedirectCall(FuncCast(AssumeUnreachable), Args_General0);
-#endif
       case AsmJSImm_Invalid:
         break;
     }
@@ -1084,6 +1119,7 @@ AsmJSModule::serializedSize() const
            SerializedVectorSize(exits_) +
            SerializedVectorSize(exports_) +
            SerializedPodVectorSize(callSites_) +
+           SerializedPodVectorSize(codeRanges_) +
            SerializedVectorSize(functionNames_) +
            SerializedPodVectorSize(heapAccesses_) +
 #if defined(MOZ_VTUNE) || defined(JS_ION_PERF)
@@ -1104,6 +1140,7 @@ AsmJSModule::serialize(uint8_t *cursor) const
     cursor = SerializeVector(cursor, exits_);
     cursor = SerializeVector(cursor, exports_);
     cursor = SerializePodVector(cursor, callSites_);
+    cursor = SerializePodVector(cursor, codeRanges_);
     cursor = SerializeVector(cursor, functionNames_);
     cursor = SerializePodVector(cursor, heapAccesses_);
 #if defined(MOZ_VTUNE) || defined(JS_ION_PERF)
@@ -1130,6 +1167,7 @@ AsmJSModule::deserialize(ExclusiveContext *cx, const uint8_t *cursor)
     (cursor = DeserializeVector(cx, cursor, &exits_)) &&
     (cursor = DeserializeVector(cx, cursor, &exports_)) &&
     (cursor = DeserializePodVector(cx, cursor, &callSites_)) &&
+    (cursor = DeserializePodVector(cx, cursor, &codeRanges_)) &&
     (cursor = DeserializeVector(cx, cursor, &functionNames_)) &&
     (cursor = DeserializePodVector(cx, cursor, &heapAccesses_)) &&
 #if defined(MOZ_VTUNE) || defined(JS_ION_PERF)
@@ -1176,7 +1214,7 @@ AsmJSModule::clone(JSContext *cx, ScopedJSDeletePtr<AsmJSModule> *moduleOut) con
 {
     AutoUnprotectCodeForClone cloneGuard(cx, *this);
 
-    *moduleOut = cx->new_<AsmJSModule>(scriptSource_, funcStart_, offsetToEndOfUseAsm_, pod.strict_);
+    *moduleOut = cx->new_<AsmJSModule>(scriptSource_, srcStart_, srcBodyStart_, pod.strict_);
     if (!*moduleOut)
         return false;
 
@@ -1200,6 +1238,7 @@ AsmJSModule::clone(JSContext *cx, ScopedJSDeletePtr<AsmJSModule> *moduleOut) con
         !CloneVector(cx, exits_, &out.exits_) ||
         !CloneVector(cx, exports_, &out.exports_) ||
         !ClonePodVector(cx, callSites_, &out.callSites_) ||
+        !ClonePodVector(cx, codeRanges_, &out.codeRanges_) ||
         !CloneVector(cx, functionNames_, &out.functionNames_) ||
         !ClonePodVector(cx, heapAccesses_, &out.heapAccesses_) ||
         !staticLinkData_.clone(cx, &out.staticLinkData_))
@@ -1632,11 +1671,11 @@ js::LookupAsmJSModuleInCache(ExclusiveContext *cx,
     if (!moduleChars.match(parser))
         return true;
 
-    uint32_t funcStart = parser.pc->maybeFunction->pn_body->pn_pos.begin;
-    uint32_t offsetToEndOfUseAsm = parser.tokenStream.currentToken().pos.end;
+    uint32_t srcStart = parser.pc->maybeFunction->pn_body->pn_pos.begin;
+    uint32_t srcBodyStart = parser.tokenStream.currentToken().pos.end;
     bool strict = parser.pc->sc->strict && !parser.pc->sc->hasExplicitUseStrict();
     ScopedJSDeletePtr<AsmJSModule> module(
-        cx->new_<AsmJSModule>(parser.ss, funcStart, offsetToEndOfUseAsm, strict));
+        cx->new_<AsmJSModule>(parser.ss, srcStart, srcBodyStart, strict));
     if (!module)
         return false;
     cursor = module->deserialize(cx, cursor);
@@ -1657,7 +1696,7 @@ js::LookupAsmJSModuleInCache(ExclusiveContext *cx,
 
     module->staticallyLink(cx);
 
-    parser.tokenStream.advance(module->funcEndBeforeCurly());
+    parser.tokenStream.advance(module->srcEndBeforeCurly());
 
     int64_t usecAfter = PRMJ_Now();
     int ms = (usecAfter - usecBefore) / PRMJ_USEC_PER_MSEC;

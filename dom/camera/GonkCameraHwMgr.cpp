@@ -45,6 +45,12 @@ GonkCameraHardware::GonkCameraHardware(mozilla::nsGonkCameraControl* aTarget, ui
 }
 
 void
+GonkCameraHardware::OnRateLimitPreview(bool aLimit)
+{
+  ::OnRateLimitPreview(mTarget, aLimit);
+}
+
+void
 GonkCameraHardware::OnNewFrame()
 {
   if (mClosing) {
@@ -132,7 +138,10 @@ GonkCameraHardware::postDataTimestamp(nsecs_t aTimestamp, int32_t aMsgType, cons
 
   if (mListener.get()) {
     DOM_CAMERA_LOGI("Listener registered, posting recording frame!");
-    mListener->postDataTimestamp(aTimestamp, aMsgType, aDataPtr);
+    if (!mListener->postDataTimestamp(aTimestamp, aMsgType, aDataPtr)) {
+      DOM_CAMERA_LOGW("Listener unable to process. Drop a recording frame.");
+      mCamera->releaseRecordingFrame(aDataPtr);
+    }
   } else {
     DOM_CAMERA_LOGW("No listener was set. Drop a recording frame.");
     mCamera->releaseRecordingFrame(aDataPtr);

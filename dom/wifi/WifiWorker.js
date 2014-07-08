@@ -1112,7 +1112,7 @@ var WifiManager = (function() {
 
         function getWifiHotspotStatus() {
           wifiCommand.hostapdGetStations(function(result) {
-            notify("stationInfoUpdate", {station: result});
+            notify("stationinfoupdate", {station: result});
           });
         }
 
@@ -2324,8 +2324,8 @@ function WifiWorker() {
     });
   };
 
-  WifiManager.onstationInfoUpdate = function() {
-    self._fireEvent("stationInfoUpdate", { station: this.station });
+  WifiManager.onstationinfoupdate = function() {
+    self._fireEvent("stationinfoupdate", { station: this.station });
   };
 
   // Read the 'wifi.enabled' setting in order to start with a known
@@ -2511,8 +2511,8 @@ WifiWorker.prototype = {
         }
 
         self._lastConnectionInfo = info;
-        debug("Firing connectionInfoUpdate: " + uneval(info));
-        self._fireEvent("connectionInfoUpdate", info);
+        debug("Firing connectioninfoupdate: " + uneval(info));
+        self._fireEvent("connectioninfoupdate", info);
       });
     }
 
@@ -3309,13 +3309,13 @@ WifiWorker.prototype = {
       return;
     }
 
-    let certDB2 = Cc["@mozilla.org/security/x509certdb;1"]
-                  .getService(Ci.nsIX509CertDB2);
-    if (!certDB2) {
+    let certDB = Cc["@mozilla.org/security/x509certdb;1"]
+                 .getService(Ci.nsIX509CertDB);
+    if (!certDB) {
       self._sendMessage(message, false, "Failed to query NSS DB service", msg);
     }
 
-    let certList = certDB2.getCerts();
+    let certList = certDB.getCerts();
     if (!certList) {
       self._sendMessage(message, false, "Failed to get certificate List", msg);
     }
@@ -3332,7 +3332,7 @@ WifiWorker.prototype = {
     };
 
     while (certListEnum.hasMoreElements()) {
-      let certInfo = certListEnum.getNext().QueryInterface(Ci.nsIX509Cert3);
+      let certInfo = certListEnum.getNext().QueryInterface(Ci.nsIX509Cert);
       let certNicknameInfo = /WIFI\_([A-Z]*)\_(.*)/.exec(certInfo.nickname);
       if (!certNicknameInfo) {
         continue;

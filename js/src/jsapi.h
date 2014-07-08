@@ -4636,9 +4636,9 @@ JS_SetErrorReporter(JSContext *cx, JSErrorReporter er);
 namespace JS {
 
 extern JS_PUBLIC_API(bool)
-CreateTypeError(JSContext *cx, HandleString stack, HandleString fileName,
-                uint32_t lineNumber, uint32_t columnNumber, JSErrorReport *report,
-                HandleString message, MutableHandleValue rval);
+CreateError(JSContext *cx, JSExnType type, HandleString stack,
+            HandleString fileName, uint32_t lineNumber, uint32_t columnNumber,
+            JSErrorReport *report, HandleString message, MutableHandleValue rval);
 
 /************************************************************************/
 
@@ -5194,8 +5194,14 @@ typedef void
 extern JS_PUBLIC_API(void)
 SetOutOfMemoryCallback(JSRuntime *rt, OutOfMemoryCallback cb, void *data);
 
+
+/*
+ * Capture the current call stack as a chain of SavedFrame objects, and set
+ * |stackp| to the SavedFrame for the newest stack frame. If |maxFrameCount| is
+ * non-zero, capture at most the youngest |maxFrameCount| frames.
+ */
 extern JS_PUBLIC_API(bool)
-CaptureCurrentStack(JSContext *cx, MutableHandleObject stackp);
+CaptureCurrentStack(JSContext *cx, MutableHandleObject stackp, unsigned maxFrameCount = 0);
 
 } /* namespace JS */
 

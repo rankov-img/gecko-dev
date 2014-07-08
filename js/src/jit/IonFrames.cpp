@@ -1470,6 +1470,12 @@ SnapshotIterator::SnapshotIterator()
 {
 }
 
+int32_t
+SnapshotIterator::readOuterNumActualArgs() const
+{
+    return fp_->numActualArgs();
+}
+
 uintptr_t
 SnapshotIterator::fromStack(int32_t offset) const
 {

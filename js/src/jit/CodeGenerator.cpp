@@ -8570,7 +8570,7 @@ CodeGenerator::visitAsmJSCall(LAsmJSCall *ins)
     Label ok;
     JS_ASSERT(IsPowerOfTwo(StackAlignment));
     masm.branchTestPtr(Assembler::Zero, StackPointer, Imm32(StackAlignment - 1), &ok);
-    masm.assumeUnreachable("Stack should be aligned.");
+    masm.breakpoint();
     masm.bind(&ok);
 #endif
 
@@ -8583,7 +8583,7 @@ CodeGenerator::visitAsmJSCall(LAsmJSCall *ins)
         masm.call(mir->desc(), ToRegister(ins->getOperand(mir->dynamicCalleeOperandIndex())));
         break;
       case MAsmJSCall::Callee::Builtin:
-        masm.call(mir->desc(), AsmJSImmPtr(callee.builtin()));
+        masm.call(AsmJSImmPtr(callee.builtin()));
         break;
     }
 

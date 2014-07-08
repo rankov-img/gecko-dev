@@ -427,10 +427,7 @@ MacroAssemblerARM::ma_movPatchable(Imm32 imm_, Register dest, Assembler::Conditi
     if (i) {
         // Make sure the current instruction is not an artificial guard
         // inserted by the assembler buffer.
-        // The InstructionIterator already does this and handles edge cases,
-        // so, just asking an iterator for its current instruction should be
-        // enough to make sure we don't accidentally inspect an artificial guard.
-        i = InstructionIterator(i).cur();
+        i = i->skipPool();
     }
     switch(rs) {
       case L_MOVWT:
@@ -451,8 +448,8 @@ MacroAssemblerARM::ma_movPatchable(Imm32 imm_, Register dest, Assembler::Conditi
 }
 
 void
-MacroAssemblerARM::ma_movPatchable(ImmPtr imm, Register dest,
-                                   Assembler::Condition c, RelocStyle rs, Instruction *i)
+MacroAssemblerARM::ma_movPatchable(ImmPtr imm, Register dest, Assembler::Condition c,
+                                   RelocStyle rs, Instruction *i)
 {
     return ma_movPatchable(Imm32(int32_t(imm.value)), dest, c, rs, i);
 }
@@ -1795,6 +1792,17 @@ MacroAssemblerARMCompat::callIon(Register callee)
 }
 
 void
+MacroAssemblerARMCompat::callIonFromAsmJS(Register callee)
+{
+    ma_callIonNoPush(callee);
+
+    // The Ion ABI has the callee pop the return address off the stack.
+    // The asm.js caller assumes that the call leaves sp unchanged, so bump
+    // the stack.
+    subPtr(Imm32(sizeof(void*)), sp);
+}
+
+void
 MacroAssembler::alignFrameForICArguments(AfterICSaveLive &aic)
 {
     // Exists for MIPS compatibility.
@@ -2071,7 +2079,7 @@ MacroAssemblerARMCompat::movePtr(AsmJSImmPtr imm, Register dest)
     else
         rs = L_LDR;
 
-    enoughMemory_ &= append(AsmJSAbsoluteLink(CodeOffsetLabel(nextOffset().getOffset()), imm.kind()));
+    append(AsmJSAbsoluteLink(CodeOffsetLabel(nextOffset().getOffset()), imm.kind()));
     ma_movPatchable(Imm32(-1), dest, Always, rs);
 }
 void
@@ -3642,19 +3650,6 @@ MacroAssemblerARM::ma_call(ImmPtr dest)
 }
 
 void
-MacroAssemblerARM::ma_callAndStoreRet(const Register r, uint32_t stackArgBytes)
-{
-    // Note: this function stores the return address to sp[0]. The caller must
-    // anticipate this by pushing additional space on the stack. The ABI does
-    // not provide space for a return address so this function may only be
-    // called if no argument are passed.
-    JS_ASSERT(stackArgBytes == 0);
-    AutoForbidPools afp(this);
-    as_dtr(IsStore, 32, Offset, pc, DTRAddr(sp, DtrOffImm(0)));
-    as_blx(r);
-}
-
-void
 MacroAssemblerARMCompat::breakpoint()
 {
     as_bkpt();
@@ -4376,15 +4371,13 @@ CodeOffsetLabel
 MacroAssemblerARMCompat::toggledCall(JitCode *target, bool enabled)
 {
     BufferOffset bo = nextOffset();
-    CodeOffsetLabel offset(bo.getOffset());
     addPendingJump(bo, ImmPtr(target->raw()), Relocation::JITCODE);
     ma_movPatchable(ImmPtr(target->raw()), ScratchRegister, Always, HasMOVWT() ? L_MOVWT : L_LDR);
     if (enabled)
         ma_blx(ScratchRegister);
     else
         ma_nop();
-    JS_ASSERT(nextOffset().getOffset() - offset.offset() == ToggledCallSize());
-    return offset;
+    return CodeOffsetLabel(bo.getOffset());
 }
 
 void

@@ -34,101 +34,6 @@ using namespace js::jit;
 using mozilla::IsNaN;
 using mozilla::PodZero;
 
-static uint8_t *
-ReturnAddressForExitCall(uint8_t **psp)
-{
-    uint8_t *sp = *psp;
-#if defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_X64)
-    // For calls to Ion/C++ on x86/x64, the exitSP is the SP right before the call
-    // to C++. Since the call instruction pushes the return address, we know
-    // that the return address is 1 word below exitSP.
-    return *(uint8_t**)(sp - sizeof(void*));
-#elif defined(JS_CODEGEN_ARM)
-    // For calls to Ion/C++ on ARM, the *caller* pushes the return address on
-    // the stack. For Ion, this is just part of the ABI. For C++, the return
-    // address is explicitly pushed before the call since we cannot expect the
-    // callee to immediately push lr. This means that exitSP points to the
-    // return address.
-    return *(uint8_t**)sp;
-#elif defined(JS_CODEGEN_MIPS)
-    // On MIPS we have two cases: an exit to C++ will store the return address
-    // at ShadowStackSpace above sp; an exit to Ion will store the return
-    // address at sp. To distinguish the two cases, the low bit of sp (which is
-    // aligned and therefore zero) is set for Ion exits.
-    if (uintptr_t(sp) & 0x1) {
-        sp = *psp -= 0x1;  // Clear the low bit
-        return *(uint8_t**)sp;
-    }
-    return *(uint8_t**)(sp + ShadowStackSpace);
-#else
-# error "Unknown architecture!"
-#endif
-}
-
-static uint8_t *
-ReturnAddressForJitCall(uint8_t *sp)
-{
-    // Once inside JIT code, sp always points to the word before the return
-    // address.
-    return *(uint8_t**)(sp - sizeof(void*));
-}
-
-AsmJSFrameIterator::AsmJSFrameIterator(const AsmJSActivation *activation)
-  : module_(nullptr)
-{
-    if (!activation || activation->isInterruptedSP())
-        return;
-
-    module_ = &activation->module();
-    sp_ = activation->exitSP();
-
-    settle(ReturnAddressForExitCall(&sp_));
-}
-
-void
-AsmJSFrameIterator::operator++()
-{
-    settle(ReturnAddressForJitCall(sp_));
-}
-
-void
-AsmJSFrameIterator::settle(uint8_t *returnAddress)
-{
-    callsite_ = module_->lookupCallSite(returnAddress);
-    if (!callsite_ || callsite_->isEntry()) {
-        module_ = nullptr;
-        return;
-    }
-
-    if (callsite_->isEntry()) {
-        module_ = nullptr;
-        return;
-    }
-
-    sp_ += callsite_->stackDepth();
-
-    if (callsite_->isExit())
-        return settle(ReturnAddressForJitCall(sp_));
-
-    JS_ASSERT(callsite_->isNormal());
-}
-
-JSAtom *
-AsmJSFrameIterator::functionDisplayAtom() const
-{
-    JS_ASSERT(!done());
-    return module_->functionName(callsite_->functionNameIndex());
-}
-
-unsigned
-AsmJSFrameIterator::computeLine(uint32_t *column) const
-{
-    JS_ASSERT(!done());
-    if (column)
-        *column = callsite_->column();
-    return callsite_->line();
-}
-
 static bool
 CloneModule(JSContext *cx, MutableHandle<AsmJSModuleObject*> moduleObj)
 {
@@ -563,8 +468,8 @@ HandleDynamicLinkFailure(JSContext *cx, CallArgs args, AsmJSModule &module, Hand
     if (cx->isExceptionPending())
         return false;
 
-    uint32_t begin = module.offsetToEndOfUseAsm();
-    uint32_t end = module.funcEndBeforeCurly();
+    uint32_t begin = module.srcBodyStart();  // starts right after 'use asm'
+    uint32_t end = module.srcEndBeforeCurly();
     Rooted<JSFlatString*> src(cx, module.scriptSource()->substring(cx, begin, end));
     if (!src)
         return false;
@@ -913,8 +818,8 @@ js::AsmJSModuleToString(JSContext *cx, HandleFunction fun, bool addParenToLambda
 {
     AsmJSModule &module = ModuleFunctionToModuleObject(fun).module();
 
-    uint32_t begin = module.funcStart();
-    uint32_t end = module.funcEndAfterCurly();
+    uint32_t begin = module.srcStart();
+    uint32_t end = module.srcEndAfterCurly();
     ScriptSource *source = module.scriptSource();
     StringBuffer out(cx);
 
@@ -1012,8 +917,8 @@ js::AsmJSFunctionToString(JSContext *cx, HandleFunction fun)
 {
     AsmJSModule &module = FunctionToEnclosingModule(fun);
     const AsmJSModule::ExportedFunction &f = FunctionToExportedFunction(fun, module);
-    uint32_t begin = module.funcStart() + f.startOffsetInModule();
-    uint32_t end = module.funcStart() + f.endOffsetInModule();
+    uint32_t begin = module.srcStart() + f.startOffsetInModule();
+    uint32_t end = module.srcStart() + f.endOffsetInModule();
 
     ScriptSource *source = module.scriptSource();
     StringBuffer out(cx);

@@ -283,13 +283,13 @@ SandboxEvalInWindow(JSContext *cx, unsigned argc, jsval *vp)
     RootedString srcString(cx, args[0].toString());
     RootedObject targetScope(cx, &args[1].toObject());
 
-    nsDependentJSString srcDepString;
-    if (!srcDepString.init(cx, srcString)) {
+    nsAutoJSString srcAutoString;
+    if (!srcAutoString.init(cx, srcString)) {
         JS_ReportError(cx, "Source string is invalid");
         return false;
     }
 
-    return EvalInWindow(cx, srcDepString, targetScope, args.rval());
+    return EvalInWindow(cx, srcAutoString, targetScope, args.rval());
 }
 
 static bool
@@ -414,7 +414,7 @@ struct AutoSkipPropertyMirroring
 static bool
 sandbox_addProperty(JSContext *cx, HandleObject obj, HandleId id, MutableHandleValue vp)
 {
-    CompartmentPrivate *priv = GetCompartmentPrivate(obj);
+    CompartmentPrivate *priv = CompartmentPrivate::Get(obj);
     MOZ_ASSERT(priv->writeToGlobalPrototype);
 
     // Whenever JS_EnumerateStandardClasses is called (by sandbox_enumerate for
@@ -891,7 +891,7 @@ xpc::CreateSandboxObject(JSContext *cx, MutableHandleValue vp, nsISupports *prin
     if (!sandbox)
         return NS_ERROR_FAILURE;
 
-    xpc::GetCompartmentPrivate(sandbox)->writeToGlobalPrototype =
+    CompartmentPrivate::Get(sandbox)->writeToGlobalPrototype =
       options.writeToGlobalPrototype;
 
     // Set up the wantXrays flag, which indicates whether xrays are desired even
@@ -903,7 +903,7 @@ xpc::CreateSandboxObject(JSContext *cx, MutableHandleValue vp, nsISupports *prin
     // Arguably we should just flip the default for chrome and still honor the
     // flag, but such a change would break code in subtle ways for minimal
     // benefit. So we just switch it off here.
-    xpc::GetCompartmentPrivate(sandbox)->wantXrays =
+    CompartmentPrivate::Get(sandbox)->wantXrays =
       AccessCheck::isChrome(sandbox) ? false : options.wantXrays;
 
     {
@@ -947,12 +947,12 @@ xpc::CreateSandboxObject(JSContext *cx, MutableHandleValue vp, nsISupports *prin
         JS_SetPrivate(sandbox, sbp.forget().take());
 
         // Don't try to mirror the properties that are set below.
-        AutoSkipPropertyMirroring askip(GetCompartmentPrivate(sandbox));
+        AutoSkipPropertyMirroring askip(CompartmentPrivate::Get(sandbox));
 
         bool allowComponents = nsContentUtils::IsSystemPrincipal(principal) ||
                                nsContentUtils::IsExpandedPrincipal(principal);
         if (options.wantComponents && allowComponents &&
-            !GetObjectScope(sandbox)->AttachComponentsObject(cx))
+            !ObjectScope(sandbox)->AttachComponentsObject(cx))
             return NS_ERROR_XPC_UNEXPECTED;
 
         if (!XPCNativeWrapper::AttachNewConstructorObject(cx, sandbox))
@@ -1037,7 +1037,7 @@ ParsePrincipal(JSContext *cx, HandleString codebase, nsIPrincipal **principal)
     MOZ_ASSERT(principal);
     MOZ_ASSERT(codebase);
     nsCOMPtr<nsIURI> uri;
-    nsDependentJSString codebaseStr;
+    nsAutoJSString codebaseStr;
     NS_ENSURE_TRUE(codebaseStr.init(cx, codebase), false);
     nsresult rv = NS_NewURI(getter_AddRefs(uri), codebaseStr);
     if (NS_FAILED(rv)) {
@@ -1283,8 +1283,10 @@ OptionsBase::ParseString(const char *name, nsString &prop)
         return false;
     }
 
-    nsDependentJSString strVal;
-    strVal.init(mCx, value.toString());
+    nsAutoJSString strVal;
+    if (!strVal.init(mCx, value.toString()))
+        return false;
+
     prop = strVal;
     return true;
 }
@@ -1505,7 +1507,7 @@ ContextHolder::~ContextHolder()
 nsresult
 xpc::EvalInSandbox(JSContext *cx, HandleObject sandboxArg, const nsAString& source,
                    const nsACString& filename, int32_t lineNo,
-                   JSVersion jsVersion, bool returnStringOnly, MutableHandleValue rval)
+                   JSVersion jsVersion, MutableHandleValue rval)
 {
     JS_AbortIfWrongThread(JS_GetRuntime(cx));
     rval.set(UndefinedValue());
@@ -1556,22 +1558,11 @@ xpc::EvalInSandbox(JSContext *cx, HandleObject sandboxArg, const nsAString& sour
         JS::RootedObject rootedSandbox(sandcx, sandbox);
         ok = JS::Evaluate(sandcx, rootedSandbox, options,
                           PromiseFlatString(source).get(), source.Length(), &v);
-        if (ok && returnStringOnly && !v.isUndefined()) {
-            JSString *str = ToString(sandcx, v);
-            ok = !!str;
-            v = ok ? JS::StringValue(str) : JS::UndefinedValue();
-        }
 
         // If the sandbox threw an exception, grab it off the context.
         if (JS_GetPendingException(sandcx, &exn)) {
             MOZ_ASSERT(!ok);
             JS_ClearPendingException(sandcx);
-            if (returnStringOnly) {
-                // The caller asked for strings only, convert the
-                // exception into a string.
-                JSString *str = ToString(sandcx, exn);
-                exn = str ? JS::StringValue(str) : JS::UndefinedValue();
-            }
         }
     }
 

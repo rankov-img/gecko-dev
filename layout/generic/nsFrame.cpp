@@ -1620,6 +1620,17 @@ nsIFrame::GetClipPropClipRect(const nsStyleDisplay* aDisp, nsRect* aRect,
   }
 
   *aRect = aDisp->mClip;
+  if (MOZ_LIKELY(StyleBorder()->mBoxDecorationBreak ==
+                   NS_STYLE_BOX_DECORATION_BREAK_SLICE)) {
+    // The clip applies to the joined boxes so it's relative the first
+    // continuation.
+    nscoord y = 0;
+    for (nsIFrame* f = GetPrevContinuation(); f; f = f->GetPrevContinuation()) {
+      y += f->GetRect().height;
+    }
+    aRect->MoveBy(nsPoint(0, -y));
+  }
+
   if (NS_STYLE_CLIP_RIGHT_AUTO & aDisp->mClipFlags) {
     aRect->width = aSize.width - aRect->x;
   }
@@ -2682,8 +2693,10 @@ nsFrame::HandlePress(nsPresContext* aPresContext,
   if (!mouseEvent->IsAlt()) {
     for (nsIContent* content = mContent; content;
          content = content->GetParent()) {
+      // Prevent selection of draggable content with the exception of links
       if (nsContentUtils::ContentIsDraggable(content) &&
-          !content->IsEditable()) {
+          !content->IsEditable() &&
+          !nsContentUtils::IsDraggableLink(content)) {
         // coordinate stuff is the fix for bug #55921
         if ((mRect - GetPosition()).Contains(
               nsLayoutUtils::GetEventCoordinatesRelativeTo(mouseEvent, this))) {

@@ -53,7 +53,7 @@ CodeGeneratorARM::generateAsmJSPrologue(Label *stackOverflowLabel)
 {
     JS_ASSERT(gen->compilingAsmJS());
 
-    // See comment in Assembler-arm.h about AsmJSFrameSize.
+    // See comment in Assembler-shared.h about AsmJSFrameSize.
     masm.push(lr);
 
     // The asm.js over-recursed handler wants to be able to assume that SP
@@ -198,7 +198,7 @@ CodeGeneratorARM::bailoutIf(Assembler::Condition condition, LSnapshot *snapshot)
                  frameClass_.frameSize() == masm.framePushed());
 
     if (assignBailoutId(snapshot)) {
-        uint8_t *code = deoptTable_->raw() + snapshot->bailoutId() * BAILOUT_TABLE_ENTRY_SIZE;
+        uint8_t *code = Assembler::BailoutTableStart(deoptTable_->raw()) + snapshot->bailoutId() * BAILOUT_TABLE_ENTRY_SIZE;
         masm.ma_b(code, Relocation::HARDCODED, condition);
         return true;
     }
@@ -1849,7 +1849,8 @@ CodeGeneratorARM::visitAsmJSLoadHeap(LAsmJSLoadHeap *ins)
         masm.ma_mov(Imm32(0), d, NoSetCond, Assembler::AboveOrEqual);
         masm.ma_dataTransferN(IsLoad, size, isSigned, HeapReg, ptrReg, d, Offset, Assembler::Below);
     }
-    return masm.append(AsmJSHeapAccess(bo.getOffset()));
+    masm.append(AsmJSHeapAccess(bo.getOffset()));
+    return true;
 }
 
 bool
@@ -1916,7 +1917,8 @@ CodeGeneratorARM::visitAsmJSStoreHeap(LAsmJSStoreHeap *ins)
         masm.ma_dataTransferN(IsStore, size, isSigned, HeapReg, ptrReg,
                               ToRegister(ins->value()), Offset, Assembler::Below);
     }
-    return masm.append(AsmJSHeapAccess(bo.getOffset()));
+    masm.append(AsmJSHeapAccess(bo.getOffset()));
+    return true;
 }
 
 bool

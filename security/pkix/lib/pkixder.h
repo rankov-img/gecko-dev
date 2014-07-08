@@ -72,9 +72,9 @@ enum Tag
   NULLTag = UNIVERSAL | 0x05,
   OIDTag = UNIVERSAL | 0x06,
   ENUMERATED = UNIVERSAL | 0x0a,
+  SEQUENCE = UNIVERSAL | CONSTRUCTED | 0x10, // 0x30
   UTCTime = UNIVERSAL | 0x17,
   GENERALIZED_TIME = UNIVERSAL | 0x18,
-  SEQUENCE = UNIVERSAL | CONSTRUCTED | 0x30,
 };
 
 enum Result
@@ -336,6 +336,22 @@ ExpectTagAndGetValue(Input& input, uint8_t tag, /*out*/ Input& value)
     return Failure;
   }
   return input.Skip(length, value);
+}
+
+// Like ExpectTagAndGetValue, except the output SECItem will contain the
+// encoded tag and length along with the value.
+inline Result
+ExpectTagAndGetTLV(Input& input, uint8_t tag, /*out*/ SECItem& tlv)
+{
+  Input::Mark mark(input.GetMark());
+  uint16_t length;
+  if (internal::ExpectTagAndGetLength(input, tag, length) != Success) {
+    return Failure;
+  }
+  if (input.Skip(length) != Success) {
+    return Failure;
+  }
+  return input.GetSECItem(siBuffer, mark, tlv);
 }
 
 inline Result

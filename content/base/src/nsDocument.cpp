@@ -2826,9 +2826,8 @@ nsDocument::InitCSP(nsIChannel* aChannel)
 
     // PermitsAncestry sends violation reports when necessary
     rv = csp->PermitsAncestry(docShell, &safeAncestry);
-    NS_ENSURE_SUCCESS(rv, rv);
 
-    if (!safeAncestry) {
+    if (NS_FAILED(rv) || !safeAncestry) {
 #ifdef PR_LOGGING
       PR_LOG(gCspPRLog, PR_LOG_DEBUG,
               ("CSP doesn't like frame's ancestry, not loading."));
@@ -5410,7 +5409,7 @@ nsDocument::CustomElementConstructor(JSContext* aCx, unsigned aArgc, JS::Value* 
   // Function name is the type of the custom element.
   JSString* jsFunName =
     JS_GetFunctionId(JS_ValueToFunction(aCx, args.calleev()));
-  nsDependentJSString elemName;
+  nsAutoJSString elemName;
   if (!elemName.init(aCx, jsFunName)) {
     return true;
   }

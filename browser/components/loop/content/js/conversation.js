@@ -2,6 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+/* jshint esnext:true */
 /* global loop:true */
 
 var loop = loop || {};
@@ -137,7 +138,7 @@ loop.conversation = (function(OT, mozL10n) {
     accept: function() {
       window.navigator.mozLoop.stopAlerting();
       this._conversation.initiate({
-        baseServerUrl: window.navigator.mozLoop.serverUrl,
+        client: new loop.Client(),
         outgoing: false
       });
     },

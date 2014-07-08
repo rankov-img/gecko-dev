@@ -113,13 +113,6 @@ static const uint32_t StackAlignment = 4;
 static const bool StackKeptAligned = false;
 static const uint32_t CodeAlignment = 8;
 
-// As an invariant across architectures, within asm.js code:
-//   $sp % StackAlignment = (AsmJSFrameSize + masm.framePushed) % StackAlignment
-// On x86, this naturally falls out of the fact that the 'call' instruction
-// pushes the return address on the stack and masm.framePushed = 0 at the first
-// instruction of the prologue.
-static const uint32_t AsmJSFrameSize = sizeof(void*);
-
 struct ImmTag : public Imm32
 {
     ImmTag(JSValueTag mask)
@@ -267,7 +260,7 @@ class Assembler : public AssemblerX86Shared
     }
     void mov(AsmJSImmPtr imm, Register dest) {
         masm.movl_i32r(-1, dest.code());
-        enoughMemory_ &= append(AsmJSAbsoluteLink(CodeOffsetLabel(masm.currentOffset()), imm.kind()));
+        append(AsmJSAbsoluteLink(CodeOffsetLabel(masm.currentOffset()), imm.kind()));
     }
     void mov(const Operand &src, Register dest) {
         movl(src, dest);
@@ -348,7 +341,7 @@ class Assembler : public AssemblerX86Shared
     }
     void cmpl(AsmJSAbsoluteAddress lhs, Register rhs) {
         masm.cmpl_rm_force32(rhs.code(), (void*)-1);
-        enoughMemory_ &= append(AsmJSAbsoluteLink(CodeOffsetLabel(masm.currentOffset()), lhs.kind()));
+        append(AsmJSAbsoluteLink(CodeOffsetLabel(masm.currentOffset()), lhs.kind()));
     }
     CodeOffsetLabel cmplWithPatch(Register lhs, Imm32 rhs) {
         masm.cmpl_ir_force32(rhs.value, lhs.code());
@@ -382,13 +375,6 @@ class Assembler : public AssemblerX86Shared
         JmpSrc src = masm.call();
         addPendingJump(src, target, Relocation::HARDCODED);
     }
-    void call(AsmJSImmPtr target) {
-        // Moving to a register is suboptimal. To fix (use a single
-        // call-immediate instruction) we'll need to distinguish a new type of
-        // relative patch to an absolute address in AsmJSAbsoluteLink.
-        mov(target, eax);
-        call(eax);
-    }
 
     // Emit a CALL or CMP (nop) instruction. ToggleCall can be used to patch
     // this instruction.
@@ -396,11 +382,11 @@ class Assembler : public AssemblerX86Shared
         CodeOffsetLabel offset(size());
         JmpSrc src = enabled ? masm.call() : masm.cmp_eax();
         addPendingJump(src, ImmPtr(target->raw()), Relocation::JITCODE);
-        JS_ASSERT(size() - offset.offset() == ToggledCallSize());
+        JS_ASSERT(size() - offset.offset() == ToggledCallSize(nullptr));
         return offset;
     }
 
-    static size_t ToggledCallSize() {
+    static size_t ToggledCallSize(uint8_t *code) {
         // Size of a call instruction.
         return 5;
     }

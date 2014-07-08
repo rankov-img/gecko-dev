@@ -52,7 +52,7 @@ CodeGeneratorMIPS::generateAsmJSPrologue(Label *stackOverflowLabel)
 {
     JS_ASSERT(gen->compilingAsmJS());
 
-    // See comment in Assembler-mips.h about AsmJSFrameSize.
+    // See comment in Assembler-shared.h about AsmJSFrameSize.
     masm.push(ra);
 
     // The asm.js over-recursed handler wants to be able to assume that SP
@@ -1985,7 +1985,8 @@ CodeGeneratorMIPS::visitAsmJSLoadHeap(LAsmJSLoadHeap *ins)
     }
     masm.bind(&done);
 
-    return masm.append(AsmJSHeapAccess(bo.getOffset()));
+    masm.append(AsmJSHeapAccess(bo.getOffset()));
+    return true;
 }
 
 bool
@@ -2061,7 +2062,8 @@ CodeGeneratorMIPS::visitAsmJSStoreHeap(LAsmJSStoreHeap *ins)
     }
     masm.bind(&rejoin);
 
-    return masm.append(AsmJSHeapAccess(bo.getOffset()));
+    masm.append(AsmJSHeapAccess(bo.getOffset()));
+    return true;
 }
 
 bool

@@ -28,9 +28,11 @@
 
 #include "pkix/bind.h"
 #include "pkixder.h"
+#include "pkixtestutil.h"
 #include "stdint.h"
 
 using namespace mozilla::pkix::der;
+using namespace mozilla::pkix::test;
 using namespace std;
 
 namespace {
@@ -305,23 +307,6 @@ TEST_F(pkixder_universal_types_tests, EnumeratedInvalidZeroLength)
   ASSERT_EQ(SEC_ERROR_BAD_DER, PR_GetError());
 }
 
-static PRTime
-YMDHMS(int16_t year, int16_t month, int16_t day,
-       int16_t hour, int16_t minutes, int16_t seconds)
-{
-  PRExplodedTime tm;
-  tm.tm_usec = 0;
-  tm.tm_sec = seconds;
-  tm.tm_min = minutes;
-  tm.tm_hour = hour;
-  tm.tm_mday = day;
-  tm.tm_month = month - 1; // tm_month is zero-based
-  tm.tm_year = year;
-  tm.tm_params.tp_gmt_offset = 0;
-  tm.tm_params.tp_dst_offset = 0;
-  return PR_ImplodeTime(&tm);
-}
-
 ////////////////////////////////////////
 // GeneralizedTime and TimeChoice
 //
@@ -355,8 +340,6 @@ static const uint16_t GT_VALUE_OFFSET = 2;
 // though it were a UTC time, we need to skip four bytes: the tag, the length
 // and the first two digits of the year.
 static const uint16_t UTC_VALUE_OFFSET = 4;
-
-static const uint16_t GENERALIZED_TIME_LENGTH = 17; // tvYYYYMMDDHHMMSSZ
 
 template <uint16_t LENGTH>
 void

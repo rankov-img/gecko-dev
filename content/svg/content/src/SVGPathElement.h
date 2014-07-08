@@ -53,7 +53,7 @@ public:
   virtual bool IsMarkable() MOZ_OVERRIDE;
   virtual void GetMarkPoints(nsTArray<nsSVGMark> *aMarks) MOZ_OVERRIDE;
   virtual void ConstructPath(gfxContext *aCtx) MOZ_OVERRIDE;
-  virtual TemporaryRef<Path> BuildPath() MOZ_OVERRIDE;
+  virtual TemporaryRef<Path> BuildPath(PathBuilder* aBuilder = nullptr) MOZ_OVERRIDE;
 
   /**
    * This returns a path without the extra little line segments that
@@ -88,7 +88,7 @@ public:
 
   // WebIDL
   already_AddRefed<SVGAnimatedNumber> PathLength();
-  float GetTotalLength(ErrorResult& rv);
+  float GetTotalLength();
   already_AddRefed<nsISVGPoint> GetPointAtLength(float distance, ErrorResult& rv);
   uint32_t GetPathSegAtLength(float distance);
   already_AddRefed<DOMSVGPathSegClosePath> CreateSVGPathSegClosePath();

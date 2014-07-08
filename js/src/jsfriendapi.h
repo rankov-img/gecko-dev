@@ -575,9 +575,12 @@ struct Function {
     void *_1;
 };
 
-struct Atom {
+struct String
+{
     static const uint32_t INLINE_CHARS_BIT = JS_BIT(2);
     static const uint32_t LATIN1_CHARS_BIT = JS_BIT(6);
+    static const uint32_t ROPE_FLAGS       = 0;
+    static const uint32_t TYPE_FLAGS_MASK  = JS_BIT(6) - 1;
     uint32_t flags;
     uint32_t length;
     union {
@@ -604,6 +607,46 @@ inline const JSClass *
 GetObjectJSClass(JSObject *obj)
 {
     return js::Jsvalify(GetObjectClass(obj));
+}
+
+JS_FRIEND_API(const Class *)
+ProtoKeyToClass(JSProtoKey key);
+
+// Returns true if the standard class identified by |key| inherits from
+// another standard class with the same js::Class. This basically means
+// that the various properties described by our js::Class are intended
+// to live higher up on the proto chain.
+//
+// In practice, this only returns true for Error subtypes.
+inline bool
+StandardClassIsDependent(JSProtoKey key)
+{
+    JSProtoKey keyFromClass = JSCLASS_CACHED_PROTO_KEY(ProtoKeyToClass(key));
+    MOZ_ASSERT(keyFromClass);
+    return key != keyFromClass;
+}
+
+// Returns the key for the class inherited by a given standard class (that
+// is to say, the prototype of this standard class's prototype).
+//
+// You must be sure that this corresponds to a standard class with a cached
+// JSProtoKey before calling this function. In general |key| will match the
+// cached proto key, except in cases where multiple JSProtoKeys share a
+// JSClass.
+inline JSProtoKey
+ParentKeyForStandardClass(JSProtoKey key)
+{
+    // [Object] has nothing to inherit from.
+    if (key == JSProto_Object)
+        return JSProto_Null;
+
+    // If we're dependent (i.e. an Error subtype), return the key of the class
+    // we depend on.
+    if (StandardClassIsDependent(key))
+        return JSCLASS_CACHED_PROTO_KEY(ProtoKeyToClass(key));
+
+    // Otherwise, we inherit [Object].
+    return JSProto_Object;
 }
 
 inline bool
@@ -761,46 +804,111 @@ GetObjectSlot(JSObject *obj, size_t slot)
     return reinterpret_cast<const shadow::Object *>(obj)->slotRef(slot);
 }
 
-inline size_t
+MOZ_ALWAYS_INLINE size_t
 GetAtomLength(JSAtom *atom)
 {
-    return reinterpret_cast<shadow::Atom*>(atom)->length;
+    return reinterpret_cast<shadow::String*>(atom)->length;
 }
 
-inline bool
+static const uint32_t MaxStringLength = (1 << 28) - 1;
+
+MOZ_ALWAYS_INLINE size_t
+GetStringLength(JSString *s)
+{
+    return reinterpret_cast<shadow::String*>(s)->length;
+}
+
+MOZ_ALWAYS_INLINE bool
+LinearStringHasLatin1Chars(JSLinearString *s)
+{
+    return reinterpret_cast<shadow::String *>(s)->flags & shadow::String::LATIN1_CHARS_BIT;
+}
+
+MOZ_ALWAYS_INLINE bool
 AtomHasLatin1Chars(JSAtom *atom)
 {
-    return reinterpret_cast<shadow::Atom *>(atom)->flags & shadow::Atom::LATIN1_CHARS_BIT;
+    return reinterpret_cast<shadow::String *>(atom)->flags & shadow::String::LATIN1_CHARS_BIT;
 }
 
-inline const JS::Latin1Char *
-GetLatin1AtomChars(const JS::AutoCheckCannotGC &nogc, JSAtom *atom)
+MOZ_ALWAYS_INLINE bool
+StringHasLatin1Chars(JSString *s)
 {
-    MOZ_ASSERT(AtomHasLatin1Chars(atom));
-
-    using shadow::Atom;
-    Atom *atom_ = reinterpret_cast<Atom *>(atom);
-    if (atom_->flags & Atom::INLINE_CHARS_BIT)
-        return atom_->inlineStorageLatin1;
-    return atom_->nonInlineCharsLatin1;
+    return reinterpret_cast<shadow::String *>(s)->flags & shadow::String::LATIN1_CHARS_BIT;
 }
 
-inline const jschar *
-GetTwoByteAtomChars(const JS::AutoCheckCannotGC &nogc, JSAtom *atom)
+MOZ_ALWAYS_INLINE const JS::Latin1Char *
+GetLatin1LinearStringChars(const JS::AutoCheckCannotGC &nogc, JSLinearString *linear)
 {
-    MOZ_ASSERT(!AtomHasLatin1Chars(atom));
+    MOZ_ASSERT(LinearStringHasLatin1Chars(linear));
 
-    using shadow::Atom;
-    Atom *atom_ = reinterpret_cast<Atom *>(atom);
-    if (atom_->flags & Atom::INLINE_CHARS_BIT)
-        return atom_->inlineStorageTwoByte;
-    return atom_->nonInlineCharsTwoByte;
+    using shadow::String;
+    String *s = reinterpret_cast<String *>(linear);
+    if (s->flags & String::INLINE_CHARS_BIT)
+        return s->inlineStorageLatin1;
+    return s->nonInlineCharsLatin1;
 }
 
-inline JSLinearString *
+MOZ_ALWAYS_INLINE const jschar *
+GetTwoByteLinearStringChars(const JS::AutoCheckCannotGC &nogc, JSLinearString *linear)
+{
+    MOZ_ASSERT(!LinearStringHasLatin1Chars(linear));
+
+    using shadow::String;
+    String *s = reinterpret_cast<String *>(linear);
+    if (s->flags & String::INLINE_CHARS_BIT)
+        return s->inlineStorageTwoByte;
+    return s->nonInlineCharsTwoByte;
+}
+
+MOZ_ALWAYS_INLINE JSLinearString *
 AtomToLinearString(JSAtom *atom)
 {
     return reinterpret_cast<JSLinearString *>(atom);
+}
+
+MOZ_ALWAYS_INLINE const JS::Latin1Char *
+GetLatin1AtomChars(const JS::AutoCheckCannotGC &nogc, JSAtom *atom)
+{
+    return GetLatin1LinearStringChars(nogc, AtomToLinearString(atom));
+}
+
+MOZ_ALWAYS_INLINE const jschar *
+GetTwoByteAtomChars(const JS::AutoCheckCannotGC &nogc, JSAtom *atom)
+{
+    return GetTwoByteLinearStringChars(nogc, AtomToLinearString(atom));
+}
+
+JS_FRIEND_API(JSLinearString *)
+StringToLinearStringSlow(JSContext *cx, JSString *str);
+
+MOZ_ALWAYS_INLINE JSLinearString *
+StringToLinearString(JSContext *cx, JSString *str)
+{
+    using shadow::String;
+    String *s = reinterpret_cast<String *>(str);
+    if (MOZ_UNLIKELY((s->flags & String::TYPE_FLAGS_MASK) == String::ROPE_FLAGS))
+        return StringToLinearStringSlow(cx, str);
+    return reinterpret_cast<JSLinearString *>(str);
+}
+
+inline bool
+CopyStringChars(JSContext *cx, jschar *dest, JSString *s, size_t len)
+{
+    JSLinearString *linear = StringToLinearString(cx, s);
+    if (!linear)
+        return false;
+
+    JS::AutoCheckCannotGC nogc;
+    if (LinearStringHasLatin1Chars(linear)) {
+        const JS::Latin1Char *src = GetLatin1LinearStringChars(nogc, linear);
+        for (size_t i = 0; i < len; i++)
+            dest[i] = src[i];
+    } else {
+        const jschar *src = GetTwoByteLinearStringChars(nogc, linear);
+        mozilla::PodCopy(dest, src, len);
+    }
+
+    return true;
 }
 
 JS_FRIEND_API(bool)

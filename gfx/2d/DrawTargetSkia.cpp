@@ -4,6 +4,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "DrawTargetSkia.h"
+#include "SourceSurfaceCairo.h"
 #include "SourceSurfaceSkia.h"
 #include "ScaledFontBase.h"
 #include "ScaledFontCairo.h"
@@ -657,6 +658,16 @@ DrawTargetSkia::OptimizeSourceSurface(SourceSurface *aSurface) const
 TemporaryRef<SourceSurface>
 DrawTargetSkia::CreateSourceSurfaceFromNativeSurface(const NativeSurface &aSurface) const
 {
+  if (aSurface.mType == NativeSurfaceType::CAIRO_SURFACE) {
+    if (aSurface.mSize.width <= 0 ||
+        aSurface.mSize.height <= 0) {
+      gfxWarning() << "Can't create a SourceSurface without a valid size";
+      return nullptr;
+    }
+    cairo_surface_t* surf = static_cast<cairo_surface_t*>(aSurface.mSurface);
+    return new SourceSurfaceCairo(surf, aSurface.mSize, aSurface.mFormat);
+  }
+
   return nullptr;
 }
 
@@ -721,9 +732,18 @@ DrawTargetSkia::CopySurface(SourceSurface *aSurface,
 bool
 DrawTargetSkia::Init(const IntSize &aSize, SurfaceFormat aFormat)
 {
-  SkAutoTUnref<SkBaseDevice> device(new SkBitmapDevice(GfxFormatToSkiaConfig(aFormat),
-                                                       aSize.width, aSize.height,
-                                                       aFormat == SurfaceFormat::B8G8R8X8));
+  SkAlphaType alphaType = (aFormat == SurfaceFormat::B8G8R8X8) ?
+    kOpaque_SkAlphaType : kPremul_SkAlphaType;
+
+  SkImageInfo skiInfo = SkImageInfo::Make(
+        aSize.width, aSize.height,
+        GfxFormatToSkiaColorType(aFormat),
+        alphaType);
+
+  SkAutoTUnref<SkBaseDevice> device(SkBitmapDevice::Create(skiInfo));
+  if (!device) {
+      return false;
+  }
 
   SkBitmap bitmap = device->accessBitmap(true);
   if (!bitmap.allocPixels()) {

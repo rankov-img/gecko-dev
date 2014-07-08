@@ -78,6 +78,7 @@
 #include "Principal.h"
 #include "RuntimeService.h"
 #include "ScriptLoader.h"
+#include "ServiceWorkerManager.h"
 #include "SharedWorker.h"
 #include "WorkerFeature.h"
 #include "WorkerRunnable.h"
@@ -1327,7 +1328,15 @@ private:
         return true;
       }
 
-      if (aWorkerPrivate->IsSharedWorker() || aWorkerPrivate->IsServiceWorker()) {
+      if (aWorkerPrivate->IsServiceWorker()) {
+        nsRefPtr<ServiceWorkerManager> swm = ServiceWorkerManager::GetInstance();
+        MOZ_ASSERT(swm);
+        swm->HandleError(aCx, aWorkerPrivate->SharedWorkerName(),
+                         aWorkerPrivate->ScriptURL(),
+                         mMessage,
+                         mFilename, mLine, mLineNumber, mColumnNumber, mFlags);
+        return true;
+      } else if (aWorkerPrivate->IsSharedWorker()) {
         aWorkerPrivate->BroadcastErrorToSharedWorkers(aCx, mMessage, mFilename,
                                                       mLine, mLineNumber,
                                                       mColumnNumber, mFlags);
@@ -2473,7 +2482,7 @@ WorkerPrivateParent<Derived>::Suspend(JSContext* aCx, nsPIDOMWindow* aWindow)
     }
   }
 
-  MOZ_ASSERT(!mParentSuspended, "Suspended more than once!");
+//  MOZ_ASSERT(!mParentSuspended, "Suspended more than once!");
 
   mParentSuspended = true;
 
@@ -5183,9 +5192,9 @@ WorkerPrivate::ReportError(JSContext* aCx, const char* aMessage,
     JS::Rooted<JSString*> messageStr(aCx,
                                      js::ErrorReportToString(aCx, aReport));
     if (messageStr) {
-      nsDependentJSString depStr;
-      if (depStr.init(aCx, messageStr)) {
-        message = depStr;
+      nsAutoJSString autoStr;
+      if (autoStr.init(aCx, messageStr)) {
+        message = autoStr;
       }
     }
     filename = NS_ConvertUTF8toUTF16(aReport->filename);
