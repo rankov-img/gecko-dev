@@ -105,14 +105,14 @@ FloatRegister::ReduceSetForPush(const FloatRegisterSet &s)
     FloatRegisterSet mod;
     for (TypedRegisterIterator<FloatRegister> iter(s); iter.more(); iter++) {
         if ((*iter).isSingle()) {
-            // add in just this float
+            // Add in just this float.
             mod.addUnchecked(*iter);
         } else if ((*iter).id() & 1 == 0) {
-            // a double with an overlay, add in both floats
+            // A double with an overlay, add in both floats.
             mod.addUnchecked((*iter).singleOverlay(0));
             mod.addUnchecked((*iter).singleOverlay(1));
         } else {
-            // add in the lone double
+            // Add in the lone double.
             mod.addUnchecked(*iter);
         }
     }
@@ -123,7 +123,7 @@ uint32_t
 FloatRegister::GetSizeInBytes(const FloatRegisterSet &s)
 {
     uint64_t bits = s.bits();
-    uint32_t ret = mozilla::CountPopulation32(bits&0xffffffff) * sizeof(float);
+    uint32_t ret = mozilla::CountPopulation32(bits & 0xffffffff) * sizeof(float);
     ret +=  mozilla::CountPopulation32(bits >> 32) * sizeof(double);
     return ret;
 }
@@ -132,7 +132,7 @@ FloatRegister::GetPushSizeInBytes(const FloatRegisterSet &s)
 {
     FloatRegisterSet ss = s.reduceSetForPush();
     uint64_t bits = ss.bits();
-    uint32_t ret = mozilla::CountPopulation32(bits&0xffffffff) * sizeof(float);
+    uint32_t ret = mozilla::CountPopulation32(bits & 0xffffffff) * sizeof(float);
     ret +=  mozilla::CountPopulation32(bits >> 32) * sizeof(double);
     return ret;
 }

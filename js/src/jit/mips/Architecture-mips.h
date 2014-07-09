@@ -296,8 +296,8 @@ class FloatRegisters
 
     static const uint32_t WrapperMask = VolatileMask;
 
-    // Only create mask for double registers. Float32 registers will be
-    // handled trough aliassing API.
+    // :TODO: (Bug 972836) // Fix this once odd regs can be used as float32
+    // only. For now we don't allocate odd regs for O32 ABI.
     static const uint32_t NonAllocatableMask =
         (1 << FloatRegisters::f1) |
         (1 << FloatRegisters::f3) |
@@ -432,12 +432,12 @@ class FloatRegister
             return 2;
         }
         // f1-float32 has 0 other aligned aliases, 1 total.
-        // s0-float32 has 1 other aligned alias, 2 total.
+        // f0-float32 has 1 other aligned alias, 2 total.
         return 2 - (code_ & 1);
     }
     // |        f0-double        |
     // | f0-float32 | f1-float32 |
-    // if we've stored f0-float32 and f1-float32 in memory, we also want to
+    // If we've stored f0-float32 and f1-float32 in memory, we also want to
     // say that f0-double is stored there, but it is only stored at the
     // location where it is aligned e.g. at f0-float32, not f1-float32.
     void alignedAliased(uint32_t aliasIdx, FloatRegister *ret) {
