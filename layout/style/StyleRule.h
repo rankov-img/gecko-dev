@@ -239,6 +239,13 @@ struct nsCSSSelectorList {
   nsCSSSelector* AddSelector(char16_t aOperator);
 
   /**
+   * Point |mSelectors| to its |mNext|, and delete the first node in the old
+   * |mSelectors|.
+   * Should only be used on a list with more than one selector in it.
+   */
+  void RemoveRightmostSelector();
+
+  /**
    * Should be used only on the first in the list
    */
   void ToString(nsAString& aResult, mozilla::CSSStyleSheet* aSheet);
@@ -302,7 +309,8 @@ class StyleRule MOZ_FINAL : public Rule
 {
  public:
   StyleRule(nsCSSSelectorList* aSelector,
-            Declaration *aDeclaration);
+            Declaration *aDeclaration,
+            uint32_t aLineNumber, uint32_t aColumnNumber);
 private:
   // for |Clone|
   StyleRule(const StyleRule& aCopy);
@@ -316,12 +324,6 @@ public:
 
   // null for style attribute
   nsCSSSelectorList* Selector() { return mSelector; }
-
-  uint32_t GetLineNumber() const { return mLineNumber; }
-  uint32_t GetColumnNumber() const { return mColumnNumber; }
-  void SetLineNumberAndColumnNumber(uint32_t aLineNumber,
-                                    uint32_t aColumnNumber)
-  { mLineNumber = aLineNumber; mColumnNumber = aColumnNumber; }
 
   Declaration* GetDeclaration() const { return mDeclaration; }
 
@@ -376,10 +378,6 @@ private:
   Declaration*            mDeclaration;
   nsRefPtr<ImportantRule> mImportantRule; // initialized by RuleMatched
   nsRefPtr<DOMCSSStyleRule> mDOMRule;
-  // Keep the same type so that MSVC packs them.
-  uint32_t                mLineNumber;
-  uint32_t                mColumnNumber : 31;
-  uint32_t                mWasMatched : 1;
 
 private:
   StyleRule& operator=(const StyleRule& aCopy) MOZ_DELETE;

@@ -496,9 +496,12 @@ DeviceToImageTransform(gfxContext* aContext,
     nsRefPtr<gfxASurface> currentTarget =
         aContext->CurrentSurface(&deviceX, &deviceY);
     gfxMatrix currentMatrix = aContext->CurrentMatrix();
-    gfxMatrix deviceToUser = gfxMatrix(currentMatrix).Invert();
+    gfxMatrix deviceToUser = currentMatrix;
+    if (!deviceToUser.Invert()) {
+        return gfxMatrix(0, 0, 0, 0, 0, 0); // singular
+    }
     deviceToUser.Translate(-gfxPoint(-deviceX, -deviceY));
-    return gfxMatrix(deviceToUser).Multiply(aUserSpaceToImageSpace);
+    return deviceToUser * aUserSpaceToImageSpace;
 }
 
 /* These heuristics are based on Source/WebCore/platform/graphics/skia/ImageSkia.cpp:computeResamplingMode() */
@@ -604,17 +607,7 @@ gfxUtils::DrawPixelSnapped(gfxContext*      aContext,
     // On Mobile, we don't ever want to do this; it has the potential for
     // allocating very large temporary surfaces, especially since we'll
     // do full-page snapshots often (see bug 749426).
-#ifdef MOZ_GFX_OPTIMIZE_MOBILE
-    // If the pattern translation is large we can get into trouble with pixman's
-    // 16 bit coordinate limits. For now, we only do this on platforms where
-    // we know we have the pixman limits. 16384.0 is a somewhat arbitrary
-    // large number to make sure we avoid the expensive fmod when we can, but
-    // still maintain a safe margin from the actual limit
-    if (doTile && (userSpaceToImageSpace._32 > 16384.0 || userSpaceToImageSpace._31 > 16384.0)) {
-        userSpaceToImageSpace._31 = fmod(userSpaceToImageSpace._31, aImageRect.width);
-        userSpaceToImageSpace._32 = fmod(userSpaceToImageSpace._32, aImageRect.height);
-    }
-#else
+#ifndef MOZ_GFX_OPTIMIZE_MOBILE
     // OK now, the hard part left is to account for the subimage sampling
     // restriction. If all the transforms involved are just integer
     // translations, then we assume no resampling will occur so there's
@@ -773,10 +766,10 @@ gfxUtils::ClampToScaleFactor(gfxFloat aVal)
 
   gfxFloat power = log(aVal)/log(kScaleResolution);
 
-  // If power is within 1e-6 of an integer, round to nearest to
+  // If power is within 1e-5 of an integer, round to nearest to
   // prevent floating point errors, otherwise round up to the
   // next integer value.
-  if (fabs(power - NS_round(power)) < 1e-6) {
+  if (fabs(power - NS_round(power)) < 1e-5) {
     power = NS_round(power);
   } else if (inverse) {
     power = floor(power);

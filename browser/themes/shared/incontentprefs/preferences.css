@@ -7,6 +7,7 @@
 
 #dialogBox,
 dialog,
+window,
 prefwindow,
 .windowDialog,
 page {
@@ -17,6 +18,11 @@ page {
 
 * {
   -moz-user-select: text;
+}
+
+treecol {
+  /* override the * rule to let the treecol be sortable */
+  -moz-user-select: none;
 }
 
 caption {
@@ -120,6 +126,7 @@ tab[selected] {
 /* buttons and menulists */
 
 button,
+colorpicker[type="button"],
 menulist {
   -moz-appearance: none;
   height: 30px;
@@ -136,18 +143,26 @@ menulist {
 }
 
 button:not([disabled="true"]):hover,
+colorpicker[type="button"]:not([disabled="true"]):hover,
 menulist:not([disabled="true"]):hover {
   background-color: #EBEBEB;
 }
 
 button:not([disabled="true"]):hover:active,
+colorpicker[type="button"]:not([disabled="true"]):hover:active,
 menulist[open="true"]:not([disabled="true"]) {
   background-color: #DADADA;
 }
 
 button[disabled="true"],
+colorpicker[type="button"][disabled="true"],
 menulist[disabled="true"] {
   opacity: 0.5;
+}
+
+colorpicker[type="button"] {
+  padding: 6px;
+  width: 50px;
 }
 
 button > .button-box,
@@ -849,6 +864,13 @@ description > html|a {
 #dialogBox {
   border: 1px solid #666;
   display: -moz-box;
+  margin: 0;
+  padding-right: 6px;
+  padding-left: 6px;
+}
+
+#dialogTitle {
+  -moz-margin-start: 5px !important;
 }
 
 .close-icon {
@@ -867,8 +889,22 @@ description > html|a {
 
 #dialogFrame {
   /* Default dialog dimensions */
-  height: 30em;
-  width: 30em;
+  height: 20em;
+  width: 66ch;
+}
+
+/* needs to be removed with bug 1035625 */
+:-moz-any(dialog, window, prefwindow) resizer {
+  display: none;
+}
+
+tree:not(#rejectsTree) {
+  min-height: 15em;
+}
+
+:-moz-any(dialog, window, prefwindow) groupbox {
+  -moz-margin-start: 8px;
+  -moz-margin-end: 8px;
 }
 
 /**

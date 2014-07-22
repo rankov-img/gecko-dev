@@ -186,8 +186,10 @@ class TiledContentHost : public ContentHost,
 public:
   TiledContentHost(const TextureInfo& aTextureInfo);
 
+protected:
   ~TiledContentHost();
 
+public:
   virtual LayerRenderState GetRenderState() MOZ_OVERRIDE
   {
     return LayerRenderState();
@@ -225,6 +227,9 @@ public:
 
   virtual void Attach(Layer* aLayer,
                       Compositor* aCompositor,
+                      AttachFlags aFlags = NO_FLAGS) MOZ_OVERRIDE;
+
+  virtual void Detach(Layer* aLayer = nullptr,
                       AttachFlags aFlags = NO_FLAGS) MOZ_OVERRIDE;
 
 #ifdef MOZ_DUMP_PAINTING

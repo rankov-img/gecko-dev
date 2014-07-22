@@ -1,15 +1,18 @@
+/** @jsx React.DOM */
+
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-/* global loop:true */
-
+/* jshint newcap:false */
+/* global loop:true, React */
 var loop = loop || {};
 loop.shared = loop.shared || {};
 loop.shared.views = (function(_, OT, l10n) {
   "use strict";
 
   var sharedModels = loop.shared.models;
+  var __ = l10n.get;
 
   /**
    * L10n view. Translates resulting view DOM fragment once rendered.
@@ -89,53 +92,155 @@ loop.shared.views = (function(_, OT, l10n) {
   });
 
   /**
-   * Conversation view.
+   * Media control button.
+   *
+   * Required props:
+   * - {String}   scope   Media scope, can be "local" or "remote".
+   * - {String}   type    Media type, can be "audio" or "video".
+   * - {Function} action  Function to be executed on click.
+   * - {Enabled}  enabled Stream activation status (default: true).
    */
-  var ConversationView = BaseView.extend({
-    className: "conversation",
+  var MediaControlButton = React.createClass({displayName: 'MediaControlButton',
+    propTypes: {
+      scope: React.PropTypes.string.isRequired,
+      type: React.PropTypes.string.isRequired,
+      action: React.PropTypes.func.isRequired,
+      enabled: React.PropTypes.bool.isRequired
+    },
 
-    template: _.template([
-      '<nav class="controls">',
-      '  <button class="btn stop" data-l10n-id="stop"></button>',
-      '</nav>',
-      '<div class="media nested">',
-      // Both these wrappers are required by the SDK; this is fragile and
-      // will break if a future version of the SDK updates this generated DOM,
-      // especially as the SDK seems to actually move wrapped contents into
-      // their own generated stuff.
-      '  <div class="remote"><div class="incoming"></div></div>',
-      '  <div class="local"><div class="outgoing"></div></div>',
-      '</div>'
-    ].join("")),
+    getDefaultProps: function() {
+      return {enabled: true};
+    },
+
+    handleClick: function() {
+      this.props.action();
+    },
+
+    _getClasses: function() {
+      var cx = React.addons.classSet;
+      // classes
+      var classesObj = {
+        "btn": true,
+        "media-control": true,
+        "local-media": this.props.scope === "local",
+        "muted": !this.props.enabled
+      };
+      classesObj["btn-mute-" + this.props.type] = true;
+      return cx(classesObj);
+    },
+
+    _getTitle: function(enabled) {
+      var prefix = this.props.enabled ? "mute" : "unmute";
+      var suffix = "button_title";
+      var msgId = [prefix, this.props.scope, this.props.type, suffix].join("_");
+      return __(msgId);
+    },
+
+    render: function() {
+      return (
+        React.DOM.button( {className:this._getClasses(),
+                title:this._getTitle(),
+                onClick:this.handleClick})
+      );
+    }
+  });
+
+  /**
+   * Conversation controls.
+   */
+  var ConversationToolbar = React.createClass({displayName: 'ConversationToolbar',
+    getDefaultProps: function() {
+      return {
+        video: {enabled: true},
+        audio: {enabled: true}
+      };
+    },
+
+    propTypes: {
+      video: React.PropTypes.object.isRequired,
+      audio: React.PropTypes.object.isRequired,
+      hangup: React.PropTypes.func.isRequired,
+      publishStream: React.PropTypes.func.isRequired
+    },
+
+    handleClickHangup: function() {
+      this.props.hangup();
+    },
+
+    handleToggleVideo: function() {
+      this.props.publishStream("video", !this.props.video.enabled);
+    },
+
+    handleToggleAudio: function() {
+      this.props.publishStream("audio", !this.props.audio.enabled);
+    },
+
+    render: function() {
+      return (
+        React.DOM.ul( {className:"controls"}, 
+          React.DOM.li(null, React.DOM.button( {className:"btn btn-hangup",
+                      onClick:this.handleClickHangup,
+                      title:__("hangup_button_title")})),
+          React.DOM.li(null, MediaControlButton( {action:this.handleToggleVideo,
+                                  enabled:this.props.video.enabled,
+                                  scope:"local", type:"video"} )),
+          React.DOM.li(null, MediaControlButton( {action:this.handleToggleAudio,
+                                  enabled:this.props.audio.enabled,
+                                  scope:"local", type:"audio"} ))
+        )
+      );
+    }
+  });
+
+  var ConversationView = React.createClass({displayName: 'ConversationView',
+    mixins: [Backbone.Events],
+
+    propTypes: {
+      sdk: React.PropTypes.object.isRequired,
+      model: React.PropTypes.object.isRequired
+    },
 
     // height set to "auto" to fix video layout on Google Chrome
     // @see https://bugzilla.mozilla.org/show_bug.cgi?id=991122
-    videoStyles: {
+    publisherConfig: {
       width: "100%",
       height: "auto",
-      style: { "bugDisplayMode": "off" }
-    },
-
-    events: {
-      'click .btn.stop': 'hangup'
-    },
-
-    /**
-     * Establishes webrtc communication using OT sdk.
-     */
-    initialize: function(options) {
-      options = options || {};
-      if (!options.sdk) {
-        throw new Error("missing required sdk");
+      style: {
+        bugDisplayMode: "off",
+        buttonDisplayMode: "off",
+        nameDisplayMode: "off"
       }
-      this.sdk = options.sdk;
+    },
 
-      this.listenTo(this.model, "session:connected", this.publish);
-      this.listenTo(this.model, "session:stream-created", this._streamCreated);
-      this.listenTo(this.model, ["session:peer-hungup",
-                                 "session:network-disconnected",
-                                 "session:ended"].join(" "), this.unpublish);
-      this.model.startSession();
+    getInitialState: function() {
+      return {
+        video: {enabled: false},
+        audio: {enabled: false}
+      };
+    },
+
+    componentDidMount: function() {
+      this.listenTo(this.props.model, "session:connected",
+                                      this.startPublishing);
+      this.listenTo(this.props.model, "session:stream-created",
+                                      this._streamCreated);
+      this.listenTo(this.props.model, ["session:peer-hungup",
+                                       "session:network-disconnected",
+                                       "session:ended"].join(" "),
+                                       this.stopPublishing);
+
+      this.props.model.startSession();
+    },
+
+    componentWillUnmount: function() {
+      // Unregister all local event listeners
+      this.stopListening();
+      this.hangup();
+    },
+
+    hangup: function() {
+      this.stopPublishing();
+      this.props.model.endSession();
     },
 
     /**
@@ -149,24 +254,14 @@ loop.shared.views = (function(_, OT, l10n) {
      * @param  {StreamEvent} event
      */
     _streamCreated: function(event) {
-      var incoming = this.$(".incoming").get(0);
+      var incoming = this.getDOMNode().querySelector(".incoming");
       event.streams.forEach(function(stream) {
         if (stream.connection.connectionId !==
-            this.model.session.connection.connectionId) {
-          this.model.session.subscribe(stream, incoming, this.videoStyles);
+            this.props.model.session.connection.connectionId) {
+          this.props.model.session.subscribe(stream, incoming,
+                                             this.publisherConfig);
         }
-      }.bind(this));
-    },
-
-    /**
-     * Hangs up current conversation.
-     *
-     * @param  {MouseEvent} event
-     */
-    hangup: function(event) {
-      event.preventDefault();
-      this.unpublish();
-      this.model.endSession();
+      }, this);
     },
 
     /**
@@ -176,40 +271,75 @@ loop.shared.views = (function(_, OT, l10n) {
      *
      * @param  {SessionConnectEvent} event
      */
-    publish: function(event) {
-      var outgoing = this.$(".outgoing").get(0);
+    startPublishing: function(event) {
+      var outgoing = this.getDOMNode().querySelector(".outgoing");
 
-      this.publisher = this.sdk.initPublisher(outgoing, this.videoStyles);
+      // XXX move this into its StreamingVideo component?
+      this.publisher = this.props.sdk.initPublisher(
+        outgoing, this.publisherConfig);
 
       // Suppress OT GuM custom dialog, see bug 1018875
-      function preventOpeningAccessDialog(event) {
-        event.preventDefault();
-      }
-      this.publisher.on("accessDialogOpened", preventOpeningAccessDialog);
-      this.publisher.on("accessDenied", preventOpeningAccessDialog);
+      this.listenTo(this.publisher, "accessDialogOpened accessDenied",
+                    function(event) {
+                      event.preventDefault();
+                    });
 
-      this.model.session.publish(this.publisher);
+      this.listenTo(this.publisher, "streamCreated", function(event) {
+        this.setState({
+          audio: {enabled: event.stream.hasAudio},
+          video: {enabled: event.stream.hasVideo}
+        });
+      }.bind(this));
+
+      this.listenTo(this.publisher, "streamDestroyed", function() {
+        this.setState({
+          audio: {enabled: false},
+          video: {enabled: false}
+        });
+      }.bind(this));
+
+      this.props.model.session.publish(this.publisher);
+    },
+
+    /**
+     * Toggles streaming status for a given stream type.
+     *
+     * @param  {String}  type     Stream type ("audio" or "video").
+     * @param  {Boolean} enabled  Enabled stream flag.
+     */
+    publishStream: function(type, enabled) {
+      if (type === "audio") {
+        this.publisher.publishAudio(enabled);
+        this.setState({audio: {enabled: enabled}});
+      } else {
+        this.publisher.publishVideo(enabled);
+        this.setState({video: {enabled: enabled}});
+      }
     },
 
     /**
      * Unpublishes local stream.
      */
-    unpublish: function() {
-      // Unregister access OT GuM custom dialog listeners, see bug 1018875
-      this.publisher.off("accessDialogOpened");
-      this.publisher.off("accessDenied");
+    stopPublishing: function() {
+      // Unregister listeners for publisher events
+      this.stopListening(this.publisher);
 
-      this.model.session.unpublish(this.publisher);
+      this.props.model.session.unpublish(this.publisher);
     },
 
-    /**
-     * Renders this view.
-     *
-     * @return {ConversationView}
-     */
     render: function() {
-      this.$el.html(this.template(this.model.toJSON()));
-      return this;
+      return (
+        React.DOM.div( {className:"conversation"}, 
+          ConversationToolbar( {video:this.state.video,
+                               audio:this.state.audio,
+                               publishStream:this.publishStream,
+                               hangup:this.hangup} ),
+          React.DOM.div( {className:"media nested"}, 
+            React.DOM.div( {className:"remote"}, React.DOM.div( {className:"incoming"})),
+            React.DOM.div( {className:"local"}, React.DOM.div( {className:"outgoing"}))
+          )
+        )
+      );
     }
   });
 
@@ -378,6 +508,8 @@ loop.shared.views = (function(_, OT, l10n) {
     L10nView: L10nView,
     BaseView: BaseView,
     ConversationView: ConversationView,
+    ConversationToolbar: ConversationToolbar,
+    MediaControlButton: MediaControlButton,
     NotificationListView: NotificationListView,
     NotificationView: NotificationView,
     UnsupportedBrowserView: UnsupportedBrowserView,

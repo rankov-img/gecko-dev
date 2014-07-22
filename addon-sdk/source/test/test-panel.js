@@ -12,7 +12,7 @@ module.metadata = {
 const { Cc, Ci } = require("chrome");
 const { Loader } = require('sdk/test/loader');
 const { LoaderWithHookedConsole } = require("sdk/test/loader");
-const timer = require("sdk/timers");
+const { setTimeout } = require("sdk/timers");
 const self = require('sdk/self');
 const { open, close, focus, ready } = require('sdk/window/helpers');
 const { isPrivate } = require('sdk/private-browsing');
@@ -22,10 +22,11 @@ const { getMostRecentBrowserWindow } = require('sdk/window/utils');
 const { getWindow } = require('sdk/panel/window');
 const { pb } = require('./private-browsing/helper');
 const { URL } = require('sdk/url');
+const { wait } = require('./event/helpers');
+
 const fixtures = require('./fixtures')
 
 const SVG_URL = fixtures.url('mofo_logo.SVG');
-const CSS_URL = fixtures.url('css-include-file.css');
 
 const Isolate = fn => '(' + fn + ')()';
 
@@ -544,7 +545,7 @@ function makeEventOrderTest(options) {
       panel.on(event, function() {
         assert.equal(event, expectedEvents.shift());
         if (cb)
-          timer.setTimeout(cb, 1);
+          setTimeout(cb, 1);
       });
       return {then: expect};
     }
@@ -977,7 +978,16 @@ exports['test panel can be constructed without any arguments'] = function (asser
 };
 
 exports['test panel CSS'] = function(assert, done) {
-  const loader = Loader(module);
+  const { merge } = require("sdk/util/object");
+
+  let loader = Loader(module, null, null, {
+    modules: {
+      "sdk/self": merge({}, self, {
+        data: merge({}, self.data, fixtures)
+      })
+    }
+  });
+
   const { Panel } = loader.require('sdk/panel');
 
   const { getActiveView } = loader.require('sdk/view/core');
@@ -989,13 +999,19 @@ exports['test panel CSS'] = function(assert, done) {
     contentURL: 'data:text/html;charset=utf-8,' +
                 '<div style="background: silver">css test</div>',
     contentStyle: 'div { height: 100px; }',
-    contentStyleFile: CSS_URL,
+    contentStyleFile: [fixtures.url("include-file.css"), "./border-style.css"],
     onShow: () => {
-      ready(getContentWindow(panel)).then(({ document }) => {
+      ready(getContentWindow(panel)).then(({ window, document }) => {
         let div = document.querySelector('div');
 
-        assert.equal(div.clientHeight, 100, 'Panel contentStyle worked');
-        assert.equal(div.offsetHeight, 120, 'Panel contentStyleFile worked');
+      assert.equal(div.clientHeight, 100,
+        "Panel contentStyle worked");
+   
+      assert.equal(div.offsetHeight, 120,
+        "Panel contentStyleFile worked");
+
+      assert.equal(window.getComputedStyle(div).borderTopStyle, "dashed",
+        "Panel contentStyleFile with relative path worked");
 
         loader.unload();
         done();
@@ -1005,6 +1021,53 @@ exports['test panel CSS'] = function(assert, done) {
 
   panel.show();
 };
+
+exports['test panel contentScriptFile'] = function(assert, done) {
+  const { merge } = require("sdk/util/object");
+
+  let loader = Loader(module, null, null, {
+    modules: {
+      "sdk/self": merge({}, self, {
+        data: merge({}, self.data, {url: fixtures.url})
+      })
+    }
+  });
+
+  const { Panel } = loader.require('sdk/panel');
+  const { getActiveView } = loader.require('sdk/view/core');
+
+  const getContentWindow = panel =>
+    getActiveView(panel).querySelector('iframe').contentWindow;
+
+  let whenMessage = defer();
+  let whenShown = defer();
+
+  let panel = Panel({
+    contentURL: './test.html',
+    contentScriptFile: "./test-contentScriptFile.js", 
+    onMessage: (message) => {
+      assert.equal(message, "msg from contentScriptFile",
+        "Panel contentScriptFile with relative path worked");
+
+      whenMessage.resolve();
+    },
+    onShow: () => {
+      ready(getContentWindow(panel)).then(({ document }) => {
+        assert.equal(document.title, 'foo',
+          "Panel contentURL with relative path worked");
+
+        whenShown.resolve();
+      });
+    }
+  });
+
+  all([whenMessage.promise, whenShown.promise]).
+    then(loader.unload).
+    then(done, assert.fail);
+
+  panel.show();
+};
+
 
 exports['test panel CSS list'] = function(assert, done) {
   const loader = Loader(module);
@@ -1056,6 +1119,166 @@ exports['test panel CSS list'] = function(assert, done) {
   panel.show();
 };
 
+exports['test panel contextmenu validation'] = function(assert) {
+  const loader = Loader(module);
+  const { Panel } = loader.require('sdk/panel');
+
+  let panel = Panel({});
+
+  assert.equal(panel.contextMenu, false,
+    'contextMenu option is `false` by default');
+
+  panel.destroy();
+
+  panel = Panel({
+    contextMenu: false
+  });
+
+  assert.equal(panel.contextMenu, false,
+    'contextMenu option is `false`');
+
+  panel.contextMenu = true;
+
+  assert.equal(panel.contextMenu, true,
+    'contextMenu option accepts boolean values');
+
+  panel.destroy();
+
+  panel = Panel({
+    contextMenu: true
+  });
+
+  assert.equal(panel.contextMenu, true,
+    'contextMenu option is `true`');
+
+  panel.contextMenu = false;
+
+  assert.equal(panel.contextMenu, false,
+    'contextMenu option accepts boolean values');
+  
+  assert.throws(() =>
+    Panel({contextMenu: 1}),
+    /The option "contextMenu" must be one of the following types: boolean, undefined, null/,
+    'contextMenu only accepts boolean or nil values');
+
+  panel = Panel();
+
+  assert.throws(() =>
+    panel.contextMenu = 1,
+    /The option "contextMenu" must be one of the following types: boolean, undefined, null/,
+    'contextMenu only accepts boolean or nil values');
+
+  loader.unload();
+}
+
+exports['test panel contextmenu enabled'] = function*(assert) {
+  const loader = Loader(module);
+  const { Panel } = loader.require('sdk/panel');
+  const { getActiveView } = loader.require('sdk/view/core');
+  const { getContentDocument } = loader.require('sdk/panel/utils');
+
+  let contextmenu = getMostRecentBrowserWindow().
+                      document.getElementById("contentAreaContextMenu");
+
+  let panel = Panel({contextMenu: true});
+
+  panel.show();
+
+  yield wait(panel, 'show');
+
+  let view = getActiveView(panel);
+  let window = getContentDocument(view).defaultView;
+
+  let { sendMouseEvent } = window.QueryInterface(Ci.nsIInterfaceRequestor).
+                                    getInterface(Ci.nsIDOMWindowUtils);
+
+  yield ready(window);
+
+  assert.equal(contextmenu.state, 'closed',
+    'contextmenu must be closed');
+
+  sendMouseEvent('contextmenu', 20, 20, 2, 1, 0);
+
+  yield wait(contextmenu, 'popupshown');
+
+  assert.equal(contextmenu.state, 'open',
+    'contextmenu is opened');
+
+  contextmenu.hidePopup();
+
+  loader.unload();
+}
+
+exports['test panel contextmenu disabled'] = function*(assert) {
+  const loader = Loader(module);
+  const { Panel } = loader.require('sdk/panel');
+  const { getActiveView } = loader.require('sdk/view/core');
+  const { getContentDocument } = loader.require('sdk/panel/utils');
+
+  let contextmenu = getMostRecentBrowserWindow().
+                      document.getElementById("contentAreaContextMenu");
+  let listener = () => assert.fail('popupshown should never be called');
+
+  let panel = Panel();
+
+  panel.show();
+
+  yield wait(panel, 'show');
+
+  let view = getActiveView(panel);
+  let window = getContentDocument(view).defaultView;
+
+  let { sendMouseEvent } = window.QueryInterface(Ci.nsIInterfaceRequestor).
+                                    getInterface(Ci.nsIDOMWindowUtils);
+
+  yield ready(window);
+
+  assert.equal(contextmenu.state, 'closed',
+    'contextmenu must be closed');
+  
+  sendMouseEvent('contextmenu', 20, 20, 2, 1, 0);
+
+  contextmenu.addEventListener('popupshown', listener);
+
+  yield wait(1000);
+
+  contextmenu.removeEventListener('popupshown', listener);
+
+  assert.equal(contextmenu.state, 'closed',
+    'contextmenu was never open');
+
+  loader.unload();  
+}
+
+exports["test panel addon global object"] = function*(assert) {
+  const { merge } = require("sdk/util/object");
+
+  let loader = Loader(module, null, null, {
+    modules: {
+      "sdk/self": merge({}, self, {
+        data: merge({}, self.data, {url: fixtures.url})
+      })
+    }
+  });
+
+  const { Panel } = loader.require('sdk/panel');
+
+  let panel = Panel({
+    contentURL: "./test-trusted-document.html"
+  });
+
+  panel.show();
+
+  yield wait(panel, "show");
+
+  panel.port.emit('addon-to-document', 'ok');
+
+  yield wait(panel.port, "document-to-addon");
+ 
+  assert.pass("Received an event from the document");
+
+  loader.unload();
+}
 
 if (isWindowPBSupported) {
   exports.testGetWindow = function(assert, done) {

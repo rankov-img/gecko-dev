@@ -20,7 +20,7 @@ const { merge } = require('../util/object');
 const { getTabForContentWindow } = require('../tabs/utils');
 const { getInnerId } = require('../window/utils');
 const { PlainTextConsole } = require('../console/plain-text');
-
+const { data } = require('../self');
 // WeakMap of sandboxes so we can access private values
 const sandboxes = new WeakMap();
 
@@ -136,7 +136,7 @@ const WorkerSandbox = Class({
     // have access to all standard globals (window, document, ...)
     let content = sandbox(principals, {
       sandboxPrototype: proto,
-      wantXrays: true,
+      wantXrays: !requiresAddonGlobal(worker),
       wantGlobalProperties: wantGlobalProperties,
       wantExportHelpers: true,
       sameZoneAs: window,
@@ -247,9 +247,12 @@ const WorkerSandbox = Class({
     // The order of `contentScriptFile` and `contentScript` evaluation is
     // intentional, so programs can load libraries like jQuery from script URLs
     // and use them in scripts.
-    let contentScriptFile = ('contentScriptFile' in worker) ? worker.contentScriptFile
+    let contentScriptFile = ('contentScriptFile' in worker)
+          ? worker.contentScriptFile
           : null,
-        contentScript = ('contentScript' in worker) ? worker.contentScript : null;
+        contentScript = ('contentScript' in worker)
+          ? worker.contentScript
+          : null;
 
     if (contentScriptFile)
       importScripts.apply(null, [this].concat(contentScriptFile));
@@ -285,7 +288,8 @@ exports.WorkerSandbox = WorkerSandbox;
 function importScripts (workerSandbox, ...urls) {
   let { worker, sandbox } = modelFor(workerSandbox);
   for (let i in urls) {
-    let contentScriptFile = urls[i];
+    let contentScriptFile = data.url(urls[i]);
+
     try {
       let uri = URL(contentScriptFile);
       if (uri.scheme === 'resource')

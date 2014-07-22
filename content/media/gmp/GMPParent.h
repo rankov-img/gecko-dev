@@ -15,10 +15,22 @@
 #include "nsISupports.h"
 #include "nsString.h"
 #include "nsTArray.h"
+#include "nsIFile.h"
+#include "ThreadSafeRefcountingWithMainThreadDestruction.h"
 
 class nsILineInputStream;
 class nsIThread;
-class nsIFile;
+
+#ifdef MOZ_CRASHREPORTER
+#include "nsExceptionHandler.h"
+
+namespace mozilla {
+namespace dom {
+class PCrashReporterParent;
+class CrashReporterParent;
+}
+}
+#endif
 
 namespace mozilla {
 namespace gmp {
@@ -32,20 +44,34 @@ public:
 
 enum GMPState {
   GMPStateNotLoaded,
-  GMPStateLoaded
+  GMPStateLoaded,
+  GMPStateUnloading,
+  GMPStateClosing
 };
 
 class GMPParent MOZ_FINAL : public PGMPParent
 {
 public:
-  NS_INLINE_DECL_REFCOUNTING(GMPParent)
+  NS_INLINE_DECL_THREADSAFE_REFCOUNTING_WITH_MAIN_THREAD_DESTRUCTION(GMPParent)
 
   GMPParent();
 
   nsresult Init(nsIFile* aPluginDir);
   nsresult LoadProcess();
-  void MaybeUnloadProcess();
-  void UnloadProcess();
+
+  // Called internally to close this if we don't need it
+  void CloseIfUnused();
+
+  // Notify all active de/encoders that we are closing, either because of
+  // normal shutdown or unexpected shutdown/crash.
+  void CloseActive();
+
+  // Called by the GMPService to forcibly close active de/encoders at shutdown
+  void Shutdown();
+
+  // This must not be called while we're in the middle of abnormal ActorDestroy
+  void DeleteProcess();
+
   bool SupportsAPI(const nsCString& aAPI, const nsCString& aTag);
   nsresult GetGMPVideoDecoder(GMPVideoDecoderParent** aGMPVD);
   void VideoDecoderDestroyed(GMPVideoDecoderParent* aDecoder);
@@ -77,11 +103,22 @@ public:
   // not yet been loaded (i.e. it's not shared across origins).
   bool CanBeUsedFrom(const nsAString& aOrigin) const;
 
+  already_AddRefed<nsIFile> GetDirectory() {
+    return nsCOMPtr<nsIFile>(mDirectory).forget();
+  }
+
 private:
   ~GMPParent();
   bool EnsureProcessLoaded();
   nsresult ReadGMPMetaData();
+#ifdef MOZ_CRASHREPORTER
+  void WriteExtraDataForMinidump(CrashReporter::AnnotationTable& notes);
+  void GetCrashID(nsString& aResult);
+#endif
   virtual void ActorDestroy(ActorDestroyReason aWhy) MOZ_OVERRIDE;
+
+  virtual PCrashReporterParent* AllocPCrashReporterParent(const NativeThreadId& aThread) MOZ_OVERRIDE;
+  virtual bool DeallocPCrashReporterParent(PCrashReporterParent* aCrashReporter) MOZ_OVERRIDE;
   virtual PGMPVideoDecoderParent* AllocPGMPVideoDecoderParent() MOZ_OVERRIDE;
   virtual bool DeallocPGMPVideoDecoderParent(PGMPVideoDecoderParent* aActor) MOZ_OVERRIDE;
   virtual PGMPVideoEncoderParent* AllocPGMPVideoEncoderParent() MOZ_OVERRIDE;

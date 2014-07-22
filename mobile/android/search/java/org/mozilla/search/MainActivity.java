@@ -4,16 +4,15 @@
 
 package org.mozilla.search;
 
+import android.content.AsyncQueryHandler;
+import android.content.ContentValues;
 import android.net.Uri;
 import android.os.Bundle;
 import android.support.v4.app.FragmentActivity;
-import android.support.v4.app.FragmentManager;
-import android.support.v4.app.FragmentTransaction;
+import android.view.View;
 
+import org.mozilla.gecko.db.BrowserContract.SearchHistory;
 import org.mozilla.search.autocomplete.AcceptsSearchQuery;
-import org.mozilla.search.autocomplete.AutoCompleteFragment;
-import org.mozilla.search.stream.CardStreamFragment;
-
 
 /**
  * The main entrance for the Android search intent.
@@ -23,81 +22,79 @@ import org.mozilla.search.stream.CardStreamFragment;
  * now, the only message passing occurs when a user wants to submit a search query. That
  * passes through the onSearch method here.
  */
-public class MainActivity extends FragmentActivity implements AcceptsSearchQuery,
-        FragmentManager.OnBackStackChangedListener {
+public class MainActivity extends FragmentActivity implements AcceptsSearchQuery {
 
-    private DetailActivity detailActivity;
+    enum State {
+        START,
+        PRESEARCH,
+        POSTSEARCH
+    }
+
+    private State state = State.START;
+    private AsyncQueryHandler queryHandler;
 
     @Override
     protected void onCreate(Bundle stateBundle) {
         super.onCreate(stateBundle);
-
-        // Sets the content view for the Activity
         setContentView(R.layout.search_activity_main);
 
-        // Gets an instance of the support library FragmentManager
-        FragmentManager localFragmentManager = getSupportFragmentManager();
+        queryHandler = new AsyncQueryHandler(getContentResolver()) {};
+    }
 
-        // If the incoming state of the Activity is null, sets the initial view to be thumbnails
-        if (null == stateBundle) {
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        queryHandler = null;
+    }
 
-            // Starts a Fragment transaction to track the stack
-            FragmentTransaction localFragmentTransaction = localFragmentManager.beginTransaction();
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // When the app launches, make sure we're in presearch *always*
+        startPresearch();
+    }
 
-            localFragmentTransaction.add(R.id.header_fragments, new AutoCompleteFragment(),
-                    Constants.AUTO_COMPLETE_FRAGMENT);
+    @Override
+    public void onSearch(String query) {
+        startPostsearch();
+        storeQuery(query);
+        ((PostSearchFragment) getSupportFragmentManager().findFragmentById(R.id.postsearch))
+                .setUrl("https://search.yahoo.com/search?p=" + Uri.encode(query));
+    }
 
-            localFragmentTransaction.add(R.id.presearch_fragments, new CardStreamFragment(),
-                    Constants.CARD_STREAM_FRAGMENT);
+    private void startPresearch() {
+        if (state != State.PRESEARCH) {
+            state = State.PRESEARCH;
+            findViewById(R.id.postsearch).setVisibility(View.INVISIBLE);
+            findViewById(R.id.presearch).setVisibility(View.VISIBLE);
+        }
+    }
 
-            // Commits this transaction to display the Fragment
-            localFragmentTransaction.commit();
-
-            // The incoming state of the Activity isn't null.
+    private void startPostsearch() {
+        if (state != State.POSTSEARCH) {
+            state = State.POSTSEARCH;
+            findViewById(R.id.presearch).setVisibility(View.INVISIBLE);
+            findViewById(R.id.postsearch).setVisibility(View.VISIBLE);
         }
     }
 
     @Override
-    protected void onStart() {
-        super.onStart();
-
-
-        if (null == detailActivity) {
-            detailActivity = new DetailActivity();
-        }
-
-        if (null == getSupportFragmentManager().findFragmentByTag(Constants.GECKO_VIEW_FRAGMENT)) {
-            FragmentTransaction txn = getSupportFragmentManager().beginTransaction();
-            txn.add(R.id.gecko_fragments, detailActivity, Constants.GECKO_VIEW_FRAGMENT);
-            txn.hide(detailActivity);
-
-            txn.commit();
+    public void onBackPressed() {
+        if (state == State.POSTSEARCH) {
+            startPresearch();
+        } else {
+            super.onBackPressed();
         }
     }
 
-    @Override
-    public void onSearch(String s) {
-        FragmentManager localFragmentManager = getSupportFragmentManager();
-        FragmentTransaction localFragmentTransaction = localFragmentManager.beginTransaction();
-
-        localFragmentTransaction
-                .hide(localFragmentManager.findFragmentByTag(Constants.CARD_STREAM_FRAGMENT))
-                .addToBackStack(null);
-
-        localFragmentTransaction
-                .show(localFragmentManager.findFragmentByTag(Constants.GECKO_VIEW_FRAGMENT))
-                .addToBackStack(null);
-
-        localFragmentTransaction.commit();
-
-
-        ((DetailActivity) getSupportFragmentManager()
-                .findFragmentByTag(Constants.GECKO_VIEW_FRAGMENT))
-                .setUrl("https://search.yahoo.com/search?p=" + Uri.encode(s));
-    }
-
-    @Override
-    public void onBackStackChanged() {
-
+    /**
+     * Store the search query in Fennec's search history database.
+     */
+    private void storeQuery(String query) {
+        final ContentValues cv = new ContentValues();
+        cv.put(SearchHistory.QUERY, query);
+        // Setting 0 for the token, since we only have one type of insert.
+        // Setting null for the cookie, since we don't handle the result of the insert.
+        queryHandler.startInsert(0, null, SearchHistory.CONTENT_URI, cv);
     }
 }

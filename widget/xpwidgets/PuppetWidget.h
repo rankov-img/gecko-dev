@@ -48,8 +48,11 @@ class PuppetWidget : public nsBaseWidget, public nsSupportsWeakReference
 
 public:
   PuppetWidget(TabChild* aTabChild);
+
+protected:
   virtual ~PuppetWidget();
 
+public:
   NS_DECL_ISUPPORTS_INHERITED
 
   NS_IMETHOD Create(nsIWidget*        aParent,
@@ -302,6 +305,7 @@ public:
     PuppetScreen(void* nativeScreen);
     ~PuppetScreen();
 
+    NS_IMETHOD GetId(uint32_t* aId) MOZ_OVERRIDE;
     NS_IMETHOD GetRect(int32_t* aLeft, int32_t* aTop, int32_t* aWidth, int32_t* aHeight) MOZ_OVERRIDE;
     NS_IMETHOD GetAvailRect(int32_t* aLeft, int32_t* aTop, int32_t* aWidth, int32_t* aHeight) MOZ_OVERRIDE;
     NS_IMETHOD GetPixelDepth(int32_t* aPixelDepth) MOZ_OVERRIDE;

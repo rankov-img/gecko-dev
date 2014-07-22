@@ -21,20 +21,7 @@ SOURCES += [
 ]
 
 if CONFIG['MOZ_WMF']:
-  EXPORTS += [
-      'wmf/MFTDecoder.h',
-      'wmf/WMFAudioOutputSource.h',
-      'wmf/WMFDecoderModule.h',
-      'wmf/WMFMediaDataDecoder.h',
-      'wmf/WMFVideoOutputSource.h',
-  ]
-  UNIFIED_SOURCES += [
-      'wmf/MFTDecoder.cpp',
-      'wmf/WMFAudioOutputSource.cpp',
-      'wmf/WMFDecoderModule.cpp',
-      'wmf/WMFMediaDataDecoder.cpp',
-      'wmf/WMFVideoOutputSource.cpp',
-  ]
+  PARALLEL_DIRS += [ 'wmf' ];
 
 if CONFIG['MOZ_FFMPEG']:
   EXPORTS += [

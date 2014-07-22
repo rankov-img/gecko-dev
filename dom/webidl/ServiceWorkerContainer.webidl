@@ -19,6 +19,7 @@ interface ServiceWorkerContainer {
   [Unforgeable] readonly attribute ServiceWorker? controller;
 
   // Promise<ServiceWorker>
+  [Throws]
   readonly attribute Promise ready;
 
   // Promise<sequence<ServiceWorker>?>
@@ -44,6 +45,10 @@ interface ServiceWorkerContainer {
 partial interface ServiceWorkerContainer {
   [Throws]
   Promise clearAllServiceWorkerData();
+
+  [Throws]
+  DOMString getScopeForUrl(DOMString url);
+
   [Throws]
   DOMString getControllingWorkerScriptURLForPath(DOMString path);
 };

@@ -489,8 +489,10 @@ struct RegionParamTraits
   static void Write(Message* msg, const paramType& param)
   {
     Iter it(param);
-    while (const Rect* r = it.Next())
+    while (const Rect* r = it.Next()) {
+      MOZ_ASSERT(!r->IsEmpty());
       WriteParam(msg, *r);
+    }
     // empty rects are sentinel values because nsRegions will never
     // contain them
     WriteParam(msg, Rect());
@@ -802,6 +804,7 @@ struct ParamTraits<mozilla::layers::FrameMetrics>
     // a pointer to the string in its internal buffer.
     strncpy(aResult->mContentDescription, contentDescription,
             sizeof(aResult->mContentDescription));
+    aResult->mContentDescription[sizeof(aResult->mContentDescription) - 1] = '\0';
     return true;
   }
 };

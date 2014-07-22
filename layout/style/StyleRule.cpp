@@ -895,6 +895,21 @@ nsCSSSelectorList::AddSelector(char16_t aOperator)
 }
 
 void
+nsCSSSelectorList::RemoveRightmostSelector()
+{
+  nsCSSSelector* current = mSelectors;
+  mSelectors = mSelectors->mNext;
+  MOZ_ASSERT(mSelectors,
+             "Rightmost selector has been removed, but now "
+             "mSelectors is null");
+  mSelectors->SetOperator(char16_t(0));
+
+  // Make sure that deleting current won't delete the whole list.
+  current->mNext = nullptr;
+  delete current;
+}
+
+void
 nsCSSSelectorList::ToString(nsAString& aResult, CSSStyleSheet* aSheet)
 {
   aResult.Truncate();
@@ -1258,6 +1273,12 @@ DOMCSSStyleRule::GetParentRule(nsIDOMCSSRule** aParentRule)
   return Rule()->GetParentRule(aParentRule);
 }
 
+css::Rule*
+DOMCSSStyleRule::GetCSSRule()
+{
+  return Rule();
+}
+
 NS_IMETHODIMP
 DOMCSSStyleRule::GetSelectorText(nsAString& aSelectorText)
 {
@@ -1303,13 +1324,12 @@ namespace mozilla {
 namespace css {
 
 StyleRule::StyleRule(nsCSSSelectorList* aSelector,
-                     Declaration* aDeclaration)
-  : Rule(),
+                     Declaration* aDeclaration,
+                     uint32_t aLineNumber,
+                     uint32_t aColumnNumber)
+  : Rule(aLineNumber, aColumnNumber),
     mSelector(aSelector),
-    mDeclaration(aDeclaration),
-    mLineNumber(0),
-    mColumnNumber(0),
-    mWasMatched(false)
+    mDeclaration(aDeclaration)
 {
   NS_PRECONDITION(aDeclaration, "must have a declaration");
 }
@@ -1318,10 +1338,7 @@ StyleRule::StyleRule(nsCSSSelectorList* aSelector,
 StyleRule::StyleRule(const StyleRule& aCopy)
   : Rule(aCopy),
     mSelector(aCopy.mSelector ? aCopy.mSelector->Clone() : nullptr),
-    mDeclaration(new Declaration(*aCopy.mDeclaration)),
-    mLineNumber(aCopy.mLineNumber),
-    mColumnNumber(aCopy.mColumnNumber),
-    mWasMatched(false)
+    mDeclaration(new Declaration(*aCopy.mDeclaration))
 {
   // rest is constructed lazily on existing data
 }
@@ -1332,10 +1349,7 @@ StyleRule::StyleRule(StyleRule& aCopy,
   : Rule(aCopy),
     mSelector(aCopy.mSelector),
     mDeclaration(aDeclaration),
-    mDOMRule(aCopy.mDOMRule.forget()),
-    mLineNumber(aCopy.mLineNumber),
-    mColumnNumber(aCopy.mColumnNumber),
-    mWasMatched(false)
+    mDOMRule(aCopy.mDOMRule.forget())
 {
   // The DOM rule is replacing |aCopy| with |this|, so transfer
   // the reverse pointer as well (and transfer ownership).

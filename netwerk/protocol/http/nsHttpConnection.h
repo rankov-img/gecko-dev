@@ -111,6 +111,13 @@ public:
         return mConnInfo->UsingHttpsProxy() && !mTLSFilter && mConnInfo->UsingConnect();
     }
 
+    // A connection is forced into plaintext when it is intended to be used as a CONNECT
+    // tunnel but the setup fails. The plaintext only carries the CONNECT error.
+    void ForcePlainText()
+    {
+        mForcePlainText = true;
+    }
+
     nsISocketTransport   *Transport()      { return mSocketTransport; }
     nsAHttpTransaction   *Transaction()    { return mTransaction; }
     nsHttpConnectionInfo *ConnectionInfo() { return mConnInfo; }
@@ -123,7 +130,7 @@ public:
                            nsIAsyncInputStream **,
                            nsIAsyncOutputStream **);
     void     GetSecurityInfo(nsISupports **);
-    bool     IsPersistent() { return IsKeepAlive(); }
+    bool     IsPersistent() { return IsKeepAlive() && !mDontReuse; }
     bool     IsReused();
     void     SetIsReusedAfter(uint32_t afterMilliseconds);
     nsresult PushBack(const char *data, uint32_t length);
@@ -192,6 +199,9 @@ public:
                                       nsACString &result);
     void    SetupSecondaryTLS();
     void    SetInSpdyTunnel(bool arg);
+
+    // Returns true if the socket peer has a private (RFC1918-like) address.
+    bool    PeerHasPrivateIP();
 
 private:
     // Value (set in mTCPKeepaliveConfig) indicates which set of prefs to use.
@@ -283,6 +293,7 @@ private:
     bool                            mProxyConnectInProgress;
     bool                            mExperienced;
     bool                            mInSpdyTunnel;
+    bool                            mForcePlainText;
 
     // The number of <= HTTP/1.1 transactions performed on this connection. This
     // excludes spdy transactions.

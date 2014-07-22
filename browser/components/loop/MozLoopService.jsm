@@ -6,15 +6,25 @@
 
 const { classes: Cc, interfaces: Ci, utils: Cu } = Components;
 
+// Invalid auth token as per
+// https://github.com/mozilla-services/loop-server/blob/45787d34108e2f0d87d74d4ddf4ff0dbab23501c/loop/errno.json#L6
+const INVALID_AUTH_TOKEN = 110;
+
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Promise.jsm");
-let console = (Cu.import("resource://gre/modules/devtools/Console.jsm", {})).console;
+Cu.import("resource://gre/modules/osfile.jsm", this);
 
 this.EXPORTED_SYMBOLS = ["MozLoopService"];
 
+XPCOMUtils.defineLazyModuleGetter(this, "console",
+  "resource://gre/modules/devtools/Console.jsm");
+
 XPCOMUtils.defineLazyModuleGetter(this, "injectLoopAPI",
   "resource:///modules/loop/MozLoopAPI.jsm");
+
+XPCOMUtils.defineLazyModuleGetter(this, "convertToRTCStatsReport",
+  "resource://gre/modules/media/RTCStatsReport.jsm");
 
 XPCOMUtils.defineLazyModuleGetter(this, "Chat", "resource:///modules/Chat.jsm");
 
@@ -32,6 +42,10 @@ XPCOMUtils.defineLazyModuleGetter(this, "deriveHawkCredentials",
 
 XPCOMUtils.defineLazyModuleGetter(this, "MozLoopPushHandler",
                                   "resource:///modules/loop/MozLoopPushHandler.jsm");
+
+XPCOMUtils.defineLazyServiceGetter(this, "uuidgen",
+                                   "@mozilla.org/uuid-generator;1",
+                                   "nsIUUIDGenerator");
 
 /**
  * Internal helper methods and state
@@ -235,7 +249,9 @@ let MozLoopServiceInternal = {
         // No need to clear the promise here, everything was good, so we don't need
         // to re-register.
       }, (error) => {
-        if (error.errno == 401) {
+        // There's other errors than invalid auth token, but we should only do the reset
+        // as a last resort.
+        if (error.code === 401 && error.errno === INVALID_AUTH_TOKEN) {
           if (this.urlExpiryTimeIsInFuture()) {
             // XXX Should this be reported to the user is a visible manner?
             Cu.reportError("Loop session token is invalid, all previously "
@@ -304,15 +320,80 @@ let MozLoopServiceInternal = {
   },
 
   /**
+   * Saves loop logs to the saved-telemetry-pings folder.
+   *
+   * @param {Object} pc The peerConnection in question.
+   */
+  stageForTelemetryUpload: function(window, pc) {
+    window.WebrtcGlobalInformation.getAllStats(allStats => {
+      let internalFormat = allStats.reports[0]; // filtered on pc.id
+      window.WebrtcGlobalInformation.getLogging('', logs => {
+        let report = convertToRTCStatsReport(internalFormat);
+        let logStr = "";
+        logs.forEach(s => { logStr += s + "\n"; });
+
+        // We have stats and logs.
+
+        // Create worker job. ping = saved telemetry ping file header + payload
+        //
+        // Prepare payload according to https://wiki.mozilla.org/Loop/Telemetry
+
+        let ai = Services.appinfo;
+        let uuid = uuidgen.generateUUID().toString();
+        uuid = uuid.substr(1,uuid.length-2); // remove uuid curly braces
+
+        let directory = OS.Path.join(OS.Constants.Path.profileDir,
+                                     "saved-telemetry-pings");
+        let job = {
+          directory: directory,
+          filename: uuid + ".json",
+          ping: {
+            reason: "loop",
+            slug: uuid,
+            payload: {
+              ver: 1,
+              info: {
+                appUpdateChannel: ai.defaultUpdateChannel,
+                appBuildID: ai.appBuildID,
+                appName: ai.name,
+                appVersion: ai.version,
+                reason: "loop",
+                OS: ai.OS,
+                version: Services.sysinfo.getProperty("version")
+              },
+              report: "ice failure",
+              connectionstate: pc.iceConnectionState,
+              stats: report,
+              localSdp: internalFormat.localSdp,
+              remoteSdp: internalFormat.remoteSdp,
+              log: logStr
+            }
+          }
+        };
+
+        // Send job to worker to do log sanitation, transcoding and saving to
+        // disk for pickup by telemetry on next startup, which then uploads it.
+
+        let worker = new ChromeWorker("MozLoopWorker.js");
+        worker.onmessage = function(e) {
+          console.log(e.data.ok ?
+            "Successfully staged loop report for telemetry upload." :
+            ("Failed to stage loop report. Error: " + e.data.fail));
+        }
+        worker.postMessage(job);
+      });
+    }, pc.id);
+  },
+
+  /**
    * Opens the chat window
    *
    * @param {Object} contentWindow The window to open the chat window in, may
    *                               be null.
    * @param {String} title The title of the chat window.
    * @param {String} url The page to load in the chat window.
-   * @param {String} mode May be "minimized" or undefined.
    */
-  openChatWindow: function(contentWindow, title, url, mode) {
+  openChatWindow: function(contentWindow, title, url) {
     // So I guess the origin is the loop server!?
     let origin = this.loopServerUri;
     url = url.spec || url;
@@ -332,8 +413,33 @@ let MozLoopServiceInternal = {
           return;
         }
         chatbox.removeEventListener("DOMContentLoaded", loaded, true);
-        injectLoopAPI(chatbox.contentWindow);
-      }, true);
+
+        let window = chatbox.contentWindow;
+        injectLoopAPI(window);
+
+        let ourID = window.QueryInterface(Ci.nsIInterfaceRequestor)
+            .getInterface(Ci.nsIDOMWindowUtils).currentInnerWindowID;
+
+        let onPCLifecycleChange = (pc, winID, type) => {
+          if (winID != ourID) {
+            return;
+          }
+          if (type == "iceconnectionstatechange") {
+            switch(pc.iceConnectionState) {
+              case "failed":
+              case "disconnected":
+                if (Services.telemetry.canSend ||
+                    Services.prefs.getBoolPref("toolkit.telemetry.test")) {
+                  this.stageForTelemetryUpload(window, pc);
+                }
+                break;
+            }
+          }
+        };
+
+        let pc_static = new window.mozRTCPeerConnectionStatic();
+        pc_static.registerPeerConnectionLifecycleCallback(onPCLifecycleChange);
+      }.bind(this), true);
     };
 
     Chat.open(contentWindow, origin, title, url, undefined, undefined, callback);
@@ -349,6 +455,11 @@ this.MozLoopService = {
    * push and loop servers.
    */
   initialize: function() {
+    // Don't do anything if loop is not enabled.
+    if (!Services.prefs.getBoolPref("loop.enabled")) {
+      return;
+    }
+
     // If expiresTime is in the future then kick-off registration.
     if (MozLoopServiceInternal.urlExpiryTimeIsInFuture()) {
       this._startInitializeTimer();
@@ -381,6 +492,11 @@ this.MozLoopService = {
    *          rejected with an error code or string.
    */
   register: function(mockPushHandler) {
+    // Don't do anything if loop is not enabled.
+    if (!Services.prefs.getBoolPref("loop.enabled")) {
+      throw new Error("Loop is not enabled");
+    }
+
     return MozLoopServiceInternal.promiseRegisteredWithServers(mockPushHandler);
   },
 

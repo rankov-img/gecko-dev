@@ -47,10 +47,10 @@ OS_LIBS += -lcups
 endif
 
 EXTRA_DSO_LDOPTS += \
-  $(LIBS_DIR) \
   $(MOZ_JS_LIBS) \
   $(NSS_LIBS) \
   $(MOZ_CAIRO_OSLIBS) \
+  $(MOZ_WEBRTC_X11_LIBS) \
   $(MOZ_APP_EXTRA_LIBS) \
   $(SQLITE_LIBS) \
   $(NULL)
@@ -93,7 +93,7 @@ ifdef MOZ_DMD
 EXTRA_DSO_LDOPTS += $(call EXPAND_LIBNAME_PATH,dmd,$(DIST)/lib)
 endif
 
-EXTRA_DSO_LDOPTS += $(call EXPAND_LIBNAME_PATH,gkmedias,$(DIST)/lib)
+EXTRA_DSO_LDOPTS += $(call EXPAND_LIBNAME_PATH,gkmedias,$(DEPTH)/layout/media)
 
 ifdef MOZ_WEBRTC
 ifeq (WINNT,$(OS_TARGET))
@@ -134,6 +134,7 @@ OS_LIBS += \
   -lstagefright_omx \
   -lbinder \
   -lgui \
+  -lmtp \
   $(NULL)
 endif
 
@@ -148,8 +149,6 @@ endif
 ifdef MOZ_DIRECTSHOW
 OS_LIBS += $(call EXPAND_LIBNAME,dmoguids wmcodecdspuuid strmiids msdmo)
 endif
-
-EXTRA_DSO_LDOPTS += $(LIBS_DIR)
 
 EXTRA_DSO_LDOPTS += $(NSPR_LIBS) $(MOZALLOC_LIB)
 

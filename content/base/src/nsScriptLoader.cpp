@@ -1402,6 +1402,17 @@ nsScriptLoader::OnStreamComplete(nsIStreamLoader* aLoader,
   nsresult rv = PrepareLoadedRequest(request, aLoader, aStatus, aStringLen,
                                      aString);
   if (NS_FAILED(rv)) {
+    /*
+     * Handle script not loading error because source was a tracking URL.
+     * (Safebrowinsg) We make a note of this script node by including it
+     * in a dedicated array of blocked tracking nodes under its parent
+     * document.
+     */
+    if (rv == NS_ERROR_TRACKING_URI) {
+      nsCOMPtr<nsIContent> cont = do_QueryInterface(request->mElement);
+      mDocument->AddBlockedTrackingNode(cont);
+    }
+
     if (mDeferRequests.RemoveElement(request) ||
         mAsyncRequests.RemoveElement(request) ||
         mNonAsyncExternalScriptInsertedRequests.RemoveElement(request) ||
@@ -1417,7 +1428,7 @@ nsScriptLoader::OnStreamComplete(nsIStreamLoader* aLoader,
     }
     rv = NS_OK;
   } else {
-    NS_Free(const_cast<uint8_t *>(aString));
+    moz_free(const_cast<uint8_t *>(aString));
     rv = NS_SUCCESS_ADOPTED_DATA;
   }
 
@@ -1471,9 +1482,11 @@ nsScriptLoader::PrepareLoadedRequest(nsScriptLoadRequest* aRequest,
     }
 
     nsAutoCString sourceMapURL;
-    httpChannel->GetResponseHeader(NS_LITERAL_CSTRING("X-SourceMap"), sourceMapURL);
-    aRequest->mHasSourceMapURL = true;
-    aRequest->mSourceMapURL = NS_ConvertUTF8toUTF16(sourceMapURL);
+    rv = httpChannel->GetResponseHeader(NS_LITERAL_CSTRING("X-SourceMap"), sourceMapURL);
+    if (NS_SUCCEEDED(rv)) {
+      aRequest->mHasSourceMapURL = true;
+      aRequest->mSourceMapURL = NS_ConvertUTF8toUTF16(sourceMapURL);
+    }
   }
 
   nsCOMPtr<nsIChannel> channel = do_QueryInterface(req);

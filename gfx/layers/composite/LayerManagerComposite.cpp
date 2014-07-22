@@ -144,6 +144,13 @@ LayerManagerComposite::UpdateRenderBounds(const nsIntRect& aRect)
   mRenderBounds = aRect;
 }
 
+bool
+LayerManagerComposite::AreComponentAlphaLayersEnabled()
+{
+  return Compositor::GetBackend() != LayersBackend::LAYERS_BASIC &&
+         LayerManager::AreComponentAlphaLayersEnabled();
+}
+
 void
 LayerManagerComposite::BeginTransaction()
 {
@@ -248,6 +255,9 @@ LayerManagerComposite::EndTransaction(DrawThebesLayerCallback aCallback,
 
     Render();
     mGeometryChanged = false;
+  } else {
+    // Modified layer tree
+    mGeometryChanged = true;
   }
 
   mCompositor->ClearTargetContext();
@@ -429,6 +439,8 @@ LayerManagerComposite::Render()
       }
     }
     mCompositor->EndFrameForExternalComposition(mWorldMatrix);
+    // Reset the invalid region as compositing is done
+    mInvalidRegion.SetEmpty();
     return;
   }
 
@@ -479,6 +491,7 @@ LayerManagerComposite::Render()
                                                                actualBounds.height));
 
   // Render our layers.
+  RootLayer()->Prepare(clipRect);
   RootLayer()->RenderLayer(clipRect);
 
   if (!mRegionToClear.IsEmpty()) {

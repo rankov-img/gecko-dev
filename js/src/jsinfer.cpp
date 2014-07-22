@@ -1931,14 +1931,14 @@ TemporaryTypeSet::forAllClasses(bool (*func)(const Class* clasp))
     return true_results ? ForAllResult::ALL_TRUE : ForAllResult::ALL_FALSE;
 }
 
-int
+Scalar::Type
 TemporaryTypeSet::getTypedArrayType()
 {
     const Class *clasp = getKnownClass();
 
     if (clasp && IsTypedArrayClass(clasp))
-        return clasp - &TypedArrayObject::classes[0];
-    return ScalarTypeDescr::TYPE_MAX;
+        return (Scalar::Type) (clasp - &TypedArrayObject::classes[0]);
+    return Scalar::TypeMax;
 }
 
 bool
@@ -3504,6 +3504,8 @@ CheckNewScriptProperties(JSContext *cx, TypeObject *type, JSFunction *fun)
     PodCopy(newScript->initializerList,
             initializerList.begin(),
             initializerList.length());
+
+    js::gc::TraceTypeNewScript(type);
 #endif // JS_ION
 }
 
@@ -3654,16 +3656,10 @@ JSScript::makeTypes(JSContext *cx)
     if (!typeScript)
         return false;
 
-    new(typeScript) TypeScript();
-
-    TypeSet *typeArray = typeScript->typeArray();
-
-    for (unsigned i = 0; i < count; i++)
-        new (&typeArray[i]) StackTypeSet();
-
     types = typeScript;
 
 #ifdef DEBUG
+    StackTypeSet *typeArray = typeScript->typeArray();
     for (unsigned i = 0; i < nTypeSets(); i++) {
         InferSpew(ISpewOps, "typeSet: %sT%p%s bytecode%u #%u",
                   InferSpewColor(&typeArray[i]), &typeArray[i], InferSpewColorReset(),

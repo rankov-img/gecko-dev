@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-/* global loop, sinon */
+/* global loop, sinon, React, TestUtils */
 
 var expect = chai.expect;
 
@@ -23,17 +23,26 @@ describe("loop.conversation", function() {
       errorL10n: sandbox.spy()
     };
 
-    window.navigator.mozLoop = {
+    navigator.mozLoop = {
+      doNotDisturb: true,
       get serverUrl() {
         return "http://example.com";
       },
-
-      startAlerting: function() {
+      getStrings: function() {
+        return JSON.stringify({textContent: "fakeText"});
       },
-
-      stopAlerting: function() {
-      }
+      get locale() {
+        return "en-US";
+      },
+      setLoopCharPref: sandbox.stub(),
+      getLoopCharPref: sandbox.stub(),
+      startAlerting: function() {},
+      stopAlerting: function() {}
     };
+
+    // XXX These stubs should be hoisted in a common file
+    // Bug 1040968
+    document.mozL10n.initialize(navigator.mozLoop);
   });
 
   afterEach(function() {
@@ -42,7 +51,7 @@ describe("loop.conversation", function() {
   });
 
   describe("#init", function() {
-    var conversation, oldTitle;
+    var oldTitle;
 
     beforeEach(function() {
       oldTitle = document.title;
@@ -96,7 +105,10 @@ describe("loop.conversation", function() {
     var conversation;
 
     beforeEach(function() {
-      conversation = new loop.shared.models.ConversationModel({}, {sdk: {}});
+      conversation = new loop.shared.models.ConversationModel({}, {
+        sdk: {},
+        pendingCallTimeout: 1000
+      });
       sandbox.stub(conversation, "initiate");
     });
 
@@ -112,6 +124,25 @@ describe("loop.conversation", function() {
       });
 
       describe("#incoming", function() {
+
+        // XXX refactor to Just Work with "sandbox.stubComponent" or else
+        // just pass in the sandbox and put somewhere generally usable
+
+        function stubComponent(obj, component, mockTagName){
+          var reactClass = React.createClass({
+            render: function() {
+              var mockTagName = mockTagName || "div";
+              return React.DOM[mockTagName](null, this.props.children);
+            }
+          });
+          return sandbox.stub(obj, component, reactClass);
+        }
+
+        beforeEach(function() {
+          sandbox.stub(router, "loadReactComponent");
+          stubComponent(loop.conversation, "IncomingCallView");
+        });
+
         it("should set the loopVersion on the conversation model", function() {
           router.incoming("fakeVersion");
 
@@ -119,11 +150,17 @@ describe("loop.conversation", function() {
         });
 
         it("should display the incoming call view", function() {
-          router.incoming("fakeVersion");
+            router.incoming("fakeVersion");
 
-          sinon.assert.calledOnce(router.loadView);
-          sinon.assert.calledWithExactly(router.loadView,
-            sinon.match.instanceOf(loop.conversation.IncomingCallView));
+            sinon.assert.calledOnce(loop.conversation.IncomingCallView);
+            sinon.assert.calledWithExactly(loop.conversation.IncomingCallView,
+                                           {model: conversation});
+            sinon.assert.calledOnce(router.loadReactComponent);
+            sinon.assert.calledWith(router.loadReactComponent,
+              sinon.match(function(value) {
+                return TestUtils.isComponentOfType(value,
+                  loop.conversation.IncomingCallView);
+              }));
         });
 
         it("should start alerting", function() {
@@ -157,23 +194,28 @@ describe("loop.conversation", function() {
       });
 
       describe("#conversation", function() {
+        beforeEach(function() {
+          sandbox.stub(router, "loadReactComponent");
+        });
+
         it("should load the ConversationView if session is set", function() {
-          sandbox.stub(loop.shared.views.ConversationView.prototype,
-            "initialize");
           conversation.set("sessionId", "fakeSessionId");
 
           router.conversation();
 
-          sinon.assert.calledOnce(router.loadView);
-          sinon.assert.calledWith(router.loadView,
-            sinon.match.instanceOf(loop.shared.views.ConversationView));
+          sinon.assert.calledOnce(router.loadReactComponent);
+          sinon.assert.calledWith(router.loadReactComponent,
+            sinon.match(function(value) {
+              return TestUtils.isComponentOfType(value,
+                loop.shared.views.ConversationView);
+            }));
         });
 
         it("should not load the ConversationView if session is not set",
           function() {
             router.conversation();
 
-            sinon.assert.notCalled(router.loadView);
+            sinon.assert.notCalled(router.loadReactComponent);
         });
 
         it("should notify the user when session is not set",
@@ -277,32 +319,36 @@ describe("loop.conversation", function() {
   });
 
   describe("IncomingCallView", function() {
-    var conversation, view;
+    var view, model;
 
     beforeEach(function() {
-      conversation = new loop.shared.models.ConversationModel({}, {sdk: {}});
-      view = new loop.conversation.IncomingCallView({model: conversation});
+      var Model = Backbone.Model.extend({});
+      model = new Model();
+      sandbox.spy(model, "trigger");
+      view = TestUtils.renderIntoDocument(loop.conversation.IncomingCallView({
+        model: model
+      }));
     });
 
-    describe("#handleAccept", function() {
-      it("should trigger an 'accept' conversation model event" ,
-        function(done) {
-          conversation.once("accept", function() {
-            done();
-          });
+    describe("click event on .btn-accept", function() {
+      it("should trigger an 'accept' conversation model event", function() {
+        var buttonAccept = view.getDOMNode().querySelector(".btn-accept");
 
-          view.handleAccept({preventDefault: sandbox.spy()});
+        TestUtils.Simulate.click(buttonAccept);
+
+        sinon.assert.calledOnce(model.trigger);
+        sinon.assert.calledWith(model.trigger, "accept");
         });
     });
 
-    describe("#handleDecline", function() {
-      it("should trigger an 'decline' conversation model event" ,
-        function(done) {
-          conversation.once("decline", function() {
-            done();
-          });
+    describe("click event on .btn-decline", function() {
+      it("should trigger an 'decline' conversation model event", function() {
+        var buttonDecline = view.getDOMNode().querySelector(".btn-decline");
 
-          view.handleDecline({preventDefault: sandbox.spy()});
+        TestUtils.Simulate.click(buttonDecline);
+
+        sinon.assert.calledOnce(model.trigger);
+        sinon.assert.calledWith(model.trigger, "decline");
         });
     });
   });

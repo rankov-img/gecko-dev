@@ -187,9 +187,12 @@ jit::EliminateDeadCode(MIRGenerator *mir, MIRGraph &graph)
         for (MInstructionReverseIterator inst = block->rbegin(); inst != block->rend(); ) {
             if (!inst->isEffectful() && !inst->resumePoint() &&
                 !inst->hasUses() && !inst->isGuard() &&
-                !inst->isControlInstruction()) {
+                !inst->isControlInstruction())
+            {
                 inst = block->discardAt(inst);
-            } else if (!inst->hasLiveDefUses() && inst->canRecoverOnBailout()) {
+            } else if (!inst->isRecoveredOnBailout() && !inst->hasLiveDefUses() &&
+                       inst->canRecoverOnBailout())
+            {
                 inst->setRecoveredOnBailout();
                 inst++;
             } else {
@@ -952,11 +955,6 @@ TypeAnalyzer::graphContainsFloat32()
 bool
 TypeAnalyzer::tryEmitFloatOperations()
 {
-    // Backends that currently don't know how to generate Float32 specialized instructions
-    // shouldn't run this pass and just let all instructions as specialized for Double.
-    if (!LIRGenerator::allowFloat32Optimizations())
-        return true;
-
     // Asm.js uses the ahead of time type checks to specialize operations, no need to check
     // them again at this point.
     if (mir->compilingAsmJS())
@@ -2420,8 +2418,13 @@ ArgumentsUseCanBeLazy(JSContext *cx, JSScript *script, MInstruction *ins, size_t
         return true;
 
     // arguments.length length can read fp->numActualArgs() directly.
-    if (ins->isCallGetProperty() && index == 0 && ins->toCallGetProperty()->name() == cx->names().length)
+    // arguments.callee can read fp->callee() directly in non-strict code.
+    if (ins->isCallGetProperty() && index == 0 &&
+        (ins->toCallGetProperty()->name() == cx->names().length ||
+         (!script->strict() && ins->toCallGetProperty()->name() == cx->names().callee)))
+    {
         return true;
+    }
 
     return false;
 }

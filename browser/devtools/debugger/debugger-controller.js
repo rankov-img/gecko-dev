@@ -10,7 +10,6 @@ const { classes: Cc, interfaces: Ci, utils: Cu } = Components;
 const DBG_STRINGS_URI = "chrome://browser/locale/devtools/debugger.properties";
 const NEW_SOURCE_IGNORED_URLS = ["debugger eval code", "self-hosted", "XStringBundle"];
 const NEW_SOURCE_DISPLAY_DELAY = 200; // ms
-const EDITOR_BREAKPOINTS_UPDATE_DELAY = 200; // ms
 const FETCH_SOURCE_RESPONSE_DELAY = 200; // ms
 const FETCH_EVENT_LISTENERS_DELAY = 200; // ms
 const FRAME_STEP_CLEAR_DELAY = 100; // ms
@@ -861,11 +860,7 @@ StackFrames.prototype = {
     this.activeThread.addOneTimeListener("paused", (aEvent, aPacket) => {
       let { type, frameFinished } = aPacket.why;
       if (type == "clientEvaluated") {
-        if (!("terminated" in frameFinished)) {
-          deferred.resolve(frameFinished);
-        } else {
-          deferred.reject(new Error("The execution was abruptly terminated."));
-        }
+        deferred.resolve(frameFinished);
       } else {
         deferred.reject(new Error("Active thread paused unexpectedly."));
       }
@@ -976,10 +971,11 @@ StackFrames.prototype = {
     yield this.evaluate(watchExpressions, evaluationOptions);
     this._currentFrameDescription = FRAME_TYPE.NORMAL;
 
-    // If an error was thrown during the evaluation of the watch expressions,
-    // then at least one expression evaluation could not be performed. So
-    // remove the most recent watch expression and try again.
-    if (this._currentEvaluation.throw) {
+    // If an error was thrown during the evaluation of the watch expressions
+    // or the evaluation was terminated from the slow script dialog, then at
+    // least one expression evaluation could not be performed. So remove the
+    // most recent watch expression and try again.
+    if (this._currentEvaluation.throw || this._currentEvaluation.terminated) {
       DebuggerView.WatchExpressions.removeAt(0);
       yield DebuggerController.StackFrames.syncWatchExpressions();
     }
@@ -1174,9 +1170,7 @@ SourceScripts.prototype = {
     // If there are any stored breakpoints for this source, display them again,
     // both in the editor and the breakpoints pane.
     DebuggerController.Breakpoints.updatePaneBreakpoints();
-    setNamedTimeout("update-editor-bp", EDITOR_BREAKPOINTS_UPDATE_DELAY, () => {
-      DebuggerController.Breakpoints.updateEditorBreakpoints();
-    });
+    DebuggerController.Breakpoints.updateEditorBreakpoints();
 
     // Make sure the events listeners are up to date.
     if (DebuggerView.instrumentsPaneTab == "events-tab") {
@@ -1241,9 +1235,9 @@ SourceScripts.prototype = {
     const item = DebuggerView.Sources.getItemByValue(url);
     if (item) {
       if (isBlackBoxed) {
-        item.target.classList.add("black-boxed");
+        item.prebuiltNode.classList.add("black-boxed");
       } else {
-        item.target.classList.remove("black-boxed");
+        item.prebuiltNode.classList.remove("black-boxed");
       }
     }
     DebuggerView.Sources.updateToolbarButtonsState();
@@ -1725,7 +1719,10 @@ EventListeners.prototype = {
 
       // Add all the listeners in the debugger view event linsteners container.
       for (let listener of aResponse.listeners) {
-        let definitionSite = yield this._getDefinitionSite(listener.function);
+        let definitionSite;
+        if (listener.function.class == "Function") {
+          definitionSite = yield this._getDefinitionSite(listener.function);
+        }
         listener.function.url = definitionSite;
         DebuggerView.EventListeners.addListener(listener, { staged: true });
       }
@@ -1746,18 +1743,18 @@ EventListeners.prototype = {
    * @param object aFunction
    *        The grip of the function to get the definition site for.
    * @return object
-   *         A promise that is resolved with the function's owner source url,
-   *         or rejected if an error occured.
+   *         A promise that is resolved with the function's owner source url.
    */
   _getDefinitionSite: function(aFunction) {
     let deferred = promise.defer();
 
     gThreadClient.pauseGrip(aFunction).getDefinitionSite(aResponse => {
       if (aResponse.error) {
-        deferred.reject("Error getting function definition site: " + aResponse.message);
-      } else {
-        deferred.resolve(aResponse.url);
+        // Don't make this error fatal, because it would break the entire events pane.
+        const msg = "Error getting function definition site: " + aResponse.message;
+        DevToolsUtils.reportException("_getDefinitionSite", msg);
       }
+      deferred.resolve(aResponse.url);
     });
 
     return deferred.promise;
@@ -1867,7 +1864,7 @@ Breakpoints.prototype = {
 
       // Update the view only if the breakpoint is in the currently shown source.
       if (currentSourceUrl == breakpointUrl) {
-        this._showBreakpoint(breakpointClient, { noPaneUpdate: true });
+        yield this._showBreakpoint(breakpointClient, { noPaneUpdate: true });
       }
     }
   }),
@@ -1886,7 +1883,7 @@ Breakpoints.prototype = {
 
       // Update the view only if the breakpoint exists in a known source.
       if (container.containsValue(breakpointUrl)) {
-        this._showBreakpoint(breakpointClient, { noEditorUpdate: true });
+        yield this._showBreakpoint(breakpointClient, { noEditorUpdate: true });
       }
     }
   }),
@@ -1979,7 +1976,7 @@ Breakpoints.prototype = {
       aBreakpointClient.text = DebuggerView.editor.getText(line).trim();
 
       // Show the breakpoint in the editor and breakpoints pane, and resolve.
-      this._showBreakpoint(aBreakpointClient, aOptions);
+      yield this._showBreakpoint(aBreakpointClient, aOptions);
 
       // Notify that we've added a breakpoint.
       window.emit(EVENTS.BREAKPOINT_ADDED, aBreakpointClient);
@@ -2131,13 +2128,14 @@ Breakpoints.prototype = {
    *        @see DebuggerController.Breakpoints.addBreakpoint
    */
   _showBreakpoint: function(aBreakpointData, aOptions = {}) {
+    let tasks = [];
     let currentSourceUrl = DebuggerView.Sources.selectedValue;
     let location = aBreakpointData.location;
 
     // Update the editor if required.
     if (!aOptions.noEditorUpdate && !aBreakpointData.disabled) {
       if (location.url == currentSourceUrl) {
-        DebuggerView.editor.addBreakpoint(location.line - 1);
+        tasks.push(DebuggerView.editor.addBreakpoint(location.line - 1));
       }
     }
 
@@ -2145,6 +2143,8 @@ Breakpoints.prototype = {
     if (!aOptions.noPaneUpdate) {
       DebuggerView.Sources.addBreakpoint(aBreakpointData, aOptions);
     }
+
+    return promise.all(tasks);
   },
 
   /**

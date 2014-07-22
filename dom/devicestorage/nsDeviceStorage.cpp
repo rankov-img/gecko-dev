@@ -29,6 +29,7 @@
 #include "mozilla/Scoped.h"
 #include "mozilla/Services.h"
 
+#include "nsArrayUtils.h"
 #include "nsAutoPtr.h"
 #include "nsGlobalWindow.h"
 #include "nsServiceManagerUtils.h"
@@ -1678,12 +1679,11 @@ InterfaceToJsval(nsPIDOMWindow* aWindow,
   NS_ENSURE_TRUE(unrootedScopeObj, JS::NullValue());
   JSRuntime *runtime = JS_GetObjectRuntime(unrootedScopeObj);
   JS::Rooted<JS::Value> someJsVal(runtime);
+  JS::Rooted<JSObject*> scopeObj(runtime, unrootedScopeObj);
   nsresult rv;
 
   { // Protect someJsVal from moving GC in ~JSAutoCompartment
     AutoJSContext cx;
-
-    JS::Rooted<JSObject*> scopeObj(cx, unrootedScopeObj);
     JSAutoCompartment ac(cx, scopeObj);
 
     rv = nsContentUtils::WrapNative(cx, aObject, aIID, &someJsVal);
@@ -1816,6 +1816,9 @@ public:
   NS_IMETHOD Run()
   {
     MOZ_ASSERT(NS_IsMainThread());
+    if (!mRequest->GetOwner()) {
+      return NS_OK;
+    }
     mRequest->FireError(mError);
     mRequest = nullptr;
     return NS_OK;
@@ -1906,13 +1909,18 @@ ContinueCursorEvent::Continue()
 NS_IMETHODIMP
 ContinueCursorEvent::Run()
 {
+  nsCOMPtr<nsPIDOMWindow> window = mRequest->GetOwner();
+  if (!window) {
+    return NS_OK;
+  }
+
   nsRefPtr<DeviceStorageFile> file = GetNextFile();
 
   nsDOMDeviceStorageCursor* cursor
     = static_cast<nsDOMDeviceStorageCursor*>(mRequest.get());
 
   AutoJSContext cx;
-  JS::Rooted<JS::Value> val(cx, nsIFileToJsval(cursor->GetOwner(), file));
+  JS::Rooted<JS::Value> val(cx, nsIFileToJsval(window, file));
 
   if (file) {
     cursor->mOkToCallContinue = true;
@@ -2135,6 +2143,10 @@ public:
   NS_IMETHOD Run()
   {
     MOZ_ASSERT(NS_IsMainThread());
+    nsCOMPtr<nsPIDOMWindow> window = mRequest->GetOwner();
+    if (!window) {
+      return NS_OK;
+    }
 
     nsString state = NS_LITERAL_STRING("unavailable");
     if (mFile) {
@@ -2143,7 +2155,7 @@ public:
 
     AutoJSContext cx;
     JS::Rooted<JS::Value> result(cx);
-    StringToJsval(mRequest->GetOwner(), state, &result);
+    StringToJsval(window, state, &result);
     mRequest->FireSuccess(result);
     mRequest = nullptr;
     return NS_OK;
@@ -2169,6 +2181,10 @@ public:
   NS_IMETHOD Run()
   {
     MOZ_ASSERT(NS_IsMainThread());
+    nsCOMPtr<nsPIDOMWindow> window = mRequest->GetOwner();
+    if (!window) {
+      return NS_OK;
+    }
 
     nsString state = NS_LITERAL_STRING("undefined");
     if (mFile) {
@@ -2177,7 +2193,7 @@ public:
 
     AutoJSContext cx;
     JS::Rooted<JS::Value> result(cx);
-    StringToJsval(mRequest->GetOwner(), state, &result);
+    StringToJsval(window, state, &result);
     mRequest->FireSuccess(result);
     mRequest = nullptr;
     return NS_OK;
@@ -2203,6 +2219,10 @@ public:
   NS_IMETHOD Run()
   {
     MOZ_ASSERT(NS_IsMainThread());
+    nsCOMPtr<nsPIDOMWindow> window = mRequest->GetOwner();
+    if (!window) {
+      return NS_OK;
+    }
 
     nsString state = NS_LITERAL_STRING("unavailable");
     if (mFile) {
@@ -2211,7 +2231,7 @@ public:
 
     AutoJSContext cx;
     JS::Rooted<JS::Value> result(cx);
-    StringToJsval(mRequest->GetOwner(), state, &result);
+    StringToJsval(window, state, &result);
     mRequest->FireSuccess(result);
     mRequest = nullptr;
     return NS_OK;
@@ -2237,6 +2257,10 @@ public:
   NS_IMETHOD Run()
   {
     MOZ_ASSERT(NS_IsMainThread());
+    nsCOMPtr<nsPIDOMWindow> window = mRequest->GetOwner();
+    if (!window) {
+      return NS_OK;
+    }
 
     nsString state = NS_LITERAL_STRING("unavailable");
     if (mFile) {
@@ -2245,7 +2269,7 @@ public:
 
     AutoJSContext cx;
     JS::Rooted<JS::Value> result(cx);
-    StringToJsval(mRequest->GetOwner(), state, &result);
+    StringToJsval(window, state, &result);
     mRequest->FireSuccess(result);
     mRequest = nullptr;
     return NS_OK;
@@ -2271,6 +2295,10 @@ public:
   NS_IMETHOD Run()
   {
     MOZ_ASSERT(NS_IsMainThread());
+    nsCOMPtr<nsPIDOMWindow> window = mRequest->GetOwner();
+    if (!window) {
+      return NS_OK;
+    }
 
     nsString state = NS_LITERAL_STRING("unavailable");
     if (mFile) {
@@ -2279,7 +2307,7 @@ public:
 
     AutoJSContext cx;
     JS::Rooted<JS::Value> result(cx);
-    StringToJsval(mRequest->GetOwner(), state, &result);
+    StringToJsval(window, state, &result);
     mRequest->FireSuccess(result);
     mRequest = nullptr;
     return NS_OK;
@@ -2322,10 +2350,13 @@ public:
   NS_IMETHOD Run()
   {
     MOZ_ASSERT(NS_IsMainThread());
+    nsCOMPtr<nsPIDOMWindow> window = mRequest->GetOwner();
+    if (!window) {
+      return NS_OK;
+    }
 
     AutoJSContext cx;
     JS::Rooted<JS::Value> result(cx, JSVAL_NULL);
-    nsPIDOMWindow* window = mRequest->GetOwner();
 
     if (mFile) {
       result = nsIFileToJsval(window, mFile);
@@ -3315,7 +3346,19 @@ nsDOMDeviceStorage::GetOrderedVolumeNames(
 #ifdef MOZ_WIDGET_GONK
   nsCOMPtr<nsIVolumeService> vs = do_GetService(NS_VOLUMESERVICE_CONTRACTID);
   if (vs) {
-    vs->GetVolumeNames(aVolumeNames);
+    nsCOMPtr<nsIArray> volNames;
+    vs->GetVolumeNames(getter_AddRefs(volNames));
+    uint32_t length = -1;
+    volNames->GetLength(&length);
+    for (uint32_t i = 0; i < length; i++) {
+      nsCOMPtr<nsISupportsString> str = do_QueryElementAt(volNames, i);
+      if (str) {
+        nsAutoString s;
+        if (NS_SUCCEEDED(str->GetData(s)) && !s.IsEmpty()) {
+          aVolumeNames.AppendElement(s);
+        }
+      }
+    }
 
     // If the volume sdcard exists, then we want it to be first.
 
@@ -4078,13 +4121,13 @@ nsDOMDeviceStorage::CanBeShared()
 }
 
 already_AddRefed<Promise>
-nsDOMDeviceStorage::GetRoot()
+nsDOMDeviceStorage::GetRoot(ErrorResult& aRv)
 {
   if (!mFileSystem) {
     mFileSystem = new DeviceStorageFileSystem(mStorageType, mStorageName);
     mFileSystem->Init(this);
   }
-  return mozilla::dom::Directory::GetRoot(mFileSystem);
+  return mozilla::dom::Directory::GetRoot(mFileSystem, aRv);
 }
 
 NS_IMETHODIMP

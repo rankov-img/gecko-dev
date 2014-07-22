@@ -9,6 +9,7 @@
 
 #include "mozilla/HashFunctions.h"
 #include "mozilla/PodOperations.h"
+#include "mozilla/UniquePtr.h"
 
 #include "jsutil.h"
 #include "NamespaceImports.h"
@@ -121,55 +122,13 @@ js_strncpy(jschar *dst, const jschar *src, size_t nelem)
     return mozilla::PodCopy(dst, src, nelem);
 }
 
-extern jschar *
-js_strdup(js::ThreadSafeContext *cx, const jschar *s);
-
 namespace js {
 
-/* GC-allocate a string descriptor for the given malloc-allocated chars. */
-template <js::AllowGC allowGC, typename CharT>
-extern JSFlatString *
-NewString(js::ThreadSafeContext *cx, CharT *chars, size_t length);
+extern mozilla::UniquePtr<char[], JS::FreePolicy>
+DuplicateString(ThreadSafeContext *cx, const char *s);
 
-/* Like NewString, but doesn't try to deflate to Latin1. */
-template <js::AllowGC allowGC, typename CharT>
-extern JSFlatString *
-NewStringDontDeflate(js::ThreadSafeContext *cx, CharT *chars, size_t length);
-
-extern JSLinearString *
-NewDependentString(JSContext *cx, JSString *base, size_t start, size_t length);
-
-/* Copy a counted string and GC-allocate a descriptor for it. */
-template <js::AllowGC allowGC, typename CharT>
-extern JSFlatString *
-NewStringCopyN(js::ThreadSafeContext *cx, const CharT *s, size_t n);
-
-template <js::AllowGC allowGC>
-inline JSFlatString *
-NewStringCopyN(ThreadSafeContext *cx, const char *s, size_t n)
-{
-    return NewStringCopyN<allowGC>(cx, reinterpret_cast<const Latin1Char *>(s), n);
-}
-
-/* Like NewStringCopyN, but doesn't try to deflate to Latin1. */
-template <js::AllowGC allowGC, typename CharT>
-extern JSFlatString *
-NewStringCopyNDontDeflate(js::ThreadSafeContext *cx, const CharT *s, size_t n);
-
-/* Copy a C string and GC-allocate a descriptor for it. */
-template <js::AllowGC allowGC>
-inline JSFlatString *
-NewStringCopyZ(js::ExclusiveContext *cx, const jschar *s)
-{
-    return NewStringCopyN<allowGC>(cx, s, js_strlen(s));
-}
-
-template <js::AllowGC allowGC>
-inline JSFlatString *
-NewStringCopyZ(js::ThreadSafeContext *cx, const char *s)
-{
-    return NewStringCopyN<allowGC>(cx, s, strlen(s));
-}
+extern mozilla::UniquePtr<jschar[], JS::FreePolicy>
+DuplicateString(ThreadSafeContext *cx, const jschar *s);
 
 /*
  * Convert a non-string value to a string, returning null after reporting an
@@ -261,8 +220,10 @@ StringHasPattern(JSLinearString *text, const jschar *pat, uint32_t patlen);
 extern int
 StringFindPattern(JSLinearString *text, JSLinearString *pat, size_t start);
 
+// Whether the string contains any RegExp meta characters (., *, and so forth).
+// Searches the range [beginOffset, length - endOffset>.
 extern bool
-StringHasRegExpMetaChars(JSLinearString *str);
+StringHasRegExpMetaChars(JSLinearString *str, size_t beginOffset = 0, size_t endOffset = 0);
 
 template <typename Char1, typename Char2>
 inline bool
@@ -338,6 +299,12 @@ extern bool
 str_fromCharCode_one_arg(JSContext *cx, HandleValue code, MutableHandleValue rval);
 
 } /* namespace js */
+
+inline jschar *
+js_strdup(js::ThreadSafeContext *cx, const jschar *s)
+{
+    return js::DuplicateString(cx, s).release();
+}
 
 extern bool
 js_str_toString(JSContext *cx, unsigned argc, js::Value *vp);

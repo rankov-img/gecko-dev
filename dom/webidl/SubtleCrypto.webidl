@@ -67,6 +67,12 @@ dictionary HmacImportParams : Algorithm {
   AlgorithmIdentifier hash;
 };
 
+dictionary Pbkdf2Params : Algorithm {
+  CryptoOperationData salt;
+  [EnforceRange] unsigned long iterations;
+  AlgorithmIdentifier hash;
+};
+
 dictionary RsaHashedImportParams {
   AlgorithmIdentifier hash;
 };
@@ -89,6 +95,10 @@ dictionary RsaHashedKeyGenParams : RsaKeyGenParams {
   AlgorithmIdentifier hash;
 };
 
+dictionary RsaOaepParams : Algorithm {
+  CryptoOperationData? label;
+};
+
 dictionary DhKeyGenParams : Algorithm {
   BigInteger prime;
   BigInteger generator;
@@ -98,6 +108,43 @@ typedef DOMString NamedCurve;
 dictionary EcKeyGenParams : Algorithm {
   NamedCurve namedCurve;
 };
+
+
+/***** JWK *****/
+
+dictionary RsaOtherPrimesInfo {
+  // The following fields are defined in Section 6.3.2.7 of JSON Web Algorithms
+  DOMString r;
+  DOMString d;
+  DOMString t;
+};
+
+dictionary JsonWebKey {
+  // The following fields are defined in Section 3.1 of JSON Web Key
+  DOMString kty;
+  DOMString use;
+  sequence<DOMString> key_ops;
+  DOMString alg;
+
+  // The following fields are defined in JSON Web Key Parameters Registration
+  boolean ext;
+
+  // The following fields are defined in Section 6 of JSON Web Algorithms
+  DOMString crv;
+  DOMString x;
+  DOMString y;
+  DOMString d;
+  DOMString n;
+  DOMString e;
+  DOMString p;
+  DOMString q;
+  DOMString dp;
+  DOMString dq;
+  DOMString qi;
+  sequence<RsaOtherPrimesInfo> oth;
+  DOMString k;
+};
+
 
 /***** The Main API *****/
 
@@ -117,44 +164,68 @@ interface CryptoKeyPair {
 
 typedef DOMString KeyFormat;
 typedef (ArrayBufferView or ArrayBuffer) CryptoOperationData;
-typedef (ArrayBufferView or ArrayBuffer) KeyData;
 typedef (object or DOMString) AlgorithmIdentifier;
 
 [Pref="dom.webcrypto.enabled"]
 interface SubtleCrypto {
+  [Throws]
   Promise encrypt(AlgorithmIdentifier algorithm,
                   CryptoKey key,
                   CryptoOperationData data);
+  [Throws]
   Promise decrypt(AlgorithmIdentifier algorithm,
                   CryptoKey key,
                   CryptoOperationData data);
+  [Throws]
   Promise sign(AlgorithmIdentifier algorithm,
                CryptoKey key,
                CryptoOperationData data);
+  [Throws]
   Promise verify(AlgorithmIdentifier algorithm,
                  CryptoKey key,
                  CryptoOperationData signature,
                  CryptoOperationData data);
+  [Throws]
   Promise digest(AlgorithmIdentifier algorithm,
                  CryptoOperationData data);
 
+  [Throws]
   Promise generateKey(AlgorithmIdentifier algorithm,
                       boolean extractable,
                       sequence<KeyUsage> keyUsages );
+  [Throws]
   Promise deriveKey(AlgorithmIdentifier algorithm,
                     CryptoKey baseKey,
                     AlgorithmIdentifier derivedKeyType,
                     boolean extractable,
                     sequence<KeyUsage> keyUsages );
+  [Throws]
   Promise deriveBits(AlgorithmIdentifier algorithm,
                      CryptoKey baseKey,
                      unsigned long length);
 
+  [Throws]
   Promise importKey(KeyFormat format,
-                    KeyData keyData,
+                    object keyData,
                     AlgorithmIdentifier algorithm,
                     boolean extractable,
                     sequence<KeyUsage> keyUsages );
+  [Throws]
   Promise exportKey(KeyFormat format, CryptoKey key);
+
+  [Throws]
+  Promise wrapKey(KeyFormat format,
+                  CryptoKey key,
+                  CryptoKey wrappingKey,
+                  AlgorithmIdentifier wrapAlgorithm);
+
+  [Throws]
+  Promise unwrapKey(KeyFormat format,
+                    CryptoOperationData wrappedKey,
+                    CryptoKey unwrappingKey,
+                    AlgorithmIdentifier unwrapAlgorithm,
+                    AlgorithmIdentifier unwrappedKeyAlgorithm,
+                    boolean extractable,
+                    sequence<KeyUsage> keyUsages );
 };
 

@@ -277,19 +277,10 @@ static void
 StoreToTypedFloatArray(MacroAssembler &masm, int arrayType, const S &value, const T &dest)
 {
     switch (arrayType) {
-      case ScalarTypeDescr::TYPE_FLOAT32:
-        if (LIRGenerator::allowFloat32Optimizations()) {
-            masm.storeFloat32(value, dest);
-        } else {
-#ifdef JS_MORE_DETERMINISTIC
-            // See the comment in TypedArrayObjectTemplate::doubleToNative.
-            masm.canonicalizeDouble(value);
-#endif
-            masm.convertDoubleToFloat32(value, ScratchFloat32Reg);
-            masm.storeFloat32(ScratchFloat32Reg, dest);
-        }
+      case Scalar::Float32:
+        masm.storeFloat32(value, dest);
         break;
-      case ScalarTypeDescr::TYPE_FLOAT64:
+      case Scalar::Float64:
 #ifdef JS_MORE_DETERMINISTIC
         // See the comment in TypedArrayObjectTemplate::doubleToNative.
         masm.canonicalizeDouble(value);
@@ -302,13 +293,13 @@ StoreToTypedFloatArray(MacroAssembler &masm, int arrayType, const S &value, cons
 }
 
 void
-MacroAssembler::storeToTypedFloatArray(int arrayType, FloatRegister value,
+MacroAssembler::storeToTypedFloatArray(Scalar::Type arrayType, FloatRegister value,
                                        const BaseIndex &dest)
 {
     StoreToTypedFloatArray(*this, arrayType, value, dest);
 }
 void
-MacroAssembler::storeToTypedFloatArray(int arrayType, FloatRegister value,
+MacroAssembler::storeToTypedFloatArray(Scalar::Type arrayType, FloatRegister value,
                                        const Address &dest)
 {
     StoreToTypedFloatArray(*this, arrayType, value, dest);
@@ -316,27 +307,27 @@ MacroAssembler::storeToTypedFloatArray(int arrayType, FloatRegister value,
 
 template<typename T>
 void
-MacroAssembler::loadFromTypedArray(int arrayType, const T &src, AnyRegister dest, Register temp,
+MacroAssembler::loadFromTypedArray(Scalar::Type arrayType, const T &src, AnyRegister dest, Register temp,
                                    Label *fail)
 {
     switch (arrayType) {
-      case ScalarTypeDescr::TYPE_INT8:
+      case Scalar::Int8:
         load8SignExtend(src, dest.gpr());
         break;
-      case ScalarTypeDescr::TYPE_UINT8:
-      case ScalarTypeDescr::TYPE_UINT8_CLAMPED:
+      case Scalar::Uint8:
+      case Scalar::Uint8Clamped:
         load8ZeroExtend(src, dest.gpr());
         break;
-      case ScalarTypeDescr::TYPE_INT16:
+      case Scalar::Int16:
         load16SignExtend(src, dest.gpr());
         break;
-      case ScalarTypeDescr::TYPE_UINT16:
+      case Scalar::Uint16:
         load16ZeroExtend(src, dest.gpr());
         break;
-      case ScalarTypeDescr::TYPE_INT32:
+      case Scalar::Int32:
         load32(src, dest.gpr());
         break;
-      case ScalarTypeDescr::TYPE_UINT32:
+      case Scalar::Uint32:
         if (dest.isFloat()) {
             load32(src, temp);
             convertUInt32ToDouble(temp, dest.fpu());
@@ -349,16 +340,11 @@ MacroAssembler::loadFromTypedArray(int arrayType, const T &src, AnyRegister dest
             branchTest32(Assembler::Signed, dest.gpr(), dest.gpr(), fail);
         }
         break;
-      case ScalarTypeDescr::TYPE_FLOAT32:
-        if (LIRGenerator::allowFloat32Optimizations()) {
-            loadFloat32(src, dest.fpu());
-            canonicalizeFloat(dest.fpu());
-        } else {
-            loadFloatAsDouble(src, dest.fpu());
-            canonicalizeDouble(dest.fpu());
-        }
+      case Scalar::Float32:
+        loadFloat32(src, dest.fpu());
+        canonicalizeFloat(dest.fpu());
         break;
-      case ScalarTypeDescr::TYPE_FLOAT64:
+      case Scalar::Float64:
         loadDouble(src, dest.fpu());
         canonicalizeDouble(dest.fpu());
         break;
@@ -367,27 +353,27 @@ MacroAssembler::loadFromTypedArray(int arrayType, const T &src, AnyRegister dest
     }
 }
 
-template void MacroAssembler::loadFromTypedArray(int arrayType, const Address &src, AnyRegister dest,
+template void MacroAssembler::loadFromTypedArray(Scalar::Type arrayType, const Address &src, AnyRegister dest,
                                                  Register temp, Label *fail);
-template void MacroAssembler::loadFromTypedArray(int arrayType, const BaseIndex &src, AnyRegister dest,
+template void MacroAssembler::loadFromTypedArray(Scalar::Type arrayType, const BaseIndex &src, AnyRegister dest,
                                                  Register temp, Label *fail);
 
 template<typename T>
 void
-MacroAssembler::loadFromTypedArray(int arrayType, const T &src, const ValueOperand &dest,
+MacroAssembler::loadFromTypedArray(Scalar::Type arrayType, const T &src, const ValueOperand &dest,
                                    bool allowDouble, Register temp, Label *fail)
 {
     switch (arrayType) {
-      case ScalarTypeDescr::TYPE_INT8:
-      case ScalarTypeDescr::TYPE_UINT8:
-      case ScalarTypeDescr::TYPE_UINT8_CLAMPED:
-      case ScalarTypeDescr::TYPE_INT16:
-      case ScalarTypeDescr::TYPE_UINT16:
-      case ScalarTypeDescr::TYPE_INT32:
+      case Scalar::Int8:
+      case Scalar::Uint8:
+      case Scalar::Uint8Clamped:
+      case Scalar::Int16:
+      case Scalar::Uint16:
+      case Scalar::Int32:
         loadFromTypedArray(arrayType, src, AnyRegister(dest.scratchReg()), InvalidReg, nullptr);
         tagValue(JSVAL_TYPE_INT32, dest.scratchReg(), dest);
         break;
-      case ScalarTypeDescr::TYPE_UINT32:
+      case Scalar::Uint32:
         // Don't clobber dest when we could fail, instead use temp.
         load32(src, temp);
         if (allowDouble) {
@@ -411,14 +397,13 @@ MacroAssembler::loadFromTypedArray(int arrayType, const T &src, const ValueOpera
             tagValue(JSVAL_TYPE_INT32, temp, dest);
         }
         break;
-      case ScalarTypeDescr::TYPE_FLOAT32:
+      case Scalar::Float32:
         loadFromTypedArray(arrayType, src, AnyRegister(ScratchFloat32Reg), dest.scratchReg(),
                            nullptr);
-        if (LIRGenerator::allowFloat32Optimizations())
-            convertFloat32ToDouble(ScratchFloat32Reg, ScratchDoubleReg);
+        convertFloat32ToDouble(ScratchFloat32Reg, ScratchDoubleReg);
         boxDouble(ScratchDoubleReg, dest);
         break;
-      case ScalarTypeDescr::TYPE_FLOAT64:
+      case Scalar::Float64:
         loadFromTypedArray(arrayType, src, AnyRegister(ScratchDoubleReg), dest.scratchReg(),
                            nullptr);
         boxDouble(ScratchDoubleReg, dest);
@@ -428,9 +413,9 @@ MacroAssembler::loadFromTypedArray(int arrayType, const T &src, const ValueOpera
     }
 }
 
-template void MacroAssembler::loadFromTypedArray(int arrayType, const Address &src, const ValueOperand &dest,
+template void MacroAssembler::loadFromTypedArray(Scalar::Type arrayType, const Address &src, const ValueOperand &dest,
                                                  bool allowDouble, Register temp, Label *fail);
-template void MacroAssembler::loadFromTypedArray(int arrayType, const BaseIndex &src, const ValueOperand &dest,
+template void MacroAssembler::loadFromTypedArray(Scalar::Type arrayType, const BaseIndex &src, const ValueOperand &dest,
                                                  bool allowDouble, Register temp, Label *fail);
 
 // Inlined version of gc::CheckAllocatorState that checks the bare essentials
@@ -504,21 +489,36 @@ MacroAssembler::nurseryAllocate(Register result, Register slots, gc::AllocKind a
 #endif // JSGC_GENERATIONAL
 }
 
-// Inlined version of FreeSpan::allocate.
+// Inlined version of FreeList::allocate.
 void
-MacroAssembler::freeSpanAllocate(Register result, Register temp, gc::AllocKind allocKind, Label *fail)
+MacroAssembler::freeListAllocate(Register result, Register temp, gc::AllocKind allocKind, Label *fail)
 {
     CompileZone *zone = GetIonContext()->compartment->zone();
     int thingSize = int(gc::Arena::thingSize(allocKind));
 
-    // Load FreeList::first of |zone|'s freeLists for |allocKind|. If there is
-    // no room remaining in the span, we bail to finish the allocation. The
-    // interpreter will call |refillFreeLists|, setting up a new FreeSpan so
-    // that we can continue allocating in the jit.
+    Label fallback;
+    Label success;
+
+    // Load FreeList::head::first of |zone|'s freeLists for |allocKind|. If
+    // there is no room remaining in the span, fall back to get the next one.
     loadPtr(AbsoluteAddress(zone->addressOfFreeListFirst(allocKind)), result);
-    branchPtr(Assembler::BelowOrEqual, AbsoluteAddress(zone->addressOfFreeListLast(allocKind)), result, fail);
+    branchPtr(Assembler::BelowOrEqual, AbsoluteAddress(zone->addressOfFreeListLast(allocKind)), result, &fallback);
     computeEffectiveAddress(Address(result, thingSize), temp);
     storePtr(temp, AbsoluteAddress(zone->addressOfFreeListFirst(allocKind)));
+    jump(&success);
+
+    bind(&fallback);
+    // If there are no FreeSpans left, we bail to finish the allocation. The
+    // interpreter will call |refillFreeLists|, setting up a new FreeList so
+    // that we can continue allocating in the jit.
+    branchPtr(Assembler::Equal, result, ImmPtr(0), fail);
+    // Point the free list head at the subsequent span (which may be empty).
+    loadPtr(Address(result, js::gc::FreeSpan::offsetOfFirst()), temp);
+    storePtr(temp, AbsoluteAddress(zone->addressOfFreeListFirst(allocKind)));
+    loadPtr(Address(result, js::gc::FreeSpan::offsetOfLast()), temp);
+    storePtr(temp, AbsoluteAddress(zone->addressOfFreeListLast(allocKind)));
+
+    bind(&success);
 }
 
 void
@@ -566,7 +566,7 @@ MacroAssembler::allocateObject(Register result, Register slots, gc::AllocKind al
         return nurseryAllocate(result, slots, allocKind, nDynamicSlots, initialHeap, fail);
 
     if (!nDynamicSlots)
-        return freeSpanAllocate(result, slots, allocKind, fail);
+        return freeListAllocate(result, slots, allocKind, fail);
 
     callMallocStub(nDynamicSlots * sizeof(HeapValue), slots, fail);
 
@@ -574,7 +574,7 @@ MacroAssembler::allocateObject(Register result, Register slots, gc::AllocKind al
     Label success;
 
     push(slots);
-    freeSpanAllocate(result, slots, allocKind, &failAlloc);
+    freeListAllocate(result, slots, allocKind, &failAlloc);
     pop(slots);
     jump(&success);
 
@@ -621,7 +621,7 @@ void
 MacroAssembler::allocateNonObject(Register result, Register temp, gc::AllocKind allocKind, Label *fail)
 {
     checkAllocatorState(fail);
-    freeSpanAllocate(result, temp, allocKind, fail);
+    freeListAllocate(result, temp, allocKind, fail);
 }
 
 void
@@ -1563,9 +1563,14 @@ MacroAssembler::convertValueToFloatingPoint(ValueOperand value, FloatRegister ou
     jump(&done);
 
     bind(&isDouble);
-    unboxDouble(value, output);
+    FloatRegister tmp = output;
+    if (outputType == MIRType_Float32 && hasMultiAlias())
+        tmp = ScratchDoubleReg;
+
+    unboxDouble(value, tmp);
     if (outputType == MIRType_Float32)
-        convertDoubleToFloat32(output, output);
+        convertDoubleToFloat32(tmp, output);
+
     bind(&done);
 }
 

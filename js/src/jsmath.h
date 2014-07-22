@@ -127,6 +127,9 @@ js_minmax_impl(JSContext *cx, bool max, js::HandleValue a, js::HandleValue b,
 namespace js {
 
 extern bool
+math_sqrt_handle(JSContext *cx, js::HandleValue number, js::MutableHandleValue result);
+
+extern bool
 math_imul(JSContext *cx, unsigned argc, js::Value *vp);
 
 extern bool
@@ -236,6 +239,9 @@ math_acos(JSContext *cx, unsigned argc, Value *vp);
 
 extern bool
 math_atan(JSContext *cx, unsigned argc, Value *vp);
+
+extern bool
+math_atan2_handle(JSContext *cx, HandleValue y, HandleValue x, MutableHandleValue res);
 
 extern bool
 math_atan2(JSContext *cx, unsigned argc, Value *vp);

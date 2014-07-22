@@ -69,6 +69,7 @@ EXPORTS.mozilla = [
     'TypedEnumInternal.h',
     'Types.h',
     'TypeTraits.h',
+    'UniquePtr.h',
     'Vector.h',
     'WeakPtr.h',
 ]
@@ -76,6 +77,10 @@ EXPORTS.mozilla = [
 if CONFIG['OS_ARCH'] == 'WINNT':
     EXPORTS.mozilla += [
         'WindowsVersion.h',
+    ]
+elif CONFIG['OS_ARCH'] == 'Linux':
+    EXPORTS.mozilla += [
+        'LinuxSignal.h',
     ]
 
 UNIFIED_SOURCES = [

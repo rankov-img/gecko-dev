@@ -17,6 +17,8 @@ const { getMostRecentBrowserWindow, getOwnerBrowserWindow,
 const { create: createFrame, swapFrameLoaders } = require("../frame/utils");
 const { window: addonWindow } = require("../addon/window");
 const { isNil } = require("../lang/type");
+const { data } = require('../self');
+
 const events = require("../system/events");
 
 
@@ -211,7 +213,7 @@ function show(panel, options, anchor) {
   // Prevent the panel from getting focus when showing up
   // if focus is set to false
   panel.setAttribute("noautofocus", !options.focus);
-
+  
   let window = anchor && getOwnerBrowserWindow(anchor);
   let { document } = window ? window : getMostRecentBrowserWindow();
   attach(panel, document);
@@ -402,5 +404,18 @@ exports.getContentFrame = getContentFrame;
 function getContentDocument(panel) getContentFrame(panel).contentDocument
 exports.getContentDocument = getContentDocument;
 
-function setURL(panel, url) getContentFrame(panel).setAttribute("src", url)
+function setURL(panel, url) {
+  getContentFrame(panel).setAttribute("src", url ? data.url(url) : url);
+}
+
 exports.setURL = setURL;
+
+function allowContextMenu(panel, allow) {
+  if(allow) {
+    panel.setAttribute("context", "contentAreaContextMenu");
+  } 
+  else {
+    panel.removeAttribute("context");
+  }
+}
+exports.allowContextMenu = allowContextMenu;

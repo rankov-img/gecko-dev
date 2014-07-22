@@ -69,6 +69,7 @@
 #include "mozilla/dom/TreeWalker.h"
 
 #include "nsIServiceManager.h"
+#include "nsIServiceWorkerManager.h"
 
 #include "nsContentCID.h"
 #include "nsError.h"
@@ -223,6 +224,7 @@
 #include "nsContentPermissionHelper.h"
 #include "mozilla/dom/DOMStringList.h"
 #include "nsWindowMemoryReporter.h"
+#include "nsLocation.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;
@@ -1462,11 +1464,13 @@ public:
     MOZ_COUNT_CTOR(SelectorCacheKeyDeleter);
   }
 
+protected:
   ~SelectorCacheKeyDeleter()
   {
     MOZ_COUNT_DTOR(SelectorCacheKeyDeleter);
   }
 
+public:
   NS_IMETHOD Run()
   {
     return NS_OK;
@@ -2640,7 +2644,7 @@ nsDocument::SendToConsole(nsCOMArray<nsISecurityConsoleMessage>& aMessages)
 
 static nsresult
 AppendCSPFromHeader(nsIContentSecurityPolicy* csp, const nsAString& aHeaderValue,
-                    nsIURI* aSelfURI, bool aReportOnly, bool aSpecCompliant)
+                    nsIURI* aSelfURI, bool aReportOnly)
 {
   // Need to tokenize the header value since multiple headers could be
   // concatenated into one comma-separated list of policies.
@@ -2649,7 +2653,7 @@ AppendCSPFromHeader(nsIContentSecurityPolicy* csp, const nsAString& aHeaderValue
   nsCharSeparatedTokenizer tokenizer(aHeaderValue, ',');
   while (tokenizer.hasMoreTokens()) {
       const nsSubstring& policy = tokenizer.nextToken();
-      rv = csp->AppendPolicy(policy, aSelfURI, aReportOnly, aSpecCompliant);
+      rv = csp->AppendPolicy(policy, aSelfURI, aReportOnly);
       NS_ENSURE_SUCCESS(rv, rv);
 #ifdef PR_LOGGING
       {
@@ -2798,24 +2802,24 @@ nsDocument::InitCSP(nsIChannel* aChannel)
     }
 
     if (appCSP) {
-      csp->AppendPolicy(appCSP, selfURI, false, true);
+      csp->AppendPolicy(appCSP, selfURI, false);
     }
   }
 
   // ----- if the doc is an app and specifies a CSP in its manifest, apply it.
   if (applyAppManifestCSP) {
-    csp->AppendPolicy(appManifestCSP, selfURI, false, true);
+    csp->AppendPolicy(appManifestCSP, selfURI, false);
   }
 
   // ----- if there's a full-strength CSP header, apply it.
   if (!cspHeaderValue.IsEmpty()) {
-    rv = AppendCSPFromHeader(csp, cspHeaderValue, selfURI, false, true);
+    rv = AppendCSPFromHeader(csp, cspHeaderValue, selfURI, false);
     NS_ENSURE_SUCCESS(rv, rv);
   }
 
   // ----- if there's a report-only CSP header, apply it.
   if (!cspROHeaderValue.IsEmpty()) {
-    rv = AppendCSPFromHeader(csp, cspROHeaderValue, selfURI, true, true);
+    rv = AppendCSPFromHeader(csp, cspROHeaderValue, selfURI, true);
     NS_ENSURE_SUCCESS(rv, rv);
   }
 
@@ -4221,22 +4225,34 @@ nsDocument::LoadAdditionalStyleSheet(additionalSheetType aType, nsIURI* aSheetUR
     true, getter_AddRefs(sheet));
   NS_ENSURE_SUCCESS(rv, rv);
 
-  mAdditionalSheets[aType].AppendObject(sheet);
   sheet->SetOwningDocument(this);
   MOZ_ASSERT(sheet->IsApplicable());
+
+  return AddAdditionalStyleSheet(aType, sheet);
+}
+
+nsresult
+nsDocument::AddAdditionalStyleSheet(additionalSheetType aType, nsIStyleSheet* aSheet)
+{
+  if (mAdditionalSheets[aType].Contains(aSheet))
+    return NS_ERROR_INVALID_ARG;
+
+  if (!aSheet->IsApplicable())
+    return NS_ERROR_INVALID_ARG;
+
+  mAdditionalSheets[aType].AppendObject(aSheet);
 
   BeginUpdate(UPDATE_STYLE);
   nsCOMPtr<nsIPresShell> shell = GetShell();
   if (shell) {
     nsStyleSet::sheetType type = ConvertAdditionalSheetType(aType);
-    shell->StyleSet()->AppendStyleSheet(type, sheet);
+    shell->StyleSet()->AppendStyleSheet(type, aSheet);
   }
 
   // Passing false, so documet.styleSheets.length will not be affected by
   // these additional sheets.
-  NotifyStyleSheetAdded(sheet, false);
+  NotifyStyleSheetAdded(aSheet, false);
   EndUpdate(UPDATE_STYLE);
-
   return NS_OK;
 }
 
@@ -4449,6 +4465,24 @@ nsDocument::SetScriptGlobalObject(nsIScriptGlobalObject *aScriptGlobalObject)
   // The global in the template contents owner document should be the same.
   if (mTemplateContentsOwner && mTemplateContentsOwner != this) {
     mTemplateContentsOwner->SetScriptGlobalObject(aScriptGlobalObject);
+  }
+
+  nsCOMPtr<nsIChannel> channel = GetChannel();
+  if (!mMaybeServiceWorkerControlled && channel) {
+    nsLoadFlags loadFlags = 0;
+    channel->GetLoadFlags(&loadFlags);
+    // If we are shift-reloaded, don't associate with a ServiceWorker.
+    // FIXME(nsm): Bug 1041339.
+    if (loadFlags & nsIRequest::LOAD_BYPASS_CACHE) {
+      NS_WARNING("Page was shift reloaded, skipping ServiceWorker control");
+      return;
+    }
+
+    nsCOMPtr<nsIServiceWorkerManager> swm = do_GetService(SERVICEWORKERMANAGER_CONTRACTID);
+    if (swm) {
+      swm->MaybeStartControlling(this);
+      mMaybeServiceWorkerControlled = true;
+    }
   }
 }
 
@@ -5445,7 +5479,7 @@ nsDocument::CustomElementConstructor(JSContext* aCx, unsigned aArgc, JS::Value* 
 }
 
 bool
-nsDocument::IsRegisterElementEnabled(JSContext* aCx, JSObject* aObject)
+nsDocument::IsWebComponentsEnabled(JSContext* aCx, JSObject* aObject)
 {
   JS::Rooted<JSObject*> obj(aCx, aObject);
   return Preferences::GetBool("dom.webcomponents.enabled") ||
@@ -5957,6 +5991,34 @@ nsDocument::GetElementsByTagName(const nsAString& aTagname,
   // transfer ref to aReturn
   list.forget(aReturn);
   return NS_OK;
+}
+
+long
+nsDocument::BlockedTrackingNodeCount() const
+{
+  return mBlockedTrackingNodes.Length();
+}
+
+already_AddRefed<nsSimpleContentList>
+nsDocument::BlockedTrackingNodes() const
+{
+  nsRefPtr<nsSimpleContentList> list = new nsSimpleContentList(nullptr);
+
+  nsTArray<nsWeakPtr> blockedTrackingNodes;
+  blockedTrackingNodes = mBlockedTrackingNodes;
+
+  for (unsigned long i = 0; i < blockedTrackingNodes.Length(); i++) {
+    nsWeakPtr weakNode = blockedTrackingNodes[i];
+    nsCOMPtr<nsIContent> node = do_QueryReferent(weakNode);
+    // Consider only nodes to which we have managed to get strong references.
+    // Coping with nullptrs since it's expected for nodes to disappear when
+    // nobody else is referring to them.
+    if (node) {
+      list->AppendElement(node);
+    }
+  }
+
+  return list.forget();
 }
 
 already_AddRefed<nsContentList>
@@ -6534,7 +6596,7 @@ nsDocument::GetLocation(nsIDOMLocation **_retval)
   return NS_OK;
 }
 
-already_AddRefed<nsIDOMLocation>
+already_AddRefed<nsLocation>
 nsIDocument::GetLocation() const
 {
   nsCOMPtr<nsIDOMWindow> w = do_QueryInterface(mScriptGlobalObject);
@@ -6545,7 +6607,7 @@ nsIDocument::GetLocation() const
 
   nsCOMPtr<nsIDOMLocation> loc;
   w->GetLocation(getter_AddRefs(loc));
-  return loc.forget();
+  return loc.forget().downcast<nsLocation>();
 }
 
 Element*
@@ -8440,6 +8502,11 @@ nsDocument::Destroy()
 
   mRegistry = nullptr;
 
+  nsCOMPtr<nsIServiceWorkerManager> swm = do_GetService(SERVICEWORKERMANAGER_CONTRACTID);
+  if (swm) {
+    swm->MaybeStopControlling(this);
+  }
+
   // XXX We really should let cycle collection do this, but that currently still
   //     leaks (see https://bugzilla.mozilla.org/show_bug.cgi?id=406684).
   ReleaseWrapper(static_cast<nsINode*>(this));
@@ -9806,13 +9873,19 @@ static const char* kWarnings[] = {
 };
 #undef DEPRECATED_OPERATION
 
+bool
+nsIDocument::HasWarnedAbout(DeprecatedOperations aOperation)
+{
+  static_assert(eDeprecatedOperationCount <= 64,
+                "Too many deprecated operations");
+  return mWarnedAbout & (1ull << aOperation);
+}
+
 void
 nsIDocument::WarnOnceAbout(DeprecatedOperations aOperation,
                            bool asError /* = false */)
 {
-  static_assert(eDeprecatedOperationCount <= 64,
-                "Too many deprecated operations");
-  if (mWarnedAbout & (1ull << aOperation)) {
+  if (HasWarnedAbout(aOperation)) {
     return;
   }
   mWarnedAbout |= (1ull << aOperation);
@@ -11326,9 +11399,7 @@ public:
     mDocument(do_GetWeakReference(aElement->OwnerDoc())),
     mUserInputOrChromeCaller(aUserInputOrChromeCaller) {}
 
-  virtual ~nsPointerLockPermissionRequest() {}
-
-  NS_DECL_ISUPPORTS
+  NS_DECL_ISUPPORTS_INHERITED
   NS_DECL_NSICONTENTPERMISSIONREQUEST
 
   NS_IMETHOD Run()
@@ -11387,6 +11458,9 @@ public:
   nsWeakPtr mElement;
   nsWeakPtr mDocument;
   bool mUserInputOrChromeCaller;
+
+protected:
+  virtual ~nsPointerLockPermissionRequest() {}
 };
 
 NS_IMPL_ISUPPORTS_INHERITED(nsPointerLockPermissionRequest,
@@ -11874,6 +11948,10 @@ SizeOfStyleSheetsElementIncludingThis(nsIStyleSheet* aStyleSheet,
                                       MallocSizeOf aMallocSizeOf,
                                       void* aData)
 {
+  if (!aStyleSheet->GetOwningDocument()) {
+    // Avoid over-reporting shared sheets.
+    return 0;
+  }
   return aStyleSheet->SizeOfIncludingThis(aMallocSizeOf);
 }
 

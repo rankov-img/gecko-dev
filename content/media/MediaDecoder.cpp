@@ -261,13 +261,15 @@ MediaDecoder::DecodedStreamGraphListener::DoNotifyFinished()
 }
 
 void
-MediaDecoder::DecodedStreamGraphListener::NotifyFinished(MediaStreamGraph* aGraph)
+MediaDecoder::DecodedStreamGraphListener::NotifyEvent(MediaStreamGraph* aGraph,
+  MediaStreamListener::MediaStreamGraphEvent event)
 {
-  nsCOMPtr<nsIRunnable> event =
-    NS_NewRunnableMethod(this, &DecodedStreamGraphListener::DoNotifyFinished);
-  aGraph->DispatchToMainThreadAfterStreamStateUpdate(event.forget());
+  if (event == EVENT_FINISHED) {
+    nsCOMPtr<nsIRunnable> event =
+      NS_NewRunnableMethod(this, &DecodedStreamGraphListener::DoNotifyFinished);
+    aGraph->DispatchToMainThreadAfterStreamStateUpdate(event.forget());
+  }
 }
-
 void MediaDecoder::DestroyDecodedStream()
 {
   MOZ_ASSERT(NS_IsMainThread());
@@ -1715,11 +1717,21 @@ MediaDecoder::IsOmxEnabled()
 {
   return Preferences::GetBool("media.omx.enabled", false);
 }
+
+bool
+MediaDecoder::IsOmxAsyncEnabled()
+{
+#if ANDROID_VERSION >= 16
+  return Preferences::GetBool("media.omx.async.enabled", false);
+#else
+  return false;
+#endif
+}
 #endif
 
-#ifdef MOZ_MEDIA_PLUGINS
+#ifdef MOZ_ANDROID_OMX
 bool
-MediaDecoder::IsMediaPluginsEnabled()
+MediaDecoder::IsAndroidMediaEnabled()
 {
   return Preferences::GetBool("media.plugins.enabled");
 }

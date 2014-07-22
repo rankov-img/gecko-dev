@@ -451,6 +451,13 @@ public:
         m_formatter.oneByteOp(OP_NOP);
     }
 
+    void twoByteNop()
+    {
+        spew("nop (2 byte)");
+        m_formatter.prefix(PRE_OPERAND_SIZE);
+        m_formatter.oneByteOp(OP_NOP);
+    }
+
     // Stack operations:
 
     void push_r(RegisterID reg)
@@ -3457,15 +3464,16 @@ public:
         return static_cast<int32_t>(reinterpret_cast<intptr_t>(address));
     }
 
+    static void setInt32(void* where, int32_t value)
+    {
+        reinterpret_cast<int32_t*>(where)[-1] = value;
+    }
+
 private:
 
     static int32_t getInt32(void* where)
     {
         return reinterpret_cast<int32_t*>(where)[-1];
-    }
-    static void setInt32(void* where, int32_t value)
-    {
-        reinterpret_cast<int32_t*>(where)[-1] = value;
     }
 
     class X86InstructionFormatter {

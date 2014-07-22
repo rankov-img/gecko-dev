@@ -67,11 +67,12 @@ function Toolbox(target, selectedTool, hostType, hostOptions) {
   this._toolRegistered = this._toolRegistered.bind(this);
   this._toolUnregistered = this._toolUnregistered.bind(this);
   this._refreshHostTitle = this._refreshHostTitle.bind(this);
-  this._splitConsoleOnKeypress = this._splitConsoleOnKeypress.bind(this)
+  this._splitConsoleOnKeypress = this._splitConsoleOnKeypress.bind(this);
   this.destroy = this.destroy.bind(this);
   this.highlighterUtils = getHighlighterUtils(this);
   this._highlighterReady = this._highlighterReady.bind(this);
   this._highlighterHidden = this._highlighterHidden.bind(this);
+  this._prefChanged = this._prefChanged.bind(this);
 
   this._target.on("close", this.destroy);
 
@@ -241,10 +242,13 @@ Toolbox.prototype = {
         let closeButton = this.doc.getElementById("toolbox-close");
         closeButton.addEventListener("command", this.destroy, true);
 
+        gDevTools.on("pref-changed", this._prefChanged);
+
         this._buildDockButtons();
         this._buildOptions();
         this._buildTabs();
         let buttonsPromise = this._buildButtons();
+        this._applyCacheSettings();
         this._addKeysToWindow();
         this._addReloadKeys();
         this._addToolSwitchingKeys();
@@ -271,6 +275,24 @@ Toolbox.prototype = {
 
       return deferred.promise;
     });
+  },
+
+  /**
+   * Because our panels are lazy loaded this is a good place to watch for
+   * "pref-changed" events.
+   * @param  {String} event
+   *         The event type, "pref-changed".
+   * @param  {Object} data
+   *         {
+   *           newValue: The new value
+   *           oldValue:  The old value
+   *           pref: The name of the preference that has changed
+   *         }
+   */
+  _prefChanged: function(event, data) {
+    if (data.pref === "devtools.cache.disabled") {
+      this._applyCacheSettings();
+    }
   },
 
   _buildOptions: function() {
@@ -588,6 +610,19 @@ Toolbox.prototype = {
   },
 
   /**
+   * Apply the current cache setting from devtools.cache.disabled to this
+   * toolbox's tab.
+   */
+  _applyCacheSettings: function() {
+    let pref = "devtools.cache.disabled";
+    let cacheDisabled = Services.prefs.getBoolPref(pref);
+
+    if (this.target.activeTab) {
+      this.target.activeTab.reconfigure({"cacheDisabled": cacheDisabled});
+    }
+  },
+
+  /**
    * Setter for the checked state of the picker button in the toolbar
    * @param {Boolean} isChecked
    */
@@ -731,10 +766,13 @@ Toolbox.prototype = {
     if (id === "options") {
       // Options panel is special.  It doesn't belong in the same container as
       // the other tabs.
+      radio.setAttribute("role", "button");
       let optionTabContainer = this.doc.getElementById("toolbox-option-container");
       optionTabContainer.appendChild(radio);
       deck.appendChild(vbox);
     } else {
+      radio.setAttribute("role", "tab");
+
       // If there is no tab yet, or the ordinal to be added is the largest one.
       if (tabs.childNodes.length == 0 ||
           tabs.lastChild.getAttribute("ordinal") <= toolDefinition.ordinal) {
@@ -849,10 +887,12 @@ Toolbox.prototype = {
     let selected = this.doc.querySelector(".devtools-tab[selected]");
     if (selected) {
       selected.removeAttribute("selected");
+      selected.setAttribute("aria-selected", "false");
     }
 
     let tab = this.doc.getElementById("toolbox-tab-" + id);
     tab.setAttribute("selected", "true");
+    tab.setAttribute("aria-selected", "true");
 
     // If options is selected, the separator between it and the
     // command buttons should be hidden.
@@ -1257,6 +1297,8 @@ Toolbox.prototype = {
     gDevTools.off("tool-registered", this._toolRegistered);
     gDevTools.off("tool-unregistered", this._toolUnregistered);
 
+    gDevTools.off("pref-changed", this._prefChanged);
+
     let outstanding = [];
     for (let [id, panel] of this._toolPanels) {
       try {
@@ -1265,6 +1307,12 @@ Toolbox.prototype = {
         // We don't want to stop here if any panel fail to close.
         console.error("Panel " + id + ":", e);
       }
+    }
+
+    // Now that we are closing the toolbox we can re-enable JavaScript for the
+    // current tab.
+    if (this.target.activeTab) {
+      this.target.activeTab.reconfigure({"cacheDisabled": false});
     }
 
     // Destroying the walker and inspector fronts

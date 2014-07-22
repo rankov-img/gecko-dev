@@ -1701,6 +1701,9 @@ GetInterface(JSContext* aCx, T* aThis, nsIJSID* aIID,
 }
 
 bool
+UnforgeableValueOf(JSContext* cx, unsigned argc, JS::Value* vp);
+
+bool
 ThrowingConstructor(JSContext* cx, unsigned argc, JS::Value* vp);
 
 bool
@@ -1778,30 +1781,23 @@ struct FakeString {
     return mLength;
   }
 
-  // Reserve space to write aCapacity chars, including null-terminator.
-  // Caller is responsible for calling SetLength and writing the null-
-  // terminator.
-  bool SetCapacity(nsString::size_type aCapacity, mozilla::fallible_t const&) {
-    MOZ_ASSERT(aCapacity > 0, "Capacity must include null-terminator");
-
+  // Reserve space to write aLength chars, not including null-terminator.
+  bool SetLength(nsString::size_type aLength, mozilla::fallible_t const&) {
     // Use mInlineStorage for small strings.
-    if (aCapacity <= sInlineCapacity) {
+    if (aLength < sInlineCapacity) {
       SetData(mInlineStorage);
-      return true;
+    } else {
+      nsStringBuffer *buf = nsStringBuffer::Alloc((aLength + 1) * sizeof(nsString::char_type)).take();
+      if (MOZ_UNLIKELY(!buf)) {
+        return false;
+      }
+
+      SetData(static_cast<nsString::char_type*>(buf->Data()));
+      mFlags = nsString::F_SHARED | nsString::F_TERMINATED;
     }
-
-    nsRefPtr<nsStringBuffer> buf = nsStringBuffer::Alloc(aCapacity * sizeof(nsString::char_type));
-    if (MOZ_UNLIKELY(!buf)) {
-      return false;
-    }
-
-    SetData(static_cast<nsString::char_type*>(buf.forget().take()->Data()));
-    mFlags = nsString::F_SHARED | nsString::F_TERMINATED;
-    return true;
-  }
-
-  void SetLength(nsString::size_type aLength) {
     mLength = aLength;
+    mData[mLength] = char16_t(0);
+    return true;
   }
 
   // If this ever changes, change the corresponding code in the
@@ -2385,14 +2381,11 @@ MustInheritFromNonRefcountedDOMObject(NonRefcountedDOMObject*)
  * wrapper is the Xray JS object.
  * obj is the target object of the Xray, a binding's instance object or a
  *     interface or interface prototype object.
- * pre is a string that should be prefixed to the value.
- * post is a string that should be prefixed to the value.
  * v contains the JSString for the value if the function returns true.
  */
 bool
 NativeToString(JSContext* cx, JS::Handle<JSObject*> wrapper,
-               JS::Handle<JSObject*> obj, const char* pre,
-               const char* post,
+               JS::Handle<JSObject*> obj,
                JS::MutableHandle<JS::Value> v);
 
 HAS_MEMBER(JSBindingFinalized)

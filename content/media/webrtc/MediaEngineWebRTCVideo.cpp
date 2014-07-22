@@ -79,8 +79,8 @@ MediaEngineWebRTCVideoSource::DeliverFrame(
     return 0;
   }
 
-  MOZ_ASSERT(mWidth*mHeight*3/2 == size);
-  if (mWidth*mHeight*3/2 != size) {
+  if (mWidth*mHeight + 2*(((mWidth+1)/2)*((mHeight+1)/2)) != size) {
+    MOZ_ASSERT(false, "Wrong size frame in DeliverFrame!");
     return 0;
   }
 
@@ -93,14 +93,15 @@ MediaEngineWebRTCVideoSource::DeliverFrame(
   const uint8_t lumaBpp = 8;
   const uint8_t chromaBpp = 4;
 
+  // Take lots of care to round up!
   layers::PlanarYCbCrData data;
   data.mYChannel = frame;
   data.mYSize = IntSize(mWidth, mHeight);
-  data.mYStride = mWidth * lumaBpp/ 8;
-  data.mCbCrStride = mWidth * chromaBpp / 8;
+  data.mYStride = (mWidth * lumaBpp + 7)/ 8;
+  data.mCbCrStride = (mWidth * chromaBpp + 7) / 8;
   data.mCbChannel = frame + mHeight * data.mYStride;
-  data.mCrChannel = data.mCbChannel + mHeight * data.mCbCrStride / 2;
-  data.mCbCrSize = IntSize(mWidth/ 2, mHeight/ 2);
+  data.mCrChannel = data.mCbChannel + ((mHeight+1)/2) * data.mCbCrStride;
+  data.mCbCrSize = IntSize((mWidth+1)/ 2, (mHeight+1)/ 2);
   data.mPicX = 0;
   data.mPicY = 0;
   data.mPicSize = IntSize(mWidth, mHeight);
@@ -584,6 +585,13 @@ MediaEngineWebRTCVideoSource::Stop(SourceMediaStream *aSource, TrackID aID)
   return NS_OK;
 }
 
+void
+MediaEngineWebRTCVideoSource::SetDirectListeners(bool aHasDirectListeners)
+{
+  LOG((__FUNCTION__));
+  mHasDirectListeners = aHasDirectListeners;
+}
+
 nsresult
 MediaEngineWebRTCVideoSource::Snapshot(uint32_t aDuration, nsIDOMFile** aFile)
 {
@@ -734,16 +742,19 @@ GetRotateAmount(ScreenOrientation aScreen, int aCameraMountAngle, bool aBackCame
 }
 
 // undefine to remove on-the-fly rotation support
-// #define DYNAMIC_GUM_ROTATION
+#define DYNAMIC_GUM_ROTATION
 
 void
 MediaEngineWebRTCVideoSource::Notify(const hal::ScreenConfiguration& aConfiguration) {
 #ifdef DYNAMIC_GUM_ROTATION
-  MonitorAutoLock enter(mMonitor);
-  mRotation = GetRotateAmount(aConfiguration.orientation(), mCameraAngle, mBackCamera);
+  if (mHasDirectListeners) {
+    // aka hooked to PeerConnection
+    MonitorAutoLock enter(mMonitor);
+    mRotation = GetRotateAmount(aConfiguration.orientation(), mCameraAngle, mBackCamera);
 
-  LOG(("*** New orientation: %d (Camera %d Back %d MountAngle: %d)",
-       mRotation, mCaptureIndex, mBackCamera, mCameraAngle));
+    LOG(("*** New orientation: %d (Camera %d Back %d MountAngle: %d)",
+         mRotation, mCaptureIndex, mBackCamera, mCameraAngle));
+  }
 #endif
 }
 

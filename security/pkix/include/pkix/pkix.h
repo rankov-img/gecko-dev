@@ -25,6 +25,7 @@
 #ifndef mozilla_pkix__pkix_h
 #define mozilla_pkix__pkix_h
 
+#include "pkix/nullptr.h"
 #include "pkixtypes.h"
 #include "prtime.h"
 
@@ -89,23 +90,21 @@ namespace mozilla { namespace pkix {
 //                            distrust.
 // TODO(bug 968451): Document more of these.
 
-SECStatus BuildCertChain(TrustDomain& trustDomain,
-                         const CERTCertificate* cert,
-                         PRTime time,
-                         EndEntityOrCA endEntityOrCA,
+SECStatus BuildCertChain(TrustDomain& trustDomain, const SECItem& cert,
+                         PRTime time, EndEntityOrCA endEntityOrCA,
                          KeyUsage requiredKeyUsageIfPresent,
                          KeyPurposeId requiredEKUIfPresent,
                          const CertPolicyId& requiredPolicy,
-            /*optional*/ const SECItem* stapledOCSPResponse,
-                 /*out*/ ScopedCERTCertList& results);
+            /*optional*/ const SECItem* stapledOCSPResponse);
 
 // Verify the given signed data using the given public key.
-SECStatus VerifySignedData(const CERTSignedData* sd,
+SECStatus VerifySignedData(const SignedDataWithSignature& sd,
                            const SECItem& subjectPublicKeyInfo,
                            void* pkcs11PinArg);
 
 // The return value, if non-null, is owned by the arena and MUST NOT be freed.
-SECItem* CreateEncodedOCSPRequest(PLArenaPool* arena, const CertID& certID);
+SECItem* CreateEncodedOCSPRequest(TrustDomain& trustDomain, PLArenaPool* arena,
+                                  const CertID& certID);
 
 // The out parameter expired will be true if the response has expired. If the
 // response also indicates a revoked or unknown certificate, that error
@@ -125,6 +124,23 @@ SECStatus VerifyEncodedOCSPResponse(TrustDomain& trustDomain,
                           /* out */ bool& expired,
                  /* optional out */ PRTime* thisUpdate = nullptr,
                  /* optional out */ PRTime* validThrough = nullptr);
+
+// Computes the SHA-1 hash of the data in the current item.
+//
+// item contains the data to hash.
+// digestBuf must point to a buffer to where the SHA-1 hash will be written.
+// digestBufLen must be 20 (the length of a SHA-1 hash,
+//              TrustDomain::DIGEST_LENGTH).
+//
+// TODO(bug 966856): Add SHA-2 support
+// TODO: Taking the output buffer as (uint8_t*, size_t) is counter to our
+// other, extensive, memory safety efforts in mozilla::pkix, and we should find
+// a way to provide a more-obviously-safe interface.
+SECStatus DigestBuf(const SECItem& item, /*out*/ uint8_t* digestBuf,
+                    size_t digestBufLen);
+
+// Checks, for RSA keys and DSA keys, that the modulus is at least 1024 bits.
+SECStatus CheckPublicKey(const SECItem& subjectPublicKeyInfo);
 
 } } // namespace mozilla::pkix
 

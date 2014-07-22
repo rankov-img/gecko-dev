@@ -69,7 +69,7 @@ CodeGeneratorShared::CodeGeneratorShared(MIRGenerator *gen, LIRGraph *graph, Mac
         // relies on the a priori stack adjustment (in the prologue) on platforms
         // (like x64) which require the stack to be aligned.
         if (StackKeptAligned || gen->needsInitialStackAlignment()) {
-            unsigned alignmentAtCall = AsmJSFrameSize + frameDepth_;
+            unsigned alignmentAtCall = sizeof(AsmJSFrame) + frameDepth_;
             if (unsigned rem = alignmentAtCall % StackAlignment)
                 frameDepth_ += StackAlignment - rem;
         }
@@ -411,13 +411,13 @@ CodeGeneratorShared::ensureOsiSpace()
     //
     // At points where we want to ensure that invalidation won't corrupt an
     // important instruction, we make sure to pad with nops.
-    if (masm.currentOffset() - lastOsiPointOffset_ < Assembler::patchWrite_NearCallSize()) {
-        int32_t paddingSize = Assembler::patchWrite_NearCallSize();
+    if (masm.currentOffset() - lastOsiPointOffset_ < Assembler::PatchWrite_NearCallSize()) {
+        int32_t paddingSize = Assembler::PatchWrite_NearCallSize();
         paddingSize -= masm.currentOffset() - lastOsiPointOffset_;
         for (int32_t i = 0; i < paddingSize; ++i)
             masm.nop();
     }
-    JS_ASSERT(masm.currentOffset() - lastOsiPointOffset_ >= Assembler::patchWrite_NearCallSize());
+    JS_ASSERT(masm.currentOffset() - lastOsiPointOffset_ >= Assembler::PatchWrite_NearCallSize());
     lastOsiPointOffset_ = masm.currentOffset();
 }
 
@@ -769,12 +769,18 @@ CodeGeneratorShared::visitOutOfLineTruncateSlow(OutOfLineTruncateSlow *ool)
     Register dest = ool->dest();
 
     saveVolatile(dest);
+#ifdef JS_CODEGEN_ARM
+    if (ool->needFloat32Conversion()) {
+        masm.convertFloat32ToDouble(src, ScratchDoubleReg);
+        src = ScratchDoubleReg;
+    }
 
+#else
     if (ool->needFloat32Conversion()) {
         masm.push(src);
         masm.convertFloat32ToDouble(src, src);
     }
-
+#endif
     masm.setupUnalignedABICall(1, dest);
     masm.passABIArg(src, MoveOp::DOUBLE);
     if (gen->compilingAsmJS())
@@ -783,9 +789,10 @@ CodeGeneratorShared::visitOutOfLineTruncateSlow(OutOfLineTruncateSlow *ool)
         masm.callWithABI(JS_FUNC_TO_DATA_PTR(void *, js::ToInt32));
     masm.storeCallResult(dest);
 
+#ifndef JS_CODEGEN_ARM
     if (ool->needFloat32Conversion())
         masm.pop(src);
-
+#endif
     restoreVolatile(dest);
 
     masm.jump(ool->rejoin());

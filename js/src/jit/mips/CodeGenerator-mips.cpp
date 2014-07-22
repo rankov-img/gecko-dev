@@ -48,36 +48,13 @@ CodeGeneratorMIPS::generatePrologue()
 }
 
 bool
-CodeGeneratorMIPS::generateAsmJSPrologue(Label *stackOverflowLabel)
-{
-    JS_ASSERT(gen->compilingAsmJS());
-
-    // See comment in Assembler-shared.h about AsmJSFrameSize.
-    masm.push(ra);
-
-    // The asm.js over-recursed handler wants to be able to assume that SP
-    // points to the return address, so perform the check after pushing ra but
-    // before pushing frameDepth.
-    if (!omitOverRecursedCheck()) {
-        masm.branchPtr(Assembler::AboveOrEqual,
-                       AsmJSAbsoluteAddress(AsmJSImm_StackLimit),
-                       StackPointer,
-                       stackOverflowLabel);
-    }
-
-    // Note that this automatically sets MacroAssembler::framePushed().
-    masm.reserveStack(frameDepth_);
-    masm.checkStackAlignment();
-    return true;
-}
-
-bool
 CodeGeneratorMIPS::generateEpilogue()
 {
+    MOZ_ASSERT(!gen->compilingAsmJS());
     masm.bind(&returnLabel_);
 
 #ifdef JS_TRACE_LOGGING
-    if (!gen->compilingAsmJS() && gen->info().executionMode() == SequentialExecution) {
+    if (gen->info().executionMode() == SequentialExecution) {
         if (!emitTracelogStopEvent(TraceLogger::IonMonkey))
             return false;
         if (!emitTracelogScriptStop())
@@ -85,10 +62,7 @@ CodeGeneratorMIPS::generateEpilogue()
     }
 #endif
 
-    if (gen->compilingAsmJS())
-        masm.freeStack(frameDepth_);
-    else
-        masm.freeStack(frameSize());
+    masm.freeStack(frameSize());
     JS_ASSERT(masm.framePushed() == 0);
     masm.ret();
     return true;
@@ -1862,7 +1836,7 @@ CodeGeneratorMIPS::generateInvalidateEpilogue()
     // Ensure that there is enough space in the buffer for the OsiPoint
     // patching to occur. Otherwise, we could overwrite the invalidation
     // epilogue.
-    for (size_t i = 0; i < sizeof(void *); i += Assembler::nopSize())
+    for (size_t i = 0; i < sizeof(void *); i += Assembler::NopSize())
         masm.nop();
 
     masm.bind(&invalidate_);

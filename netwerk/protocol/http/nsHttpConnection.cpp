@@ -68,6 +68,7 @@ nsHttpConnection::nsHttpConnection()
     , mProxyConnectInProgress(false)
     , mExperienced(false)
     , mInSpdyTunnel(false)
+    , mForcePlainText(false)
     , mHttp1xTransactionCount(0)
     , mRemainingConnectionUses(0xffffffff)
     , mClassification(nsAHttpTransaction::CLASS_GENERAL)
@@ -460,7 +461,7 @@ nsHttpConnection::SetupSSL()
     // of this function
     mNPNComplete = true;
 
-    if (!mConnInfo->FirstHopSSL()) {
+    if (!mConnInfo->FirstHopSSL() || mForcePlainText) {
         return;
     }
 
@@ -1709,6 +1710,23 @@ nsHttpConnection::OnSocketReadable()
     } while (again);
 
     return rv;
+}
+
+bool
+nsHttpConnection::PeerHasPrivateIP()
+{
+    MOZ_ASSERT(PR_GetCurrentThread() == gSocketThread);
+    if (!mSocketTransport) {
+        return false;
+    }
+
+    NetAddr peerAddr;
+    nsresult rv = mSocketTransport->GetPeerAddr(&peerAddr);
+    if (NS_FAILED(rv)) {
+        return false;
+    }
+
+    return IsIPAddrPrivate(&peerAddr);
 }
 
 void

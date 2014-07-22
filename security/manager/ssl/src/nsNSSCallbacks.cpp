@@ -604,7 +604,7 @@ nsHTTPListener::~nsHTTPListener()
     send_done_signal();
 
   if (mResultData) {
-    NS_Free(const_cast<uint8_t *>(mResultData));
+    moz_free(const_cast<uint8_t *>(mResultData));
   }
 
   if (mLoader) {
@@ -1205,7 +1205,7 @@ void HandshakeCallback(PRFileDesc* fd, void* client_data) {
     nsContentUtils::LogSimpleConsoleError(msg, "SSL");
   }
 
-  mozilla::pkix::ScopedCERTCertificate serverCert(SSL_PeerCertificate(fd));
+  ScopedCERTCertificate serverCert(SSL_PeerCertificate(fd));
 
   /* Set the SSL Status information */
   RefPtr<nsSSLStatus> status(infoObject->SSLStatus());

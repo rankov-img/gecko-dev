@@ -12,6 +12,7 @@
 
 #include "gc/Marking.h"
 #ifdef JS_ION
+#include "jit/AsmJSFrameIterator.h"
 #include "jit/AsmJSModule.h"
 #include "jit/BaselineFrame.h"
 #include "jit/JitCompartment.h"
@@ -90,7 +91,6 @@ InterpreterFrame::initExecuteFrame(JSContext *cx, JSScript *script, AbstractFram
 
 #ifdef DEBUG
     Debug_SetValueRangeToCrashOnTouch(&rval_, 1);
-    hookData_ = (void *)0xbad;
 #endif
 }
 
@@ -771,7 +771,7 @@ FrameIter::operator++()
 {
     switch (data_.state_) {
       case DONE:
-        MOZ_ASSUME_UNREACHABLE("Unexpected state");
+        MOZ_CRASH("Unexpected state");
       case INTERP:
         if (interpFrame()->isDebuggerFrame() && interpFrame()->evalInFramePrev()) {
             AbstractFramePtr eifPrev = interpFrame()->evalInFramePrev();
@@ -791,7 +791,7 @@ FrameIter::operator++()
 #ifdef JS_ION
                     popJitFrame();
 #else
-                    MOZ_ASSUME_UNREACHABLE("Invalid state");
+                    MOZ_CRASH("Invalid state");
 #endif
                 } else {
                     popInterpreterFrame();
@@ -814,7 +814,7 @@ FrameIter::operator++()
         break;
 #else
     default:
-        MOZ_ASSUME_UNREACHABLE("Unexpected state");
+        MOZ_CRASH("Unexpected state");
 #endif
     }
     return *this;
@@ -852,7 +852,7 @@ FrameIter::compartment() const
       case ASMJS:
         return data_.activations_->compartment();
     }
-    MOZ_ASSUME_UNREACHABLE("Unexpected state");
+    MOZ_CRASH("Unexpected state");
 }
 
 bool
@@ -875,7 +875,7 @@ FrameIter::isFunctionFrame() const
       case ASMJS:
         return true;
     }
-    MOZ_ASSUME_UNREACHABLE("Unexpected state");
+    MOZ_CRASH("Unexpected state");
 }
 
 bool
@@ -898,7 +898,7 @@ FrameIter::isGlobalFrame() const
       case ASMJS:
         return false;
     }
-    MOZ_ASSUME_UNREACHABLE("Unexpected state");
+    MOZ_CRASH("Unexpected state");
 }
 
 bool
@@ -921,7 +921,7 @@ FrameIter::isEvalFrame() const
       case ASMJS:
         return false;
     }
-    MOZ_ASSUME_UNREACHABLE("Unexpected state");
+    MOZ_CRASH("Unexpected state");
 }
 
 bool
@@ -938,7 +938,7 @@ FrameIter::isNonEvalFunctionFrame() const
       case ASMJS:
         return true;
     }
-    MOZ_ASSUME_UNREACHABLE("Unexpected state");
+    MOZ_CRASH("Unexpected state");
 }
 
 bool
@@ -954,7 +954,7 @@ FrameIter::isGeneratorFrame() const
       case ASMJS:
         return false;
     }
-    MOZ_ASSUME_UNREACHABLE("Unexpected state");
+    MOZ_CRASH("Unexpected state");
 }
 
 JSAtom *
@@ -977,7 +977,7 @@ FrameIter::functionDisplayAtom() const
       }
     }
 
-    MOZ_ASSUME_UNREACHABLE("Unexpected state");
+    MOZ_CRASH("Unexpected state");
 }
 
 ScriptSource *
@@ -997,7 +997,7 @@ FrameIter::scriptSource() const
 #endif
     }
 
-    MOZ_ASSUME_UNREACHABLE("Unexpected state");
+    MOZ_CRASH("Unexpected state");
 }
 
 const char *
@@ -1017,7 +1017,7 @@ FrameIter::scriptFilename() const
 #endif
     }
 
-    MOZ_ASSUME_UNREACHABLE("Unexpected state");
+    MOZ_CRASH("Unexpected state");
 }
 
 unsigned
@@ -1037,7 +1037,7 @@ FrameIter::computeLine(uint32_t *column) const
 #endif
     }
 
-    MOZ_ASSUME_UNREACHABLE("Unexpected state");
+    MOZ_CRASH("Unexpected state");
 }
 
 JSPrincipals *
@@ -1058,7 +1058,7 @@ FrameIter::originPrincipals() const
       }
     }
 
-    MOZ_ASSUME_UNREACHABLE("Unexpected state");
+    MOZ_CRASH("Unexpected state");
 }
 
 bool
@@ -1080,7 +1080,8 @@ FrameIter::isConstructing() const
       case INTERP:
         return interpFrame()->isConstructing();
     }
-    MOZ_ASSUME_UNREACHABLE("Unexpected state");
+
+    MOZ_CRASH("Unexpected state");
 }
 
 bool
@@ -1114,7 +1115,7 @@ FrameIter::hasUsableAbstractFramePtr() const
       case INTERP:
         return true;
     }
-    MOZ_ASSUME_UNREACHABLE("Unexpected state");
+    MOZ_CRASH("Unexpected state");
 }
 
 AbstractFramePtr
@@ -1140,7 +1141,7 @@ FrameIter::abstractFramePtr() const
         JS_ASSERT(interpFrame());
         return AbstractFramePtr(interpFrame());
     }
-    MOZ_ASSUME_UNREACHABLE("Unexpected state");
+    MOZ_CRASH("Unexpected state");
 }
 
 void
@@ -1189,7 +1190,7 @@ FrameIter::updatePcQuadratic()
 #endif
         break;
     }
-    MOZ_ASSUME_UNREACHABLE("Unexpected state");
+    MOZ_CRASH("Unexpected state");
 }
 
 JSFunction *
@@ -1212,7 +1213,7 @@ FrameIter::callee() const
         break;
 #endif
     }
-    MOZ_ASSUME_UNREACHABLE("Unexpected state");
+    MOZ_CRASH("Unexpected state");
 }
 
 Value
@@ -1232,7 +1233,7 @@ FrameIter::calleev() const
         break;
 #endif
     }
-    MOZ_ASSUME_UNREACHABLE("Unexpected state");
+    MOZ_CRASH("Unexpected state");
 }
 
 unsigned
@@ -1256,7 +1257,7 @@ FrameIter::numActualArgs() const
         break;
 #endif
     }
-    MOZ_ASSUME_UNREACHABLE("Unexpected state");
+    MOZ_CRASH("Unexpected state");
 }
 
 unsigned
@@ -1289,7 +1290,7 @@ FrameIter::scopeChain() const
       case INTERP:
         return interpFrame()->scopeChain();
     }
-    MOZ_ASSUME_UNREACHABLE("Unexpected state");
+    MOZ_CRASH("Unexpected state");
 }
 
 CallObject &
@@ -1348,7 +1349,7 @@ FrameIter::thisv() const
       case INTERP:
         return interpFrame()->thisValue();
     }
-    MOZ_ASSUME_UNREACHABLE("Unexpected state");
+    MOZ_CRASH("Unexpected state");
 }
 
 Value
@@ -1367,7 +1368,7 @@ FrameIter::returnValue() const
       case INTERP:
         return interpFrame()->returnValue();
     }
-    MOZ_ASSUME_UNREACHABLE("Unexpected state");
+    MOZ_CRASH("Unexpected state");
 }
 
 void
@@ -1389,7 +1390,7 @@ FrameIter::setReturnValue(const Value &v)
         interpFrame()->setReturnValue(v);
         return;
     }
-    MOZ_ASSUME_UNREACHABLE("Unexpected state");
+    MOZ_CRASH("Unexpected state");
 }
 
 size_t
@@ -1415,7 +1416,7 @@ FrameIter::numFrameSlots() const
         JS_ASSERT(data_.interpFrames_.sp() >= interpFrame()->base());
         return data_.interpFrames_.sp() - interpFrame()->base();
     }
-    MOZ_ASSUME_UNREACHABLE("Unexpected state");
+    MOZ_CRASH("Unexpected state");
 }
 
 Value
@@ -1441,7 +1442,7 @@ FrameIter::frameSlotValue(size_t index) const
       case INTERP:
           return interpFrame()->base()[index];
     }
-    MOZ_ASSUME_UNREACHABLE("Unexpected state");
+    MOZ_CRASH("Unexpected state");
 }
 
 #if defined(_MSC_VER)
@@ -1502,7 +1503,7 @@ AbstractFramePtr::hasPushedSPSFrame() const
 #ifdef JS_ION
     return asBaselineFrame()->hasPushedSPSFrame();
 #else
-    MOZ_ASSUME_UNREACHABLE("Invalid frame");
+    MOZ_CRASH("Invalid frame");
 #endif
 }
 
@@ -1688,7 +1689,8 @@ AsmJSActivation::AsmJSActivation(JSContext *cx, AsmJSModule &module)
     errorRejoinSP_(nullptr),
     profiler_(nullptr),
     resumePC_(nullptr),
-    exitFP_(nullptr)
+    fp_(nullptr),
+    exitReason_(AsmJSExit::None)
 {
     if (cx->runtime()->spsProfiler.enabled()) {
         // Use a profiler string that matches jsMatch regex in
@@ -1698,6 +1700,9 @@ AsmJSActivation::AsmJSActivation(JSContext *cx, AsmJSModule &module)
         profiler_ = &cx->runtime()->spsProfiler;
         profiler_->enterNative("asm.js code :0", this);
     }
+
+    prevAsmJSForModule_ = module.activation();
+    module.activation() = this;
 
     prevAsmJS_ = cx->mainThread().asmJSActivationStack_;
 
@@ -1711,6 +1716,11 @@ AsmJSActivation::~AsmJSActivation()
 {
     if (profiler_)
         profiler_->exitNative();
+
+    JS_ASSERT(fp_ == nullptr);
+
+    JS_ASSERT(module_.activation() == this);
+    module_.activation() = prevAsmJSForModule_;
 
     JSContext *cx = cx_->asJSContext();
     JS_ASSERT(cx->mainThread().asmJSActivationStack_ == this);
@@ -1768,3 +1778,68 @@ ActivationIterator::settle()
     while (!done() && activation_->isJit() && !activation_->asJit()->isActive())
         activation_ = activation_->prev();
 }
+
+JS::ProfilingFrameIterator::ProfilingFrameIterator(JSRuntime *rt, const RegisterState &state)
+  : activation_(rt->mainThread.asmJSActivationStack())
+{
+    if (!activation_)
+        return;
+
+    static_assert(sizeof(AsmJSProfilingFrameIterator) <= StorageSpace, "Need to increase storage");
+    new (storage_.addr()) AsmJSProfilingFrameIterator(*activation_, state);
+    settle();
+}
+
+JS::ProfilingFrameIterator::~ProfilingFrameIterator()
+{
+    if (!done())
+        iter().~AsmJSProfilingFrameIterator();
+}
+
+void
+JS::ProfilingFrameIterator::operator++()
+{
+    JS_ASSERT(!done());
+    ++iter();
+    settle();
+}
+
+void
+JS::ProfilingFrameIterator::settle()
+{
+    while (iter().done()) {
+        iter().~AsmJSProfilingFrameIterator();
+        activation_ = activation_->prevAsmJS();
+        if (!activation_)
+            return;
+        new (storage_.addr()) AsmJSProfilingFrameIterator(*activation_);
+    }
+}
+
+JS::ProfilingFrameIterator::Kind
+JS::ProfilingFrameIterator::kind() const
+{
+    return iter().kind();
+}
+
+JSAtom *
+JS::ProfilingFrameIterator::functionDisplayAtom() const
+{
+    JS_ASSERT(kind() == Function);
+    return iter().functionDisplayAtom();
+}
+
+const char *
+JS::ProfilingFrameIterator::functionFilename() const
+{
+    JS_ASSERT(kind() == Function);
+    return iter().functionFilename();
+}
+
+const char *
+JS::ProfilingFrameIterator::nonFunctionDescription() const
+{
+    JS_ASSERT(kind() != Function);
+    return iter().nonFunctionDescription();
+}
+

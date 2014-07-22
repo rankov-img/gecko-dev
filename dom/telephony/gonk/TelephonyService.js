@@ -109,6 +109,8 @@ function TelephonyService() {
   this._listeners = [];
   this._currentCalls = {};
 
+  this._cdmaCallWaitingNumber = null;
+
   // _isActiveCall[clientId][callIndex] shows the active status of the call.
   this._isActiveCall = {};
   this._numActiveCall = 0;
@@ -693,10 +695,6 @@ TelephonyService.prototype = {
       return;
     }
     gAudioManager.microphoneMuted = aMuted;
-
-    if (!this._numActiveCall) {
-      gAudioManager.phoneState = nsIAudioManager.PHONE_STATE_NORMAL;
-    }
   },
 
   get speakerEnabled() {
@@ -711,10 +709,6 @@ TelephonyService.prototype = {
     let force = aEnabled ? nsIAudioManager.FORCE_SPEAKER :
                            nsIAudioManager.FORCE_NONE;
     gAudioManager.setForceForUse(nsIAudioManager.USE_COMMUNICATION, force);
-
-    if (!this._numActiveCall) {
-      gAudioManager.phoneState = nsIAudioManager.PHONE_STATE_NORMAL;
-    }
   },
 
   /**
@@ -738,6 +732,12 @@ TelephonyService.prototype = {
       duration: duration,
       direction: aCall.isOutgoing ? "outgoing" : "incoming"
     };
+
+    if(this._cdmaCallWaitingNumber != null) {
+      data.secondNumber = this._cdmaCallWaitingNumber;
+      this._cdmaCallWaitingNumber = null;
+    }
+
     gSystemMessenger.broadcastMessage("telephony-call-ended", data);
 
     let manualConfStateChange = false;
@@ -875,6 +875,9 @@ TelephonyService.prototype = {
       // call comes after a 3way call.
       this.notifyCallDisconnected(aClientId, call);
     }
+
+    this._cdmaCallWaitingNumber = aCall.number;
+
     this._notifyAllListeners("notifyCdmaCallWaiting", [aClientId,
                                                        aCall.number,
                                                        aCall.numberPresentation,

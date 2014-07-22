@@ -167,7 +167,8 @@ public:
                                           ErrorResult& aRv);
 
   // Feature Detection API
-  already_AddRefed<Promise> GetFeature(const nsAString &aName);
+  already_AddRefed<Promise> GetFeature(const nsAString &aName,
+                                       ErrorResult& aRv);
 
   bool Vibrate(uint32_t aDuration);
   bool Vibrate(const nsTArray<uint32_t>& aDuration);
@@ -268,8 +269,6 @@ public:
 
   // WebIDL helper methods
   static bool HasWakeLockSupport(JSContext* /* unused*/, JSObject* /*unused */);
-  static bool HasMobileMessageSupport(JSContext* /* unused */,
-                                      JSObject* aGlobal);
   static bool HasCameraSupport(JSContext* /* unused */,
                                JSObject* aGlobal);
   static bool HasWifiManagerSupport(JSContext* /* unused */,
@@ -277,9 +276,6 @@ public:
 #ifdef MOZ_NFC
   static bool HasNFCSupport(JSContext* /* unused */, JSObject* aGlobal);
 #endif // MOZ_NFC
-#ifdef MOZ_TIME_MANAGER
-  static bool HasTimeSupport(JSContext* /* unused */, JSObject* aGlobal);
-#endif // MOZ_TIME_MANAGER
 #ifdef MOZ_MEDIA_NAVIGATOR
   static bool HasUserMediaSupport(JSContext* /* unused */,
                                   JSObject* /* unused */);
@@ -290,10 +286,6 @@ public:
   static bool HasDataStoreSupport(nsIPrincipal* aPrincipal);
 
   static bool HasDataStoreSupport(JSContext* cx, JSObject* aGlobal);
-
-  static bool HasNetworkStatsSupport(JSContext* aCx, JSObject* aGlobal);
-
-  static bool HasFeatureDetectionSupport(JSContext* aCx, JSObject* aGlobal);
 
 #ifdef MOZ_B2G
   static bool HasMobileIdSupport(JSContext* aCx, JSObject* aGlobal);

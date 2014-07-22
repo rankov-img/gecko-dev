@@ -14,6 +14,7 @@
 #include "mozilla/PodOperations.h"
 #include "mozilla/Scoped.h"
 #include "mozilla/ThreadLocal.h"
+#include "mozilla/UniquePtr.h"
 
 #include <setjmp.h>
 
@@ -349,6 +350,30 @@ class NewObjectCache
     }
 };
 
+class RegExpObject;
+
+// One slot cache for speeding up RegExp.test() executions, by stripping
+// unnecessary leading or trailing .* from the RegExp.
+struct RegExpTestCache
+{
+    RegExpObject *key;
+    RegExpObject *value;
+
+    RegExpTestCache()
+      : key(nullptr), value(nullptr)
+    {}
+
+    void purge() {
+        key = nullptr;
+        value = nullptr;
+    }
+
+    void fill(RegExpObject *key, RegExpObject *value) {
+        this->key = key;
+        this->value = value;
+    }
+};
+
 /*
  * A FreeOp can do one thing: free memory. For convenience, it has delete_
  * convenience methods that also call destructors.
@@ -545,7 +570,7 @@ class PerThreadData : public PerThreadDataFriendFields
     js::Activation *activation_;
 
     /* See AsmJSActivation comment. Protected by rt->interruptLock. */
-    js::AsmJSActivation *asmJSActivationStack_;
+    js::AsmJSActivation * volatile asmJSActivationStack_;
 
     /* Pointer to the current AutoFlushICache. */
     js::jit::AutoFlushICache *autoFlushICache_;
@@ -566,11 +591,12 @@ class PerThreadData : public PerThreadDataFriendFields
         return offsetof(PerThreadData, activation_);
     }
 
-    js::AsmJSActivation *asmJSActivationStackFromAnyThread() const {
+    js::AsmJSActivation *asmJSActivationStack() const {
         return asmJSActivationStack_;
     }
-    js::AsmJSActivation *asmJSActivationStackFromOwnerThread() const {
-        return asmJSActivationStack_;
+    static js::AsmJSActivation *innermostAsmJSActivation() {
+        PerThreadData *ptd = TlsPerThreadData.get();
+        return ptd ? ptd->asmJSActivationStack_ : nullptr;
     }
 
     js::Activation *activation() const {
@@ -1009,7 +1035,11 @@ struct JSRuntime : public JS::shadow::Runtime,
         return !contextList.isEmpty();
     }
 
-    mozilla::ScopedDeletePtr<js::SourceHook> sourceHook;
+    mozilla::UniquePtr<js::SourceHook> sourceHook;
+
+#ifdef NIGHTLY_BUILD
+    js::AssertOnScriptEntryHook assertOnScriptEntryHook_;
+#endif
 
     /* Per runtime debug hooks -- see js/OldDebugAPI.h. */
     JSDebugHooks        debugHooks;
@@ -1045,13 +1075,22 @@ struct JSRuntime : public JS::shadow::Runtime,
     js::AsmJSMachExceptionHandler asmJSMachExceptionHandler;
 #endif
 
+  private:
     // Whether asm.js signal handlers have been installed and can be used for
     // performing interrupt checks in loops.
-  private:
     bool signalHandlersInstalled_;
+    // Whether we should use them or they have been disabled for making
+    // debugging easier. If signal handlers aren't installed, it is set to false.
+    bool canUseSignalHandlers_;
   public:
     bool signalHandlersInstalled() const {
         return signalHandlersInstalled_;
+    }
+    bool canUseSignalHandlers() const {
+        return canUseSignalHandlers_;
+    }
+    void setCanUseSignalHandlers(bool enable) {
+        canUseSignalHandlers_ = signalHandlersInstalled_ && enable;
     }
 
   private:
@@ -1109,6 +1148,7 @@ struct JSRuntime : public JS::shadow::Runtime,
     js::UncompressedSourceCache uncompressedSourceCache;
     js::EvalCache       evalCache;
     js::LazyScriptCache lazyScriptCache;
+    js::RegExpTestCache regExpTestCache;
 
     js::CompressedSourceSet compressedSourceSet;
     js::DateTimeInfo    dateTimeInfo;
@@ -1282,7 +1322,7 @@ struct JSRuntime : public JS::shadow::Runtime,
     JSRuntime(JSRuntime *parentRuntime);
     ~JSRuntime();
 
-    bool init(uint32_t maxbytes);
+    bool init(uint32_t maxbytes, uint32_t maxNurseryBytes);
 
     JSRuntime *thisFromCtor() { return this; }
 

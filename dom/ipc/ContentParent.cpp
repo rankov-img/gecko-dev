@@ -113,6 +113,7 @@
 #include "PreallocatedProcessManager.h"
 #include "ProcessPriorityManager.h"
 #include "SandboxHal.h"
+#include "ScreenManagerParent.h"
 #include "StructuredCloneUtils.h"
 #include "TabParent.h"
 #include "URIUtils.h"
@@ -157,6 +158,8 @@ using namespace mozilla::system;
 
 #include "JavaScriptParent.h"
 
+#include "mozilla/RemoteSpellCheckEngineParent.h"
+
 #ifdef MOZ_B2G_FM
 #include "mozilla/dom/FMRadioParent.h"
 #endif
@@ -189,6 +192,7 @@ using namespace mozilla::ipc;
 using namespace mozilla::layers;
 using namespace mozilla::net;
 using namespace mozilla::jsipc;
+using namespace mozilla::widget;
 
 #ifdef ENABLE_TESTS
 
@@ -982,18 +986,15 @@ ContentParent::CreateBrowserOrApp(const TabContext& aContext,
         }
     }
 
+    bool reused = !!p;
+    bool tookPreallocated = false;
     if (!p) {
         p = MaybeTakePreallocatedAppProcess(manifestURL,
                                             initialPriority);
-        if (!p) {
-#ifdef MOZ_NUWA_PROCESS
-            if (Preferences::GetBool("dom.ipc.processPrelaunch.enabled",
-                                     false)) {
-                // Returning nullptr from here so the frame loader will retry
-                // later when we have a spare process.
-                return nullptr;
-            }
-#endif
+        tookPreallocated = !!p;
+        if (!tookPreallocated) {
+            // XXXkhuey Nuwa wants the frame loader to try again later, but the
+            // frame loader is really not set up to do that ...
             NS_WARNING("Unable to use pre-allocated app process");
             p = new ContentParent(ownApp,
                                   /* aOpener = */ nullptr,
@@ -1017,6 +1018,29 @@ ContentParent::CreateBrowserOrApp(const TabContext& aContext,
         p->ChildID(),
         p->IsForApp(),
         p->IsForBrowser());
+    if (!browser) {
+        // We failed to actually start the PBrowser.  This can happen if the
+        // other process has already died.
+        if (!reused) {
+            // Don't leave a broken ContentParent in the hashtable.
+            p->KillHard();
+            sAppContentParents->Remove(manifestURL);
+            p = nullptr;
+        }
+
+        // If we took the preallocated process and it was already dead, try
+        // again with a non-preallocated process.  We can be sure this won't
+        // loop forever, because the next time through there will be no
+        // preallocated process to take.
+        if (tookPreallocated) {
+          return ContentParent::CreateBrowserOrApp(aContext,
+                                                   aFrameElement,
+                                                   aOpenerContentParent);
+        }
+
+        // Otherwise just give up.
+        return nullptr;
+    }
 
     p->MaybeTakeCPUWakeLock(aFrameElement);
 
@@ -1737,7 +1761,6 @@ ContentParent::ContentParent(mozIApplication* aApp,
         ? base::PRIVILEGES_INHERIT
         : base::PRIVILEGES_DEFAULT;
     mSubprocess = new GeckoChildProcessHost(GeckoProcessType_Content, privs);
-    mSubprocess->SetSandboxEnabled(ShouldSandboxContentProcesses());
 
     IToplevelProtocol::SetTransport(mSubprocess->GetChannel());
 
@@ -1904,11 +1927,11 @@ ContentParent::InitInternal(ProcessPriority aInitialPriority,
             MOZ_ASSERT(opened);
 #endif
         }
-    }
 #ifdef MOZ_WIDGET_GONK
-    DebugOnly<bool> opened = PSharedBufferManager::Open(this);
-    MOZ_ASSERT(opened);
+        DebugOnly<bool> opened = PSharedBufferManager::Open(this);
+        MOZ_ASSERT(opened);
 #endif
+    }
 
     if (aSendRegisteredChrome) {
         nsCOMPtr<nsIChromeRegistry> registrySvc = nsChromeRegistry::GetService();
@@ -2673,6 +2696,20 @@ ContentParent::DeallocPBlobParent(PBlobParent* aActor)
     return true;
 }
 
+mozilla::PRemoteSpellcheckEngineParent *
+ContentParent::AllocPRemoteSpellcheckEngineParent()
+{
+    mozilla::RemoteSpellcheckEngineParent *parent = new mozilla::RemoteSpellcheckEngineParent();
+    return parent;
+}
+
+bool
+ContentParent::DeallocPRemoteSpellcheckEngineParent(PRemoteSpellcheckEngineParent *parent)
+{
+    delete parent;
+    return true;
+}
+
 void
 ContentParent::KillHard()
 {
@@ -2880,6 +2917,21 @@ bool
 ContentParent::DeallocPNeckoParent(PNeckoParent* necko)
 {
     delete necko;
+    return true;
+}
+
+PScreenManagerParent*
+ContentParent::AllocPScreenManagerParent(uint32_t* aNumberOfScreens,
+                                         float* aSystemDefaultScale,
+                                         bool* aSuccess)
+{
+    return new ScreenManagerParent(aNumberOfScreens, aSystemDefaultScale, aSuccess);
+}
+
+bool
+ContentParent::DeallocPScreenManagerParent(PScreenManagerParent* aActor)
+{
+    delete aActor;
     return true;
 }
 
@@ -3575,16 +3627,6 @@ ContentParent::ShouldContinueFromReplyTimeout()
     // timeouts should only ever occur in electrolysis-enabled sessions.
     MOZ_ASSERT(BrowserTabsRemote());
     return false;
-}
-
-bool
-ContentParent::ShouldSandboxContentProcesses()
-{
-#ifdef MOZ_CONTENT_SANDBOX
-    return !PR_GetEnv("MOZ_DISABLE_CONTENT_SANDBOX");
-#else
-    return true;
-#endif
 }
 
 bool

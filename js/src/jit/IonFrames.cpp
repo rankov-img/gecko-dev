@@ -155,7 +155,7 @@ JitFrameIterator::checkInvalidation(IonScript **ionScriptOut) const
 
     int32_t invalidationDataOffset = ((int32_t *) returnAddr)[-1];
     uint8_t *ionScriptDataOffset = returnAddr + invalidationDataOffset;
-    IonScript *ionScript = (IonScript *) Assembler::getPointer(ionScriptDataOffset);
+    IonScript *ionScript = (IonScript *) Assembler::GetPointer(ionScriptDataOffset);
     JS_ASSERT(ionScript->containsReturnAddress(returnAddr));
     *ionScriptOut = ionScript;
     return true;
@@ -353,9 +353,19 @@ JitFrameIterator::machineState() const
 
     uint8_t *spillAlign = alignDoubleSpillWithOffset(reinterpret_cast<uint8_t *>(spill), 0);
 
-    double *floatSpill = reinterpret_cast<double *>(spillAlign);
-    for (FloatRegisterBackwardIterator iter(reader.allFloatSpills()); iter.more(); iter++)
-        machine.setRegisterLocation(*iter, --floatSpill);
+    char *floatSpill = reinterpret_cast<char *>(spillAlign);
+    FloatRegisterSet fregs = reader.allFloatSpills();
+    fregs = fregs.reduceSetForPush();
+    for (FloatRegisterBackwardIterator iter(fregs); iter.more(); iter++) {
+        floatSpill -= (*iter).size();
+        for (uint32_t a = 0; a < (*iter).numAlignedAliased(); a++) {
+            // Only say that registers that actually start here start here.
+            // e.g. d0 should not start at s1, only at s0.
+            FloatRegister ftmp;
+            (*iter).alignedAliased(a, &ftmp);
+            machine.setRegisterLocation(ftmp, (double*)floatSpill);
+        }
+    }
 
     return machine;
 }
@@ -1426,7 +1436,7 @@ OsiIndex::returnPointDisplacement() const
     // In general, pointer arithmetic on code is bad, but in this case,
     // getting the return address from a call instruction, stepping over pools
     // would be wrong.
-    return callPointDisplacement_ + Assembler::patchWrite_NearCallSize();
+    return callPointDisplacement_ + Assembler::PatchWrite_NearCallSize();
 }
 
 SnapshotIterator::SnapshotIterator(IonScript *ionScript, SnapshotOffset snapshotOffset,
@@ -1962,15 +1972,22 @@ InlineFrameIterator::isFunctionFrame() const
 
 MachineState
 MachineState::FromBailout(mozilla::Array<uintptr_t, Registers::Total> &regs,
-                          mozilla::Array<double, FloatRegisters::Total> &fpregs)
+                          mozilla::Array<double, FloatRegisters::TotalPhys> &fpregs)
 {
     MachineState machine;
 
     for (unsigned i = 0; i < Registers::Total; i++)
         machine.setRegisterLocation(Register::FromCode(i), &regs[i]);
+#ifdef JS_CODEGEN_ARM
+    float *fbase = (float*)&fpregs[0];
+    for (unsigned i = 0; i < FloatRegisters::TotalDouble; i++)
+        machine.setRegisterLocation(FloatRegister(i, FloatRegister::Double), &fpregs[i]);
+    for (unsigned i = 0; i < FloatRegisters::TotalSingle; i++)
+        machine.setRegisterLocation(FloatRegister(i, FloatRegister::Single), (double*)&fbase[i]);
+#else
     for (unsigned i = 0; i < FloatRegisters::Total; i++)
         machine.setRegisterLocation(FloatRegister::FromCode(i), &fpregs[i]);
-
+#endif
     return machine;
 }
 

@@ -37,9 +37,15 @@
 namespace js {
 namespace jit {
 
+class Simulator;
 class SimulatorRuntime;
 SimulatorRuntime *CreateSimulatorRuntime();
 void DestroySimulatorRuntime(SimulatorRuntime *srt);
+
+// When the SingleStepCallback is called, the simulator is about to execute
+// sim->get_pc() and the current machine state represents the completed
+// execution of the previous pc.
+typedef void (*SingleStepCallback)(void *arg, Simulator *sim, void *pc);
 
 // VFP rounding modes. See ARM DDI 0406B Page A2-29.
 enum VFPRoundingMode {
@@ -148,6 +154,9 @@ class Simulator
         resume_pc_ = value;
     }
 
+    void enable_single_stepping(SingleStepCallback cb, void *arg);
+    void disable_single_stepping();
+
     uintptr_t stackLimit() const;
     bool overRecursed(uintptr_t newsp = 0) const;
     bool overRecursedWithExtra(uint32_t extra) const;
@@ -172,7 +181,7 @@ class Simulator
         // Known bad pc value to ensure that the simulator does not execute
         // without being properly setup.
         bad_lr = -1,
-        // A pc value used to signal the simulator to stop execution.  Generally
+        // A pc value used to signal the simulator to stop execution. Generally
         // the lr is set to this value on transition from native C code to
         // simulated execution, so that the simulator can "return" to the native
         // C code.
@@ -264,6 +273,13 @@ class Simulator
 
     static int64_t StopSimAt;
 
+    // For testing the MoveResolver code, a MoveResolver is set up, and
+    // the VFP registers are loaded with pre-determined values,
+    // then the sequence of code is simulated.  In order to test this with the
+    // simulator, the callee-saved registers can't be trashed. This flag
+    // disables that feature.
+    bool skipCalleeSavedRegsCheck;
+
     // Runtime call support.
     static void *RedirectNativeFunction(void *nativeFunction, ABIFunctionType type);
 
@@ -324,6 +340,11 @@ class Simulator
     // Registered breakpoints.
     SimInstruction *break_pc_;
     Instr break_instr_;
+
+    // Single-stepping support
+    bool single_stepping_;
+    SingleStepCallback single_step_callback_;
+    void *single_step_callback_arg_;
 
     SimulatorRuntime *srt_;
 

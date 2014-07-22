@@ -97,11 +97,43 @@ AppendToString(std::stringstream& aStream, const nsIntSize& sz,
 
 void
 AppendToString(std::stringstream& aStream, const FrameMetrics& m,
-               const char* pfx="", const char* sfx="");
+               const char* pfx="", const char* sfx="", bool detailed = false);
 
+template<class T>
 void
-AppendToString(std::stringstream& aStream, const mozilla::gfx::IntSize& size,
-               const char* pfx="", const char* sfx="");
+AppendToString(std::stringstream& aStream, const mozilla::gfx::MarginTyped<T>& m,
+               const char* pfx="", const char* sfx="")
+{
+  aStream << pfx;
+  aStream << nsPrintfCString(
+    "(l=%f, t=%f, r=%f, b=%f)",
+    m.left, m.top, m.right, m.bottom).get();
+  aStream << sfx;
+}
+
+template<class T>
+void
+AppendToString(std::stringstream& aStream, const mozilla::gfx::SizeTyped<T>& sz,
+               const char* pfx="", const char* sfx="")
+{
+  aStream << pfx;
+  aStream << nsPrintfCString(
+    "(w=%f, h=%f)",
+    sz.width, sz.height).get();
+  aStream << sfx;
+}
+
+template<class T>
+void
+AppendToString(std::stringstream& aStream, const mozilla::gfx::IntSizeTyped<T>& sz,
+               const char* pfx="", const char* sfx="")
+{
+  aStream << pfx;
+  aStream << nsPrintfCString(
+    "(w=%d, h=%d)",
+    sz.width, sz.height).get();
+  aStream << sfx;
+}
 
 void
 AppendToString(std::stringstream& aStream, const mozilla::gfx::Matrix4x4& m,
@@ -118,6 +150,16 @@ AppendToString(std::stringstream& aStream, mozilla::layers::TextureFlags flags,
 void
 AppendToString(std::stringstream& aStream, mozilla::gfx::SurfaceFormat format,
                const char* pfx="", const char* sfx="");
+
+// Sometimes, you just want a string from a single value.
+template <typename T>
+std::string
+Stringify(const T& obj)
+{
+  std::stringstream ss;
+  AppendToString(ss, obj);
+  return ss.str();
+}
 
 } // namespace
 } // namespace

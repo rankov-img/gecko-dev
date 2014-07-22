@@ -155,6 +155,12 @@ LayerManager::CreateAsynchronousImageContainer()
   return container.forget();
 }
 
+bool
+LayerManager::AreComponentAlphaLayersEnabled()
+{
+  return gfxPrefs::ComponentAlphaEnabled();
+}
+
 //--------------------------------------------------
 // Layer
 
@@ -1023,32 +1029,39 @@ ContainerLayer::DefaultComputeEffectiveTransforms(const Matrix4x4& aTransformToS
 void
 ContainerLayer::DefaultComputeSupportsComponentAlphaChildren(bool* aNeedsSurfaceCopy)
 {
-  bool supportsComponentAlphaChildren = false;
+  if (!(GetContentFlags() & Layer::CONTENT_COMPONENT_ALPHA_DESCENDANT) ||
+      !Manager()->AreComponentAlphaLayersEnabled()) {
+    mSupportsComponentAlphaChildren = false;
+    if (aNeedsSurfaceCopy) {
+      *aNeedsSurfaceCopy = false;
+    }
+    return;
+  }
+
+  mSupportsComponentAlphaChildren = false;
   bool needsSurfaceCopy = false;
   CompositionOp blendMode = GetEffectiveMixBlendMode();
   if (UseIntermediateSurface()) {
     if (GetEffectiveVisibleRegion().GetNumRects() == 1 &&
         (GetContentFlags() & Layer::CONTENT_OPAQUE))
     {
-      supportsComponentAlphaChildren = true;
+      mSupportsComponentAlphaChildren = true;
     } else {
       gfx::Matrix transform;
       if (HasOpaqueAncestorLayer(this) &&
           GetEffectiveTransform().Is2D(&transform) &&
           !gfx::ThebesMatrix(transform).HasNonIntegerTranslation() &&
           blendMode == gfx::CompositionOp::OP_OVER) {
-        supportsComponentAlphaChildren = true;
+        mSupportsComponentAlphaChildren = true;
         needsSurfaceCopy = true;
       }
     }
   } else if (blendMode == gfx::CompositionOp::OP_OVER) {
-    supportsComponentAlphaChildren =
+    mSupportsComponentAlphaChildren =
       (GetContentFlags() & Layer::CONTENT_OPAQUE) ||
       (GetParent() && GetParent()->SupportsComponentAlphaChildren());
   }
 
-  mSupportsComponentAlphaChildren = supportsComponentAlphaChildren &&
-                                    gfxPrefs::ComponentAlphaEnabled();
   if (aNeedsSurfaceCopy) {
     *aNeedsSurfaceCopy = mSupportsComponentAlphaChildren && needsSurfaceCopy;
   }
@@ -1619,29 +1632,6 @@ SetAntialiasingFlags(Layer* aLayer, DrawTarget* aTarget)
   permitSubpixelAA &= !(aLayer->GetContentFlags() & Layer::CONTENT_COMPONENT_ALPHA) ||
                       aTarget->GetOpaqueRect().Contains(intTransformedBounds);
   aTarget->SetPermitSubpixelAA(permitSubpixelAA);
-}
-
-void
-SetAntialiasingFlags(Layer* aLayer, gfxContext* aTarget)
-{
-  if (!aTarget->IsCairo()) {
-    SetAntialiasingFlags(aLayer, aTarget->GetDrawTarget());
-    return;
-  }
-
-  bool permitSubpixelAA = !(aLayer->GetContentFlags() & Layer::CONTENT_DISABLE_SUBPIXEL_AA);
-  nsRefPtr<gfxASurface> surface = aTarget->CurrentSurface();
-  if (surface->GetContentType() != gfxContentType::COLOR_ALPHA) {
-    // Destination doesn't have alpha channel; no need to set any special flags
-    surface->SetSubpixelAntialiasingEnabled(permitSubpixelAA);
-    return;
-  }
-
-  const nsIntRect& bounds = aLayer->GetVisibleRegion().GetBounds();
-  permitSubpixelAA &= !(aLayer->GetContentFlags() & Layer::CONTENT_COMPONENT_ALPHA) ||
-      surface->GetOpaqueRect().Contains(
-      aTarget->UserToDevice(gfxRect(bounds.x, bounds.y, bounds.width, bounds.height)));
-  surface->SetSubpixelAntialiasingEnabled(permitSubpixelAA);
 }
 
 PRLogModuleInfo* LayerManager::sLog;

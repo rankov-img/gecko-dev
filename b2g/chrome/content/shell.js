@@ -9,7 +9,6 @@ Cu.import('resource://gre/modules/SettingsChangeNotifier.jsm');
 Cu.import('resource://gre/modules/DataStoreChangeNotifier.jsm');
 Cu.import('resource://gre/modules/AlarmService.jsm');
 Cu.import('resource://gre/modules/ActivitiesService.jsm');
-Cu.import('resource://gre/modules/PermissionPromptHelper.jsm');
 Cu.import('resource://gre/modules/NotificationDB.jsm');
 Cu.import('resource://gre/modules/Payment.jsm');
 Cu.import("resource://gre/modules/AppsUtils.jsm");
@@ -26,10 +25,7 @@ Cu.import('resource://gre/modules/ResourceStatsService.jsm');
 Cu.import('resource://gre/modules/SignInToWebsite.jsm');
 SignInToWebsiteController.init();
 
-#ifdef MOZ_SERVICES_FXACCOUNTS
 Cu.import('resource://gre/modules/FxAccountsMgmtService.jsm');
-#endif
-
 Cu.import('resource://gre/modules/DownloadsAPI.jsm');
 Cu.import('resource://gre/modules/MobileIdentityManager.jsm');
 
@@ -211,11 +207,6 @@ var shell = {
     }, "network-connection-state-changed", false);
   },
 
-  get contentBrowser() {
-    delete this.contentBrowser;
-    return this.contentBrowser = document.getElementById('systemapp');
-  },
-
   get homeURL() {
     try {
       let homeSrc = Services.env.get('B2G_HOMESCREEN');
@@ -315,7 +306,7 @@ var shell = {
       container.removeChild(hotfix);
     }
 #endif
-    container.appendChild(systemAppFrame);
+    this.contentBrowser = container.appendChild(systemAppFrame);
 
     systemAppFrame.contentWindow
                   .QueryInterface(Ci.nsIInterfaceRequestor)
@@ -934,7 +925,7 @@ let RemoteDebugger = {
     }
 
     try {
-      DebuggerServer.closeListener();
+      DebuggerServer.closeAllListeners();
     } catch (e) {
       dump('Unable to stop debugger server: ' + e + '\n');
     }
@@ -1233,54 +1224,7 @@ window.addEventListener('ContentStart', function update_onContentStart() {
   // We must set the size in KB, and keep a bit of free space.
   let size = Math.floor(stats.totalBytes / 1024) - 1024;
   Services.prefs.setIntPref("browser.cache.disk.capacity", size);
-}) ()
-#endif
-
-#ifdef MOZ_WIDGET_GONK
-let SensorsListener = {
-  sensorsListenerDevices: ['crespo'],
-  device: libcutils.property_get("ro.product.device"),
-
-  deviceNeedsWorkaround: function SensorsListener_deviceNeedsWorkaround() {
-    return (this.sensorsListenerDevices.indexOf(this.device) != -1);
-  },
-
-  handleEvent: function SensorsListener_handleEvent(evt) {
-    switch(evt.type) {
-      case 'devicemotion':
-        // Listener that does nothing, we need this to have the sensor being
-        // able to report correct values, as explained in bug 753245, comment 6
-        // and in bug 871916
-        break;
-
-      default:
-        break;
-    }
-  },
-
-  observe: function SensorsListener_observe(subject, topic, data) {
-    // We remove the listener when the screen is off, otherwise sensor will
-    // continue to bother us with data and we won't be able to get the
-    // system into suspend state, thus draining battery.
-    if (data === 'on') {
-      window.addEventListener('devicemotion', this);
-    } else {
-      window.removeEventListener('devicemotion', this);
-    }
-  },
-
-  init: function SensorsListener_init() {
-    if (this.deviceNeedsWorkaround()) {
-      // On boot, enable the listener, screen will be on.
-      window.addEventListener('devicemotion', this);
-
-      // Then listen for further screen state changes
-      Services.obs.addObserver(this, 'screen-state-changed', false);
-    }
-  }
-}
-
-SensorsListener.init();
+})();
 #endif
 
 // Calling this observer will cause a shutdown an a profile reset.

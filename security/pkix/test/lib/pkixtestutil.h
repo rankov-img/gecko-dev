@@ -28,6 +28,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include "cert.h"
 #include "keyhi.h"
 #include "pkix/enumclass.h"
 #include "pkix/pkixtypes.h"
@@ -51,6 +52,8 @@ SECITEM_FreeItem_true(SECItem* item)
 
 } // unnamed namespace
 
+typedef ScopedPtr<CERTCertificate, CERT_DestroyCertificate> ScopedCERTCertificate;
+typedef ScopedPtr<CERTCertList, CERT_DestroyCertList> ScopedCERTCertList;
 typedef mozilla::pkix::ScopedPtr<FILE, fclose_void> ScopedFILE;
 typedef mozilla::pkix::ScopedPtr<SECItem, SECITEM_FreeItem_true> ScopedSECItem;
 typedef mozilla::pkix::ScopedPtr<SECKEYPublicKey, SECKEY_DestroyPublicKey>
@@ -71,6 +74,16 @@ SECStatus GenerateKeyPair(/*out*/ ScopedSECKEYPublicKey& publicKey,
 
 // The result will be owned by the arena
 const SECItem* ASCIIToDERName(PLArenaPool* arena, const char* cn);
+
+// Replace one substring in item with another of the same length, but only if
+// the substring was found exactly once. The "only once" restriction is helpful
+// for avoiding making multiple changes at once.
+//
+// The string to search for must be 8 or more bytes long so that it is
+// extremely unlikely that there will ever be any false positive matches
+// in digital signatures, keys, hashes, etc.
+SECStatus TamperOnce(SECItem& item, const uint8_t* from, size_t fromLen,
+                     const uint8_t* to, size_t toLen);
 
 ///////////////////////////////////////////////////////////////////////////////
 // Encode Certificates

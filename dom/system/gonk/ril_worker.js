@@ -1020,6 +1020,14 @@ RilObject.prototype = {
   },
 
   /**
+   * Retrieve ICC's GID1 field.
+   */
+  getGID1: function(options) {
+    options.gid1 = this.iccInfoPrivate.gid1;
+    this.sendChromeMessage(options);
+  },
+
+  /**
    * Read UICC Phonebook contacts.
    *
    * @param contactType
@@ -1302,6 +1310,13 @@ RilObject.prototype = {
    */
   getNeighboringCellIds: function(options) {
     this.context.Buf.simpleRequest(REQUEST_GET_NEIGHBORING_CELL_IDS, options);
+  },
+
+  /**
+   * Request all of the current cell information known to the radio.
+   */
+  getCellInfoList: function(options) {
+    this.context.Buf.simpleRequest(REQUEST_GET_CELL_INFO_LIST, options);
   },
 
   /**
@@ -1861,6 +1876,15 @@ RilObject.prototype = {
       options.featureStr = "";
       this.sendCdmaFlashCommand(options);
     } else {
+      // Only accept one conference request at a time..
+      if (this._hasConferenceRequest) {
+        options.success = false;
+        options.errorName = "addError";
+        options.errorMsg = GECKO_ERROR_GENERIC_FAILURE;
+        this.sendChromeMessage(options);
+        return;
+      }
+
       this._hasConferenceRequest = true;
       this.telephonyRequestQueue.push(REQUEST_CONFERENCE,
                                       this.sendRilRequestConference, options);
@@ -6430,6 +6454,66 @@ RilObject.prototype[REQUEST_GET_NEIGHBORING_CELL_IDS] = function REQUEST_GET_NEI
   options.result = neighboringCellIds;
   this.sendChromeMessage(options);
 };
+RilObject.prototype[REQUEST_GET_CELL_INFO_LIST] = function REQUEST_GET_CELL_INFO_LIST(length, options) {
+  if (options.rilRequestError) {
+    options.errorMsg = RIL_ERROR_TO_GECKO_ERROR[options.rilRequestError];
+    this.sendChromeMessage(options);
+    return;
+  }
+
+  let Buf = this.context.Buf;
+  let cellInfoList = [];
+  let num = Buf.readInt32();
+  for (let i = 0; i < num; i++) {
+    let cellInfo = {};
+    cellInfo.type = Buf.readInt32();
+    cellInfo.registered = Buf.readInt32() ? true : false;
+    cellInfo.timestampType = Buf.readInt32();
+    cellInfo.timestamp = Buf.readInt64();
+
+    switch(cellInfo.type) {
+      case CELL_INFO_TYPE_GSM:
+      case CELL_INFO_TYPE_WCDMA:
+        cellInfo.mcc = Buf.readInt32();
+        cellInfo.mnc = Buf.readInt32();
+        cellInfo.lac = Buf.readInt32();
+        cellInfo.cid = Buf.readInt32();
+        if (cellInfo.type == CELL_INFO_TYPE_WCDMA) {
+          cellInfo.psc = Buf.readInt32();
+        }
+        cellInfo.signalStrength = Buf.readInt32();
+        cellInfo.bitErrorRate = Buf.readInt32();
+        break;
+      case CELL_INFO_TYPE_CDMA:
+        cellInfo.networkId = Buf.readInt32();
+        cellInfo.systemId = Buf.readInt32();
+        cellInfo.basestationId = Buf.readInt32();
+        cellInfo.longitude = Buf.readInt32();
+        cellInfo.latitude = Buf.readInt32();
+        cellInfo.cdmaDbm = Buf.readInt32();
+        cellInfo.cdmaEcio = Buf.readInt32();
+        cellInfo.evdoDbm = Buf.readInt32();
+        cellInfo.evdoEcio = Buf.readInt32();
+        cellInfo.evdoSnr = Buf.readInt32();
+        break;
+      case CELL_INFO_TYPE_LTE:
+        cellInfo.mcc = Buf.readInt32();
+        cellInfo.mnc = Buf.readInt32();
+        cellInfo.cid = Buf.readInt32();
+        cellInfo.pcid = Buf.readInt32();
+        cellInfo.tac = Buf.readInt32();
+        cellInfo.signalStrength = Buf.readInt32();
+        cellInfo.rsrp = Buf.readInt32();
+        cellInfo.rsrq = Buf.readInt32();
+        cellInfo.rssnr = Buf.readInt32();
+        cellInfo.cqi = Buf.readInt32();
+        break;
+    }
+    cellInfoList.push(cellInfo);
+  }
+  options.result = cellInfoList;
+  this.sendChromeMessage(options);
+};
 RilObject.prototype[REQUEST_SET_LOCATION_UPDATES] = null;
 RilObject.prototype[REQUEST_CDMA_SET_SUBSCRIPTION_SOURCE] = null;
 RilObject.prototype[REQUEST_CDMA_SET_ROAMING_PREFERENCE] = function REQUEST_CDMA_SET_ROAMING_PREFERENCE(length, options) {
@@ -8505,6 +8589,24 @@ GsmPDUHelperObject.prototype = {
         }
         msg.body = this.readUCS2String.call(bufAdapter, length);
         break;
+    }
+
+    // According to 9.3.19 CBS-Message-Information-Page in TS 23.041:
+    // "
+    //  This parameter is of a fixed length of 82 octets and carries up to and
+    //  including 82 octets of user information. Where the user information is
+    //  less than 82 octets, the remaining octets must be filled with padding.
+    // "
+    // According to 6.2.1.1 GSM 7 bit Default Alphabet and 6.2.3 UCS2 in
+    // TS 23.038, the padding character is <CR>.
+    if (!msg.body) {
+      return;
+    }
+    for (let i = msg.body.length - 1; i >= 0; i--) {
+      if (msg.body.charAt(i) !== '\r') {
+        msg.body = msg.body.substring(0, i + 1);
+        break;
+      }
     }
   },
 
@@ -10653,13 +10755,9 @@ StkCommandParamsFactoryObject.prototype = {
 
     let ctlv = this.context.StkProactiveCmdHelper.searchForTag(
         COMPREHENSIONTLV_TAG_ALPHA_ID, ctlvs);
-    if (!ctlv) {
-      this.context.RIL.sendStkTerminalResponse({
-        command: cmdDetails,
-        resultCode: STK_RESULT_REQUIRED_VALUES_MISSING});
-      throw new Error("Stk Event Notfiy: Required value missing : Alpha ID");
+    if (ctlv) {
+      textMsg.text = ctlv.value.identifier;
     }
-    textMsg.text = ctlv.value.identifier;
 
     return textMsg;
   },
@@ -11839,6 +11937,7 @@ ICCFileHelperObject.prototype = {
       case ICC_EF_CBMIR:
       case ICC_EF_OPL:
       case ICC_EF_PNN:
+      case ICC_EF_GID1:
         return EF_PATH_MF_SIM + EF_PATH_DF_GSM;
       default:
         return null;
@@ -11864,6 +11963,7 @@ ICCFileHelperObject.prototype = {
       case ICC_EF_OPL:
       case ICC_EF_PNN:
       case ICC_EF_SMS:
+      case ICC_EF_GID1:
         return EF_PATH_MF_SIM + EF_PATH_ADF_USIM;
       default:
         // The file ids in USIM phone book entries are decided by the
@@ -12240,6 +12340,8 @@ ICCIOHelperObject.prototype[ICC_COMMAND_UPDATE_RECORD] = function ICC_COMMAND_UP
  */
 function ICCRecordHelperObject(aContext) {
   this.context = aContext;
+  // Cache the possible free record id for all files, use fileId as key.
+  this._freeRecordIds = {};
 }
 ICCRecordHelperObject.prototype = {
   context: null,
@@ -12717,6 +12819,11 @@ ICCRecordHelperObject.prototype = {
   },
 
   /**
+   * Cache the possible free record id for all files.
+   */
+  _freeRecordIds: null,
+
+  /**
    * Find free record id.
    *
    * @param fileId      EF id.
@@ -12742,8 +12849,11 @@ ICCRecordHelperObject.prototype = {
         }
       }
 
+      let nextRecord = (options.p1 % options.totalRecords) + 1;
+
       if (readLen == octetLen) {
-        // Find free record.
+        // Find free record, assume next record is probably free.
+        this._freeRecordIds[fileId] = nextRecord;
         if (onsuccess) {
           onsuccess(options.p1);
         }
@@ -12754,10 +12864,12 @@ ICCRecordHelperObject.prototype = {
 
       Buf.readStringDelimiter(strLen);
 
-      if (options.p1 < options.totalRecords) {
-        ICCIOHelper.loadNextRecord(options);
+      if (nextRecord !== recordNumber) {
+        options.p1 = nextRecord;
+        this.context.RIL.iccIO(options);
       } else {
         // No free record found.
+        delete this._freeRecordIds[fileId];
         if (DEBUG) {
           this.context.debug(CONTACT_ERR_NO_FREE_RECORD_FOUND);
         }
@@ -12765,7 +12877,10 @@ ICCRecordHelperObject.prototype = {
       }
     }
 
+    // Start searching free records from the possible one.
+    let recordNumber = this._freeRecordIds[fileId] || 1;
     ICCIOHelper.loadLinearFixedEF({fileId: fileId,
+                                   recordNumber: recordNumber,
                                    callback: callback.bind(this),
                                    onerror: onerror});
   },
@@ -12991,6 +13106,13 @@ SimRecordHelperObject.prototype = {
         this.readOPL();
       } else {
         if (DEBUG) this.context.debug("OPL: OPL is not available");
+      }
+
+      if (ICCUtilsHelper.isICCServiceAvailable("GID1")) {
+        if (DEBUG) this.context.debug("GID1: GID1 is available");
+        this.readGID1();
+      } else {
+        if (DEBUG) this.context.debug("GID1: GID1 is not available");
       }
 
       if (ICCUtilsHelper.isICCServiceAvailable("CBMI")) {
@@ -13582,6 +13704,23 @@ SimRecordHelperObject.prototype = {
       recordNumber: recordNumber,
       callback: callback.bind(this),
       onerror: onerror
+    });
+  },
+
+  readGID1: function() {
+    function callback() {
+      let Buf = this.context.Buf;
+      let RIL = this.context.RIL;
+
+      RIL.iccInfoPrivate.gid1 = Buf.readString();
+      if (DEBUG) {
+        this.context.debug("GID1: " + RIL.iccInfoPrivate.gid1);
+      }
+    }
+
+    this.context.ICCIOHelper.loadTransparentEF({
+      fileId: ICC_EF_GID1,
+      callback: callback.bind(this)
     });
   },
 };
@@ -14337,6 +14476,11 @@ ICCContactHelperObject.prototype = {
     }
   },
 
+  /**
+   * Cache the pbr index of the possible free record.
+   */
+  _freePbrIndex: 0,
+
    /**
     * Find free ADN record id in USIM.
     *
@@ -14347,8 +14491,17 @@ ICCContactHelperObject.prototype = {
   findUSimFreeADNRecordId: function(pbrs, onsuccess, onerror) {
     let ICCRecordHelper = this.context.ICCRecordHelper;
 
+    function callback(pbrIndex, recordId) {
+      // Assume other free records are probably in the same phonebook set.
+      this._freePbrIndex = pbrIndex;
+      onsuccess(pbrIndex, recordId);
+    }
+
+    let nextPbrIndex = -1;
     (function findFreeRecordId(pbrIndex) {
-      if (pbrIndex >= pbrs.length) {
+      if (nextPbrIndex === this._freePbrIndex) {
+        // No free record found, reset the pbr index of free record.
+        this._freePbrIndex = 0;
         if (DEBUG) {
           this.context.debug(CONTACT_ERR_NO_FREE_RECORD_FOUND);
         }
@@ -14357,11 +14510,12 @@ ICCContactHelperObject.prototype = {
       }
 
       let pbr = pbrs[pbrIndex];
+      nextPbrIndex = (pbrIndex + 1) % pbrs.length;
       ICCRecordHelper.findFreeRecordId(
         pbr.adn.fileId,
-        onsuccess.bind(this, pbrIndex),
-        findFreeRecordId.bind(null, pbrIndex + 1));
-    })(0);
+        callback.bind(this, pbrIndex),
+        findFreeRecordId.bind(this, nextPbrIndex));
+    }).call(this, this._freePbrIndex);
   },
 
   /**

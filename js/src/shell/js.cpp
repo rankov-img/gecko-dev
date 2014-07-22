@@ -83,9 +83,12 @@ using namespace js;
 using namespace js::cli;
 
 using mozilla::ArrayLength;
-using mozilla::NumberEqualsInt32;
+using mozilla::MakeUnique;
 using mozilla::Maybe;
+using mozilla::NumberEqualsInt32;
 using mozilla::PodCopy;
+using mozilla::PodEqual;
+using mozilla::UniquePtr;
 
 enum JSShellExitCode {
     EXITCODE_RUNTIME_ERROR      = 3,
@@ -196,7 +199,7 @@ NewGlobalObject(JSContext *cx, JS::CompartmentOptions &options,
                 JSPrincipals *principals);
 
 static const JSErrorFormatString *
-my_GetErrorMessage(void *userRef, const char *locale, const unsigned errorNumber);
+my_GetErrorMessage(void *userRef, const unsigned errorNumber);
 
 
 /*
@@ -772,6 +775,7 @@ Options(JSContext *cx, unsigned argc, jsval *vp)
     CallArgs args = CallArgsFromVp(argc, vp);
 
     JS::ContextOptions oldContextOptions = JS::ContextOptionsRef(cx);
+    JS::RuntimeOptions oldRuntimeOptions = JS::RuntimeOptionsRef(cx);
     for (unsigned i = 0; i < args.length(); i++) {
         JSString *str = JS::ToString(cx, args[i]);
         if (!str)
@@ -785,9 +789,9 @@ Options(JSContext *cx, unsigned argc, jsval *vp)
         if (strcmp(opt.ptr(), "strict") == 0)
             JS::ContextOptionsRef(cx).toggleExtraWarnings();
         else if (strcmp(opt.ptr(), "werror") == 0)
-            JS::ContextOptionsRef(cx).toggleWerror();
+            JS::RuntimeOptionsRef(cx).toggleWerror();
         else if (strcmp(opt.ptr(), "strict_mode") == 0)
-            JS::ContextOptionsRef(cx).toggleStrictMode();
+            JS::RuntimeOptionsRef(cx).toggleStrictMode();
         else {
             JS_ReportError(cx,
                            "unknown option name '%s'."
@@ -804,11 +808,11 @@ Options(JSContext *cx, unsigned argc, jsval *vp)
         names = JS_sprintf_append(names, "%s%s", found ? "," : "", "strict");
         found = true;
     }
-    if (names && oldContextOptions.werror()) {
+    if (names && oldRuntimeOptions.werror()) {
         names = JS_sprintf_append(names, "%s%s", found ? "," : "", "werror");
         found = true;
     }
-    if (names && oldContextOptions.strictMode()) {
+    if (names && oldRuntimeOptions.strictMode()) {
         names = JS_sprintf_append(names, "%s%s", found ? "," : "", "strict_mode");
         found = true;
     }
@@ -1258,7 +1262,7 @@ Evaluate(JSContext *cx, unsigned argc, jsval *vp)
                                          JSSMSG_CACHE_SINGLETON_FAILED);
                     return false;
                 }
-                JS::CompartmentOptionsRef(cx).cloneSingletonsOverride().set(true);
+                JS::CompartmentOptionsRef(cx).setCloneSingletons(true);
             }
 
             if (loadBytecode) {
@@ -1324,7 +1328,7 @@ Evaluate(JSContext *cx, unsigned argc, jsval *vp)
             if (saveLength != loadLength) {
                 JS_ReportErrorNumber(cx, my_GetErrorMessage, nullptr, JSSMSG_CACHE_EQ_SIZE_FAILED,
                                      loadLength, saveLength);
-            } else if (!mozilla::PodEqual(loadBuffer, saveBuffer.get(), loadLength)) {
+            } else if (!PodEqual(loadBuffer, saveBuffer.get(), loadLength)) {
                 JS_ReportErrorNumber(cx, my_GetErrorMessage, nullptr,
                                      JSSMSG_CACHE_EQ_CONTENT_FAILED);
             }
@@ -1879,26 +1883,6 @@ SetDebuggerHandler(JSContext *cx, unsigned argc, jsval *vp)
         return false;
 
     JS_SetDebuggerHandler(cx->runtime(), DebuggerAndThrowHandler, str);
-    args.rval().setUndefined();
-    return true;
-}
-
-static bool
-SetThrowHook(JSContext *cx, unsigned argc, jsval *vp)
-{
-    CallArgs args = CallArgsFromVp(argc, vp);
-    JSString *str;
-    if (args.length() == 0) {
-        JS_ReportErrorNumber(cx, my_GetErrorMessage, nullptr,
-                             JSSMSG_NOT_ENOUGH_ARGS, "setThrowHook");
-        return false;
-    }
-
-    str = JS::ToString(cx, args[0]);
-    if (!str)
-        return false;
-
-    JS_SetThrowHook(cx->runtime(), DebuggerAndThrowHandler, str);
     args.rval().setUndefined();
     return true;
 }
@@ -2589,65 +2573,6 @@ Clone(JSContext *cx, unsigned argc, jsval *vp)
 }
 
 static bool
-GetPDA(JSContext *cx, unsigned argc, jsval *vp)
-{
-    CallArgs args = CallArgsFromVp(argc, vp);
-    RootedObject vobj(cx);
-    bool ok;
-    JSPropertyDescArray pda;
-    JSPropertyDesc *pd;
-
-    if (!JS_ValueToObject(cx, args.get(0), &vobj))
-        return false;
-    if (!vobj) {
-        args.rval().setUndefined();
-        return true;
-    }
-
-    RootedObject aobj(cx, JS_NewArrayObject(cx, 0));
-    if (!aobj)
-        return false;
-    args.rval().setObject(*aobj);
-
-    ok = !!JS_GetPropertyDescArray(cx, vobj, &pda);
-    if (!ok)
-        return false;
-    pd = pda.array;
-
-    RootedObject pdobj(cx);
-    RootedValue id(cx);
-    RootedValue value(cx);
-    RootedValue flags(cx);
-    RootedValue alias(cx);
-
-    for (uint32_t i = 0; i < pda.length; i++, pd++) {
-        pdobj = JS_NewObject(cx, nullptr, JS::NullPtr(), JS::NullPtr());
-        if (!pdobj) {
-            ok = false;
-            break;
-        }
-
-        /* Protect pdobj from GC by setting it as an element of aobj now */
-        ok = !!JS_SetElement(cx, aobj, i, pdobj);
-        if (!ok)
-            break;
-
-        id = pd->id;
-        value = pd->value;
-        flags.setInt32(pd->flags);
-        alias = pd->alias;
-        ok = JS_SetProperty(cx, pdobj, "id", id) &&
-             JS_SetProperty(cx, pdobj, "value", value) &&
-             JS_SetProperty(cx, pdobj, "flags", flags) &&
-             JS_SetProperty(cx, pdobj, "alias", alias);
-        if (!ok)
-            break;
-    }
-    JS_PutPropertyDescArray(cx, &pda);
-    return ok;
-}
-
-static bool
 GetSLX(JSContext *cx, unsigned argc, jsval *vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
@@ -2891,7 +2816,7 @@ WorkerMain(void *arg)
 {
     WorkerInput *input = (WorkerInput *) arg;
 
-    JSRuntime *rt = JS_NewRuntime(8L * 1024L * 1024L, input->runtime);
+    JSRuntime *rt = JS_NewRuntime(8L * 1024L * 1024L, 2L * 1024L * 1024L, input->runtime);
     if (!rt) {
         js_delete(input);
         return;
@@ -4086,14 +4011,12 @@ EscapeForShell(AutoCStringVector &argv)
 
 static Vector<const char*, 4, js::SystemAllocPolicy> sPropagatedFlags;
 
-#ifdef DEBUG
-#if (defined(JS_CPU_X86) || defined(JS_CPU_X64)) && defined(JS_ION)
+#if defined(DEBUG) && defined(JS_ION) && (defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_X64))
 static bool
 PropagateFlagToNestedShells(const char *flag)
 {
     return sPropagatedFlags.append(flag);
 }
-#endif
 #endif
 
 static bool
@@ -4340,24 +4263,6 @@ NewGlobal(JSContext *cx, unsigned argc, jsval *vp)
 }
 
 static bool
-EnableStackWalkingAssertion(JSContext *cx, unsigned argc, jsval *vp)
-{
-    CallArgs args = CallArgsFromVp(argc, vp);
-    if (!args.get(0).isBoolean()) {
-        JS_ReportErrorNumber(cx, my_GetErrorMessage, nullptr, JSSMSG_INVALID_ARGS,
-                             "enableStackWalkingAssertion");
-        return false;
-    }
-
-#ifdef DEBUG
-    cx->stackIterAssertionEnabled = args[0].toBoolean();
-#endif
-
-    args.rval().setUndefined();
-    return true;
-}
-
-static bool
 GetMaxArgs(JSContext *cx, unsigned argc, jsval *vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
@@ -4458,15 +4363,17 @@ WithSourceHook(JSContext *cx, unsigned argc, jsval *vp)
         return false;
     }
 
-    ShellSourceHook *hook = new ShellSourceHook(cx, args[0].toObject().as<JSFunction>());
+    UniquePtr<ShellSourceHook> hook =
+        MakeUnique<ShellSourceHook>(cx, args[0].toObject().as<JSFunction>());
     if (!hook)
         return false;
 
-    SourceHook *savedHook = js::ForgetSourceHook(cx->runtime());
-    js::SetSourceHook(cx->runtime(), hook);
+    UniquePtr<SourceHook> savedHook = js::ForgetSourceHook(cx->runtime());
+    js::SetSourceHook(cx->runtime(), Move(hook));
+
     RootedObject fun(cx, &args[1].toObject());
     bool result = Call(cx, UndefinedHandleValue, fun, JS::HandleValueArray::empty(), args.rval());
-    js::SetSourceHook(cx->runtime(), savedHook);
+    js::SetSourceHook(cx->runtime(), Move(savedHook));
     return result;
 }
 
@@ -4501,6 +4408,102 @@ PrintProfilerEvents(JSContext *cx, unsigned argc, Value *vp)
         js::RegisterRuntimeProfilingEventMarker(cx->runtime(), &PrintProfilerEvents_Callback);
     args.rval().setUndefined();
     return true;
+}
+
+#if defined(JS_ARM_SIMULATOR)
+typedef Vector<jschar, 0, SystemAllocPolicy> StackChars;
+Vector<StackChars, 0, SystemAllocPolicy> stacks;
+
+static void
+SingleStepCallback(void *arg, jit::Simulator *sim, void *pc)
+{
+    JSRuntime *rt = reinterpret_cast<JSRuntime*>(arg);
+
+    JS::ProfilingFrameIterator::RegisterState state;
+    state.pc = pc;
+    state.sp = (void*)sim->get_register(jit::Simulator::sp);
+    state.lr = (void*)sim->get_register(jit::Simulator::lr);
+
+    StackChars stack;
+    for (JS::ProfilingFrameIterator i(rt, state); !i.done(); ++i) {
+        switch (i.kind()) {
+          case JS::ProfilingFrameIterator::Function: {
+            JS::AutoCheckCannotGC nogc;
+            JSAtom *atom = i.functionDisplayAtom();
+            if (atom->hasLatin1Chars())
+                stack.append(atom->latin1Chars(nogc), atom->length());
+            else
+                stack.append(atom->twoByteChars(nogc), atom->length());
+            break;
+          }
+          case JS::ProfilingFrameIterator::AsmJSTrampoline: {
+            stack.append('*');
+            break;
+          }
+          case JS::ProfilingFrameIterator::CppFunction: {
+            const char *desc = i.nonFunctionDescription();
+            stack.append(desc, strlen(desc));
+            break;
+          }
+        }
+    }
+
+    // Only append the stack if it differs from the last stack.
+    if (stacks.empty() ||
+        stacks.back().length() != stack.length() ||
+        !PodEqual(stacks.back().begin(), stack.begin(), stack.length()))
+    {
+        stacks.append(Move(stack));
+    }
+}
+#endif
+
+static bool
+EnableSingleStepProfiling(JSContext *cx, unsigned argc, Value *vp)
+{
+#if defined(JS_ARM_SIMULATOR)
+    CallArgs args = CallArgsFromVp(argc, vp);
+
+    jit::Simulator *sim = cx->runtime()->mainThread.simulator();
+    sim->enable_single_stepping(SingleStepCallback, cx->runtime());
+
+    args.rval().setUndefined();
+    return true;
+#else
+    JS_ReportError(cx, "single-step profiling not enabled on this platform");
+    return false;
+#endif
+}
+
+static bool
+DisableSingleStepProfiling(JSContext *cx, unsigned argc, Value *vp)
+{
+#if defined(JS_ARM_SIMULATOR)
+    CallArgs args = CallArgsFromVp(argc, vp);
+
+    jit::Simulator *sim = cx->runtime()->mainThread.simulator();
+    sim->disable_single_stepping();
+
+    AutoValueVector elems(cx);
+    for (size_t i = 0; i < stacks.length(); i++) {
+        JSString *stack = JS_NewUCStringCopyN(cx, stacks[i].begin(), stacks[i].length());
+        if (!stack)
+            return false;
+        if (!elems.append(StringValue(stack)))
+            return false;
+    }
+
+    JSObject *array = JS_NewArrayObject(cx, elems);
+    if (!array)
+        return false;
+
+    stacks.clear();
+    args.rval().setObject(*array);
+    return true;
+#else
+    JS_ReportError(cx, "single-step profiling not enabled on this platform");
+    return false;
+#endif
 }
 
 static bool
@@ -4699,10 +4702,6 @@ static const JSFunctionSpecWithHelp shell_functions[] = {
 "intern(str)",
 "  Internalize str in the atom table."),
 
-    JS_FN_HELP("getpda", GetPDA, 1, 0,
-"getpda(obj)",
-"  Get the property descriptors for obj."),
-
     JS_FN_HELP("getslx", GetSLX, 1, 0,
 "getslx(obj)",
 "  Get script line extent."),
@@ -4867,13 +4866,6 @@ static const JSFunctionSpecWithHelp shell_functions[] = {
 "createMappedArrayBuffer(filename, [offset, [size]])",
 "  Create an array buffer that mmaps the given file."),
 
-    JS_FN_HELP("enableStackWalkingAssertion", EnableStackWalkingAssertion, 1, 0,
-"enableStackWalkingAssertion(enabled)",
-"  Enables or disables a particularly expensive assertion in stack-walking\n"
-"  code.  If your test isn't ridiculously thorough, such that performing this\n"
-"  assertion increases test duration by an order of magnitude, you shouldn't\n"
-"  use this."),
-
     JS_FN_HELP("getMaxArgs", GetMaxArgs, 0, 0,
 "getMaxArgs()",
 "  Return the maximum number of supported args for a call."),
@@ -4902,6 +4894,17 @@ static const JSFunctionSpecWithHelp shell_functions[] = {
 "printProfilerEvents()",
 "  Register a callback with the profiler that prints javascript profiler events\n"
 "  to stderr.  Callback is only registered if profiling is enabled."),
+
+    JS_FN_HELP("enableSingleStepProfiling", EnableSingleStepProfiling, 0, 0,
+"enableSingleStepProfiling()",
+"  This function will fail on platforms that don't support single-step profiling\n"
+"  (currently everything but ARM-simulator). When enabled, at every instruction a\n"
+"  backtrace will be recorded and stored in an array. Adjacent duplicate backtraces\n"
+"  are discarded."),
+
+    JS_FN_HELP("disableSingleStepProfiling", DisableSingleStepProfiling, 0, 0,
+"disableSingleStepProfiling()",
+"  Return the array of backtraces recorded by enableSingleStepProfiling."),
 
     JS_FN_HELP("isLatin1", IsLatin1, 1, 0,
 "isLatin1(s)",
@@ -4942,10 +4945,6 @@ static const JSFunctionSpecWithHelp fuzzing_unsafe_functions[] = {
 "redirect(stdoutFilename[, stderrFilename])",
 "  Redirect stdout and/or stderr to the named file. Pass undefined to avoid\n"
 "   redirecting. Filenames are relative to the current working directory."),
-
-    JS_FN_HELP("setThrowHook", SetThrowHook, 1, 0,
-"setThrowHook(f)",
-"  Set throw hook to f."),
 
     JS_FN_HELP("system", System, 1, 0,
 "system(command)",
@@ -5110,7 +5109,7 @@ static const JSErrorFormatString jsShell_ErrorFormatString[JSShellErr_Limit] = {
 };
 
 static const JSErrorFormatString *
-my_GetErrorMessage(void *userRef, const char *locale, const unsigned errorNumber)
+my_GetErrorMessage(void *userRef, const unsigned errorNumber)
 {
     if (errorNumber == 0 || errorNumber >= JSShellErr_Limit)
         return nullptr;
@@ -5975,6 +5974,15 @@ SetRuntimeOptions(JSRuntime *rt, const OptionParser &op)
                              .setAsmJS(enableAsmJS)
                              .setNativeRegExp(enableNativeRegExp);
 
+    if (const char *str = op.getStringOption("ion-scalar-replacement")) {
+        if (strcmp(str, "on") == 0)
+            jit::js_JitOptions.disableScalarReplacement = false;
+        else if (strcmp(str, "off") == 0)
+            jit::js_JitOptions.disableScalarReplacement = true;
+        else
+            return OptionFailure("ion-scalar-replacement", str);
+    }
+
     if (const char *str = op.getStringOption("ion-gvn")) {
         if (strcmp(str, "off") == 0) {
             jit::js_JitOptions.disableGvn = true;
@@ -6102,6 +6110,10 @@ SetRuntimeOptions(JSRuntime *rt, const OptionParser &op)
     int32_t fill = op.getIntOption("arm-asm-nop-fill");
     if (fill >= 0)
         jit::Assembler::NopFill = fill;
+
+    int32_t poolMaxOffset = op.getIntOption("asm-pool-max-offset");
+    if (poolMaxOffset >= 5 && poolMaxOffset <= 1024)
+        jit::Assembler::AsmPoolMaxOffset = poolMaxOffset;
 #endif
 
 #if defined(JS_ARM_SIMULATOR)
@@ -6127,7 +6139,7 @@ SetRuntimeOptions(JSRuntime *rt, const OptionParser &op)
 
     jsCacheDir = op.getStringOption("js-cache");
     if (jsCacheDir) {
-        if (op.getBoolOption("js-cache-per-process"))
+        if (!op.getBoolOption("no-js-cache-per-process"))
             jsCacheDir = JS_smprintf("%s/%u", jsCacheDir, (unsigned)getpid());
         jsCacheAsmJSPath = JS_smprintf("%s/asmjs.cache", jsCacheDir);
     }
@@ -6169,7 +6181,7 @@ Shell(JSContext *cx, OptionParser *op, char **envp)
     if (enableDisassemblyDumps)
         JS_DumpCompartmentPCCounts(cx);
 
-    if (op->getBoolOption("js-cache-per-process")) {
+    if (!op->getBoolOption("no-js-cache-per-process")) {
         if (jsCacheAsmJSPath)
             unlink(jsCacheAsmJSPath);
         if (jsCacheDir)
@@ -6247,11 +6259,12 @@ main(int argc, char **argv, char **envp)
         || !op.addStringOption('\0', "js-cache", "[path]",
                                "Enable the JS cache by specifying the path of the directory to use "
                                "to hold cache files")
-        || !op.addBoolOption('\0', "js-cache-per-process",
-                               "Generate a separate cache sub-directory for this process inside "
-                               "the cache directory specified by --js-cache. This cache directory "
-                               "will be removed when the js shell exits. This is useful for running "
-                               "tests in parallel.")
+        || !op.addBoolOption('\0', "no-js-cache-per-process",
+                               "Deactivates cache per process. Otherwise, generate a separate cache"
+                               "sub-directory for this process inside the cache directory"
+                               "specified by --js-cache. This cache directory will be removed"
+                               "when the js shell exits. This is useful for running tests in"
+                               "parallel.")
 #ifdef DEBUG
         || !op.addBoolOption('O', "print-alloc", "Print the number of allocations at exit")
 #endif
@@ -6267,6 +6280,8 @@ main(int argc, char **argv, char **envp)
         || !op.addBoolOption('\0', "no-ion", "Disable IonMonkey")
         || !op.addBoolOption('\0', "no-asmjs", "Disable asm.js compilation")
         || !op.addBoolOption('\0', "no-native-regexp", "Disable native regexp compilation")
+        || !op.addStringOption('\0', "ion-scalar-replacement", "on/off",
+                               "Scalar Replacement (default: off, on to enable)")
         || !op.addStringOption('\0', "ion-gvn", "[mode]",
                                "Specify Ion global value numbering:\n"
                                "  off: disable GVN\n"
@@ -6313,7 +6328,7 @@ main(int argc, char **argv, char **envp)
                              "to test JIT codegen (no-op on platforms other than x86 and x64).")
         || !op.addBoolOption('\0', "fuzzing-safe", "Don't expose functions that aren't safe for "
                              "fuzzers to call")
-        || !op.addBoolOption('\0', "latin1-strings", "Enable Latin1 strings (default: off)")
+        || !op.addBoolOption('\0', "latin1-strings", "Enable Latin1 strings (default: on)")
 #ifdef DEBUG
         || !op.addBoolOption('\0', "dump-entrained-variables", "Print variables which are "
                              "unnecessarily entrained by inner functions")
@@ -6328,6 +6343,8 @@ main(int argc, char **argv, char **envp)
                                "Specify ARM code generation features, or 'help' to list all features.")
         || !op.addIntOption('\0', "arm-asm-nop-fill", "SIZE",
                             "Insert the given number of NOP instructions at all possible pool locations.", 0)
+        || !op.addIntOption('\0', "asm-pool-max-offset", "OFFSET",
+                            "The maximum pc relative OFFSET permitted in pool reference instructions.", 1024)
 #endif
 #if defined(JS_ARM_SIMULATOR)
         || !op.addBoolOption('\0', "arm-sim-icache-checks", "Enable icache flush checks in the ARM "
@@ -6344,6 +6361,9 @@ main(int argc, char **argv, char **envp)
                              "simulator.")
         || !op.addIntOption('\0', "mips-sim-stop-at", "NUMBER", "Stop the MIPS simulator after the given "
                             "NUMBER of instructions.", -1)
+#endif
+#ifdef JSGC_GENERATIONAL
+        || !op.addIntOption('\0', "nursery-size", "SIZE-MB", "Set the maximum nursery size in MB", 16)
 #endif
     )
     {
@@ -6410,8 +6430,13 @@ main(int argc, char **argv, char **envp)
     if (!JS_Init())
         return 1;
 
+    size_t nurseryBytes = JS::DefaultNurseryBytes;
+#ifdef JSGC_GENERATIONAL
+    nurseryBytes = op.getIntOption("nursery-size") * 1024L * 1024L;
+#endif
+
     /* Use the same parameters as the browser in xpcjsruntime.cpp. */
-    rt = JS_NewRuntime(32L * 1024L * 1024L);
+    rt = JS_NewRuntime(JS::DefaultHeapMaxBytes, nurseryBytes);
     if (!rt)
         return 1;
 

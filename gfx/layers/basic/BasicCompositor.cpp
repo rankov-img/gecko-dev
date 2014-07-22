@@ -97,23 +97,8 @@ BasicCompositor::CreateRenderTargetFromSource(const IntRect &aRect,
                                               const CompositingRenderTarget *aSource,
                                               const IntPoint &aSourcePoint)
 {
-  RefPtr<DrawTarget> target = mDrawTarget->CreateSimilarDrawTarget(aRect.Size(), SurfaceFormat::B8G8R8A8);
-  RefPtr<BasicCompositingRenderTarget> rt = new BasicCompositingRenderTarget(target, aRect);
-
-  DrawTarget *source;
-  if (aSource) {
-    const BasicCompositingRenderTarget* sourceSurface =
-      static_cast<const BasicCompositingRenderTarget*>(aSource);
-    source = sourceSurface->mDrawTarget;
-  } else {
-    source = mDrawTarget;
-  }
-
-  RefPtr<SourceSurface> snapshot = source->Snapshot();
-
-  IntRect sourceRect(aSourcePoint, aRect.Size());
-  rt->mDrawTarget->CopySurface(snapshot, sourceRect, IntPoint(0, 0));
-  return rt.forget();
+  MOZ_CRASH("Shouldn't be called!");
+  return nullptr;
 }
 
 TemporaryRef<DataTextureSource>
@@ -190,7 +175,7 @@ static void
 PixmanTransform(DataSourceSurface* aDest,
                 DataSourceSurface* aSource,
                 const gfx3DMatrix& aTransform,
-                gfxPoint aDestOffset)
+                const Point& aDestOffset)
 {
   IntSize destSize = aDest->GetSize();
   pixman_image_t* dest = pixman_image_create_bits(PIXMAN_a8r8g8b8,
@@ -273,6 +258,10 @@ BasicCompositor::DrawQuad(const gfx::Rect& aRect,
       return;
     }
 
+    Matrix destTransform;
+    destTransform.Translate(-aRect.x, -aRect.y);
+    dest->SetTransform(destTransform);
+
     // Get the bounds post-transform.
     To3DMatrix(aTransform, new3DTransform);
     gfxRect bounds = new3DTransform.TransformBounds(ThebesRect(aRect));
@@ -286,9 +275,7 @@ BasicCompositor::DrawQuad(const gfx::Rect& aRect,
 
     // When we apply the 3D transformation, we do it against a temporary
     // surface, so undo the coordinate offset.
-    new3DTransform = new3DTransform * gfx3DMatrix::Translation(-transformBounds.x, -transformBounds.y, 0);
-
-    transformBounds.MoveTo(0, 0);
+    new3DTransform = gfx3DMatrix::Translation(aRect.x, aRect.y, 0) * new3DTransform;
   }
 
   newTransform.PostTranslate(-offset.x, -offset.y);
@@ -379,8 +366,9 @@ BasicCompositor::DrawQuad(const gfx::Rect& aRect,
       return;
     }
 
-    PixmanTransform(temp, source, new3DTransform, gfxPoint(0, 0));
+    PixmanTransform(temp, source, new3DTransform, transformBounds.TopLeft());
 
+    transformBounds.MoveTo(0, 0);
     buffer->DrawSurface(temp, transformBounds, transformBounds);
   }
 

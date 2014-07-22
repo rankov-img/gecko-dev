@@ -405,6 +405,12 @@ private:
 
         nsHttpConnection *mConn;
     };
+public:
+    static nsAHttpConnection *MakeConnectionHandle(nsHttpConnection *aWrapped)
+    {
+        return new nsConnectionHandle(aWrapped);
+    }
+private:
 
     // nsHalfOpenSocket is used to hold the state of an opening TCP socket
     // while we wait for it to establish and bind it to a connection
@@ -445,6 +451,9 @@ private:
         bool IsSpeculative() { return mSpeculative; }
         void SetSpeculative(bool val) { mSpeculative = val; }
 
+        bool IsFromPredictor() { return mIsFromPredictor; }
+        void SetIsFromPredictor(bool val) { mIsFromPredictor = val; }
+
         bool HasConnected() { return mHasConnected; }
 
         void PrintDiagnostics(nsCString &log);
@@ -464,6 +473,11 @@ private:
         // match up - but it prevents a speculative connection from opening
         // more connections that are needed.)
         bool                           mSpeculative;
+
+        // mIsFromPredictor is set if the socket originated from the network
+        // Predictor. It is used to gather telemetry data on used speculative
+        // connections from the predictor.
+        bool                           mIsFromPredictor;
 
         TimeStamp             mPrimarySynStarted;
         TimeStamp             mBackupSynStarted;
@@ -535,7 +549,7 @@ private:
     void     ClosePersistentConnections(nsConnectionEntry *ent);
     void     ReportProxyTelemetry(nsConnectionEntry *ent);
     nsresult CreateTransport(nsConnectionEntry *, nsAHttpTransaction *,
-                             uint32_t, bool);
+                             uint32_t, bool, bool = false);
     void     AddActiveConn(nsHttpConnection *, nsConnectionEntry *);
     void     DecrementActiveConnCount(nsHttpConnection *);
     void     StartedConnect();

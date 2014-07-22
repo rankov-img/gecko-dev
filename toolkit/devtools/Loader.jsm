@@ -44,19 +44,11 @@ let Timer = Cu.import("resource://gre/modules/Timer.jsm", {});
 
 let loaderGlobals = {
   isWorker: false,
-  Debugger: Debugger,
-  promise: promise,
   reportError: Cu.reportError,
-  setInterval: Timer.setInterval,
-  setTimeout: Timer.setTimeout,
-  clearInterval: Timer.clearInterval,
-  clearTimeout: Timer.clearTimeout,
-  xpcInspector: xpcInspector,
 
   btoa: btoa,
   console: console,
   _Iterator: Iterator,
-  ChromeWorker: ChromeWorker,
   loader: {
     lazyGetter: XPCOMUtils.defineLazyGetter.bind(XPCOMUtils),
     lazyImporter: XPCOMUtils.defineLazyModuleGetter.bind(XPCOMUtils),
@@ -64,16 +56,30 @@ let loaderGlobals = {
   },
 };
 
+let loaderModules = {
+  "Debugger": Debugger,
+  "Services": Object.create(Services),
+  "Timer": Object.create(Timer),
+  "toolkit/loader": loader,
+  "xpcInspector": xpcInspector,
+  "promise": promise,
+};
+try {
+  let { indexedDB } = Cu.Sandbox(this, {wantGlobalProperties:["indexedDB"]});
+  loaderModules.indexedDB = indexedDB;
+} catch(e) {
+  // On xpcshell, we can't instantiate indexedDB without crashing
+}
+
+let sharedGlobalBlacklist = ["sdk/indexed-db", "devtools/toolkit/qrcode/decoder/index"];
+
 // Used when the tools should be loaded from the Firefox package itself (the default)
 function BuiltinProvider() {}
 BuiltinProvider.prototype = {
   load: function() {
     this.loader = new loader.Loader({
       id: "fx-devtools",
-      modules: {
-        "Services": Object.create(Services),
-        "toolkit/loader": loader,
-      },
+      modules: loaderModules,
       paths: {
         // When you add a line to this mapping, don't forget to make a
         // corresponding addition to the SrcdirProvider mapping below as well.
@@ -90,6 +96,7 @@ BuiltinProvider.prototype = {
         "devtools/touch-events": "resource://gre/modules/devtools/touch-events",
         "devtools/client": "resource://gre/modules/devtools/client",
         "devtools/pretty-fast": "resource://gre/modules/devtools/pretty-fast.js",
+        "devtools/jsbeautify": "resource://gre/modules/devtools/jsbeautify/beautify.js",
         "devtools/async-utils": "resource://gre/modules/devtools/async-utils",
         "devtools/content-observer": "resource://gre/modules/devtools/content-observer",
         "gcli": "resource://gre/modules/devtools/gcli",
@@ -103,7 +110,9 @@ BuiltinProvider.prototype = {
         "xpcshell-test": "resource://test"
       },
       globals: loaderGlobals,
-      invisibleToDebugger: this.invisibleToDebugger
+      invisibleToDebugger: this.invisibleToDebugger,
+      sharedGlobal: true,
+      sharedGlobalBlacklist: sharedGlobalBlacklist
     });
 
     return promise.resolve(undefined);
@@ -143,6 +152,7 @@ SrcdirProvider.prototype = {
     let touchEventsURI = this.fileURI(OS.Path.join(toolkitDir, "touch-events"));
     let clientURI = this.fileURI(OS.Path.join(toolkitDir, "client"));
     let prettyFastURI = this.fileURI(OS.Path.join(toolkitDir), "pretty-fast.js");
+    let jsBeautifyURI = this.fileURI(OS.Path.join(toolkitDir, "jsbeautify", "beautify.js"));
     let asyncUtilsURI = this.fileURI(OS.Path.join(toolkitDir), "async-utils.js");
     let contentObserverURI = this.fileURI(OS.Path.join(toolkitDir), "content-observer.js");
     let gcliURI = this.fileURI(OS.Path.join(toolkitDir, "gcli", "source", "lib", "gcli"));
@@ -153,10 +163,7 @@ SrcdirProvider.prototype = {
     let sourceMapURI = this.fileURI(OS.Path.join(toolkitDir), "SourceMap.jsm");
     this.loader = new loader.Loader({
       id: "fx-devtools",
-      modules: {
-        "Services": Object.create(Services),
-        "toolkit/loader": loader,
-      },
+      modules: loaderModules,
       paths: {
         "": "resource://gre/modules/commonjs/",
         "main": mainURI,
@@ -171,6 +178,7 @@ SrcdirProvider.prototype = {
         "devtools/touch-events": touchEventsURI,
         "devtools/client": clientURI,
         "devtools/pretty-fast": prettyFastURI,
+        "devtools/jsbeautify": jsBeautifyURI,
         "devtools/async-utils": asyncUtilsURI,
         "devtools/content-observer": contentObserverURI,
         "gcli": gcliURI,
@@ -181,7 +189,9 @@ SrcdirProvider.prototype = {
         "source-map": sourceMapURI,
       },
       globals: loaderGlobals,
-      invisibleToDebugger: this.invisibleToDebugger
+      invisibleToDebugger: this.invisibleToDebugger,
+      sharedGlobal: true,
+      sharedGlobalBlacklist: sharedGlobalBlacklist
     });
 
     return this._writeManifest(devtoolsDir).then(null, Cu.reportError);

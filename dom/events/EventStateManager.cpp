@@ -1218,7 +1218,7 @@ EventStateManager::HandleCrossProcessEvent(WidgetEvent* aEvent,
     //
     // This loop is similar to the one used in
     // PresShell::DispatchTouchEvent().
-    const nsTArray< nsRefPtr<Touch> >& touches =
+    const WidgetTouchEvent::TouchArray& touches =
       aEvent->AsTouchEvent()->touches;
     for (uint32_t i = 0; i < touches.Length(); ++i) {
       Touch* touch = touches[i];
@@ -1562,6 +1562,17 @@ EventStateManager::GenerateDragGesture(nsPresContext* aPresContext,
       return;
     }
 
+    // Check if selection is tracking drag gestures, if so
+    // don't interfere!
+    if (mCurrentTarget)
+    {
+      nsRefPtr<nsFrameSelection> frameSel = mCurrentTarget->GetFrameSelection();
+      if (frameSel && frameSel->GetMouseDownState()) {
+        StopTrackingDragGesture();
+        return;
+      }
+    }
+
     // If non-native code is capturing the mouse don't start a drag.
     if (nsIPresShell::IsMouseCapturePreventingDrag()) {
       StopTrackingDragGesture();
@@ -1585,49 +1596,12 @@ EventStateManager::GenerateDragGesture(nsPresContext* aPresContext,
     // fire drag gesture if mouse has moved enough
     LayoutDeviceIntPoint pt = aEvent->refPoint +
       LayoutDeviceIntPoint::FromUntyped(aEvent->widget->WidgetToScreenOffset());
-    if (Abs(pt.x - mGestureDownPoint.x) > Abs(pixelThresholdX) ||
-        Abs(pt.y - mGestureDownPoint.y) > Abs(pixelThresholdY)) {
+    if (DeprecatedAbs(pt.x - mGestureDownPoint.x) > pixelThresholdX ||
+        DeprecatedAbs(pt.y - mGestureDownPoint.y) > pixelThresholdY) {
       if (Prefs::ClickHoldContextMenu()) {
         // stop the click-hold before we fire off the drag gesture, in case
         // it takes a long time
         KillClickHoldTimer();
-      }
-
-      nsCOMPtr<nsIContent> eventContent;
-      mCurrentTarget->GetContentForEvent(aEvent, getter_AddRefs(eventContent));
-
-      // Make it easier to select link text by only dragging in the vertical direction
-      bool isLinkDraggedVertical = false;
-      bool isDraggableLink = false;
-      nsCOMPtr<nsIContent> dragLinkNode = eventContent;
-      while (dragLinkNode) {
-        if (nsContentUtils::IsDraggableLink(dragLinkNode)) {
-          isDraggableLink = true;
-          // Treat as vertical drag when cursor exceeds the top or bottom of the threshold box
-          isLinkDraggedVertical = Abs(pt.y - mGestureDownPoint.y) > Abs(pixelThresholdY);
-          break;
-        }
-        dragLinkNode = dragLinkNode->GetParent();
-      }
-
-      // Check if selection is tracking drag gestures, if so
-      // don't interfere!
-      if (mCurrentTarget) {
-        nsRefPtr<nsFrameSelection> frameSel = mCurrentTarget->GetFrameSelection();
-        if (frameSel && frameSel->GetMouseDownState()) {
-          if (isLinkDraggedVertical) {
-            // Stop selecting when link dragged vertically
-            frameSel->SetMouseDownState(PR_FALSE);
-            // Clear any selection to prevent it being dragged instead of link
-            frameSel->ClearNormalSelection();
-          } else {
-            StopTrackingDragGesture();
-            // Don't register click for draggable links when selecting
-            if (isDraggableLink)
-              mLClickCount = 0;
-            return;
-          }
-        }
       }
 
       nsCOMPtr<nsISupports> container = aPresContext->GetContainerWeak();
@@ -1639,7 +1613,8 @@ EventStateManager::GenerateDragGesture(nsPresContext* aPresContext,
         new DataTransfer(window, NS_DRAGDROP_START, false, -1);
 
       nsCOMPtr<nsISelection> selection;
-      nsCOMPtr<nsIContent> targetContent;
+      nsCOMPtr<nsIContent> eventContent, targetContent;
+      mCurrentTarget->GetContentForEvent(aEvent, getter_AddRefs(eventContent));
       if (eventContent)
         DetermineDragTarget(window, eventContent, dataTransfer,
                             getter_AddRefs(selection), getter_AddRefs(targetContent));
@@ -3848,9 +3823,13 @@ EventStateManager::NotifyMouseOver(WidgetMouseEvent* aMouseEvent,
 {
   NS_ASSERTION(aContent, "Mouse must be over something");
 
+  // If pointer capture is set, we should suppress pointerover/pointerenter events
+  // for all elements except element which have pointer capture.
+  bool dispatch = !aMouseEvent->retargetedByPointerCapture;
+
   OverOutElementsWrapper* wrapper = GetWrapperByEventID(aMouseEvent);
 
-  if (wrapper->mLastOverElement == aContent)
+  if (wrapper->mLastOverElement == aContent && dispatch)
     return;
 
   // Before firing mouseover, check for recursion
@@ -3861,12 +3840,9 @@ EventStateManager::NotifyMouseOver(WidgetMouseEvent* aMouseEvent,
   // document's ESM state to indicate that the mouse is over the
   // content associated with our subdocument.
   EnsureDocument(mPresContext);
-  nsIDocument *parentDoc = mDocument->GetParentDocument();
-  if (parentDoc) {
-    nsIContent *docContent = parentDoc->FindContentForSubDocument(mDocument);
-    if (docContent) {
-      nsIPresShell *parentShell = parentDoc->GetShell();
-      if (parentShell) {
+  if (nsIDocument *parentDoc = mDocument->GetParentDocument()) {
+    if (nsIContent *docContent = parentDoc->FindContentForSubDocument(mDocument)) {
+      if (nsIPresShell *parentShell = parentDoc->GetShell()) {
         EventStateManager* parentESM =
           parentShell->GetPresContext()->EventStateManager();
         parentESM->NotifyMouseOver(aMouseEvent, docContent);
@@ -3875,7 +3851,7 @@ EventStateManager::NotifyMouseOver(WidgetMouseEvent* aMouseEvent,
   }
   // Firing the DOM event in the parent document could cause all kinds
   // of havoc.  Reverify and take care.
-  if (wrapper->mLastOverElement == aContent)
+  if (wrapper->mLastOverElement == aContent && dispatch)
     return;
 
   // Remember mLastOverElement as the related content for the
@@ -3883,10 +3859,12 @@ EventStateManager::NotifyMouseOver(WidgetMouseEvent* aMouseEvent,
   nsCOMPtr<nsIContent> lastOverElement = wrapper->mLastOverElement;
 
   bool isPointer = aMouseEvent->eventStructType == NS_POINTER_EVENT;
-  EnterLeaveDispatcher enterDispatcher(this, aContent, lastOverElement,
-                                       aMouseEvent,
-                                       isPointer ? NS_POINTER_ENTER :
-                                                   NS_MOUSEENTER);
+  
+  Maybe<EnterLeaveDispatcher> enterDispatcher;
+  if (dispatch) {
+    enterDispatcher.construct(this, aContent, lastOverElement, aMouseEvent,
+                              isPointer ? NS_POINTER_ENTER : NS_MOUSEENTER);
+  }
 
   NotifyMouseOut(aMouseEvent, aContent);
 
@@ -3898,13 +3876,17 @@ EventStateManager::NotifyMouseOver(WidgetMouseEvent* aMouseEvent,
     SetContentState(aContent, NS_EVENT_STATE_HOVER);
   }
 
-  // Fire mouseover
-  wrapper->mLastOverFrame =
-    DispatchMouseOrPointerEvent(aMouseEvent,
-                                isPointer ? NS_POINTER_OVER :
-                                            NS_MOUSE_ENTER_SYNTH,
-                                aContent, lastOverElement);
-  wrapper->mLastOverElement = aContent;
+  if (dispatch) {
+    // Fire mouseover
+    wrapper->mLastOverFrame = 
+      DispatchMouseOrPointerEvent(aMouseEvent,
+                                  isPointer ? NS_POINTER_OVER : NS_MOUSE_ENTER_SYNTH,
+                                  aContent, lastOverElement);
+    wrapper->mLastOverElement = aContent;
+  } else {
+    wrapper->mLastOverFrame = nullptr;
+    wrapper->mLastOverElement = nullptr;
+  }
 
   // Turn recursion protection back off
   wrapper->mFirstOverEventElement = nullptr;

@@ -11,6 +11,8 @@ Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "PeerConnectionIdp",
   "resource://gre/modules/media/PeerConnectionIdp.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "convertToRTCStatsReport",
+  "resource://gre/modules/media/RTCStatsReport.jsm");
 
 const PC_CONTRACT = "@mozilla.org/dom/peerconnection;1";
 const PC_OBS_CONTRACT = "@mozilla.org/dom/peerconnectionobserver;1";
@@ -40,6 +42,7 @@ function GlobalPCList() {
   Services.obs.addObserver(this, "profile-change-net-teardown", true);
   Services.obs.addObserver(this, "network:offline-about-to-go-offline", true);
   Services.obs.addObserver(this, "network:offline-status-changed", true);
+  Services.obs.addObserver(this, "gmp-plugin-crash", true);
 }
 GlobalPCList.prototype = {
   QueryInterface: XPCOMUtils.generateQI([Ci.nsIObserver,
@@ -105,6 +108,27 @@ GlobalPCList.prototype = {
       }
     };
 
+    let hasPluginId = function(list, winID, pluginID, name, crashReport) {
+      if (list.hasOwnProperty(winID)) {
+        list[winID].forEach(function(pcref) {
+          let pc = pcref.get();
+          if (pc) {
+            if (pc._pc.pluginCrash(pluginID)) {
+              // Notify DOM window of the crash
+              let event = new CustomEvent("PluginCrashed",
+                { bubbles: false, cancelable: false,
+                  detail: {
+                    pluginName: name, 
+                    pluginDumpId: crashReport,
+                    submittedCrashReport: false }
+                });
+              pc._win.dispatchEvent(event);
+            }
+          }
+        });
+      }
+    };
+
     if (topic == "inner-window-destroyed") {
       let winID = subject.QueryInterface(Ci.nsISupportsPRUint64).data;
       cleanupWinId(this._list, winID);
@@ -132,6 +156,19 @@ GlobalPCList.prototype = {
       } else if (data == "online") {
         this._networkdown = false;
       }
+    } else if (topic == "gmp-plugin-crash") {
+      // a plugin crashed; if it's associated with any of our PCs, fire an
+      // event to the DOM window
+      let sep = data.indexOf(' ');
+      let pluginId = data.slice(0, sep);
+      let rest = data.slice(sep+1);
+      // This presumes no spaces in the name!
+      sep = rest.indexOf(' ');
+      let name = rest.slice(0, sep);
+      let crashId = rest.slice(sep+1);
+      for (let winId in this._list) {
+        hasPluginId(this._list, winId, pluginId, name, crashId);
+      }      
     }
   },
 
@@ -187,16 +224,7 @@ function RTCStatsReport(win, dict) {
 
   this._win = win;
   this._pcid = dict.pcid;
-  this._report = {};
-  appendStats(dict.inboundRTPStreamStats, this._report);
-  appendStats(dict.outboundRTPStreamStats, this._report);
-  appendStats(dict.mediaStreamTrackStats, this._report);
-  appendStats(dict.mediaStreamStats, this._report);
-  appendStats(dict.transportStats, this._report);
-  appendStats(dict.iceComponentStats, this._report);
-  appendStats(dict.iceCandidatePairStats, this._report);
-  appendStats(dict.iceCandidateStats, this._report);
-  appendStats(dict.codecStats, this._report);
+  this._report = convertToRTCStatsReport(dict);
 }
 RTCStatsReport.prototype = {
   classDescription: "RTCStatsReport",
@@ -365,14 +393,16 @@ RTCPeerConnection.prototype = {
 
   callCB: function(callback, arg) {
     if (callback) {
-      try {
-        callback(arg);
-      } catch(e) {
-        // A content script (user-provided) callback threw an error. We don't
-        // want this to take down peerconnection, but we still want the user
-        // to see it, so we catch it, report it, and move on.
-        this.logErrorAndCallOnError(e.message, e.fileName, e.lineNumber);
-      }
+      this._win.setTimeout(() => {
+        try {
+          callback(arg);
+        } catch(e) {
+          // A content script (user-provided) callback threw an error. We don't
+          // want this to take down peerconnection, but we still want the user
+          // to see it, so we catch it, report it, and move on.
+          this.logErrorAndCallOnError(e.message, e.fileName, e.lineNumber);
+        }
+      }, 0);
     }
   },
 
@@ -470,50 +500,6 @@ RTCPeerConnection.prototype = {
     }
   },
 
-  /**
-   * MediaConstraints look like this:
-   *
-   * {
-   *   mandatory: {"OfferToReceiveAudio": true, "OfferToReceiveVideo": true },
-   *   optional: [{"VoiceActivityDetection": true}, {"FooBar": 10}]
-   * }
-   *
-   * WebIDL normalizes the top structure for us, but the mandatory constraints
-   * member comes in as a raw object so we can detect unknown constraints. We
-   * compare its members against ones we support, and fail if not found.
-   */
-  _mustValidateConstraints: function(constraints, errorMsg) {
-    if (constraints.mandatory) {
-      let supported;
-      try {
-        // Passing the raw constraints.mandatory here validates its structure
-        supported = this._observer.getSupportedConstraints(constraints.mandatory);
-      } catch (e) {
-        throw new this._win.DOMError("", errorMsg + " - " + e.message);
-      }
-
-      for (let constraint of Object.keys(constraints.mandatory)) {
-        if (!(constraint in supported)) {
-          throw new this._win.DOMError("",
-              errorMsg + " - unknown mandatory constraint: " + constraint);
-        }
-      }
-    }
-    if (constraints.optional) {
-      let len = constraints.optional.length;
-      for (let i = 0; i < len; i++) {
-        let constraints_per_entry = 0;
-        for (let constraint in Object.keys(constraints.optional[i])) {
-          if (constraints_per_entry) {
-            throw new this._win.DOMError("", errorMsg +
-                " - optional constraint must be single key/value pair");
-          }
-          constraints_per_entry += 1;
-        }
-      }
-    }
-  },
-
   // Ideally, this should be of the form _checkState(state),
   // where the state is taken from an enumeration containing
   // the valid peer connection states defined in the WebRTC
@@ -579,26 +565,22 @@ RTCPeerConnection.prototype = {
                           });
   },
 
-  createOffer: function(onSuccess, onError, constraints) {
-    if (!constraints) {
-      constraints = {};
-    }
-    this._mustValidateConstraints(constraints, "createOffer passed invalid constraints");
-
+  createOffer: function(onSuccess, onError, options) {
+    options = options || {};
     this._queueOrRun({
       func: this._createOffer,
-      args: [onSuccess, onError, constraints],
+      args: [onSuccess, onError, options],
       wait: true
     });
   },
 
-  _createOffer: function(onSuccess, onError, constraints) {
+  _createOffer: function(onSuccess, onError, options) {
     this._onCreateOfferSuccess = onSuccess;
     this._onCreateOfferFailure = onError;
-    this._impl.createOffer(constraints);
+    this._impl.createOffer(options);
   },
 
-  _createAnswer: function(onSuccess, onError, constraints, provisional) {
+  _createAnswer: function(onSuccess, onError) {
     this._onCreateAnswerSuccess = onSuccess;
     this._onCreateAnswerFailure = onError;
 
@@ -615,26 +597,13 @@ RTCPeerConnection.prototype = {
                                          "No outstanding offer");
       return;
     }
-
-    // TODO: Implement provisional answer.
-
-    this._impl.createAnswer(constraints);
+    this._impl.createAnswer();
   },
 
-  createAnswer: function(onSuccess, onError, constraints, provisional) {
-    if (!constraints) {
-      constraints = {};
-    }
-
-    this._mustValidateConstraints(constraints, "createAnswer passed invalid constraints");
-
-    if (!provisional) {
-      provisional = false;
-    }
-
+  createAnswer: function(onSuccess, onError) {
     this._queueOrRun({
       func: this._createAnswer,
-      args: [onSuccess, onError, constraints, provisional],
+      args: [onSuccess, onError],
       wait: true
     });
   },
@@ -799,7 +768,7 @@ RTCPeerConnection.prototype = {
                                         gotAssertion);
   },
 
-  updateIce: function(config, constraints) {
+  updateIce: function(config) {
     throw new this._win.DOMError("", "updateIce not yet implemented");
   },
 
@@ -820,22 +789,17 @@ RTCPeerConnection.prototype = {
                                  cand.sdpMLineIndex + 1);
   },
 
-  addStream: function(stream, constraints) {
-    if (!constraints) {
-      constraints = {};
-    }
-    this._mustValidateConstraints(constraints,
-                                  "addStream passed invalid constraints");
+  addStream: function(stream) {
     if (stream.currentTime === undefined) {
       throw new this._win.DOMError("", "Invalid stream passed to addStream!");
     }
     this._queueOrRun({ func: this._addStream,
-                       args: [stream, constraints],
+                       args: [stream],
                        wait: false });
   },
 
-  _addStream: function(stream, constraints) {
-    this._impl.addStream(stream, constraints);
+  _addStream: function(stream) {
+    this._impl.addStream(stream);
   },
 
   removeStream: function(stream) {
@@ -1298,11 +1262,7 @@ PeerConnectionObserver.prototype = {
   notifyDataChannel: function(channel) {
     this.dispatchEvent(new this._dompc._win.RTCDataChannelEvent("datachannel",
                                                                 { channel: channel }));
-  },
-
-  getSupportedConstraints: function(dict) {
-    return dict;
-  },
+  }
 };
 
 function RTCPeerConnectionStatic() {

@@ -139,6 +139,9 @@ public:
 
   nsCOMPtr<nsIContentFrameMessageManager> mMessageManager;
   nsRefPtr<TabChildBase> mTabChild;
+
+protected:
+  ~TabChildGlobal();
 };
 
 class ContentListener MOZ_FINAL : public nsIDOMEventListener
@@ -162,8 +165,9 @@ class TabChildBase : public nsISupports,
 {
 public:
     TabChildBase();
+
     NS_DECL_CYCLE_COLLECTING_ISUPPORTS
-    NS_DECL_CYCLE_COLLECTION_CLASS(TabChildBase)
+    NS_DECL_CYCLE_COLLECTION_SCRIPT_HOLDER_CLASS(TabChildBase)
 
     virtual nsIWebNavigation* WebNavigation() = 0;
     virtual nsIWidget* WebWidget() = 0;
@@ -185,7 +189,7 @@ public:
                                                 nsIWidget* aWidget);
 
 protected:
-    ~TabChildBase() {}
+    virtual ~TabChildBase();
     CSSSize GetPageSize(nsCOMPtr<nsIDocument> aDocument, const CSSSize& aViewport);
 
     // Get the DOMWindowUtils for the top-level window in this tab.
@@ -256,8 +260,6 @@ public:
     /** Return a TabChild with the given attributes. */
     static already_AddRefed<TabChild>
     Create(nsIContentChild* aManager, const TabContext& aContext, uint32_t aChromeFlags);
-
-    virtual ~TabChild();
 
     bool IsRootContentDocument();
 
@@ -482,6 +484,8 @@ public:
     virtual bool RecvUIResolutionChanged() MOZ_OVERRIDE;
 
 protected:
+    virtual ~TabChild();
+
     virtual PRenderFrameChild* AllocPRenderFrameChild(ScrollingBehavior* aScrolling,
                                                       TextureFactoryIdentifier* aTextureFactoryIdentifier,
                                                       uint64_t* aLayersId,
@@ -583,10 +587,16 @@ private:
     bool mTriedBrowserInit;
     ScreenOrientation mOrientation;
     bool mUpdateHitRegion;
-    bool mContextMenuHandled;
-    bool mLongTapEventHandled;
-    bool mWaitingTouchListeners;
+    bool mPendingTouchPreventedResponse;
+    ScrollableLayerGuid mPendingTouchPreventedGuid;
     void FireSingleTapEvent(LayoutDevicePoint aPoint);
+
+    enum ClickState {
+      Unknown,
+      IsClick,
+      IsNotClick
+    };
+    ClickState mTouchEndIsClick;
 
     bool mIgnoreKeyPressEvent;
     nsRefPtr<ActiveElementManager> mActiveElementManager;

@@ -53,7 +53,7 @@ class CodeGenerator : public CodeGeneratorSpecific
 
   public:
     bool generate();
-    bool generateAsmJS(Label *stackOverflowLabel);
+    bool generateAsmJS(AsmJSFunctionLabels *labels);
     bool link(JSContext *cx, types::CompilerConstraintList *constraints);
 
     bool visitLabel(LLabel *lir);
@@ -351,6 +351,7 @@ class CodeGenerator : public CodeGeneratorSpecific
     bool visitAssertRangeV(LAssertRangeV *ins);
 
     bool visitInterruptCheck(LInterruptCheck *lir);
+    bool visitAsmJSInterruptCheck(LAsmJSInterruptCheck *lir);
     bool visitRecompileCheck(LRecompileCheck *ins);
 
     IonScriptCounts *extractScriptCounts() {

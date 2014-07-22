@@ -146,10 +146,8 @@ fun_getProperty(JSContext *cx, HandleObject obj_, HandleId id, MutableHandleValu
         return true;
     }
 
-    MOZ_ASSUME_UNREACHABLE("fun_getProperty");
+    MOZ_CRASH("fun_getProperty");
 }
-
-
 
 /* NB: no sentinels at ends -- use ArrayLength to bound loops.
  * Properties censored into [[ThrowTypeError]] in strict mode. */
@@ -517,7 +515,6 @@ js::CloneFunctionAndScript(JSContext *cx, HandleObject enclosingScope, HandleFun
         return nullptr;
 
     RootedScript cloneScript(cx, clone->nonLazyScript());
-    CallNewScriptHook(cx, cloneScript, clone);
     return clone;
 }
 
@@ -703,20 +700,6 @@ CreateFunctionPrototype(JSContext *cx, JSProtoKey key)
     return functionProto;
 }
 
-static bool
-FinishFunctionClassInit(JSContext *cx, JS::HandleObject ctor, JS::HandleObject proto)
-{
-    /*
-     * Notify any debuggers about the creation of the script for
-     * |Function.prototype| -- after all initialization, for simplicity.
-     */
-    RootedFunction functionProto(cx, &proto->as<JSFunction>());
-    RootedScript functionProtoScript(cx, functionProto->nonLazyScript());
-    CallNewScriptHook(cx, functionProtoScript, functionProto);
-    return true;
-}
-
-
 const Class JSFunction::class_ = {
     js_Function_str,
     JSCLASS_NEW_RESOLVE | JSCLASS_IMPLEMENTS_BARRIERS |
@@ -737,9 +720,7 @@ const Class JSFunction::class_ = {
         CreateFunctionConstructor,
         CreateFunctionPrototype,
         nullptr,
-        function_methods,
-        nullptr,
-        FinishFunctionClassInit
+        function_methods
     }
 };
 
@@ -861,10 +842,7 @@ js::FunctionToString(JSContext *cx, HandleFunction fun, bool bodyOnly, bool lamb
         return nullptr;
     }
     if (haveSource) {
-        RootedString srcStr(cx, script->sourceData(cx));
-        if (!srcStr)
-            return nullptr;
-        Rooted<JSFlatString *> src(cx, srcStr->ensureFlat(cx));
+        Rooted<JSFlatString *> src(cx, script->sourceData(cx));
         if (!src)
             return nullptr;
 
@@ -1273,8 +1251,6 @@ JSFunction::createScriptForLazilyInterpretedFunction(JSContext *cx, HandleFuncti
             clonedScript->setFunction(fun);
 
             fun->setUnlazifiedScript(clonedScript);
-
-            CallNewScriptHook(cx, clonedScript, fun);
 
             if (!lazy->maybeScript())
                 lazy->initScript(clonedScript);
@@ -2019,8 +1995,6 @@ JSObject::hasIdempotentProtoChain() const
         if (!obj)
             return true;
     }
-
-    MOZ_ASSUME_UNREACHABLE("Should not get here");
 }
 
 namespace JS {

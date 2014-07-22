@@ -343,10 +343,6 @@ class Assembler : public AssemblerX86Shared
         masm.cmpl_rm_force32(rhs.code(), (void*)-1);
         append(AsmJSAbsoluteLink(CodeOffsetLabel(masm.currentOffset()), lhs.kind()));
     }
-    CodeOffsetLabel cmplWithPatch(Register lhs, Imm32 rhs) {
-        masm.cmpl_ir_force32(rhs.value, lhs.code());
-        return CodeOffsetLabel(masm.currentOffset());
-    }
 
     void jmp(ImmPtr target, Relocation::Kind reloc = Relocation::HARDCODED) {
         JmpSrc src = masm.jmp();
@@ -534,6 +530,10 @@ class Assembler : public AssemblerX86Shared
         return CodeOffsetLabel(masm.currentOffset());
     }
 
+    void loadAsmJSActivation(Register dest) {
+        CodeOffsetLabel label = movlWithPatch(PatchedAbsoluteAddress(), dest);
+        append(AsmJSGlobalAccess(label, AsmJSActivationGlobalDataOffset));
+    }
 };
 
 // Get a register in which we plan to put a quantity that will be used as an

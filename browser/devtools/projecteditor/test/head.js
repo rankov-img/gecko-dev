@@ -18,7 +18,8 @@ let TEMP_PATH;
 // All test are asynchronous
 waitForExplicitFinish();
 
-//Services.prefs.setBoolPref("devtools.dump.emit", true);
+// Uncomment this pref to dump all devtools emitted events to the console.
+// Services.prefs.setBoolPref("devtools.dump.emit", true);
 
 // Set the testing flag on gDevTools and reset it when the test ends
 gDevTools.testing = true;
@@ -303,3 +304,22 @@ function onceEditorSave(projecteditor) {
   });
   return def.promise;
 }
+
+function onPopupShow(menu) {
+  let defer = promise.defer();
+  menu.addEventListener("popupshown", function onpopupshown() {
+    menu.removeEventListener("popupshown", onpopupshown);
+    defer.resolve();
+  });
+  return defer.promise;
+}
+
+function onPopupHidden(menu) {
+  let defer = promise.defer();
+  menu.addEventListener("popuphidden", function onpopuphidden() {
+    menu.removeEventListener("popuphidden", onpopuphidden);
+    defer.resolve();
+  });
+  return defer.promise;
+}
+

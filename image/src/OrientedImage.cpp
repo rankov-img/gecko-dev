@@ -11,16 +11,17 @@
 
 #include "OrientedImage.h"
 
-using namespace mozilla::gfx;
-
 using std::swap;
-using mozilla::layers::LayerManager;
-using mozilla::layers::ImageContainer;
 
 namespace mozilla {
+
+using namespace gfx;
+using layers::LayerManager;
+using layers::ImageContainer;
+
 namespace image {
 
-NS_IMPL_ISUPPORTS(OrientedImage, imgIContainer)
+NS_IMPL_ISUPPORTS_INHERITED0(OrientedImage, ImageWrapper)
 
 nsIntRect
 OrientedImage::FrameRect(uint32_t aWhichFrame)
@@ -107,7 +108,7 @@ OrientedImage::GetFrame(uint32_t aWhichFrame,
   }
 
   // Create a surface to draw into.
-  mozilla::RefPtr<DrawTarget> target =
+  RefPtr<DrawTarget> target =
     gfxPlatform::GetPlatform()->
       CreateOffscreenContentDrawTarget(IntSize(width, height), surfaceFormat);
   if (!target) {
@@ -268,7 +269,10 @@ OrientedImage::GetImageSpaceInvalidationRect(const nsIntRect& aRect)
   }
 
   // Transform the invalidation rect into the correct orientation.
-  gfxMatrix matrix(OrientationMatrix(nsIntSize(width, height)).Invert());
+  gfxMatrix matrix(OrientationMatrix(nsIntSize(width, height)));
+  if (!matrix.Invert()) {
+    return nsIntRect();
+  }
   gfxRect invalidRect(matrix.TransformBounds(gfxRect(rect.x, rect.y,
                                                      rect.width, rect.height)));
   invalidRect.RoundOut();

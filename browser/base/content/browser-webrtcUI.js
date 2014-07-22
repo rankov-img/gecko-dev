@@ -23,7 +23,7 @@ let WebrtcIndicator = {
 
   fillPopup: function (aPopup) {
     this._menuitemData = new WeakMap;
-    for (let streamData of this.UIModule.activeStreams) {
+    for (let streamData of this.UIModule.getActiveStreams(true, true, true)) {
       let pageURI = Services.io.newURI(streamData.uri, null, null);
       let menuitem = document.createElement("menuitem");
       menuitem.setAttribute("class", "menuitem-iconic");
@@ -59,7 +59,12 @@ let WebrtcIndicator = {
       streamData.browser.focus();
     }
     browserWindow.focus();
-    PopupNotifications.getNotification("webRTC-sharingDevices",
-                                       streamData.browser).reshow();
+    let notif = PopupNotifications.getNotification("webRTC-sharingDevices",
+                                                   streamData.browser);
+    if (!notif) {
+      notif = PopupNotifications.getNotification("webRTC-sharingScreen",
+                                                 streamData.browser);
+    }
+    notif.reshow();
   }
 }

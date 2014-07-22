@@ -359,6 +359,7 @@ public: // intentional!
     uint32_t mParallelSpeculativeConnectLimit;
     bool mIgnoreIdle;
     bool mIgnorePossibleSpdyConnections;
+    bool mIsFromPredictor;
 
     // As above, added manually so we can use nsRefPtr without inheriting from
     // nsISupports
@@ -407,6 +408,7 @@ nsHttpConnectionMgr::SpeculativeConnect(nsHttpConnectionInfo *ci,
         overrider->GetIgnoreIdle(&args->mIgnoreIdle);
         overrider->GetIgnorePossibleSpdyConnections(
             &args->mIgnorePossibleSpdyConnections);
+        overrider->GetIsFromPredictor(&args->mIsFromPredictor);
     }
 
     nsresult rv =
@@ -1401,6 +1403,11 @@ nsHttpConnectionMgr::MakeNewConnection(nsConnectionEntry *ent,
             Telemetry::AutoCounter<Telemetry::HTTPCONNMGR_USED_SPECULATIVE_CONN> usedSpeculativeConn;
             ++usedSpeculativeConn;
 
+            if (ent->mHalfOpens[i]->IsFromPredictor()) {
+              Telemetry::AutoCounter<Telemetry::PREDICTOR_TOTAL_PRECONNECTS_USED> totalPreconnectsUsed;
+              ++totalPreconnectsUsed;
+            }
+
             // return OK because we have essentially opened a new connection
             // by converting a speculative half-open to general use
             return NS_OK;
@@ -1984,10 +1991,21 @@ nsHttpConnectionMgr::ProcessNewTransaction(nsHttpTransaction *trans)
 
     if (conn) {
         MOZ_ASSERT(trans->Caps() & NS_HTTP_STICKY_CONNECTION);
-        MOZ_ASSERT(((int32_t)ent->mActiveConns.IndexOf(conn)) != -1,
-                   "Sticky Connection Not In Active List");
         LOG(("nsHttpConnectionMgr::ProcessNewTransaction trans=%p "
              "sticky connection=%p\n", trans, conn.get()));
+
+        if (static_cast<int32_t>(ent->mActiveConns.IndexOf(conn)) == -1) {
+            LOG(("nsHttpConnectionMgr::ProcessNewTransaction trans=%p "
+                 "sticky connection=%p needs to go on the active list\n", trans, conn.get()));
+
+            // make sure it isn't on the idle list - we expect this to be an
+            // unknown fresh connection
+            MOZ_ASSERT(static_cast<int32_t>(ent->mIdleConns.IndexOf(conn)) == -1);
+            MOZ_ASSERT(!conn->IsExperienced());
+
+            AddActiveConn(conn, ent); // make it active
+        }
+
         trans->SetConnection(nullptr);
         rv = DispatchTransaction(ent, trans, conn);
     } else {
@@ -2050,7 +2068,8 @@ nsresult
 nsHttpConnectionMgr::CreateTransport(nsConnectionEntry *ent,
                                      nsAHttpTransaction *trans,
                                      uint32_t caps,
-                                     bool speculative)
+                                     bool speculative,
+                                     bool isFromPredictor)
 {
     MOZ_ASSERT(PR_GetCurrentThread() == gSocketThread);
 
@@ -2059,6 +2078,12 @@ nsHttpConnectionMgr::CreateTransport(nsConnectionEntry *ent,
         sock->SetSpeculative(true);
         Telemetry::AutoCounter<Telemetry::HTTPCONNMGR_TOTAL_SPECULATIVE_CONN> totalSpeculativeConn;
         ++totalSpeculativeConn;
+
+        if (isFromPredictor) {
+          sock->SetIsFromPredictor(true);
+          Telemetry::AutoCounter<Telemetry::PREDICTOR_TOTAL_PRECONNECTS_CREATED> totalPreconnectsCreated;
+          ++totalPreconnectsCreated;
+        }
     }
 
     nsresult rv = sock->SetupPrimaryStreams();
@@ -2774,11 +2799,13 @@ nsHttpConnectionMgr::OnMsgSpeculativeConnect(int32_t, void *param)
         gHttpHandler->ParallelSpeculativeConnectLimit();
     bool ignorePossibleSpdyConnections = false;
     bool ignoreIdle = false;
+    bool isFromPredictor = false;
 
     if (args->mOverridesOK) {
         parallelSpeculativeConnectLimit = args->mParallelSpeculativeConnectLimit;
         ignorePossibleSpdyConnections = args->mIgnorePossibleSpdyConnections;
         ignoreIdle = args->mIgnoreIdle;
+        isFromPredictor = args->mIsFromPredictor;
     }
 
     if (mNumHalfOpenConns < parallelSpeculativeConnectLimit &&
@@ -2786,7 +2813,7 @@ nsHttpConnectionMgr::OnMsgSpeculativeConnect(int32_t, void *param)
          !ent->mIdleConns.Length()) &&
         !RestrictConnections(ent, ignorePossibleSpdyConnections) &&
         !AtActiveConnectionLimit(ent, args->mTrans->Caps())) {
-        CreateTransport(ent, args->mTrans, args->mTrans->Caps(), true);
+        CreateTransport(ent, args->mTrans, args->mTrans->Caps(), true, isFromPredictor);
     }
     else {
         LOG(("  Transport not created due to existing connection count\n"));
@@ -2835,6 +2862,7 @@ nsHalfOpenSocket::nsHalfOpenSocket(nsConnectionEntry *ent,
     , mTransaction(trans)
     , mCaps(caps)
     , mSpeculative(false)
+    , mIsFromPredictor(false)
     , mHasConnected(false)
     , mPrimaryConnectedOK(false)
     , mBackupConnectedOK(false)
@@ -2910,9 +2938,19 @@ nsHalfOpenSocket::SetupStreams(nsISocketTransport **transport,
         tmpFlags |= nsISocketTransport::DISABLE_IPV6;
     }
 
-    if (IsSpeculative()) {
+    // Allow speculative connections for loopback so we can run tests.
+    if (IsSpeculative() && gHttpHandler->AllowSpeculativeConnectOnLoopback()) {
         tmpFlags |= nsISocketTransport::DISABLE_RFC1918;
+        LOG(("nsHalfOpenSocket::SetupStreams %p Disable private IPs for "
+             "speculative connections", this));
+    } else if (IsSpeculative() ||
+               !(mCaps & NS_HTTP_ALLOW_PRIVATE_IP_ADDRESSES)) {
+        tmpFlags |= nsISocketTransport::DISABLE_LOOPBACK |
+                    nsISocketTransport::DISABLE_RFC1918;
+        LOG(("nsHalfOpenSocket::SetupStreams %p Disable loopback and private "
+             "IPs", this));
     }
+
 
     socketTransport->SetConnectionFlags(tmpFlags);
 
@@ -3705,6 +3743,11 @@ nsConnectionEntry::RemoveHalfOpen(nsHalfOpenSocket *halfOpen)
     if (halfOpen->IsSpeculative()) {
       Telemetry::AutoCounter<Telemetry::HTTPCONNMGR_UNUSED_SPECULATIVE_CONN> unusedSpeculativeConn;
       ++unusedSpeculativeConn;
+
+      if (halfOpen->IsFromPredictor()) {
+        Telemetry::AutoCounter<Telemetry::PREDICTOR_TOTAL_PRECONNECTS_UNUSED> totalPreconnectsUnused;
+        ++totalPreconnectsUnused;
+      }
     }
 
     // A failure to create the transport object at all

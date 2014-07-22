@@ -36,6 +36,8 @@ struct RunnableMethodTraits<mozilla::ipc::MessageChannel>
             DebugAbort(__FILE__, __LINE__, #_cond,## __VA_ARGS__);  \
     } while (0)
 
+static uintptr_t gDispatchingUrgentMessageCount;
+
 namespace mozilla {
 namespace ipc {
 
@@ -1099,9 +1101,13 @@ MessageChannel::DispatchUrgentMessage(const Message& aMsg)
 
     Message *reply = nullptr;
 
+    MOZ_ASSERT(NS_IsMainThread());
+
+    gDispatchingUrgentMessageCount++;
     mDispatchingUrgentMessageCount++;
     Result rv = mListener->OnCallReceived(aMsg, reply);
     mDispatchingUrgentMessageCount--;
+    gDispatchingUrgentMessageCount--;
 
     if (!MaybeHandleError(rv, "DispatchUrgentMessage")) {
         delete reply;
@@ -1662,10 +1668,11 @@ MessageChannel::Close()
         }
 
         if (ChannelOpening == mChannelState) {
-            // Mimic CloseWithError().
+            // SynchronouslyClose() waits for an ack from the other side, so
+            // the opening sequence should complete before this returns.
             SynchronouslyClose();
             mChannelState = ChannelError;
-            PostErrorNotifyTask();
+            NotifyMaybeChannelError();
             return;
         }
 
@@ -1749,6 +1756,12 @@ MessageChannel::DumpInterruptStack(const char* const pfx) const
         printf_stderr("%s[(%u) %s %s %s(actor=%d) ]\n", pfx,
                       i, dir, sems, name, id);
     }
+}
+
+bool
+ProcessingUrgentMessages()
+{
+    return gDispatchingUrgentMessageCount > 0;
 }
 
 } // ipc

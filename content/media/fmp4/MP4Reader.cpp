@@ -13,6 +13,7 @@
 #include "Layers.h"
 #include "SharedThreadPool.h"
 #include "mozilla/Preferences.h"
+#include "mozilla/dom/TimeRanges.h"
 
 using mozilla::layers::Image;
 using mozilla::layers::LayerManager;
@@ -38,7 +39,7 @@ namespace mozilla {
 // Uncomment to enable verbose per-sample logging.
 //#define LOG_SAMPLE_DECODE 1
 
-#ifdef LOG_SAMPLE_DECODE
+#ifdef PR_LOGGING
 static const char*
 TrackTypeToStr(TrackType aTrack)
 {
@@ -350,9 +351,8 @@ MP4Reader::Decode(TrackType aTrack)
       if (!compressed) {
         // EOS, or error. Let the state machine know there are no more
         // frames coming.
-#ifdef LOG_SAMPLE_DECODE
-        LOG("PopSample %s nullptr", TrackTypeToStr(aTrack));
-#endif
+        LOG("Draining %s", TrackTypeToStr(aTrack));
+        data.mDecoder->Drain();
         return false;
       } else {
 #ifdef LOG_SAMPLE_DECODE
@@ -548,6 +548,25 @@ MP4Reader::Seek(int64_t aTime,
   if (mDemuxer->HasValidAudio()) {
     mDemuxer->SeekAudio(
       mQueuedVideoSample ? mQueuedVideoSample->composition_timestamp : aTime);
+  }
+
+  return NS_OK;
+}
+
+nsresult
+MP4Reader::GetBuffered(dom::TimeRanges* aBuffered, int64_t aStartTime)
+{
+  nsTArray<MediaByteRange> ranges;
+  if (NS_FAILED(mDecoder->GetResource()->GetCachedRanges(ranges))) {
+    return NS_ERROR_FAILURE;
+  }
+
+  nsTArray<Interval<Microseconds>> timeRanges;
+  mDemuxer->ConvertByteRangesToTime(ranges, &timeRanges);
+
+  for (size_t i = 0; i < timeRanges.Length(); i++) {
+    aBuffered->Add((timeRanges[i].start - aStartTime) / 1000000.0,
+                   (timeRanges[i].end - aStartTime) / 1000000.0);
   }
 
   return NS_OK;

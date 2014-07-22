@@ -6,15 +6,10 @@ MARIONETTE_HEAD_JS = 'head.js';
 
 let tnf = NDEF.TNF_WELL_KNOWN;
 let type = "U";
-let payload = "https://www.example.com";
 let id = "";
+let payload = "https://www.example.com";
 
 let ndef = null;
-
-// See nfc-nci.h.
-const NCI_LAST_NOTIFICATION = 0;
-const NCI_LIMIT_NOTIFICATION = 1;
-const NCI_MORE_NOTIFICATIONS = 2;
 
 function handleTechnologyDiscoveredRE0(msg) {
   log("Received 'nfc-manager-tech-discovered'");
@@ -38,9 +33,9 @@ function testReceiveNDEF() {
   window.navigator.mozSetMessageHandler(
     "nfc-manager-tech-discovered", handleTechnologyDiscoveredRE0);
   toggleNFC(true)
-    .then(() => emulator.activateRE(0))
-    .then(() => emulator.snepPutNdef(4, 4, 0, tnf, btoa(type),
-                                     btoa(payload), btoa(id)));
+    .then(() => NCI.activateRE(emulator.P2P_RE_INDEX_0))
+    .then(() => SNEP.put(SNEP.SAP_NDEF, SNEP.SAP_NDEF, 0, tnf, btoa(type),
+                         btoa(id), btoa(payload)));
 }
 
 let tests = [

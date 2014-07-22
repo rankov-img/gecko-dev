@@ -13,6 +13,7 @@
 #include "nsPrincipal.h"
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/Preferences.h"
+#include "nsIAddonInterposition.h"
 
 #include "mozilla/dom/BindingUtils.h"
 
@@ -24,6 +25,27 @@ using namespace JS;
 
 XPCWrappedNativeScope* XPCWrappedNativeScope::gScopes = nullptr;
 XPCWrappedNativeScope* XPCWrappedNativeScope::gDyingScopes = nullptr;
+XPCWrappedNativeScope::InterpositionMap* XPCWrappedNativeScope::gInterpositionMap = nullptr;
+
+NS_IMPL_ISUPPORTS(XPCWrappedNativeScope::ClearInterpositionsObserver, nsIObserver)
+
+NS_IMETHODIMP
+XPCWrappedNativeScope::ClearInterpositionsObserver::Observe(nsISupports *subject,
+                                                            const char *topic,
+                                                            const char16_t *data)
+{
+    MOZ_ASSERT(strcmp(topic, NS_XPCOM_SHUTDOWN_OBSERVER_ID) == 0);
+
+    // The interposition map holds strong references to interpositions, which
+    // may themselves be involved in cycles. We need to drop these strong
+    // references before the cycle collector shuts down. Otherwise we'll
+    // leak. This observer always runs before CC shutdown.
+    if (gInterpositionMap)
+        delete gInterpositionMap;
+
+    nsContentUtils::UnregisterShutdownObserver(this);
+    return NS_OK;
+}
 
 static bool
 RemoteXULForbidsXBLScope(nsIPrincipal *aPrincipal, HandleObject aGlobal)
@@ -107,6 +129,14 @@ XPCWrappedNativeScope::XPCWrappedNativeScope(JSContext *cx,
     if (mUseContentXBLScope) {
       mUseContentXBLScope = principal && !nsContentUtils::IsSystemPrincipal(principal);
     }
+
+    JSAddonId *addonId = JS::AddonIdOfObject(aGlobal);
+    if (gInterpositionMap) {
+        if (InterpositionMap::Ptr p = gInterpositionMap->lookup(addonId)) {
+            MOZ_RELEASE_ASSERT(nsContentUtils::IsSystemPrincipal(principal));
+            mInterposition = p->value();
+        }
+    }
 }
 
 // static
@@ -153,11 +183,6 @@ XPCWrappedNativeScope::GetComponentsJSObject(JS::MutableHandleObject obj)
 void
 XPCWrappedNativeScope::ForcePrivilegedComponents()
 {
-    // This may only be called on unprivileged scopes during automation where
-    // we allow insecure things.
-    MOZ_RELEASE_ASSERT(Preferences::GetBool("security.turn_off_all_security_so_"
-                                            "that_viruses_can_take_over_this_"
-                                            "computer"));
     nsCOMPtr<nsIXPCComponents> c = do_QueryInterface(mComponents);
     if (!c)
         mComponents = new nsXPCComponents(this);
@@ -214,12 +239,15 @@ XPCWrappedNativeScope::EnsureContentXBLScope(JSContext *cx)
     // sandboxPrototype so that the XBL scope can access all the DOM objects
     // it's accustomed to accessing.
     //
-    // NB: One would think that wantXrays wouldn't make a difference here.
-    // However, wantXrays lives a secret double life, and one of its other
-    // hobbies is to waive Xray on the returned sandbox when set to false.
-    // So make sure to keep this set to true, here.
+    // In general wantXrays shouldn't matter much here, but there are weird
+    // cases when adopting bound content between same-origin globals where a
+    // <destructor> in one content XBL scope sees anonymous content in another
+    // content XBL scope. When that happens, we hit LookupBindingMember for an
+    // anonymous element that lives in a content XBL scope, which isn't a tested
+    // or audited codepath. So let's avoid hitting that case by opting out of
+    // same-origin Xrays.
     SandboxOptions options;
-    options.wantXrays = true;
+    options.wantXrays = false;
     options.wantComponents = true;
     options.proto = global;
     options.sameZoneAs = global;
@@ -687,6 +715,31 @@ XPCWrappedNativeScope::SetExpandoChain(JSContext *cx, HandleObject target,
     if (!mXrayExpandos.initialized() && !mXrayExpandos.init(cx))
         return false;
     return mXrayExpandos.put(cx, target, chain);
+}
+
+/* static */ bool
+XPCWrappedNativeScope::SetAddonInterposition(JSAddonId *addonId,
+                                             nsIAddonInterposition *interp)
+{
+    if (!gInterpositionMap) {
+        gInterpositionMap = new InterpositionMap();
+        gInterpositionMap->init();
+
+        // Make sure to clear the map at shutdown.
+        nsContentUtils::RegisterShutdownObserver(new ClearInterpositionsObserver());
+    }
+    if (interp) {
+        return gInterpositionMap->put(addonId, interp);
+    } else {
+        gInterpositionMap->remove(addonId);
+        return true;
+    }
+}
+
+nsCOMPtr<nsIAddonInterposition>
+XPCWrappedNativeScope::GetInterposition()
+{
+    return mInterposition;
 }
 
 /***************************************************************************/

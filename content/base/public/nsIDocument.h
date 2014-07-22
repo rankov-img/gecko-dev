@@ -66,6 +66,7 @@ class nsIStyleRule;
 class nsIStyleSheet;
 class nsIURI;
 class nsIVariant;
+class nsLocation;
 class nsViewManager;
 class nsPresContext;
 class nsRange;
@@ -132,8 +133,8 @@ typedef CallbackObjectHolder<NodeFilter, nsIDOMNodeFilter> NodeFilterHolder;
 } // namespace mozilla
 
 #define NS_IDOCUMENT_IID \
-{ 0xc9e11955, 0xaa55, 0x49a1, \
-  { 0x94, 0x29, 0x58, 0xe9, 0xbe, 0xf6, 0x79, 0x54 } }
+{ 0xa45ef8f0, 0x7c5b, 0x425d, \
+  { 0xa5, 0xe7, 0x11, 0x41, 0x5c, 0x41, 0x0c, 0x7a } }
 
 // Enum for requesting a particular type of document when creating a doc
 enum DocumentFlavor {
@@ -851,6 +852,7 @@ public:
   };
 
   virtual nsresult LoadAdditionalStyleSheet(additionalSheetType aType, nsIURI* aSheetURI) = 0;
+  virtual nsresult AddAdditionalStyleSheet(additionalSheetType aType, nsIStyleSheet* aSheet) = 0;
   virtual void RemoveAdditionalStyleSheet(additionalSheetType aType, nsIURI* sheetURI) = 0;
   virtual nsIStyleSheet* FirstAdditionalAuthorSheet() = 0;
 
@@ -1991,6 +1993,7 @@ public:
     eDeprecatedOperationCount
   };
 #undef DEPRECATED_OPERATION
+  bool HasWarnedAbout(DeprecatedOperations aOperation);
   void WarnOnceAbout(DeprecatedOperations aOperation, bool asError = false);
 
   virtual void PostVisibilityUpdateEvent() = 0;
@@ -2183,7 +2186,7 @@ public:
                       const nsAString& aQualifiedName,
                       mozilla::ErrorResult& rv);
   void GetInputEncoding(nsAString& aInputEncoding);
-  already_AddRefed<nsIDOMLocation> GetLocation() const;
+  already_AddRefed<nsLocation> GetLocation() const;
   void GetReferrer(nsAString& aReferrer) const;
   void GetLastModified(nsAString& aLastModified) const;
   void GetReadyState(nsAString& aReadyState) const;
@@ -2322,6 +2325,24 @@ public:
   virtual void SetMasterDocument(nsIDocument* master) = 0;
   virtual bool IsMasterDocument() = 0;
   virtual already_AddRefed<mozilla::dom::ImportManager> ImportManager() = 0;
+
+  /*
+   * Given a node, get a weak reference to it and append that reference to
+   * mBlockedTrackingNodes. Can be used later on to look up a node in it.
+   * (e.g., by the UI)
+   */
+  void AddBlockedTrackingNode(nsINode *node)
+  {
+    if (!node) {
+      return;
+    }
+
+    nsWeakPtr weakNode = do_GetWeakReference(node);
+
+    if (weakNode) {
+      mBlockedTrackingNodes.AppendElement(weakNode);
+    }
+  }
 
 private:
   uint64_t mWarnedAbout;
@@ -2624,6 +2645,13 @@ protected:
    * The current frame request callback handle
    */
   int32_t mFrameRequestCallbackCounter;
+
+  // Array of nodes that have been blocked to prevent user tracking.
+  // They most likely have had their nsIChannel canceled by the URL
+  // classifier. (Safebrowsing)
+  //
+  // Weak nsINode pointers are used to allow nodes to disappear.
+  nsTArray<nsWeakPtr> mBlockedTrackingNodes;
 
   // Weak reference to mScriptGlobalObject QI:d to nsPIDOMWindow,
   // updated on every set of mSecriptGlobalObject.

@@ -10,8 +10,8 @@ import java.io.File;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.regex.Matcher;
@@ -114,13 +114,42 @@ public class LocalBrowserDB implements BrowserDB.BrowserDBIface {
     }
 
     /**
+     * Not thread safe. A helper to allocate new IDs for arbitrary strings.
+     */
+    private static class NameCounter {
+        private final HashMap<String, Integer> names = new HashMap<String, Integer>();
+        private int counter = 0;
+        private final int increment;
+
+        public NameCounter(int start, int increment) {
+            this.counter = start;
+            this.increment = increment;
+        }
+
+        public int get(final String name) {
+            Integer mapping = names.get(name);
+            if (mapping == null) {
+                int ours = counter;
+                counter += increment;
+                names.put(name, ours);
+                return ours;
+            }
+            return mapping.intValue();
+        }
+
+        public boolean has(final String name) {
+            return names.containsKey(name);
+        }
+    }
+
+    /**
      * Add default bookmarks to the database.
      * Takes an offset; returns a new offset.
      */
     @Override
     public int addDefaultBookmarks(Context context, ContentResolver cr, final int offset) {
-        long folderId = getFolderIdFromGuid(cr, Bookmarks.MOBILE_FOLDER_GUID);
-        if (folderId == -1L) {
+        long folderID = getFolderIdFromGuid(cr, Bookmarks.MOBILE_FOLDER_GUID);
+        if (folderID == -1L) {
             Log.e(LOGTAG, "No mobile folder: cannot add default bookmarks.");
             return offset;
         }
@@ -136,6 +165,10 @@ public class LocalBrowserDB implements BrowserDB.BrowserDBIface {
 
         final ArrayList<ContentValues> bookmarkValues = new ArrayList<ContentValues>();
         final ArrayList<ContentValues> faviconValues = new ArrayList<ContentValues>();
+
+        // Count down from -offset into negative values to get new favicon IDs.
+        final NameCounter faviconIDs = new NameCounter((-1 - offset), -1);
+
         for (int i = 0; i < fields.length; i++) {
             final String name = fields[i].getName();
             final Matcher m = p.matcher(name);
@@ -144,14 +177,15 @@ public class LocalBrowserDB implements BrowserDB.BrowserDBIface {
             }
 
             try {
-                final int titleid = fields[i].getInt(null);
-                final String title = context.getString(titleid);
+                final int titleID = fields[i].getInt(null);
+                final String title = context.getString(titleID);
 
                 final Field urlField = stringsClass.getField(name.replace("_title_", "_url_"));
-                final int urlId = urlField.getInt(null);
-                final String url = context.getString(urlId);
+                final int urlID = urlField.getInt(null);
+                final String url = context.getString(urlID);
 
-                bookmarkValues.add(createBookmark(now, title, url, pos++, folderId));
+                final ContentValues bookmarkValue = createBookmark(now, title, url, pos++, folderID);
+                bookmarkValues.add(bookmarkValue);
 
                 Bitmap icon = getDefaultFaviconFromPath(context, name);
                 if (icon == null) {
@@ -162,7 +196,14 @@ public class LocalBrowserDB implements BrowserDB.BrowserDBIface {
                 }
 
                 final ContentValues iconValue = createFavicon(url, icon);
+
+                // Assign a reserved negative _id to each new favicon.
+                // For now, each name is expected to be unique, and duplicate
+                // icons will be duplicated in the DB. See Bug 1040806 Comment 8.
                 if (iconValue != null) {
+                    final int faviconID = faviconIDs.get(name);
+                    iconValue.put("_id", faviconID);
+                    bookmarkValue.put(Bookmarks.FAVICON_ID, faviconID);
                     faviconValues.add(iconValue);
                 }
             } catch (IllegalAccessException e) {
@@ -224,6 +265,10 @@ public class LocalBrowserDB implements BrowserDB.BrowserDBIface {
 
         final ArrayList<ContentValues> bookmarkValues = new ArrayList<ContentValues>();
         final ArrayList<ContentValues> faviconValues = new ArrayList<ContentValues>();
+
+        // Count down from -offset into negative values to get new favicon IDs.
+        final NameCounter faviconIDs = new NameCounter((-1 - offset), -1);
+
         for (int i = 0; i < bookmarks.length(); i++) {
             try {
                 final JSONObject bookmark = bookmarks.getJSONObject(i);
@@ -240,7 +285,8 @@ public class LocalBrowserDB implements BrowserDB.BrowserDBIface {
                     pos = mobilePos++;
                 }
 
-                bookmarkValues.add(createBookmark(now, title, url, pos, parent));
+                final ContentValues bookmarkValue = createBookmark(now, title, url, pos, parent);
+                bookmarkValues.add(bookmarkValue);
 
                 // Return early if there is no icon for this bookmark.
                 if (!bookmark.has("icon")) {
@@ -253,8 +299,27 @@ public class LocalBrowserDB implements BrowserDB.BrowserDBIface {
                     if (icon == null) {
                         continue;
                     }
+
                     final ContentValues iconValue = createFavicon(url, icon);
-                    if (iconValue != null) {
+
+                    if (iconValue == null) {
+                        continue;
+                    }
+
+                    /*
+                     * Find out if this icon is a duplicate. If it is, don't try
+                     * to insert it again, but reuse the shared ID.
+                     * Otherwise, assign a new reserved negative _id.
+                     * Duplicates won't be detected in default bookmarks, or
+                     * those already in the database.
+                     */
+                    final boolean seen = faviconIDs.has(iconData);
+                    final int faviconID = faviconIDs.get(iconData);
+
+                    iconValue.put("_id", faviconID);
+                    bookmarkValue.put(Bookmarks.FAVICON_ID, faviconID);
+
+                    if (!seen) {
                         faviconValues.add(iconValue);
                     }
                 } catch (JSONException e) {
@@ -526,7 +591,6 @@ public class LocalBrowserDB implements BrowserDB.BrowserDBIface {
                               new String[] { Combined._ID,
                                              Combined.URL,
                                              Combined.TITLE,
-                                             Combined.DISPLAY,
                                              Combined.BOOKMARK_ID,
                                              Combined.HISTORY_ID },
                               constraint,
@@ -550,7 +614,6 @@ public class LocalBrowserDB implements BrowserDB.BrowserDBIface {
                               new String[] { Combined._ID,
                                              Combined.URL,
                                              Combined.TITLE,
-                                             Combined.DISPLAY,
                                              Combined.BOOKMARK_ID,
                                              Combined.HISTORY_ID },
                               "",
@@ -639,7 +702,6 @@ public class LocalBrowserDB implements BrowserDB.BrowserDBIface {
                                            Combined.HISTORY_ID,
                                            Combined.URL,
                                            Combined.TITLE,
-                                           Combined.DISPLAY,
                                            Combined.DATE_LAST_VISITED,
                                            Combined.VISITS },
                             History.DATE_LAST_VISITED + " > 0",
@@ -783,16 +845,13 @@ public class LocalBrowserDB implements BrowserDB.BrowserDBIface {
 
     @Override
     public boolean isBookmark(ContentResolver cr, String uri) {
-        // This method is about normal bookmarks, not the Reading List.
         Cursor c = null;
         try {
             c = cr.query(bookmarksUriWithLimit(1),
                          new String[] { Bookmarks._ID },
                          Bookmarks.URL + " = ? AND " +
-                                 Bookmarks.PARENT + " != ? AND " +
                                  Bookmarks.PARENT + " != ?",
                          new String[] { uri,
-                                 String.valueOf(Bookmarks.FIXED_READING_LIST_ID),
                                  String.valueOf(Bookmarks.FIXED_PINNED_LIST_ID) },
                          Bookmarks.URL);
             return c.getCount() > 0;
@@ -989,9 +1048,8 @@ public class LocalBrowserDB implements BrowserDB.BrowserDBIface {
         // Do this now so that the items still exist!
         bumpParents(cr, Bookmarks.URL, uri);
 
-        // Toggling bookmark on an URL should not affect the items in the reading list or pinned sites.
-        final String[] urlArgs = new String[] { uri, String.valueOf(Bookmarks.FIXED_READING_LIST_ID), String.valueOf(Bookmarks.FIXED_PINNED_LIST_ID) };
-        final String urlEquals = Bookmarks.URL + " = ? AND " + Bookmarks.PARENT + " != ? AND " + Bookmarks.PARENT + " != ? ";
+        final String[] urlArgs = new String[] { uri, String.valueOf(Bookmarks.FIXED_PINNED_LIST_ID) };
+        final String urlEquals = Bookmarks.URL + " = ? AND " + Bookmarks.PARENT + " != ? ";
 
         cr.delete(contentUri, urlEquals, urlArgs);
     }
@@ -1204,29 +1262,19 @@ public class LocalBrowserDB implements BrowserDB.BrowserDBIface {
             return null;
         }
 
-        int urlCount = urls.size();
+        final int urlCount = urls.size();
         if (urlCount == 0) {
             return null;
         }
 
         // Don't match against null thumbnails.
-        StringBuilder selection = new StringBuilder(
-                Thumbnails.DATA + " IS NOT NULL AND " +
-                Thumbnails.URL + " IN ("
-        );
-
-        // Compute a (?, ?, ?) sequence to match the provided URLs.
-        int i = 1;
-        while (i++ < urlCount) {
-            selection.append("?, ");
-        }
-        selection.append("?)");
-
-        String[] selectionArgs = urls.toArray(new String[urlCount]);
+        final String selection = Thumbnails.DATA + " IS NOT NULL AND " +
+                           DBUtils.computeSQLInClause(urlCount, Thumbnails.URL);
+        final String[] selectionArgs = urls.toArray(new String[urlCount]);
 
         return cr.query(mThumbnailsUriWithProfile,
                         new String[] { Thumbnails.URL, Thumbnails.DATA },
-                        selection.toString(),
+                        selection,
                         selectionArgs,
                         null);
     }
@@ -1346,32 +1394,26 @@ public class LocalBrowserDB implements BrowserDB.BrowserDBIface {
         if (url != null) {
             // Bookmarks are defined by their URL and Folder.
             builder.withSelection(Bookmarks.URL + " = ? AND "
-                                  + Bookmarks.PARENT + " = ? AND "
-                                  + Bookmarks.PARENT + " != ?",
+                                  + Bookmarks.PARENT + " = ?",
                                   new String[] { url,
-                                                 Long.toString(parent),
-                                                 String.valueOf(Bookmarks.FIXED_READING_LIST_ID)
+                                                 Long.toString(parent)
                                   });
         } else if (title != null) {
             // Or their title and parent folder. (Folders!)
             builder.withSelection(Bookmarks.TITLE + " = ? AND "
-                                  + Bookmarks.PARENT + " = ? AND "
-                                  + Bookmarks.PARENT + " != ?",
+                                  + Bookmarks.PARENT + " = ?",
                                   new String[] { title,
-                                                 Long.toString(parent),
-                                                 String.valueOf(Bookmarks.FIXED_READING_LIST_ID)
+                                                 Long.toString(parent)
                                   });
         } else if (type == Bookmarks.TYPE_SEPARATOR) {
-            // Or their their position (seperators)
+            // Or their their position (separators)
             builder.withSelection(Bookmarks.POSITION + " = ? AND "
-                                  + Bookmarks.PARENT + " = ? AND "
-                                  + Bookmarks.PARENT + " != ?",
+                                  + Bookmarks.PARENT + " = ?",
                                   new String[] { Long.toString(position),
-                                                 Long.toString(parent),
-                                                 String.valueOf(Bookmarks.FIXED_READING_LIST_ID)
+                                                 Long.toString(parent)
                                   });
         } else {
-            Log.e(LOGTAG, "Bookmark entry without url or title and not a seperator, not added.");
+            Log.e(LOGTAG, "Bookmark entry without url or title and not a separator, not added.");
         }
         builder.withValues(values);
 

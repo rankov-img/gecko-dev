@@ -13,7 +13,7 @@ const { Cu } = require('chrome');
 const { Loader } = require('sdk/test/loader');
 const { show, hide } = require('sdk/ui/sidebar/actions');
 const { isShowing } = require('sdk/ui/sidebar/utils');
-const { getMostRecentBrowserWindow } = require('sdk/window/utils');
+const { getMostRecentBrowserWindow, isFocused } = require('sdk/window/utils');
 const { open, close, focus, promise: windowPromise } = require('sdk/window/helpers');
 const { setTimeout, setImmediate } = require('sdk/timers');
 const { isPrivate } = require('sdk/private-browsing');
@@ -21,6 +21,7 @@ const data = require('./fixtures');
 const { URL } = require('sdk/url');
 const { once, off, emit } = require('sdk/event/core');
 const { defer, all } = require('sdk/core/promise');
+const { modelFor } = require('sdk/model/core');
 
 const { BUILTIN_SIDEBAR_MENUITEMS, isSidebarShowing,
         getSidebarMenuitems, getExtraSidebarMenuitems, makeID, simulateCommand,
@@ -367,6 +368,48 @@ exports.testSidebarUnload = function(assert, done) {
 
   sidebar.show();
   assert.pass('showing the sidebar');
+}
+
+exports.testRelativeURL = function(assert, done) {
+  const { merge } = require('sdk/util/object');
+  const self = require('sdk/self');
+
+  let loader = Loader(module, null, null, {
+    modules: {
+      'sdk/self': merge({}, self, {
+        data: merge({}, self.data, require('./fixtures'))
+      })
+    }
+  });
+
+  const { Sidebar } = loader.require('sdk/ui/sidebar');
+
+  let testName = 'testRelativeURL';
+  let sidebar = Sidebar({
+    id: testName,
+    title: testName,
+    url: './test-sidebar-addon-global.html'
+  });
+
+  sidebar.on('attach', function(worker) {
+    assert.pass('sidebar was attached');
+    assert.ok(!!worker, 'attach event has worker');
+
+    worker.port.once('Y', function(msg) {
+      assert.equal(msg, '1', 'got event from worker');
+
+      worker.port.on('X', function(msg) {
+        assert.equal(msg, '123', 'the final message is correct');
+
+        sidebar.destroy();
+
+        done();
+      });
+      worker.port.emit('X', msg + '2');
+    })
+  });
+
+  sidebar.show();
 }
 
 exports.testRemoteContent = function(assert) {
@@ -1419,7 +1462,7 @@ exports.testEventListeners = function(assert, done) {
 // For more information see Bug 920780
 exports.testAttachDoesNotEmitWhenShown = function(assert, done) {
   const { Sidebar } = require('sdk/ui/sidebar');
-  let testName = 'testSidebarLeakCheckUnloadAfterAttach';
+  let testName = 'testAttachDoesNotEmitWhenShown';
   let count = 0;
 
   let sidebar = Sidebar({
@@ -1457,6 +1500,73 @@ exports.testAttachDoesNotEmitWhenShown = function(assert, done) {
   });
 
   sidebar.show();
+}
+
+exports.testShowHideRawWindowArg = function*(assert) {
+  const { Sidebar } = require('sdk/ui/sidebar');
+
+  let testName = 'testShowHideRawWindowArg';
+  let sidebar = Sidebar({
+    id: testName,
+    title: testName,
+    url: 'data:text/html;charset=utf-8,' + testName
+  });
+
+  let mainWindow = getMostRecentBrowserWindow();
+  let newWindow = yield open().then(focus);
+
+  yield focus(mainWindow);
+
+  yield sidebar.show(newWindow);
+
+  assert.pass('the sidebar was shown');
+  assert.ok(!isSidebarShowing(mainWindow), 'sidebar is not showing in main window');
+  assert.ok(isSidebarShowing(newWindow), 'sidebar is showing in new window');
+
+  assert.ok(isFocused(mainWindow), 'main window is still focused');
+
+  yield sidebar.hide(newWindow);
+
+  assert.ok(isFocused(mainWindow), 'main window is still focused');
+  assert.ok(!isSidebarShowing(mainWindow), 'sidebar is not showing in main window');
+  assert.ok(!isSidebarShowing(newWindow), 'sidebar is not showing in new window');
+  sidebar.destroy();
+
+  yield close(newWindow);
+}
+
+exports.testShowHideSDKWindowArg = function*(assert) {
+  const { Sidebar } = require('sdk/ui/sidebar');
+
+  let testName = 'testShowHideSDKWindowArg';
+  let sidebar = Sidebar({
+    id: testName,
+    title: testName,
+    url: 'data:text/html;charset=utf-8,' + testName
+  });
+
+  let mainWindow = getMostRecentBrowserWindow();
+  let newWindow = yield open().then(focus);
+  let newSDKWindow = modelFor(newWindow);
+
+  yield focus(mainWindow);
+
+  yield sidebar.show(newSDKWindow);
+
+  assert.pass('the sidebar was shown');
+  assert.ok(!isSidebarShowing(mainWindow), 'sidebar is not showing in main window');
+  assert.ok(isSidebarShowing(newWindow), 'sidebar is showing in new window');
+
+  assert.ok(isFocused(mainWindow), 'main window is still focused');
+
+  yield sidebar.hide(newSDKWindow);
+
+  assert.ok(isFocused(mainWindow), 'main window is still focused');
+  assert.ok(!isSidebarShowing(mainWindow), 'sidebar is not showing in main window');
+  assert.ok(!isSidebarShowing(newWindow), 'sidebar is not showing in new window');
+  sidebar.destroy();
+
+  yield close(newWindow);
 }
 
 // If the module doesn't support the app we're being run in, require() will

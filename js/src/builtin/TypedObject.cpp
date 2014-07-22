@@ -252,23 +252,16 @@ const JSFunctionSpec js::ScalarTypeDescr::typeObjectMethods[] = {
     JS_FS_END
 };
 
-static int32_t ScalarSizes[] = {
-#define SCALAR_SIZE(_kind, _type, _name)                        \
-    sizeof(_type),
-    JS_FOR_EACH_SCALAR_TYPE_REPR(SCALAR_SIZE) 0
-#undef SCALAR_SIZE
-};
-
 int32_t
 ScalarTypeDescr::size(Type t)
 {
-    return ScalarSizes[t];
+    return Scalar::byteSize(t);
 }
 
 int32_t
 ScalarTypeDescr::alignment(Type t)
 {
-    return ScalarSizes[t];
+    return Scalar::byteSize(t);
 }
 
 /*static*/ const char *
@@ -278,8 +271,11 @@ ScalarTypeDescr::typeName(Type type)
 #define NUMERIC_TYPE_TO_STRING(constant_, type_, name_) \
         case constant_: return #name_;
         JS_FOR_EACH_SCALAR_TYPE_REPR(NUMERIC_TYPE_TO_STRING)
+#undef NUMERIC_TYPE_TO_STRING
+      case Scalar::TypeMax:
+        MOZ_CRASH();
     }
-    MOZ_ASSUME_UNREACHABLE("Invalid type");
+    MOZ_CRASH("Invalid type");
 }
 
 bool
@@ -299,7 +295,7 @@ ScalarTypeDescr::call(JSContext *cx, unsigned argc, Value *vp)
     if (!ToNumber(cx, args[0], &number))
         return false;
 
-    if (type == ScalarTypeDescr::TYPE_UINT8_CLAMPED)
+    if (type == Scalar::Uint8Clamped)
         number = ClampDoubleToUint8(number);
 
     switch (type) {
@@ -312,7 +308,8 @@ ScalarTypeDescr::call(JSContext *cx, unsigned argc, Value *vp)
 
         JS_FOR_EACH_SCALAR_TYPE_REPR(SCALARTYPE_CALL)
 #undef SCALARTYPE_CALL
-
+      case Scalar::TypeMax:
+        MOZ_CRASH();
     }
     return true;
 }
@@ -377,8 +374,9 @@ ReferenceTypeDescr::typeName(Type type)
 #define NUMERIC_TYPE_TO_STRING(constant_, type_, name_) \
         case constant_: return #name_;
         JS_FOR_EACH_REFERENCE_TYPE_REPR(NUMERIC_TYPE_TO_STRING)
+#undef NUMERIC_TYPE_TO_STRING
     }
-    MOZ_ASSUME_UNREACHABLE("Invalid type");
+    MOZ_CRASH("Invalid type");
 }
 
 bool
@@ -420,7 +418,7 @@ js::ReferenceTypeDescr::call(JSContext *cx, unsigned argc, Value *vp)
       }
     }
 
-    MOZ_ASSUME_UNREACHABLE("Unhandled Reference type");
+    MOZ_CRASH("Unhandled Reference type");
 }
 
 /***************************************************************************
@@ -1432,7 +1430,7 @@ js_InitTypedObjectDummy(JSContext *cx, HandleObject obj)
      * be executed via the `standard_class_atoms` mechanism.
      */
 
-    MOZ_ASSUME_UNREACHABLE("shouldn't be initializing TypedObject via the JSProtoKey initializer mechanism");
+    MOZ_CRASH("shouldn't be initializing TypedObject via the JSProtoKey initializer mechanism");
 }
 
 /******************************************************************************
@@ -1526,9 +1524,9 @@ TypedObjLengthFromType(TypeDescr &descr)
         return descr.as<SizedArrayTypeDescr>().length();
 
       case type::UnsizedArray:
-        MOZ_ASSUME_UNREACHABLE("TypedObjLengthFromType() invoked on unsized type");
+        MOZ_CRASH("TypedObjLengthFromType() invoked on unsized type");
     }
-    MOZ_ASSUME_UNREACHABLE("Invalid kind");
+    MOZ_CRASH("Invalid kind");
 }
 
 /*static*/ TypedObject *
@@ -1605,7 +1603,7 @@ TypedObject::createZeroed(JSContext *cx,
       }
     }
 
-    MOZ_ASSUME_UNREACHABLE("Bad TypeRepresentation Kind");
+    MOZ_CRASH("Bad TypeRepresentation Kind");
 }
 
 static bool
@@ -2278,7 +2276,7 @@ LengthForType(TypeDescr &descr)
         return 0;
     }
 
-    MOZ_ASSUME_UNREACHABLE("Invalid kind");
+    MOZ_CRASH("Invalid kind");
 }
 
 static bool
@@ -3104,7 +3102,7 @@ visitReferences(SizedTypeDescr &descr,
 
       case type::UnsizedArray:
       {
-        MOZ_ASSUME_UNREACHABLE("Only Sized Type representations");
+        MOZ_CRASH("Only Sized Type representations");
       }
 
       case type::Struct:
@@ -3119,7 +3117,7 @@ visitReferences(SizedTypeDescr &descr,
       }
     }
 
-    MOZ_ASSUME_UNREACHABLE("Invalid type repr kind");
+    MOZ_CRASH("Invalid type repr kind");
 }
 
 ///////////////////////////////////////////////////////////////////////////
@@ -3166,7 +3164,7 @@ js::MemoryInitVisitor::visitReference(ReferenceTypeDescr &descr, uint8_t *mem)
       }
     }
 
-    MOZ_ASSUME_UNREACHABLE("Invalid kind");
+    MOZ_CRASH("Invalid kind");
 }
 
 void
@@ -3236,7 +3234,7 @@ js::MemoryTracingVisitor::visitReference(ReferenceTypeDescr &descr, uint8_t *mem
       }
     }
 
-    MOZ_ASSUME_UNREACHABLE("Invalid kind");
+    MOZ_CRASH("Invalid kind");
 }
 
 void

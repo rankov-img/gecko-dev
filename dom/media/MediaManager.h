@@ -105,6 +105,7 @@ public:
   {
     NS_ASSERTION(NS_IsMainThread(), "Only call on main thread");
     return mVideoSource && !mStopped &&
+           mVideoSource->GetMediaSource() == MediaSourceType::Camera &&
            (!mVideoSource->IsFake() ||
             Preferences::GetBool("media.navigator.permission.fake"));
   }
@@ -114,6 +115,18 @@ public:
     return mAudioSource && !mStopped &&
            (!mAudioSource->IsFake() ||
             Preferences::GetBool("media.navigator.permission.fake"));
+  }
+  bool CapturingScreen()
+  {
+    NS_ASSERTION(NS_IsMainThread(), "Only call on main thread");
+    return mVideoSource && !mStopped &&
+           mVideoSource->GetMediaSource() == MediaSourceType::Screen;
+  }
+  bool CapturingWindow()
+  {
+    NS_ASSERTION(NS_IsMainThread(), "Only call on main thread");
+    return mVideoSource && !mStopped &&
+           mVideoSource->GetMediaSource() == MediaSourceType::Window;
   }
 
   void SetStopped()
@@ -175,10 +188,35 @@ public:
   }
 
   virtual void
-  NotifyFinished(MediaStreamGraph* aGraph) MOZ_OVERRIDE;
+  NotifyEvent(MediaStreamGraph* aGraph,
+              MediaStreamListener::MediaStreamGraphEvent aEvent) MOZ_OVERRIDE
+  {
+    switch (aEvent) {
+      case EVENT_FINISHED:
+        NotifyFinished(aGraph);
+        break;
+      case EVENT_REMOVED:
+        NotifyRemoved(aGraph);
+        break;
+      case EVENT_HAS_DIRECT_LISTENERS:
+        NotifyDirectListeners(aGraph, true);
+        break;
+      case EVENT_HAS_NO_DIRECT_LISTENERS:
+        NotifyDirectListeners(aGraph, false);
+        break;
+      default:
+        break;
+    }
+  }
 
   virtual void
-  NotifyRemoved(MediaStreamGraph* aGraph) MOZ_OVERRIDE;
+  NotifyFinished(MediaStreamGraph* aGraph);
+
+  virtual void
+  NotifyRemoved(MediaStreamGraph* aGraph);
+
+  virtual void
+  NotifyDirectListeners(MediaStreamGraph* aGraph, bool aHasListeners);
 
 private:
   // Set at construction
@@ -244,7 +282,8 @@ class GetUserMediaNotificationEvent: public nsRunnable
 
 typedef enum {
   MEDIA_START,
-  MEDIA_STOP
+  MEDIA_STOP,
+  MEDIA_DIRECT_LISTENERS
 } MediaOperation;
 
 class MediaManager;
@@ -299,7 +338,7 @@ public:
     DOMMediaStream::OnTracksAvailableCallback* aOnTracksAvailableCallback,
     MediaEngineSource* aAudioSource,
     MediaEngineSource* aVideoSource,
-    bool aNeedsFinish,
+    bool aBool,
     uint64_t aWindowID,
     already_AddRefed<nsIDOMGetUserMediaErrorCallback> aError)
     : mType(aType)
@@ -308,7 +347,7 @@ public:
     , mAudioSource(aAudioSource)
     , mVideoSource(aVideoSource)
     , mListener(aListener)
-    , mFinish(aNeedsFinish)
+    , mBool(aBool)
     , mWindowID(aWindowID)
     , mError(aError)
   {}
@@ -398,7 +437,7 @@ public:
             mVideoSource->Deallocate();
           }
           // Do this after stopping all tracks with EndTrack()
-          if (mFinish) {
+          if (mBool) {
             source->Finish();
           }
           nsIRunnable *event =
@@ -410,6 +449,15 @@ public:
           // event must always be released on mainthread due to the JS callbacks
           // in the TracksAvailableCallback
           NS_DispatchToMainThread(event);
+        }
+        break;
+
+      case MEDIA_DIRECT_LISTENERS:
+        {
+          NS_ASSERTION(!NS_IsMainThread(), "Never call on main thread");
+          if (mVideoSource) {
+            mVideoSource->SetDirectListeners(mBool);
+          }
         }
         break;
 
@@ -427,7 +475,7 @@ private:
   nsRefPtr<MediaEngineSource> mAudioSource; // threadsafe
   nsRefPtr<MediaEngineSource> mVideoSource; // threadsafe
   nsRefPtr<GetUserMediaCallbackMediaStreamListener> mListener; // threadsafe
-  bool mFinish;
+  bool mBool;
   uint64_t mWindowID;
   nsCOMPtr<nsIDOMGetUserMediaErrorCallback> mError;
 };
@@ -451,6 +499,7 @@ protected:
   nsString mID;
   bool mHasFacingMode;
   dom::VideoFacingModeEnum mFacingMode;
+  MediaSourceType mMediaSource;
   nsRefPtr<MediaEngineSource> mSource;
 };
 
@@ -543,7 +592,8 @@ private:
   ~MediaManager() {}
 
   nsresult MediaCaptureWindowStateInternal(nsIDOMWindow* aWindow, bool* aVideo,
-                                           bool* aAudio);
+                                           bool* aAudio, bool *aScreenShare,
+                                           bool* aWindowShare);
 
   void StopMediaStreams();
 

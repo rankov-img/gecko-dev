@@ -152,6 +152,8 @@ public:
     MOZ_CRASH("Shouldn't be called for composited layer manager");
   }
 
+  virtual bool AreComponentAlphaLayersEnabled() MOZ_OVERRIDE;
+
   virtual TemporaryRef<DrawTarget>
     CreateOptimalMaskDrawTarget(const IntSize &aSize) MOZ_OVERRIDE;
 
@@ -321,6 +323,13 @@ public:
   virtual void Destroy();
 
   virtual Layer* GetLayer() = 0;
+
+  /**
+   * Perform a first pass over the layer tree to prepare intermediate surfaces.
+   * This allows us on to avoid framebuffer switches in the middle of our render
+   * which is inefficient. This must be called before RenderLayer.
+   */
+  virtual void Prepare(const nsIntRect& aClipRect) {}
 
   virtual void RenderLayer(const nsIntRect& aClipRect) = 0;
 

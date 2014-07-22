@@ -78,6 +78,7 @@ EXPORTS.js += [
     '../public/MemoryMetrics.h',
     '../public/OldDebugAPI.h',
     '../public/Principals.h',
+    '../public/ProfilingFrameIterator.h',
     '../public/ProfilingStack.h',
     '../public/PropertyKey.h',
     '../public/RequiredDefines.h',
@@ -296,6 +297,7 @@ if CONFIG['ENABLE_ION']:
         'jit/RegisterAllocator.cpp',
         'jit/RematerializedFrame.cpp',
         'jit/Safepoints.cpp',
+        'jit/ScalarReplacement.cpp',
         'jit/shared/BaselineCompiler-shared.cpp',
         'jit/shared/CodeGenerator-shared.cpp',
         'jit/shared/Lowering-shared.cpp',
@@ -420,7 +422,10 @@ else:
         'perf/pm_stub.cpp'
     ]
 
-MSVC_ENABLE_PGO = True
+# Disable PGO for MSVC 2010 due to unpredictable performance, see
+# bug 1030706.
+if CONFIG['_MSC_VER'] != '1600':
+    MSVC_ENABLE_PGO = True
 
 HOST_SOURCES += [
     'jskwgen.cpp',
@@ -475,6 +480,9 @@ if CONFIG['_MSC_VER']:
         SOURCES['builtin/RegExp.cpp'].no_pgo = True # Bug 772303
     elif CONFIG['CPU_ARCH'] == 'x86_64' and CONFIG['JS_HAS_CTYPES']:
         SOURCES['ctypes/CTypes.cpp'].no_pgo = True # Bug 810661
+    # Prevent floating point errors caused by VC++ optimizations
+    # XXX We should add this to CXXFLAGS, too?
+    CFLAGS += ['-fp:precise']
 
 # Needed to "configure" it correctly.  Unfortunately these
 # flags wind up being applied to all code in js/src, not just

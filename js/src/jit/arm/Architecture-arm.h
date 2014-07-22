@@ -14,7 +14,8 @@
 
 #include "js/Utility.h"
 
-// gcc appears to use __ARM_PCS_VFP to denote that the target is a hard-float target.
+// Gcc appears to use __ARM_PCS_VFP to denote that the target is a hard-float
+// target.
 #if defined(__ARM_PCS_VFP)
 #define JS_CODEGEN_ARM_HARDFP
 #endif
@@ -38,11 +39,11 @@ static const uint32_t ShadowStackSpace = 0;
 // These offsets are related to bailouts.
 ////
 
-// Size of each bailout table entry. On arm, this is presently
-// a single call (which is wrong!). the call clobbers lr.
-// For now, I've dealt with this by ensuring that we never allocate to lr.
-// it should probably be 8 bytes, a mov of an immediate into r12 (not
-// allocated presently, or ever) followed by a branch to the apropriate code.
+// Size of each bailout table entry. On arm, this is presently a single call
+// (which is wrong!). The call clobbers lr.
+// For now, I've dealt with this by ensuring that we never allocate to lr. It
+// should probably be 8 bytes, a mov of an immediate into r12 (not allocated
+// presently, or ever) followed by a branch to the apropriate code.
 static const uint32_t BAILOUT_TABLE_ENTRY_SIZE    = 4;
 
 class Registers
@@ -139,7 +140,7 @@ class Registers
     // Registers returned from a JS -> C call.
     static const uint32_t CallMask =
         (1 << Registers::r0) |
-        (1 << Registers::r1);  // used for double-size returns
+        (1 << Registers::r1);  // Used for double-size returns.
 
     static const uint32_t AllocatableMask = AllMask & ~NonAllocatableMask;
     typedef uint32_t SetType;
@@ -147,15 +148,54 @@ class Registers
         static_assert(sizeof(SetType) == 4, "SetType must be 32 bits");
         return mozilla::CountPopulation32(x);
     }
+    static uint32_t FirstBit(SetType x) {
+        return mozilla::CountTrailingZeroes32(x);
+    }
+    static uint32_t LastBit(SetType x) {
+        return 31 - mozilla::CountLeadingZeroes32(x);
+    }
 };
 
 // Smallest integer type that can hold a register bitmask.
+typedef uint16_t PackedRegisterMask;
 typedef uint16_t PackedRegisterMask;
 
 class FloatRegisters
 {
   public:
     enum FPRegisterID {
+        s0,
+        s1,
+        s2,
+        s3,
+        s4,
+        s5,
+        s6,
+        s7,
+        s8,
+        s9,
+        s10,
+        s11,
+        s12,
+        s13,
+        s14,
+        s15,
+        s16,
+        s17,
+        s18,
+        s19,
+        s20,
+        s21,
+        s22,
+        s23,
+        s24,
+        s25,
+        s26,
+        s27,
+        s28,
+        s29,
+        s30,
+        s31,
         d0,
         d1,
         d2,
@@ -187,15 +227,28 @@ class FloatRegisters
         d28,
         d29,
         d30,
+        d31,
         invalid_freg
     };
+
     typedef FPRegisterID Code;
 
-    static const char *GetName(Code code) {
+
+    static const char *GetDoubleName(Code code) {
         static const char * const Names[] = { "d0", "d1", "d2", "d3", "d4", "d5", "d6", "d7",
-                                              "d8", "d9", "d10", "d11", "d12", "d13", "d14", "d15"};
+                                              "d8", "d9", "d10", "d11", "d12", "d13", "d14", "d15",
+                                              "d16", "d17", "d18", "d19", "d20", "d21", "d22", "d23",
+                                              "d24", "d25", "d26", "d27", "d28", "d29", "d30", "d31"};
         return Names[code];
     }
+    static const char *GetSingleName(Code code) {
+        static const char * const Names[] = { "s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7",
+                                              "s8", "s9", "s10", "s11", "s12", "s13", "s14", "s15",
+                                              "s16", "s17", "s18", "s19", "s20", "s21", "s22", "s23",
+                                              "s24", "s25", "s26", "s27", "s28", "s29", "s30", "s31"};
+        return Names[code];
+    }
+
     static const char *GetName(uint32_t i) {
         JS_ASSERT(i < Total);
         return GetName(Code(i));
@@ -204,34 +257,60 @@ class FloatRegisters
     static Code FromName(const char *name);
 
     static const Code Invalid = invalid_freg;
-
-    static const uint32_t Total = 16;
-    static const uint32_t Allocatable = 15;
-
-    static const uint32_t AllMask = (1 << Total) - 1;
+    static const uint32_t Total = 48;
+    static const uint32_t TotalDouble = 16;
+    static const uint32_t TotalSingle = 32;
+    static const uint32_t Allocatable = 45;
+    // There are only 32 places that we can put values.
+    static const uint32_t TotalPhys = 32;
+    static uint32_t ActualTotalPhys();
+    static const uint64_t AllDoubleMask = ((1ull << 16) - 1) << 32;
+    static const uint64_t AllMask = ((1ull << 48) - 1);
 
     // d15 is the ScratchFloatReg.
-    static const uint32_t NonVolatileMask =
-        (1 << d8) |
-        (1 << d9) |
-        (1 << d10) |
-        (1 << d11) |
-        (1 << d12) |
-        (1 << d13) |
-        (1 << d14);
+    static const uint64_t NonVolatileDoubleMask =
+         ((1ULL << d8) |
+          (1ULL << d9) |
+          (1ULL << d10) |
+          (1ULL << d11) |
+          (1ULL << d12) |
+          (1ULL << d13) |
+          (1ULL << d14));
+    // s30 and s31 alias d15.
+    static const uint64_t NonVolatileMask =
+        (NonVolatileDoubleMask |
+         ((1 << s16) |
+          (1 << s17) |
+          (1 << s18) |
+          (1 << s19) |
+          (1 << s20) |
+          (1 << s21) |
+          (1 << s22) |
+          (1 << s23) |
+          (1 << s24) |
+          (1 << s25) |
+          (1 << s26) |
+          (1 << s27) |
+          (1 << s28) |
+          (1 << s29) |
+          (1 << s30)));
 
-    static const uint32_t VolatileMask = AllMask & ~NonVolatileMask;
+    static const uint64_t VolatileMask = AllMask & ~NonVolatileMask;
+    static const uint64_t VolatileDoubleMask = AllDoubleMask & ~NonVolatileDoubleMask;
 
-    static const uint32_t WrapperMask = VolatileMask;
+    static const uint64_t WrapperMask = VolatileMask;
 
     // d15 is the ARM scratch float register.
-    static const uint32_t NonAllocatableMask = (1 << d15) | (1 << invalid_freg);
+    // s30 and s31 alias d15.
+    static const uint64_t NonAllocatableMask = ((1ULL << d15)) |
+                                                (1ULL << s30) |
+                                                (1ULL << s31);
 
     // Registers that can be allocated without being saved, generally.
-    static const uint32_t TempMask = VolatileMask & ~NonAllocatableMask;
+    static const uint64_t TempMask = VolatileMask & ~NonAllocatableMask;
 
-    static const uint32_t AllocatableMask = AllMask & ~NonAllocatableMask;
-    typedef uint32_t SetType;
+    static const uint64_t AllocatableMask = AllMask & ~NonAllocatableMask;
+    typedef uint64_t SetType;
 };
 
 template <typename T>
@@ -240,9 +319,9 @@ class TypedRegisterSet;
 class VFPRegister
 {
   public:
-    // What type of data is being stored in this register?
-    // UInt / Int are specifically for vcvt, where we need
-    // to know how the data is supposed to be converted.
+    // What type of data is being stored in this register? UInt / Int are
+    // specifically for vcvt, where we need to know how the data is supposed to
+    // be converted.
     enum RegType {
         Single = 0x0,
         Double = 0x1,
@@ -255,15 +334,13 @@ class VFPRegister
 
   protected:
     RegType kind : 2;
-    // ARM doesn't have more than 32 registers...
-    // don't take more bits than we'll need.
-    // Presently, I don't have plans to address the upper
-    // and lower halves of the double registers seprately, so
-    // 5 bits should suffice.  If I do decide to address them seprately
-    // (vmov, I'm looking at you), I will likely specify it as a separate
-    // field.
+    // ARM doesn't have more than 32 registers. Don't take more bits than we'll
+    // need. Presently, we don't have plans to address the upper and lower
+    // halves of the double registers seprately, so 5 bits should suffice. If we
+    // do decide to address them seprately (vmov, I'm looking at you), we will
+    // likely specify it as a separate field.
   public:
-    Code code_ : 5;
+    uint32_t code_ : 5;
   protected:
     bool _isInvalid : 1;
     bool _isMissing : 1;
@@ -294,7 +371,7 @@ class VFPRegister
     bool isInt() const { return (kind == UInt) || (kind == Int); }
     bool isSInt() const { return kind == Int; }
     bool isUInt() const { return kind == UInt; }
-    bool equiv(VFPRegister other) const { return other.kind == kind; }
+    bool equiv(const VFPRegister &other) const { return other.kind == kind; }
     size_t size() const { return (kind == Double) ? 8 : 4; }
     bool isInvalid() const;
     bool isMissing() const;
@@ -307,7 +384,7 @@ class VFPRegister
     struct VFPRegIndexSplit;
     VFPRegIndexSplit encode();
 
-    // for serializing values
+    // For serializing values.
     struct VFPRegIndexSplit {
         const uint32_t block : 4;
         const uint32_t bit : 1;
@@ -325,17 +402,18 @@ class VFPRegister
 
     Code code() const {
         JS_ASSERT(!_isInvalid && !_isMissing);
-        // this should only be used in areas where we only have doubles
-        // and singles.
+        // This should only be used in areas where we only have doubles and
+        // singles.
         JS_ASSERT(isFloat());
-        return Code(code_);
+        return Code(code_ | (kind << 5));
     }
     uint32_t id() const {
         return code_;
     }
     static VFPRegister FromCode(uint32_t i) {
         uint32_t code = i & 31;
-        return VFPRegister(code, Double);
+        uint32_t kind = i >> 5;
+        return VFPRegister(code, RegType(kind));
     }
     bool volatile_() const {
         if (isDouble())
@@ -343,7 +421,9 @@ class VFPRegister
         return !!((1 << code_) & FloatRegisters::VolatileMask);
     }
     const char *name() const {
-        return FloatRegisters::GetName(code_);
+        if (isDouble())
+            return FloatRegisters::GetDoubleName(Code(code_));
+        return FloatRegisters::GetSingleName(Code(code_));
     }
     bool operator != (const VFPRegister &other) const {
         return other.kind != kind || code_ != other.code_;
@@ -355,16 +435,16 @@ class VFPRegister
     }
     static const int NumAliasedDoubles = 16;
     uint32_t numAliased() const {
-        return 1;
-#ifdef EVERYONE_KNOWS_ABOUT_ALIASING
         if (isDouble()) {
             if (code_ < NumAliasedDoubles)
                 return 3;
             return 1;
         }
         return 2;
-#endif
     }
+
+    // N.B. FloatRegister is an explicit outparam here because msvc-2010
+    // miscompiled it on win64 when the value was simply returned
     void aliased(uint32_t aliasIdx, VFPRegister *ret) {
         if (aliasIdx == 0) {
             *ret = *this;
@@ -391,8 +471,8 @@ class VFPRegister
     }
     // |   d0    |
     // | s0 | s1 |
-    // if we've stored s0 and s1 in memory, we also want to say that d0
-    // is stored there, but it is only stored at the location where it is aligned
+    // If we've stored s0 and s1 in memory, we also want to say that d0 is
+    // stored there, but it is only stored at the location where it is aligned
     // e.g. at s0, not s1.
     void alignedAliased(uint32_t aliasIdx, VFPRegister *ret) {
         if (aliasIdx == 0) {
@@ -411,7 +491,7 @@ class VFPRegister
     }
     typedef FloatRegisters::SetType SetType;
     static uint32_t SetSize(SetType x) {
-        static_assert(sizeof(SetType) == 4, "SetType must be 32 bits");
+        static_assert(sizeof(SetType) == 8, "SetType must be 64 bits");
         return mozilla::CountPopulation32(x);
     }
     static Code FromName(const char *name) {
@@ -421,11 +501,16 @@ class VFPRegister
     static uint32_t GetSizeInBytes(const TypedRegisterSet<VFPRegister> &s);
     static uint32_t GetPushSizeInBytes(const TypedRegisterSet<VFPRegister> &s);
     uint32_t getRegisterDumpOffsetInBytes();
+    static uint32_t FirstBit(SetType x) {
+        return mozilla::CountTrailingZeroes64(x);
+    }
+    static uint32_t LastBit(SetType x) {
+        return 63 - mozilla::CountLeadingZeroes64(x);
+    }
 
 };
 
-// The only floating point register set that we work with
-// are the VFP Registers
+// The only floating point register set that we work with are the VFP Registers.
 typedef VFPRegister FloatRegister;
 
 uint32_t GetARMFlags();
@@ -435,16 +520,16 @@ bool HasVFP();
 bool Has32DP();
 bool HasIDIV();
 
-// Arm/D32 has double registers that can NOT be treated as float32
-// and this requires some dances in lowering.
+// Arm/D32 has double registers that can NOT be treated as float32 and this
+// requires some dances in lowering.
 inline bool
 hasUnaliasedDouble()
 {
     return Has32DP();
 }
 
-// On ARM, Dn aliases both S2n and S2n+1, so if you need to convert a float32
-// to a double as a temporary, you need a temporary double register.
+// On ARM, Dn aliases both S2n and S2n+1, so if you need to convert a float32 to
+// a double as a temporary, you need a temporary double register.
 inline bool
 hasMultiAlias()
 {
@@ -453,8 +538,9 @@ hasMultiAlias()
 
 bool ParseARMHwCapFlags(const char *armHwCap);
 
-// If the simulator is used then the ABI choice is dynamic.  Otherwise the ABI is static
-// and useHardFpABI is inlined so that unused branches can be optimized away.
+// If the simulator is used then the ABI choice is dynamic. Otherwise the ABI is
+// static and useHardFpABI is inlined so that unused branches can be optimized
+// away.
 #if defined(JS_ARM_SIMULATOR)
 bool UseHardFpABI();
 #else

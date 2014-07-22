@@ -12,6 +12,7 @@
 #include "jsnum.h"
 #include "jsobj.h"
 #include "jswrapper.h"
+
 #include "frontend/BytecodeCompiler.h"
 #include "gc/Marking.h"
 #include "jit/BaselineJIT.h"
@@ -19,10 +20,12 @@
 #include "vm/ArgumentsObject.h"
 #include "vm/DebuggerMemory.h"
 #include "vm/WrapperObject.h"
+
 #include "jsgcinlines.h"
 #include "jsobjinlines.h"
 #include "jsopcodeinlines.h"
 #include "jsscriptinlines.h"
+
 #include "vm/ObjectImpl-inl.h"
 #include "vm/Stack-inl.h"
 
@@ -665,7 +668,7 @@ Debugger::slowPathOnLeaveFrame(JSContext *cx, AbstractFramePtr frame, bool frame
         return false;
 
       default:
-        MOZ_ASSUME_UNREACHABLE("bad final trap status");
+        MOZ_CRASH("bad final trap status");
     }
 }
 
@@ -951,7 +954,7 @@ Debugger::newCompletionValue(JSContext *cx, JSTrapStatus status, Value value_,
         return true;
 
       default:
-        MOZ_ASSUME_UNREACHABLE("bad status passed to Debugger::newCompletionValue");
+        MOZ_CRASH("bad status passed to Debugger::newCompletionValue");
     }
 
     /* Common tail for JSTRAP_RETURN and JSTRAP_THROW. */
@@ -2246,21 +2249,18 @@ Debugger::construct(JSContext *cx, unsigned argc, Value *vp)
     obj->setReservedSlot(JSSLOT_DEBUG_MEMORY_INSTANCE, ObjectValue(*memory));
 
     /* Construct the underlying C++ object. */
-    Debugger *dbg = cx->new_<Debugger>(cx, obj.get());
-    if (!dbg)
+    auto dbg = cx->make_unique<Debugger>(cx, obj.get());
+    if (!dbg || !dbg->init(cx))
         return false;
-    if (!dbg->init(cx)) {
-        js_delete(dbg);
-        return false;
-    }
-    obj->setPrivate(dbg);
-    /* Now the JSObject owns the js::Debugger instance, so we needn't delete it. */
+
+    Debugger *debugger = dbg.release();
+    obj->setPrivate(debugger); // owns the released pointer
 
     /* Add the initial debuggees, if any. */
     for (unsigned i = 0; i < args.length(); i++) {
         Rooted<GlobalObject*>
             debuggee(cx, &args[i].toObject().as<ProxyObject>().private_().toObject().global());
-        if (!dbg->addDebuggeeGlobal(cx, debuggee))
+        if (!debugger->addDebuggeeGlobal(cx, debuggee))
             return false;
     }
 
@@ -4183,7 +4183,7 @@ static void
 UpdateFrameIterPc(FrameIter &iter)
 {
     if (iter.abstractFramePtr().isRematerializedFrame()) {
-#ifdef DEBUG
+#if defined(DEBUG) && defined(JS_ION)
         // Rematerialized frames don't need their pc updated. The reason we
         // need to update pc is because we might get the same Debugger.Frame
         // object for multiple re-entries into debugger code from debuggee
@@ -5223,6 +5223,70 @@ DebuggerObject_getEnvironment(JSContext *cx, unsigned argc, Value *vp)
 }
 
 static bool
+DebuggerObject_getIsBoundFunction(JSContext *cx, unsigned argc, Value *vp)
+{
+    THIS_DEBUGOBJECT_REFERENT(cx, argc, vp, "get isBoundFunction", args, refobj);
+
+    args.rval().setBoolean(refobj->isBoundFunction());
+    return true;
+}
+
+static bool
+DebuggerObject_getBoundTargetFunction(JSContext *cx, unsigned argc, Value *vp)
+{
+    THIS_DEBUGOBJECT_OWNER_REFERENT(cx, argc, vp, "get boundFunctionTarget", args, dbg, refobj);
+
+    if (!refobj->isBoundFunction()) {
+        args.rval().setUndefined();
+        return true;
+    }
+
+    args.rval().setObject(*refobj->as<JSFunction>().getBoundFunctionTarget());
+    return dbg->wrapDebuggeeValue(cx, args.rval());
+}
+
+static bool
+DebuggerObject_getBoundThis(JSContext *cx, unsigned argc, Value *vp)
+{
+    THIS_DEBUGOBJECT_OWNER_REFERENT(cx, argc, vp, "get boundThis", args, dbg, refobj);
+
+    if (!refobj->isBoundFunction()) {
+        args.rval().setUndefined();
+        return true;
+    }
+    args.rval().set(refobj->as<JSFunction>().getBoundFunctionThis());
+    return dbg->wrapDebuggeeValue(cx, args.rval());
+}
+
+static bool
+DebuggerObject_getBoundArguments(JSContext *cx, unsigned argc, Value *vp)
+{
+    THIS_DEBUGOBJECT_OWNER_REFERENT(cx, argc, vp, "get boundArguments", args, dbg, refobj);
+
+    if (!refobj->isBoundFunction()) {
+        args.rval().setUndefined();
+        return true;
+    }
+
+    Rooted<JSFunction*> fun(cx, &refobj->as<JSFunction>());
+    size_t length = fun->getBoundFunctionArgumentCount();
+    AutoValueVector boundArgs(cx);
+    if (!boundArgs.resize(length))
+        return false;
+    for (size_t i = 0; i < length; i++) {
+        boundArgs[i].set(fun->getBoundFunctionArgument(i));
+        if (!dbg->wrapDebuggeeValue(cx, boundArgs[i]))
+            return false;
+    }
+
+    JSObject *aobj = NewDenseCopiedArray(cx, boundArgs.length(), boundArgs.begin());
+    if (!aobj)
+        return false;
+    args.rval().setObject(*aobj);
+    return true;
+}
+
+static bool
 DebuggerObject_getGlobal(JSContext *cx, unsigned argc, Value *vp)
 {
     THIS_DEBUGOBJECT_OWNER_REFERENT(cx, argc, vp, "get global", args, dbg, obj);
@@ -5249,7 +5313,7 @@ DebuggerObject_getOwnPropertyDescriptor(JSContext *cx, unsigned argc, Value *vp)
         Maybe<AutoCompartment> ac;
         ac.construct(cx, obj);
 
-        ErrorCopier ec(ac, dbg->toJSObject());
+        ErrorCopier ec(ac);
         if (!GetOwnPropertyDescriptor(cx, obj, id, &desc))
             return false;
     }
@@ -5279,13 +5343,13 @@ DebuggerObject_getOwnPropertyDescriptor(JSContext *cx, unsigned argc, Value *vp)
 static bool
 DebuggerObject_getOwnPropertyNames(JSContext *cx, unsigned argc, Value *vp)
 {
-    THIS_DEBUGOBJECT_OWNER_REFERENT(cx, argc, vp, "getOwnPropertyNames", args, dbg, obj);
+    THIS_DEBUGOBJECT_REFERENT(cx, argc, vp, "getOwnPropertyNames", args, obj);
 
     AutoIdVector keys(cx);
     {
         Maybe<AutoCompartment> ac;
         ac.construct(cx, obj);
-        ErrorCopier ec(ac, dbg->toJSObject());
+        ErrorCopier ec(ac);
         if (!GetPropertyNames(cx, obj, JSITER_OWNONLY | JSITER_HIDDEN, &keys))
             return false;
     }
@@ -5340,7 +5404,7 @@ DebuggerObject_defineProperty(JSContext *cx, unsigned argc, Value *vp)
         if (!cx->compartment()->wrap(cx, &desc))
             return false;
 
-        ErrorCopier ec(ac, dbg->toJSObject());
+        ErrorCopier ec(ac);
         bool dummy;
         if (!DefineProperty(cx, obj, id, desc, true, &dummy))
             return false;
@@ -5382,7 +5446,7 @@ DebuggerObject_defineProperties(JSContext *cx, unsigned argc, Value *vp)
                 return false;
         }
 
-        ErrorCopier ec(ac, dbg->toJSObject());
+        ErrorCopier ec(ac);
         for (size_t i = 0; i < n; i++) {
             bool dummy;
             if (!DefineProperty(cx, obj, ids[i], descs[i], true, &dummy))
@@ -5401,14 +5465,14 @@ DebuggerObject_defineProperties(JSContext *cx, unsigned argc, Value *vp)
 static bool
 DebuggerObject_deleteProperty(JSContext *cx, unsigned argc, Value *vp)
 {
-    THIS_DEBUGOBJECT_OWNER_REFERENT(cx, argc, vp, "deleteProperty", args, dbg, obj);
+    THIS_DEBUGOBJECT_REFERENT(cx, argc, vp, "deleteProperty", args, obj);
     RootedId id(cx);
     if (!ValueToId<CanGC>(cx, args.get(0), &id))
         return false;
 
     Maybe<AutoCompartment> ac;
     ac.construct(cx, obj);
-    ErrorCopier ec(ac, dbg->toJSObject());
+    ErrorCopier ec(ac);
 
     bool succeeded;
     if (!JSObject::deleteGeneric(cx, obj, id, &succeeded))
@@ -5422,11 +5486,11 @@ enum SealHelperOp { Seal, Freeze, PreventExtensions };
 static bool
 DebuggerObject_sealHelper(JSContext *cx, unsigned argc, Value *vp, SealHelperOp op, const char *name)
 {
-    THIS_DEBUGOBJECT_OWNER_REFERENT(cx, argc, vp, name, args, dbg, obj);
+    THIS_DEBUGOBJECT_REFERENT(cx, argc, vp, name, args, obj);
 
     Maybe<AutoCompartment> ac;
     ac.construct(cx, obj);
-    ErrorCopier ec(ac, dbg->toJSObject());
+    ErrorCopier ec(ac);
     bool ok;
     if (op == Seal) {
         ok = JSObject::seal(cx, obj);
@@ -5471,11 +5535,11 @@ static bool
 DebuggerObject_isSealedHelper(JSContext *cx, unsigned argc, Value *vp, SealHelperOp op,
                               const char *name)
 {
-    THIS_DEBUGOBJECT_OWNER_REFERENT(cx, argc, vp, name, args, dbg, obj);
+    THIS_DEBUGOBJECT_REFERENT(cx, argc, vp, name, args, obj);
 
     Maybe<AutoCompartment> ac;
     ac.construct(cx, obj);
-    ErrorCopier ec(ac, dbg->toJSObject());
+    ErrorCopier ec(ac);
     bool r;
     if (op == Seal) {
         if (!JSObject::isSealed(cx, obj, &r))
@@ -5728,6 +5792,10 @@ static const JSPropertySpec DebuggerObject_properties[] = {
     JS_PSG("parameterNames", DebuggerObject_getParameterNames, 0),
     JS_PSG("script", DebuggerObject_getScript, 0),
     JS_PSG("environment", DebuggerObject_getEnvironment, 0),
+    JS_PSG("isBoundFunction", DebuggerObject_getIsBoundFunction, 0),
+    JS_PSG("boundTargetFunction", DebuggerObject_getBoundTargetFunction, 0),
+    JS_PSG("boundThis", DebuggerObject_getBoundThis, 0),
+    JS_PSG("boundArguments", DebuggerObject_getBoundArguments, 0),
     JS_PSG("global", DebuggerObject_getGlobal, 0),
     JS_PS_END
 };
@@ -5961,13 +6029,13 @@ DebuggerEnv_getInspectable(JSContext *cx, unsigned argc, Value *vp)
 static bool
 DebuggerEnv_names(JSContext *cx, unsigned argc, Value *vp)
 {
-    THIS_DEBUGENV_OWNER(cx, argc, vp, "names", args, envobj, env, dbg);
+    THIS_DEBUGENV(cx, argc, vp, "names", args, envobj, env);
 
     AutoIdVector keys(cx);
     {
         Maybe<AutoCompartment> ac;
         ac.construct(cx, env);
-        ErrorCopier ec(ac, dbg->toJSObject());
+        ErrorCopier ec(ac);
         if (!GetPropertyNames(cx, env, JSITER_HIDDEN, &keys))
             return false;
     }
@@ -6002,7 +6070,7 @@ DebuggerEnv_find(JSContext *cx, unsigned argc, Value *vp)
         ac.construct(cx, env);
 
         /* This can trigger resolve hooks. */
-        ErrorCopier ec(ac, dbg->toJSObject());
+        ErrorCopier ec(ac);
         RootedShape prop(cx);
         RootedObject pobj(cx);
         for (; env && !prop; env = env->enclosingScope()) {
@@ -6032,7 +6100,7 @@ DebuggerEnv_getVariable(JSContext *cx, unsigned argc, Value *vp)
         ac.construct(cx, env);
 
         /* This can trigger getters. */
-        ErrorCopier ec(ac, dbg->toJSObject());
+        ErrorCopier ec(ac);
 
         // For DebugScopeObjects, we get sentinel values for optimized out
         // slots and arguments instead of throwing (the default behavior).
@@ -6074,7 +6142,7 @@ DebuggerEnv_setVariable(JSContext *cx, unsigned argc, Value *vp)
             return false;
 
         /* This can trigger setters. */
-        ErrorCopier ec(ac, dbg->toJSObject());
+        ErrorCopier ec(ac);
 
         /* Make sure the environment actually has the specified binding. */
         bool has;

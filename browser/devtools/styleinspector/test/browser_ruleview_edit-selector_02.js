@@ -23,7 +23,7 @@ let PAGE_CONTENT = [
 ].join("\n");
 
 let test = asyncTest(function*() {
-  yield addTab("data:text/html,test rule view selector changes");
+  yield addTab("data:text/html;charset=utf-8,test rule view selector changes");
 
   info("Creating the test document");
   content.document.body.innerHTML = PAGE_CONTENT;
@@ -51,7 +51,8 @@ let test = asyncTest(function*() {
 function* testEditSelector(view, name) {
   info("Test editing existing selector fields");
 
-  let idRuleEditor = getRuleViewRuleEditor(view, 1);
+  let idRuleEditor = getRuleViewRuleEditor(view, 1) ||
+    getRuleViewRuleEditor(view, 1, 0);
 
   info("Focusing an existing selector name in the rule-view");
   let editor = yield focusEditableField(idRuleEditor.selectorText);

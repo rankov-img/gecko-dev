@@ -303,27 +303,10 @@ ReportError(JSContext *cx, const char *message, JSErrorReport *reportp,
 
     /*
      * Call the error reporter only if an exception wasn't raised.
-     *
-     * If an exception was raised, then we call the debugErrorHook
-     * (if present) to give it a chance to see the error before it
-     * propagates out of scope.  This is needed for compatibility
-     * with the old scheme.
      */
     if (!JS_IsRunning(cx) || !js_ErrorToException(cx, message, reportp, callback, userRef)) {
         if (message)
             CallErrorReporter(cx, message, reportp);
-    } else if (JSDebugErrorHook hook = cx->runtime()->debugHooks.debugErrorHook) {
-        /*
-         * If we've already chewed up all the C stack, don't call into the
-         * error reporter since this may trigger an infinite recursion where
-         * the reporter triggers an over-recursion.
-         */
-        int stackDummy;
-        if (!JS_CHECK_STACK_SIZE(GetNativeStackLimit(cx), &stackDummy))
-            return;
-
-        if (cx->errorReporter)
-            hook(cx, message, reportp, cx->runtime()->debugHooks.debugErrorHookData);
     }
 }
 
@@ -391,8 +374,7 @@ js_ReportOutOfMemory(ThreadSafeContext *cxArg)
     }
 
     /* Get the message for this error, but we don't expand any arguments. */
-    const JSErrorFormatString *efs =
-        js_GetLocalizedErrorMessage(cx, nullptr, nullptr, JSMSG_OUT_OF_MEMORY);
+    const JSErrorFormatString *efs = js_GetErrorMessage(nullptr, JSMSG_OUT_OF_MEMORY);
     const char *msg = efs ? efs->format : "Out of memory";
 
     /* Fill out the report, but don't do anything that requires allocation. */
@@ -496,7 +478,7 @@ checkReportFlags(JSContext *cx, unsigned *flags)
     }
 
     /* Warnings become errors when JSOPTION_WERROR is set. */
-    if (JSREPORT_IS_WARNING(*flags) && cx->options().werror())
+    if (JSREPORT_IS_WARNING(*flags) && cx->runtime()->options().werror())
         *flags &= ~JSREPORT_WARNING;
 
     return false;
@@ -637,16 +619,6 @@ js::PrintError(JSContext *cx, FILE *file, const char *message, JSErrorReport *re
     return true;
 }
 
-char *
-js_strdup(ExclusiveContext *cx, const char *s)
-{
-    size_t n = strlen(s) + 1;
-    void *p = cx->malloc_(n);
-    if (!p)
-        return nullptr;
-    return (char *)js_memcpy(p, s, n);
-}
-
 /*
  * The arguments from ap need to be packaged up into an array and stored
  * into the report struct.
@@ -671,13 +643,14 @@ js_ExpandErrorArguments(ExclusiveContext *cx, JSErrorCallback callback,
 
     *messagep = nullptr;
 
-    /* Most calls supply js_GetErrorMessage; if this is so, assume nullptr. */
-    if (!callback || callback == js_GetErrorMessage) {
-        efs = js_GetLocalizedErrorMessage(cx, userRef, nullptr, errorNumber);
-    } else {
+    if (!callback)
+        callback = js_GetErrorMessage;
+
+    {
         AutoSuppressGC suppressGC(cx);
-        efs = callback(userRef, nullptr, errorNumber);
+        efs = callback(userRef, errorNumber);
     }
+
     if (efs) {
         reportp->exnType = efs->exnType;
 
@@ -778,7 +751,7 @@ js_ExpandErrorArguments(ExclusiveContext *cx, JSErrorCallback callback,
              */
             if (efs->format) {
                 size_t len;
-                *messagep = js_strdup(cx, efs->format);
+                *messagep = DuplicateString(cx, efs->format).release();
                 if (!*messagep)
                     goto error;
                 len = strlen(*messagep);
@@ -902,14 +875,6 @@ js::CallErrorReporter(JSContext *cx, const char *message, JSErrorReport *reportp
     JS_ASSERT(message);
     JS_ASSERT(reportp);
 
-    // If debugErrorHook is present, give it a chance to veto sending the error
-    // on to the regular ErrorReporter.
-    if (cx->errorReporter) {
-        JSDebugErrorHook hook = cx->runtime()->debugHooks.debugErrorHook;
-        if (hook && !hook(cx, message, reportp, cx->runtime()->debugHooks.debugErrorHookData))
-            return;
-    }
-
     if (JSErrorReporter onError = cx->errorReporter)
         onError(cx, message, reportp);
 }
@@ -1004,9 +969,9 @@ const JSErrorFormatString js_ErrorFormatString[JSErr_Limit] = {
 };
 
 JS_FRIEND_API(const JSErrorFormatString *)
-js_GetErrorMessage(void *userRef, const char *locale, const unsigned errorNumber)
+js_GetErrorMessage(void *userRef, const unsigned errorNumber)
 {
-    if ((errorNumber > 0) && (errorNumber < JSErr_Limit))
+    if (errorNumber > 0 && errorNumber < JSErr_Limit)
         return &js_ErrorFormatString[errorNumber];
     return nullptr;
 }
@@ -1159,10 +1124,6 @@ JSContext::JSContext(JSRuntime *rt)
 #endif
     innermostGenerator_(nullptr)
 {
-#ifdef DEBUG
-    stackIterAssertionEnabled = true;
-#endif
-
     JS_ASSERT(static_cast<ContextFriendFields*>(this) ==
               ContextFriendFields::get(this));
 }
