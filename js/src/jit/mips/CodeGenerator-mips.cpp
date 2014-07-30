@@ -1887,14 +1887,14 @@ CodeGeneratorMIPS::visitAsmJSLoadHeap(LAsmJSLoadHeap *ins)
     int size;
     bool isFloat = false;
     switch (mir->viewType()) {
-      case ArrayBufferView::TYPE_INT8:    isSigned = true;  size =  8; break;
-      case ArrayBufferView::TYPE_UINT8:   isSigned = false; size =  8; break;
-      case ArrayBufferView::TYPE_INT16:   isSigned = true;  size = 16; break;
-      case ArrayBufferView::TYPE_UINT16:  isSigned = false; size = 16; break;
-      case ArrayBufferView::TYPE_INT32:   isSigned = true;  size = 32; break;
-      case ArrayBufferView::TYPE_UINT32:  isSigned = false; size = 32; break;
-      case ArrayBufferView::TYPE_FLOAT64: isFloat  = true;  size = 64; break;
-      case ArrayBufferView::TYPE_FLOAT32: isFloat  = true;  size = 32; break;
+      case Scalar::Int8:    isSigned = true;  size =  8; break;
+      case Scalar::Uint8:   isSigned = false; size =  8; break;
+      case Scalar::Int16:   isSigned = true;  size = 16; break;
+      case Scalar::Uint16:  isSigned = false; size = 16; break;
+      case Scalar::Int32:   isSigned = true;  size = 32; break;
+      case Scalar::Uint32:  isSigned = false; size = 32; break;
+      case Scalar::Float64: isFloat  = true;  size = 64; break;
+      case Scalar::Float32: isFloat  = true;  size = 32; break;
       default: MOZ_ASSUME_UNREACHABLE("unexpected array type");
     }
 
@@ -1974,14 +1974,14 @@ CodeGeneratorMIPS::visitAsmJSStoreHeap(LAsmJSStoreHeap *ins)
     int size;
     bool isFloat = false;
     switch (mir->viewType()) {
-      case ArrayBufferView::TYPE_INT8:    isSigned = true;  size = 8;  break;
-      case ArrayBufferView::TYPE_UINT8:   isSigned = false; size = 8;  break;
-      case ArrayBufferView::TYPE_INT16:   isSigned = true;  size = 16; break;
-      case ArrayBufferView::TYPE_UINT16:  isSigned = false; size = 16; break;
-      case ArrayBufferView::TYPE_INT32:   isSigned = true;  size = 32; break;
-      case ArrayBufferView::TYPE_UINT32:  isSigned = false; size = 32; break;
-      case ArrayBufferView::TYPE_FLOAT64: isFloat  = true;  size = 64; break;
-      case ArrayBufferView::TYPE_FLOAT32: isFloat  = true;  size = 32; break;
+      case Scalar::Int8:    isSigned = true;  size =  8; break;
+      case Scalar::Uint8:   isSigned = false; size =  8; break;
+      case Scalar::Int16:   isSigned = true;  size = 16; break;
+      case Scalar::Uint16:  isSigned = false; size = 16; break;
+      case Scalar::Int32:   isSigned = true;  size = 32; break;
+      case Scalar::Uint32:  isSigned = false; size = 32; break;
+      case Scalar::Float64: isFloat  = true;  size = 64; break;
+      case Scalar::Float32: isFloat  = true;  size = 32; break;
       default: MOZ_ASSUME_UNREACHABLE("unexpected array type");
     }
 
@@ -2050,7 +2050,8 @@ CodeGeneratorMIPS::visitAsmJSPassStackArg(LAsmJSPassStackArg *ins)
         if (ins->arg()->isGeneralReg()) {
             masm.storePtr(ToRegister(ins->arg()), Address(StackPointer, mir->spOffset()));
         } else {
-            masm.storeDouble(ToFloatRegister(ins->arg()), Address(StackPointer, mir->spOffset()));
+            masm.storeDouble(ToFloatRegister(ins->arg()).doubleOverlay(0),
+                             Address(StackPointer, mir->spOffset()));
         }
     }
 

@@ -340,11 +340,9 @@ JitRuntime::generateInvalidator(JSContext *cx)
 
     // Save floating point registers
     // We can use as_sd because stack is alligned.
-    // :TODO: (Bug 972836) // Fix this once odd regs can be used as float32
-    // only. For now we skip saving odd regs for O32 ABI.
     uint32_t increment = 2;
-    for (uint32_t i = 0; i < FloatRegisters::Total; i += increment)
-        masm.as_sd(FloatRegister::FromCode(i), StackPointer,
+    for (uint32_t i = 0; i < FloatRegisters::TotalDouble; i ++)
+        masm.as_sd(FloatRegister::FromIndex(i, FloatRegister::Double), StackPointer,
                    InvalidationBailoutStack::offsetOfFpRegs() + i * sizeof(double));
 
     // Pass pointer to InvalidationBailoutStack structure.
@@ -564,11 +562,8 @@ PushBailoutFrame(MacroAssembler &masm, uint32_t frameClass, Register spArg)
 
     // Save floating point registers
     // We can use as_sd because stack is alligned.
-    // :TODO: (Bug 972836) // Fix this once odd regs can be used as float32
-    // only. For now we skip saving odd regs for O32 ABI.
-    uint32_t increment = 2;
-    for (uint32_t i = 0; i < FloatRegisters::Total; i += increment)
-        masm.as_sd(FloatRegister::FromCode(i), StackPointer,
+    for (uint32_t i = 0; i < FloatRegisters::TotalDouble; i++)
+        masm.as_sd(FloatRegister::FromIndex(i, FloatRegister::Double), StackPointer,
                    BailoutStack::offsetOfFpRegs() + i * sizeof(double));
 
     // Store the frameSize_ or tableOffset_ stored in ra

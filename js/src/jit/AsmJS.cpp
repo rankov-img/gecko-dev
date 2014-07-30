@@ -5940,7 +5940,7 @@ static const RegisterSet NonVolatileRegs =
 // Mips is using one more double slot due to stack alignment for double values.
 // Look at MacroAssembler::PushRegsInMask(RegisterSet set)
 static const unsigned FramePushedAfterSave = NonVolatileRegs.gprs().size() * sizeof(intptr_t) +
-                                             NonVolatileRegs.fpus().size() * sizeof(double) +
+                                             NonVolatileRegs.fpus().getPushSizeInBytes() +
                                              sizeof(double);
 #else
 static const unsigned FramePushedAfterSave = NonVolatileRegs.gprs().size() * sizeof(intptr_t) +
@@ -6010,7 +6010,11 @@ GenerateEntry(ModuleCompiler &m, unsigned exportIndex)
             masm.load32(src, iter->gpr());
             break;
           case ABIArg::FPU:
+#if defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_MIPS)
+            masm.loadDouble(src, iter->fpu().doubleOverlay(0));
+#else
             masm.loadDouble(src, iter->fpu());
+#endif
             break;
           case ABIArg::Stack:
             if (iter.mirType() == MIRType_Int32) {

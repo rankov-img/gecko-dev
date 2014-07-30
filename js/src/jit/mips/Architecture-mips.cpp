@@ -105,14 +105,9 @@ FloatRegister::ReduceSetForPush(const FloatRegisterSet &s)
     FloatRegisterSet mod;
     for (TypedRegisterIterator<FloatRegister> iter(s); iter.more(); iter++) {
         if ((*iter).isSingle()) {
-            // Add in just this float.
-            mod.addUnchecked(*iter);
-        } else if ((*iter).id() & 1 == 0) {
-            // A double with an overlay, add in both floats.
-            mod.addUnchecked((*iter).singleOverlay(0));
-            mod.addUnchecked((*iter).singleOverlay(1));
+            // Even for single size registers save complete double register.
+            mod.addUnchecked((*iter).doubleOverlay());
         } else {
-            // Add in the lone double.
             mod.addUnchecked(*iter);
         }
     }

@@ -1430,7 +1430,7 @@ MacroAssemblerMIPS::ma_ss(FloatRegister ft, BaseIndex address)
 void
 MacroAssemblerMIPS::ma_pop(FloatRegister fs)
 {
-    ma_ld(fs, Address(StackPointer, 0));
+    ma_ld(fs.doubleOverlay(0), Address(StackPointer, 0));
     as_addiu(StackPointer, StackPointer, sizeof(double));
 }
 
@@ -1438,7 +1438,7 @@ void
 MacroAssemblerMIPS::ma_push(FloatRegister fs)
 {
     as_addiu(StackPointer, StackPointer, -sizeof(double));
-    ma_sd(fs, Address(StackPointer, 0));
+    ma_sd(fs.doubleOverlay(0), Address(StackPointer, 0));
 }
 
 void
@@ -1560,7 +1560,7 @@ MacroAssemblerMIPSCompat::freeStack(Register amount)
 void
 MacroAssembler::PushRegsInMask(RegisterSet set)
 {
-    int32_t diffF = set.fpus().size() * sizeof(double);
+    int32_t diffF = set.fpus().getPushSizeInBytes();
     int32_t diffG = set.gprs().size() * sizeof(intptr_t);
 
     reserveStack(diffG);
@@ -1576,12 +1576,7 @@ MacroAssembler::PushRegsInMask(RegisterSet set)
     ma_and(SecondScratchReg, sp, Imm32(~(StackAlignment - 1)));
     reserveStack(diffF + sizeof(double));
 
-    for (FloatRegisterForwardIterator iter(set.fpus()); iter.more(); iter++) {
-        // Use assembly s.d because we have alligned the stack.
-        // :TODO: (Bug 972836) Fix this once odd regs can be used as
-        // float32 only. For now we skip saving odd regs for O32 ABI.
-
-        // :TODO: (Bug 985881) Make a switch for N32 ABI.
+    for (FloatRegisterForwardIterator iter(set.fpus().reduceSetForPush()); iter.more(); iter++) {
         if ((*iter).code() % 2 == 0)
             as_sd(*iter, SecondScratchReg, -diffF);
         diffF -= sizeof(double);
@@ -1593,7 +1588,7 @@ void
 MacroAssembler::PopRegsInMaskIgnore(RegisterSet set, RegisterSet ignore)
 {
     int32_t diffG = set.gprs().size() * sizeof(intptr_t);
-    int32_t diffF = set.fpus().size() * sizeof(double);
+    int32_t diffF = set.fpus().getPushSizeInBytes();
     const int32_t reservedG = diffG;
     const int32_t reservedF = diffF;
 
@@ -1601,11 +1596,7 @@ MacroAssembler::PopRegsInMaskIgnore(RegisterSet set, RegisterSet ignore)
     ma_addu(SecondScratchReg, sp, Imm32(reservedF + sizeof(double)));
     ma_and(SecondScratchReg, SecondScratchReg, Imm32(~(StackAlignment - 1)));
 
-    for (FloatRegisterForwardIterator iter(set.fpus()); iter.more(); iter++) {
-        // :TODO: (Bug 972836) Fix this once odd regs can be used as
-        // float32 only. For now we skip loading odd regs for O32 ABI.
-
-        // :TODO: (Bug 985881) Make a switch for N32 ABI.
+    for (FloatRegisterForwardIterator iter(set.fpus().reduceSetForPush()); iter.more(); iter++) {
         if (!ignore.has(*iter) && ((*iter).code() % 2 == 0))
             // Use assembly l.d because we have alligned the stack.
             as_ld(*iter, SecondScratchReg, -diffF);
@@ -2532,7 +2523,6 @@ MacroAssemblerMIPSCompat::unboxBoolean(const Address &src, Register dest)
 void
 MacroAssemblerMIPSCompat::unboxDouble(const ValueOperand &operand, FloatRegister dest)
 {
-    MOZ_ASSERT(dest != ScratchDoubleReg);
     moveToDoubleLo(operand.payloadReg(), dest);
     moveToDoubleHi(operand.typeReg(), dest);
 }

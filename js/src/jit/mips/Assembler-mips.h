@@ -108,14 +108,14 @@ static MOZ_CONSTEXPR_VAR Register JSReturnReg_Data = a2;
 static MOZ_CONSTEXPR_VAR Register StackPointer = sp;
 static MOZ_CONSTEXPR_VAR Register FramePointer = InvalidReg;
 static MOZ_CONSTEXPR_VAR Register ReturnReg = v0;
-static MOZ_CONSTEXPR_VAR FloatRegister ReturnFloat32Reg(FloatRegisters::f0);
-static MOZ_CONSTEXPR_VAR FloatRegister ReturnDoubleReg(FloatRegisters::f0);
-static MOZ_CONSTEXPR_VAR FloatRegister ScratchFloat32Reg(FloatRegisters::f18);
-static MOZ_CONSTEXPR_VAR FloatRegister ScratchDoubleReg(FloatRegisters::f18);
-static MOZ_CONSTEXPR_VAR FloatRegister SecondScratchFloat32Reg(FloatRegisters::f16);
-static MOZ_CONSTEXPR_VAR FloatRegister SecondScratchDoubleReg(FloatRegisters::f16);
+static MOZ_CONSTEXPR_VAR FloatRegister ReturnFloat32Reg(FloatRegisters::f0, FloatRegister::Single);
+static MOZ_CONSTEXPR_VAR FloatRegister ReturnDoubleReg(FloatRegisters::f0, FloatRegister::Double);
+static MOZ_CONSTEXPR_VAR FloatRegister ScratchFloat32Reg(FloatRegisters::f18, FloatRegister::Single);
+static MOZ_CONSTEXPR_VAR FloatRegister ScratchDoubleReg(FloatRegisters::f18, FloatRegister::Double);
+static MOZ_CONSTEXPR_VAR FloatRegister SecondScratchFloat32Reg(FloatRegisters::f16, FloatRegister::Single);
+static MOZ_CONSTEXPR_VAR FloatRegister SecondScratchDoubleReg(FloatRegisters::f16, FloatRegister::Double);
 
-static MOZ_CONSTEXPR_VAR FloatRegister NANReg(FloatRegisters::f30);
+static MOZ_CONSTEXPR_VAR FloatRegister NANReg(FloatRegisters::f30, FloatRegister::Double);
 
 // Registers used in the GenerateFFIIonExit Enable Activation block.
 static MOZ_CONSTEXPR_VAR Register AsmJSIonExitRegCallee = t0;
@@ -132,22 +132,22 @@ static MOZ_CONSTEXPR_VAR Register AsmJSIonExitRegD0 = a0;
 static MOZ_CONSTEXPR_VAR Register AsmJSIonExitRegD1 = a1;
 static MOZ_CONSTEXPR_VAR Register AsmJSIonExitRegD2 = t0;
 
-static MOZ_CONSTEXPR_VAR FloatRegister f0(FloatRegisters::f0);
-static MOZ_CONSTEXPR_VAR FloatRegister f2(FloatRegisters::f2);
-static MOZ_CONSTEXPR_VAR FloatRegister f4(FloatRegisters::f4);
-static MOZ_CONSTEXPR_VAR FloatRegister f6(FloatRegisters::f6);
-static MOZ_CONSTEXPR_VAR FloatRegister f8(FloatRegisters::f8);
-static MOZ_CONSTEXPR_VAR FloatRegister f10(FloatRegisters::f10);
-static MOZ_CONSTEXPR_VAR FloatRegister f12(FloatRegisters::f12);
-static MOZ_CONSTEXPR_VAR FloatRegister f14(FloatRegisters::f14);
-static MOZ_CONSTEXPR_VAR FloatRegister f16(FloatRegisters::f16);
-static MOZ_CONSTEXPR_VAR FloatRegister f18(FloatRegisters::f18);
-static MOZ_CONSTEXPR_VAR FloatRegister f20(FloatRegisters::f20);
-static MOZ_CONSTEXPR_VAR FloatRegister f22(FloatRegisters::f22);
-static MOZ_CONSTEXPR_VAR FloatRegister f24(FloatRegisters::f24);
-static MOZ_CONSTEXPR_VAR FloatRegister f26(FloatRegisters::f26);
-static MOZ_CONSTEXPR_VAR FloatRegister f28(FloatRegisters::f28);
-static MOZ_CONSTEXPR_VAR FloatRegister f30(FloatRegisters::f30);
+static MOZ_CONSTEXPR_VAR FloatRegister f0(FloatRegisters::f0, FloatRegister::Double);
+static MOZ_CONSTEXPR_VAR FloatRegister f2(FloatRegisters::f2, FloatRegister::Double);
+static MOZ_CONSTEXPR_VAR FloatRegister f4(FloatRegisters::f4, FloatRegister::Double);
+static MOZ_CONSTEXPR_VAR FloatRegister f6(FloatRegisters::f6, FloatRegister::Double);
+static MOZ_CONSTEXPR_VAR FloatRegister f8(FloatRegisters::f8, FloatRegister::Double);
+static MOZ_CONSTEXPR_VAR FloatRegister f10(FloatRegisters::f10, FloatRegister::Double);
+static MOZ_CONSTEXPR_VAR FloatRegister f12(FloatRegisters::f12, FloatRegister::Double);
+static MOZ_CONSTEXPR_VAR FloatRegister f14(FloatRegisters::f14, FloatRegister::Double);
+static MOZ_CONSTEXPR_VAR FloatRegister f16(FloatRegisters::f16, FloatRegister::Double);
+static MOZ_CONSTEXPR_VAR FloatRegister f18(FloatRegisters::f18, FloatRegister::Double);
+static MOZ_CONSTEXPR_VAR FloatRegister f20(FloatRegisters::f20, FloatRegister::Double);
+static MOZ_CONSTEXPR_VAR FloatRegister f22(FloatRegisters::f22, FloatRegister::Double);
+static MOZ_CONSTEXPR_VAR FloatRegister f24(FloatRegisters::f24, FloatRegister::Double);
+static MOZ_CONSTEXPR_VAR FloatRegister f26(FloatRegisters::f26, FloatRegister::Double);
+static MOZ_CONSTEXPR_VAR FloatRegister f28(FloatRegisters::f28, FloatRegister::Double);
+static MOZ_CONSTEXPR_VAR FloatRegister f30(FloatRegisters::f30, FloatRegister::Double);
 
 // MIPS CPUs can only load multibyte data that is "naturally"
 // four-byte-aligned, sp register should be eight-byte-aligned.
@@ -898,11 +898,11 @@ class Assembler : public AssemblerShared
     BufferOffset as_mfc1(Register rt, FloatRegister fs);
 
   protected:
-    // This is used to access the odd regiter form the pair of single
+    // This is used to access the odd register form the pair of single
     // precision registers that make one double register.
     FloatRegister getOddPair(FloatRegister reg) {
-        MOZ_ASSERT(reg.code() % 2 == 0);
-        return FloatRegister::FromCode(reg.code() + 1);
+        MOZ_ASSERT(reg.isDouble());
+        return reg.singleOverlay(1);
     }
 
   public:
