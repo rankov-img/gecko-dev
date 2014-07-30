@@ -457,11 +457,11 @@ AsmJSReportOverRecursed()
     js_ReportOverRecursed(cx);
 }
 
-static void
+static bool
 AsmJSHandleExecutionInterrupt()
 {
     JSContext *cx = PerThreadData::innermostAsmJSActivation()->cx();
-    HandleExecutionInterrupt(cx);
+    return HandleExecutionInterrupt(cx);
 }
 
 static int32_t
@@ -1173,8 +1173,10 @@ AsmJSModule::ExportedFunction::clone(ExclusiveContext *cx, ExportedFunction *out
     return true;
 }
 
-AsmJSModule::CodeRange::CodeRange(uint32_t nameIndex, const AsmJSFunctionLabels &l)
+AsmJSModule::CodeRange::CodeRange(uint32_t nameIndex, uint32_t lineNumber,
+                                  const AsmJSFunctionLabels &l)
   : nameIndex_(nameIndex),
+    lineNumber_(lineNumber),
     begin_(l.begin.offset()),
     profilingReturn_(l.profilingReturn.offset()),
     end_(l.end.offset())
@@ -1446,11 +1448,12 @@ AsmJSModule::deserialize(ExclusiveContext *cx, const uint8_t *cursor)
     return cursor;
 }
 
-// When a module is cloned, we memcpy its executable code. If, right before or
-// during the clone, another thread calls AsmJSModule::protectCode() then the
-// executable code will become inaccessible. In theory, we could take away only
-// PROT_EXEC, but this seems to break emulators.
-class AutoUnprotectCodeForClone
+// At any time, the executable code of an asm.js module can be protected (as
+// part of RequestInterruptForAsmJSCode). When we touch the executable outside
+// of executing it (which the AsmJSFaultHandler will correctly handle), we need
+// to guard against this by unprotecting the code (if it has been protected) and
+// preventing it from being protected while we are touching it.
+class AutoUnprotectCode
 {
     JSRuntime *rt_;
     JSRuntime::AutoLockForInterrupt lock_;
@@ -1458,7 +1461,7 @@ class AutoUnprotectCodeForClone
     const bool protectedBefore_;
 
   public:
-    AutoUnprotectCodeForClone(JSContext *cx, const AsmJSModule &module)
+    AutoUnprotectCode(JSContext *cx, const AsmJSModule &module)
       : rt_(cx->runtime()),
         lock_(rt_),
         module_(module),
@@ -1468,7 +1471,7 @@ class AutoUnprotectCodeForClone
             module_.unprotectCode(rt_);
     }
 
-    ~AutoUnprotectCodeForClone()
+    ~AutoUnprotectCode()
     {
         if (protectedBefore_)
             module_.protectCode(rt_);
@@ -1478,7 +1481,7 @@ class AutoUnprotectCodeForClone
 bool
 AsmJSModule::clone(JSContext *cx, ScopedJSDeletePtr<AsmJSModule> *moduleOut) const
 {
-    AutoUnprotectCodeForClone cloneGuard(cx, *this);
+    AutoUnprotectCode auc(cx, *this);
 
     *moduleOut = cx->new_<AsmJSModule>(scriptSource_, srcStart_, srcBodyStart_, pod.strict_,
                                        pod.usesSignalHandlers_);
@@ -1527,18 +1530,42 @@ AsmJSModule::clone(JSContext *cx, ScopedJSDeletePtr<AsmJSModule> *moduleOut) con
 }
 
 void
-AsmJSModule::setProfilingEnabled(bool enabled)
+AsmJSModule::setProfilingEnabled(bool enabled, JSContext *cx)
 {
     JS_ASSERT(isDynamicallyLinked());
 
     if (profilingEnabled_ == enabled)
         return;
 
+    // When enabled, generate profiling labels for every name in names_ that is
+    // the name of some Function CodeRange. This involves malloc() so do it now
+    // since, once we start sampling, we'll be in a signal-handing context where
+    // we cannot malloc.
+    if (enabled) {
+        profilingLabels_.resize(names_.length());
+        const char *filename = scriptSource_->filename();
+        JS::AutoCheckCannotGC nogc;
+        for (size_t i = 0; i < codeRanges_.length(); i++) {
+            CodeRange &cr = codeRanges_[i];
+            if (!cr.isFunction())
+                continue;
+            unsigned lineno = cr.functionLineNumber();
+            PropertyName *name = names_[cr.functionNameIndex()].name();
+            profilingLabels_[cr.functionNameIndex()].reset(
+                name->hasLatin1Chars()
+                ? JS_smprintf("%s (%s:%u)", name->latin1Chars(nogc), filename, lineno)
+                : JS_smprintf("%hs (%s:%u)", name->twoByteChars(nogc), filename, lineno));
+        }
+    } else {
+        profilingLabels_.clear();
+    }
+
     // Conservatively flush the icache for the entire module.
     AutoFlushICache afc("AsmJSModule::setProfilingEnabled");
     setAutoFlushICacheRange();
 
     // To enable profiling, we need to patch 3 kinds of things:
+    AutoUnprotectCode auc(cx, *this);
 
     // Patch all internal (asm.js->asm.js) callsites to call the profiling
     // prologues:
@@ -1559,6 +1586,9 @@ AsmJSModule::setProfilingEnabled(bool enabled)
 #elif defined(JS_CODEGEN_MIPS)
         Instruction *instr = (Instruction *)(callerRetAddr - 4 * sizeof(uint32_t));
         void *callee = (void *)Assembler::ExtractLuiOriValue(instr, instr->next());
+#elif defined(JS_CODEGEN_NONE)
+        MOZ_CRASH();
+        void *callee = nullptr;
 #else
 # error "Missing architecture"
 #endif
@@ -1582,6 +1612,8 @@ AsmJSModule::setProfilingEnabled(bool enabled)
                                            ScratchRegister, (uint32_t)newCallee);
         instr[2] = InstReg(op_special, ScratchRegister, zero, ra, ff_jalr);
         AutoFlushICache::flush(uintptr_t(instr), 3 * sizeof(uint32_t));
+#elif defined(JS_CODEGEN_NONE)
+        MOZ_CRASH();
 #else
 # error "Missing architecture"
 #endif
@@ -1652,6 +1684,8 @@ AsmJSModule::setProfilingEnabled(bool enabled)
             instr[2].makeNop();
             AutoFlushICache::flush(uintptr_t(instr), 3 * sizeof(uint32_t));
         }
+#elif defined(JS_CODEGEN_NONE)
+        MOZ_CRASH();
 #else
 # error "Missing architecture"
 #endif

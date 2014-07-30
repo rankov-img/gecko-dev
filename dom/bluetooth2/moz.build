@@ -12,6 +12,7 @@ if CONFIG['MOZ_B2G_BT']:
         'BluetoothDiscoveryHandle.cpp',
         'BluetoothHidManager.cpp',
         'BluetoothManager.cpp',
+        'BluetoothPairingHandle.cpp',
         'BluetoothProfileController.cpp',
         'BluetoothReplyRunnable.cpp',
         'BluetoothService.cpp',
@@ -82,7 +83,7 @@ if CONFIG['MOZ_B2G_BT']:
         DEFINES['MOZ_BLUETOOTH_DBUS'] = True
         DEFINES['HAVE_PTHREADS'] = True
 
-    FINAL_LIBRARY = 'gklayout'
+    FINAL_LIBRARY = 'xul'
 
     LOCAL_INCLUDES += [
         'ipc',
@@ -99,6 +100,7 @@ EXPORTS.mozilla.dom.bluetooth += [
     'BluetoothDevice.h',
     'BluetoothDiscoveryHandle.h',
     'BluetoothManager.h',
+    'BluetoothPairingHandle.h',
 ]
 
 IPDL_SOURCES += [

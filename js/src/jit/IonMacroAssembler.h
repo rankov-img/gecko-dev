@@ -7,8 +7,6 @@
 #ifndef jit_IonMacroAssembler_h
 #define jit_IonMacroAssembler_h
 
-#ifdef JS_ION
-
 #include "jscompartment.h"
 
 #if defined(JS_CODEGEN_X86)
@@ -19,6 +17,8 @@
 # include "jit/arm/MacroAssembler-arm.h"
 #elif defined(JS_CODEGEN_MIPS)
 # include "jit/mips/MacroAssembler-mips.h"
+#elif defined(JS_CODEGEN_NONE)
+# include "jit/none/MacroAssembler-none.h"
 #else
 # error "Unknown architecture!"
 #endif
@@ -1516,7 +1516,5 @@ StackDecrementForCall(size_t bytesAlreadyPushed, size_t bytesToPush)
 
 } // namespace jit
 } // namespace js
-
-#endif // JS_ION
 
 #endif /* jit_IonMacroAssembler_h */

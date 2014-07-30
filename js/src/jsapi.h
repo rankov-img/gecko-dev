@@ -41,7 +41,7 @@ namespace JS {
 class Latin1CharsZ;
 class TwoByteChars;
 
-#if defined JS_THREADSAFE && defined JS_DEBUG
+#ifdef JS_DEBUG
 
 class JS_PUBLIC_API(AutoCheckRequestDepth)
 {
@@ -60,7 +60,7 @@ class JS_PUBLIC_API(AutoCheckRequestDepth)
 # define CHECK_REQUEST(cx) \
     ((void) 0)
 
-#endif /* JS_THREADSAFE && JS_DEBUG */
+#endif /* JS_DEBUG */
 
 #ifdef JS_DEBUG
 /*
@@ -759,7 +759,7 @@ typedef bool
  */
 typedef JSObject *
 (* JSWrapObjectCallback)(JSContext *cx, JS::HandleObject existing, JS::HandleObject obj,
-                         JS::HandleObject parent, unsigned flags);
+                         JS::HandleObject parent);
 
 /*
  * Callback used by the wrap hook to ask the embedding to prepare an object
@@ -768,7 +768,7 @@ typedef JSObject *
  */
 typedef JSObject *
 (* JSPreWrapCallback)(JSContext *cx, JS::HandleObject scope, JS::HandleObject obj,
-                      unsigned flags);
+                      JS::HandleObject objectPassedToWrap);
 
 struct JSWrapObjectCallbacks
 {
@@ -1344,7 +1344,7 @@ class JSAutoCheckRequest
     explicit JSAutoCheckRequest(JSContext *cx
                                 MOZ_GUARD_OBJECT_NOTIFIER_PARAM)
     {
-#if defined JS_THREADSAFE && defined JS_DEBUG
+#ifdef JS_DEBUG
         mContext = cx;
         JS_ASSERT(JS_IsInRequest(JS_GetRuntime(cx)));
 #endif
@@ -1352,14 +1352,14 @@ class JSAutoCheckRequest
     }
 
     ~JSAutoCheckRequest() {
-#if defined JS_THREADSAFE && defined JS_DEBUG
+#ifdef JS_DEBUG
         JS_ASSERT(JS_IsInRequest(JS_GetRuntime(mContext)));
 #endif
     }
 
 
   private:
-#if defined JS_THREADSAFE && defined JS_DEBUG
+#ifdef JS_DEBUG
     JSContext *mContext;
 #endif
     MOZ_DECL_USE_GUARD_OBJECT_NOTIFIER
@@ -1424,6 +1424,7 @@ class JS_PUBLIC_API(RuntimeOptions) {
         nativeRegExp_(false),
         werror_(false),
         strictMode_(false),
+        extraWarnings_(false),
         varObjFix_(false)
     {
     }
@@ -1484,6 +1485,16 @@ class JS_PUBLIC_API(RuntimeOptions) {
         return *this;
     }
 
+    bool extraWarnings() const { return extraWarnings_; }
+    RuntimeOptions &setExtraWarnings(bool flag) {
+        extraWarnings_ = flag;
+        return *this;
+    }
+    RuntimeOptions &toggleExtraWarnings() {
+        extraWarnings_ = !extraWarnings_;
+        return *this;
+    }
+
     bool varObjFix() const { return varObjFix_; }
     RuntimeOptions &setVarObjFix(bool flag) {
         varObjFix_ = flag;
@@ -1501,6 +1512,7 @@ class JS_PUBLIC_API(RuntimeOptions) {
     bool nativeRegExp_ : 1;
     bool werror_ : 1;
     bool strictMode_ : 1;
+    bool extraWarnings_ : 1;
     bool varObjFix_ : 1;
 };
 
@@ -1513,22 +1525,11 @@ RuntimeOptionsRef(JSContext *cx);
 class JS_PUBLIC_API(ContextOptions) {
   public:
     ContextOptions()
-      : extraWarnings_(false),
-        privateIsNSISupports_(false),
+      : privateIsNSISupports_(false),
         dontReportUncaught_(false),
         noDefaultCompartmentObject_(false),
         noScriptRval_(false)
     {
-    }
-
-    bool extraWarnings() const { return extraWarnings_; }
-    ContextOptions &setExtraWarnings(bool flag) {
-        extraWarnings_ = flag;
-        return *this;
-    }
-    ContextOptions &toggleExtraWarnings() {
-        extraWarnings_ = !extraWarnings_;
-        return *this;
     }
 
     bool privateIsNSISupports() const { return privateIsNSISupports_; }
@@ -1572,7 +1573,6 @@ class JS_PUBLIC_API(ContextOptions) {
     }
 
   private:
-    bool extraWarnings_ : 1;
     bool privateIsNSISupports_ : 1;
     bool dontReportUncaught_ : 1;
     bool noDefaultCompartmentObject_ : 1;
@@ -2618,6 +2618,10 @@ class JS_PUBLIC_API(CompartmentOptions)
         return *this;
     }
 
+    bool extraWarnings(JSRuntime *rt) const;
+    bool extraWarnings(JSContext *cx) const;
+    Override &extraWarningsOverride() { return extraWarningsOverride_; }
+
     void *zonePointer() const {
         JS_ASSERT(uintptr_t(zone_.pointer) > uintptr_t(JS::SystemZone));
         return zone_.pointer;
@@ -2655,6 +2659,7 @@ class JS_PUBLIC_API(CompartmentOptions)
     bool mergeable_;
     bool discardSource_;
     bool cloneSingletons_;
+    Override extraWarningsOverride_;
     union {
         ZoneSpecifier spec;
         void *pointer; // js::Zone* is not exposed in the API.
@@ -3227,13 +3232,6 @@ JS_DeleteElement(JSContext *cx, JS::HandleObject obj, uint32_t index);
 
 extern JS_PUBLIC_API(bool)
 JS_DeleteElement2(JSContext *cx, JS::HandleObject obj, uint32_t index, bool *succeeded);
-
-/*
- * Remove all configurable properties from the given (non-global) object and
- * assign undefined to all writable data properties.
- */
-JS_PUBLIC_API(void)
-JS_ClearNonGlobalObject(JSContext *cx, JS::HandleObject obj);
 
 /*
  * Assign 'undefined' to all of the object's non-reserved slots. Note: this is

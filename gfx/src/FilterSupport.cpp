@@ -966,6 +966,11 @@ FilterNodeFromPrimitiveDescription(const FilterPrimitiveDescription& aDescriptio
       return transform;
     }
 
+    case PrimitiveType::ToAlpha:
+    {
+      return FilterWrappers::ToAlpha(aDT, aSources[0]);
+    }
+
     default:
       return nullptr;
   }
@@ -1001,6 +1006,7 @@ InputAlphaModelForPrimitive(const FilterPrimitiveDescription& aDescr,
   switch (aDescr.Type()) {
     case PrimitiveType::Tile:
     case PrimitiveType::Offset:
+    case PrimitiveType::ToAlpha:
       return aOriginalAlphaModel;
 
     case PrimitiveType::ColorMatrix:
@@ -1048,7 +1054,6 @@ FilterNodeGraphFromDescription(DrawTarget* aDT,
                                nsTArray<RefPtr<SourceSurface>>& aAdditionalImages)
 {
   const nsTArray<FilterPrimitiveDescription>& primitives = aFilter.mPrimitives;
-  const IntRect& filterSpaceBounds = aFilter.mFilterSpaceBounds;
 
   Rect resultNeededRect(aResultNeededRect);
   resultNeededRect.RoundOut();
@@ -1067,10 +1072,9 @@ FilterNodeGraphFromDescription(DrawTarget* aDT,
 
       int32_t inputIndex = descr.InputPrimitiveIndex(j);
       if (inputIndex < 0) {
-        inputSourceRects.AppendElement(filterSpaceBounds);
+        inputSourceRects.AppendElement(descr.FilterSpaceBounds());
       } else {
-        inputSourceRects.AppendElement(filterSpaceBounds.Intersect(
-          primitives[inputIndex].PrimitiveSubregion()));
+        inputSourceRects.AppendElement(primitives[inputIndex].PrimitiveSubregion());
       }
 
       RefPtr<FilterCachedColorModels> inputFilter;
@@ -1122,8 +1126,8 @@ FilterNodeGraphFromDescription(DrawTarget* aDT,
                                          inputSourceRects, aAdditionalImages);
 
     if (primitiveFilterNode) {
-      IntRect cropRect = filterSpaceBounds.Intersect(descr.PrimitiveSubregion());
-      primitiveFilterNode = FilterWrappers::Crop(aDT, primitiveFilterNode, cropRect);
+      primitiveFilterNode =
+        FilterWrappers::Crop(aDT, primitiveFilterNode, descr.PrimitiveSubregion());
     }
 
     ColorModel outputColorModel(descr.OutputColorSpace(),
@@ -1196,6 +1200,7 @@ ResultChangeRegionForPrimitive(const FilterPrimitiveDescription& aDescription,
 
     case PrimitiveType::ColorMatrix:
     case PrimitiveType::ComponentTransfer:
+    case PrimitiveType::ToAlpha:
       return aInputChangeRegions[0];
 
     case PrimitiveType::Morphology:
@@ -1291,9 +1296,7 @@ FilterSupport::ComputeResultChangeRegion(const FilterDescription& aFilter,
     }
     nsIntRegion changeRegion =
       ResultChangeRegionForPrimitive(descr, inputChangeRegions);
-    IntRect cropRect =
-      descr.PrimitiveSubregion().Intersect(aFilter.mFilterSpaceBounds);
-    changeRegion.And(changeRegion, ThebesIntRect(cropRect));
+    changeRegion.And(changeRegion, ThebesIntRect(descr.PrimitiveSubregion()));
     resultChangeRegions.AppendElement(changeRegion);
   }
 
@@ -1378,11 +1381,11 @@ FilterSupport::ComputePostFilterExtents(const FilterDescription& aFilter,
                                         const nsIntRegion& aSourceGraphicExtents)
 {
   const nsTArray<FilterPrimitiveDescription>& primitives = aFilter.mPrimitives;
-  nsIntRegion filterSpace = ThebesIntRect(aFilter.mFilterSpaceBounds);
   nsTArray<nsIntRegion> postFilterExtents;
 
   for (int32_t i = 0; i < int32_t(primitives.Length()); ++i) {
     const FilterPrimitiveDescription& descr = primitives[i];
+    nsIntRegion filterSpace = ThebesIntRect(descr.FilterSpaceBounds());
 
     nsTArray<nsIntRegion> inputExtents;
     for (size_t j = 0; j < descr.NumberOfInputs(); j++) {
@@ -1394,9 +1397,7 @@ FilterSupport::ComputePostFilterExtents(const FilterDescription& aFilter,
       inputExtents.AppendElement(inputExtent);
     }
     nsIntRegion extent = PostFilterExtentsForPrimitive(descr, inputExtents);
-    IntRect cropRect =
-      descr.PrimitiveSubregion().Intersect(aFilter.mFilterSpaceBounds);
-    extent.And(extent, ThebesIntRect(cropRect));
+    extent.And(extent, ThebesIntRect(descr.PrimitiveSubregion()));
     postFilterExtents.AppendElement(extent);
   }
 
@@ -1425,6 +1426,7 @@ SourceNeededRegionForPrimitive(const FilterPrimitiveDescription& aDescription,
     case PrimitiveType::Merge:
     case PrimitiveType::ColorMatrix:
     case PrimitiveType::ComponentTransfer:
+    case PrimitiveType::ToAlpha:
       return aResultNeededRegion;
 
     case PrimitiveType::Morphology:
@@ -1531,8 +1533,12 @@ FilterSupport::ComputeSourceNeededRegions(const FilterDescription& aFilter,
     }
   }
 
-  aSourceGraphicNeededRegion.And(aSourceGraphicNeededRegion,
-                                 ThebesIntRect(aFilter.mFilterSpaceBounds));
+  // Clip original SourceGraphic to first filter region.
+  if (primitives.Length() > 0) {
+    const FilterPrimitiveDescription& firstDescr = primitives[0];
+    aSourceGraphicNeededRegion.And(aSourceGraphicNeededRegion,
+                                   ThebesIntRect(firstDescr.FilterSpaceBounds()));
+  }
 }
 
 // FilterPrimitiveDescription
@@ -1556,6 +1562,7 @@ FilterPrimitiveDescription::FilterPrimitiveDescription(const FilterPrimitiveDesc
  , mAttributes(aOther.mAttributes)
  , mInputPrimitives(aOther.mInputPrimitives)
  , mFilterPrimitiveSubregion(aOther.mFilterPrimitiveSubregion)
+ , mFilterSpaceBounds(aOther.mFilterSpaceBounds)
  , mInputColorSpaces(aOther.mInputColorSpaces)
  , mOutputColorSpace(aOther.mOutputColorSpace)
  , mIsTainted(aOther.mIsTainted)
@@ -1570,6 +1577,7 @@ FilterPrimitiveDescription::operator=(const FilterPrimitiveDescription& aOther)
     mAttributes = aOther.mAttributes;
     mInputPrimitives = aOther.mInputPrimitives;
     mFilterPrimitiveSubregion = aOther.mFilterPrimitiveSubregion;
+    mFilterSpaceBounds = aOther.mFilterSpaceBounds;
     mInputColorSpaces = aOther.mInputColorSpaces;
     mOutputColorSpace = aOther.mOutputColorSpace;
     mIsTainted = aOther.mIsTainted;
@@ -1582,6 +1590,7 @@ FilterPrimitiveDescription::operator==(const FilterPrimitiveDescription& aOther)
 {
   return mType == aOther.mType &&
     mFilterPrimitiveSubregion.IsEqualInterior(aOther.mFilterPrimitiveSubregion) &&
+    mFilterSpaceBounds.IsEqualInterior(aOther.mFilterSpaceBounds) &&
     mOutputColorSpace == aOther.mOutputColorSpace &&
     mIsTainted == aOther.mIsTainted &&
     mInputPrimitives == aOther.mInputPrimitives &&
@@ -1594,8 +1603,7 @@ FilterPrimitiveDescription::operator==(const FilterPrimitiveDescription& aOther)
 bool
 FilterDescription::operator==(const FilterDescription& aOther) const
 {
-  return mFilterSpaceBounds.IsEqualInterior(aOther.mFilterSpaceBounds) &&
-    mPrimitives == aOther.mPrimitives;
+  return mPrimitives == aOther.mPrimitives;
 }
 
 // AttributeMap

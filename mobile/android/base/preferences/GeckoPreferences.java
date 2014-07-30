@@ -29,7 +29,6 @@ import org.mozilla.gecko.R;
 import org.mozilla.gecko.Telemetry;
 import org.mozilla.gecko.TelemetryContract;
 import org.mozilla.gecko.TelemetryContract.Method;
-import org.mozilla.gecko.background.announcements.AnnouncementsConstants;
 import org.mozilla.gecko.background.common.GlobalConstants;
 import org.mozilla.gecko.background.healthreport.HealthReportConstants;
 import org.mozilla.gecko.db.BrowserContract.SuggestedSites;
@@ -98,15 +97,14 @@ OnSharedPreferenceChangeListener
     public static final String INTENT_EXTRA_RESOURCES = "resource";
     public static String PREFS_HEALTHREPORT_UPLOAD_ENABLED = NON_PREF_PREFIX + "healthreport.uploadEnabled";
 
-    private static boolean sIsCharEncodingEnabled = false;
-    private boolean mInitialized = false;
-    private int mPrefsRequestId = 0;
+    private static boolean sIsCharEncodingEnabled;
+    private boolean mInitialized;
+    private int mPrefsRequestId;
     private PanelsPreferenceCategory mPanelsPreferenceCategory;
 
     // These match keys in resources/xml*/preferences*.xml
     private static final String PREFS_SEARCH_RESTORE_DEFAULTS = NON_PREF_PREFIX + "search.restore_defaults";
     private static final String PREFS_HOME_ADD_PANEL = NON_PREF_PREFIX + "home.add_panel";
-    private static final String PREFS_ANNOUNCEMENTS_ENABLED = NON_PREF_PREFIX + "privacy.announcements.enabled";
     private static final String PREFS_DATA_REPORTING_PREFERENCES = NON_PREF_PREFIX + "datareporting.preferences";
     private static final String PREFS_TELEMETRY_ENABLED = "toolkit.telemetry.enabled";
     private static final String PREFS_CRASHREPORTER_ENABLED = "datareporting.crashreporter.submitEnabled";
@@ -840,26 +838,6 @@ OnSharedPreferenceChangeListener
 
     /**
      * Broadcast the provided value as the value of the
-     * <code>PREFS_ANNOUNCEMENTS_ENABLED</code> pref.
-     */
-    public static void broadcastAnnouncementsPref(final Context context, final boolean value) {
-        broadcastPrefAction(context,
-                            AnnouncementsConstants.ACTION_ANNOUNCEMENTS_PREF,
-                            PREFS_ANNOUNCEMENTS_ENABLED,
-                            value);
-    }
-
-    /**
-     * Broadcast the current value of the
-     * <code>PREFS_ANNOUNCEMENTS_ENABLED</code> pref.
-     */
-    public static void broadcastAnnouncementsPref(final Context context) {
-        final boolean value = getBooleanPref(context, PREFS_ANNOUNCEMENTS_ENABLED, true);
-        broadcastAnnouncementsPref(context, value);
-    }
-
-    /**
-     * Broadcast the provided value as the value of the
      * <code>PREFS_HEALTHREPORT_UPLOAD_ENABLED</code> pref.
      */
     public static void broadcastHealthReportUploadPref(final Context context, final boolean value) {
@@ -1031,10 +1009,6 @@ OnSharedPreferenceChangeListener
 
         if (PREFS_MENU_CHAR_ENCODING.equals(prefName)) {
             setCharEncodingState(((String) newValue).equals("true"));
-        } else if (PREFS_ANNOUNCEMENTS_ENABLED.equals(prefName)) {
-            // Send a broadcast intent to the product announcements service, either to start or
-            // to stop the repeated background checks.
-            broadcastAnnouncementsPref(this, ((Boolean) newValue).booleanValue());
         } else if (PREFS_UPDATER_AUTODOWNLOAD.equals(prefName)) {
             org.mozilla.gecko.updater.UpdateServiceHelper.registerForUpdates(this, (String) newValue);
         } else if (PREFS_HEALTHREPORT_UPLOAD_ENABLED.equals(prefName)) {
@@ -1083,9 +1057,9 @@ OnSharedPreferenceChangeListener
     }
 
     private class PasswordTextWatcher implements TextWatcher {
-        EditText input1 = null;
-        EditText input2 = null;
-        AlertDialog dialog = null;
+        EditText input1;
+        EditText input2;
+        AlertDialog dialog;
 
         PasswordTextWatcher(EditText aInput1, EditText aInput2, AlertDialog aDialog) {
             input1 = aInput1;
@@ -1111,8 +1085,8 @@ OnSharedPreferenceChangeListener
     }
 
     private class EmptyTextWatcher implements TextWatcher {
-        EditText input = null;
-        AlertDialog dialog = null;
+        EditText input;
+        AlertDialog dialog;
 
         EmptyTextWatcher(EditText aInput, AlertDialog aDialog) {
             input = aInput;
@@ -1140,7 +1114,7 @@ OnSharedPreferenceChangeListener
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         LinearLayout linearLayout = new LinearLayout(this);
         linearLayout.setOrientation(LinearLayout.VERTICAL);
-        AlertDialog dialog = null;
+        AlertDialog dialog;
         switch(id) {
             case DIALOG_CREATE_MASTER_PASSWORD:
                 final EditText input1 = getTextBox(R.string.masterpassword_password);

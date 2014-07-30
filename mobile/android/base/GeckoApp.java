@@ -27,7 +27,6 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 import org.mozilla.gecko.GeckoProfileDirectories.NoMozillaDirectoryException;
-import org.mozilla.gecko.background.announcements.AnnouncementsBroadcastService;
 import org.mozilla.gecko.db.BrowserDB;
 import org.mozilla.gecko.favicons.Favicons;
 import org.mozilla.gecko.gfx.BitmapUtils;
@@ -186,14 +185,14 @@ public abstract class GeckoApp
     private HashMap<String, PowerManager.WakeLock> mWakeLocks = new HashMap<String, PowerManager.WakeLock>();
 
     protected boolean mShouldRestore;
-    protected boolean mInitialized = false;
+    protected boolean mInitialized;
     private Telemetry.Timer mJavaUiStartupTimer;
     private Telemetry.Timer mGeckoReadyStartupTimer;
 
     private String mPrivateBrowsingSession;
 
-    private volatile HealthRecorder mHealthRecorder = null;
-    private volatile Locale mLastLocale = null;
+    private volatile HealthRecorder mHealthRecorder;
+    private volatile Locale mLastLocale;
 
     private EventListener mWebappEventListener;
 
@@ -596,13 +595,6 @@ public abstract class GeckoApp
 
             // Context: Sharing via chrome list (no explicit session is active)
             Telemetry.sendUIEvent(TelemetryContract.Event.SHARE, TelemetryContract.Method.LIST);
-
-        } else if ("Shortcut:Remove".equals(event)) {
-            final String url = message.getString("url");
-            final String origin = message.getString("origin");
-            final String title = message.getString("title");
-            final String type = message.getString("shortcutType");
-            GeckoAppShell.removeShortcut(title, url, origin, type);
 
         } else if ("SystemUI:Visibility".equals(event)) {
             setSystemUiVisible(message.getBoolean("visible"));
@@ -1515,7 +1507,6 @@ public abstract class GeckoApp
             "Sanitize:ClearHistory",
             "Session:StatePurged",
             "Share:Text",
-            "Shortcut:Remove",
             "SystemUI:Visibility",
             "Toast:Show",
             "ToggleChrome:Focus",
@@ -1570,16 +1561,10 @@ public abstract class GeckoApp
                     rec.recordJavaStartupTime(javaDuration);
                 }
 
-                // Record our launch time for the announcements service
-                // to use in assessing inactivity.
-                final Context context = GeckoApp.this;
-                AnnouncementsBroadcastService.recordLastLaunch(context);
-
                 // Kick off our background services. We do this by invoking the broadcast
                 // receiver, which uses the system alarm infrastructure to perform tasks at
                 // intervals.
-                GeckoPreferences.broadcastAnnouncementsPref(context);
-                GeckoPreferences.broadcastHealthReportUploadPref(context);
+                GeckoPreferences.broadcastHealthReportUploadPref(GeckoApp.this);
                 if (!GeckoThread.checkLaunchState(GeckoThread.LaunchState.Launched)) {
                     return;
                 }
@@ -2050,7 +2035,6 @@ public abstract class GeckoApp
             "Sanitize:ClearHistory",
             "Session:StatePurged",
             "Share:Text",
-            "Shortcut:Remove",
             "SystemUI:Visibility",
             "Toast:Show",
             "ToggleChrome:Focus",

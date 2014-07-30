@@ -24,6 +24,11 @@
 #include "SourceBufferList.h"
 #include "VideoUtils.h"
 
+#ifdef MOZ_FMP4
+#include "MP4Decoder.h"
+#include "MP4Reader.h"
+#endif
+
 #ifdef PR_LOGGING
 extern PRLogModuleInfo* gMediaSourceLog;
 #define MSE_DEBUG(...) PR_LOG(gMediaSourceLog, PR_LOG_DEBUG, (__VA_ARGS__))
@@ -226,6 +231,12 @@ private:
     return mDecoders[mActiveVideoDecoder]->GetReader();
   }
 
+  void SetMediaSourceDuration(double aDuration) {
+    MOZ_ASSERT(NS_IsMainThread());
+    ErrorResult dummy;
+    mMediaSource->SetDuration(aDuration, dummy);
+  }
+
   nsTArray<nsRefPtr<SubBufferDecoder>> mPendingDecoders;
   nsTArray<nsRefPtr<SubBufferDecoder>> mDecoders;
 
@@ -418,6 +429,23 @@ MediaSourceReader::InitializePendingDecoders()
   mDecoder->NotifyWaitingForResourcesStatusChanged();
 }
 
+MediaDecoderReader*
+CreateReaderForType(const nsACString& aType, AbstractMediaDecoder* aDecoder)
+{
+#ifdef MOZ_FMP4
+  // The MP4Reader that supports fragmented MP4 and uses
+  // PlatformDecoderModules is hidden behind prefs for regular video
+  // elements, but we always want to use it for MSE, so instantiate it
+  // directly here.
+  if ((aType.LowerCaseEqualsLiteral("video/mp4") ||
+       aType.LowerCaseEqualsLiteral("audio/mp4")) &&
+      MP4Decoder::IsEnabled()) {
+    return new MP4Reader(aDecoder);
+  }
+#endif
+  return DecoderTraits::CreateReader(aType, aDecoder);
+}
+
 already_AddRefed<SubBufferDecoder>
 MediaSourceReader::CreateSubDecoder(const nsACString& aType,
                                     MediaSourceDecoder* aParentDecoder,
@@ -426,7 +454,7 @@ MediaSourceReader::CreateSubDecoder(const nsACString& aType,
   // XXX: Why/when is mDecoder null here, since it should be equal to aParentDecoder?!
   nsRefPtr<SubBufferDecoder> decoder =
     new SubBufferDecoder(new SourceBufferResource(nullptr, aType), aParentDecoder);
-  nsRefPtr<MediaDecoderReader> reader(DecoderTraits::CreateReader(aType, decoder));
+  nsRefPtr<MediaDecoderReader> reader(CreateReaderForType(aType, decoder));
   if (!reader) {
     return nullptr;
   }
@@ -563,8 +591,9 @@ MediaSourceReader::ReadMetadata(MediaInfo* aInfo, MetadataTags** aTags)
   if (maxDuration != -1) {
     ReentrantMonitorAutoEnter mon(mDecoder->GetReentrantMonitor());
     mDecoder->SetMediaDuration(maxDuration);
-    ErrorResult dummy;
-    mMediaSource->SetDuration(maxDuration, dummy);
+    nsRefPtr<nsIRunnable> task (
+      NS_NewRunnableMethodWithArg<double>(this, &MediaSourceReader::SetMediaSourceDuration, maxDuration));
+    NS_DispatchToMainThread(task);
   }
 
   *aInfo = mInfo;

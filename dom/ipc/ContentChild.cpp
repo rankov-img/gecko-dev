@@ -918,7 +918,7 @@ ContentChild::RecvSetProcessSandbox()
   // at some point; see bug 880808.
 #if defined(MOZ_CONTENT_SANDBOX)
 #if defined(XP_LINUX)
-    SetCurrentProcessSandbox();
+    SetContentProcessSandbox();
 #elif defined(XP_WIN)
     mozilla::SandboxTarget::Instance()->StartSandbox();
 #endif
@@ -1374,12 +1374,37 @@ bool
 ContentChild::RecvRegisterChrome(const InfallibleTArray<ChromePackage>& packages,
                                  const InfallibleTArray<ResourceMapping>& resources,
                                  const InfallibleTArray<OverrideMapping>& overrides,
-                                 const nsCString& locale)
+                                 const nsCString& locale,
+                                 const bool& reset)
 {
     nsCOMPtr<nsIChromeRegistry> registrySvc = nsChromeRegistry::GetService();
     nsChromeRegistryContent* chromeRegistry =
         static_cast<nsChromeRegistryContent*>(registrySvc.get());
-    chromeRegistry->RegisterRemoteChrome(packages, resources, overrides, locale);
+    chromeRegistry->RegisterRemoteChrome(packages, resources, overrides,
+                                         locale, reset);
+    return true;
+}
+
+bool
+ContentChild::RecvRegisterChromeItem(const ChromeRegistryItem& item)
+{
+    nsCOMPtr<nsIChromeRegistry> registrySvc = nsChromeRegistry::GetService();
+    nsChromeRegistryContent* chromeRegistry =
+        static_cast<nsChromeRegistryContent*>(registrySvc.get());
+    switch (item.type()) {
+        case ChromeRegistryItem::TChromePackage:
+            chromeRegistry->RegisterPackage(item.get_ChromePackage());
+            break;
+
+        case ChromeRegistryItem::TOverrideMapping:
+            chromeRegistry->RegisterOverride(item.get_OverrideMapping());
+            break;
+
+        default:
+            MOZ_ASSERT(false, "bad chrome item");
+            return false;
+    }
+
     return true;
 }
 

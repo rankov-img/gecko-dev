@@ -295,6 +295,8 @@ pref("media.peerconnection.enabled", true);
 pref("media.peerconnection.video.enabled", true);
 pref("media.navigator.video.max_fs", 1200); // 640x480 == 1200mb
 pref("media.navigator.video.max_fr", 30);
+pref("media.navigator.video.h264.max_br", 700); // 8x10
+pref("media.navigator.video.h264.max_mbps", 11880); // CIF@30fps
 pref("media.peerconnection.video.h264_enabled", false);
 pref("media.getusermedia.aec", 4);
 #else
@@ -304,6 +306,8 @@ pref("media.peerconnection.enabled", true);
 pref("media.peerconnection.video.enabled", true);
 pref("media.navigator.video.max_fs", 0); // unrestricted
 pref("media.navigator.video.max_fr", 0); // unrestricted
+pref("media.navigator.video.h264.max_br", 0);
+pref("media.navigator.video.h264.max_mbps", 0);
 pref("media.peerconnection.video.h264_enabled", false);
 pref("media.getusermedia.aec", 1);
 #endif
@@ -654,6 +658,10 @@ pref("devtools.dump.emit", false);
 pref("devtools.discovery.log", false);
 // Disable scanning for DevTools devices via WiFi
 pref("devtools.remote.wifi.scan", false);
+// Hide UI options for controlling device visibility over WiFi
+// N.B.: This does not set whether the device can be discovered via WiFi, only
+// whether the UI control to make such a choice is shown to the user
+pref("devtools.remote.wifi.visible", false);
 
 // view source
 pref("view_source.syntax_highlight", true);
@@ -1109,9 +1117,6 @@ pref("network.http.connection-timeout", 90);
 // when starting a new speculative connection.
 pref("network.http.speculative-parallel-limit", 6);
 
-// Allow/Forbid speculative connections on loopback.
-pref("network.http.speculative.allowLoopback", false);
-
 // Whether or not to block requests for non head js/css items (e.g. media)
 // while those elements load.
 pref("network.http.rendering-critical-requests-prioritization", true);
@@ -1530,10 +1535,6 @@ pref("network.proxy.autoconfig_retry_interval_max", 300);  // 5 minutes
 
 // Use the HSTS preload list by default
 pref("network.stricttransportsecurity.preloadlist", true);
-
-// Prohibit resource loads from private networks (e.g. RFC1918 like IP
-// addresses) by documents which were loaded from public networks.
-pref("network.zonepolicy.enabled", true);
 
 pref("converter.html2txt.structs",          true); // Output structured phrases (strong, em, code, sub, sup, b, i, u)
 pref("converter.html2txt.header_strategy",  1); // 0 = no indention; 1 = indention, increased with header level; 2 = numbering and slight indention
@@ -1996,11 +1997,33 @@ pref("layout.css.overflow-clip-box.enabled", false);
 // Is support for CSS grid enabled?
 pref("layout.css.grid.enabled", false);
 
+// Is support for CSS Ruby enabled?
+pref("layout.css.ruby.enabled", false);
+
 // Is support for CSS box-decoration-break enabled?
 pref("layout.css.box-decoration-break.enabled", true);
 
 // Is layout of CSS outline-style:auto enabled?
 pref("layout.css.outline-style-auto.enabled", false);
+
+// Is CSSOM-View scroll-behavior and its MSD smooth scrolling enabled?
+pref("layout.css.scroll-behavior.enabled", false);
+
+// Tuning of the smooth scroll motion used by CSSOM-View scroll-behavior.
+// Spring-constant controls the strength of the simulated MSD
+// (Mass-Spring-Damper)
+pref("layout.css.scroll-behavior.spring-constant", "250.0");
+
+// Tuning of the smooth scroll motion used by CSSOM-View scroll-behavior.
+// Damping-ratio controls the dampening force of the simulated MSD
+// (Mass-Spring-Damper).
+// When below 1.0, the system is under-damped; it may overshoot the target and
+// oscillate.
+// When greater than 1.0, the system is over-damped; it will reach the target at
+// reduced speed without overshooting.
+// When equal to 1.0, the system is critically-damped; it will reach the target
+// at the greatest speed without overshooting.
+pref("layout.css.scroll-behavior.damping-ratio", "1.0");
 
 // pref for which side vertical scrollbars should be on
 // 0 = end-side in UI direction
@@ -2038,6 +2061,9 @@ pref("layout.display-list.dump", false);
 // but provides more time for other operations when the browser is
 // heavily loaded.
 pref("layout.frame_rate.precise", false);
+
+// pref to control whether layout warnings that are hit quite often are enabled 
+pref("layout.spammy_warnings.enabled", true);
 
 // Is support for the Web Animations API enabled?
 #ifdef RELEASE_BUILD
@@ -3988,8 +4014,6 @@ pref("dom.sms.defaultServiceId", 0);
 
 // WebContacts
 pref("dom.mozContacts.enabled", false);
-pref("dom.navigator-property.disable.mozContacts", true);
-pref("dom.global-constructor.disable.mozContact", true);
 
 // WebAlarms
 pref("dom.mozAlarms.enabled", false);
@@ -4294,6 +4318,9 @@ pref("beacon.enabled", true);
 // Camera prefs
 pref("camera.control.autofocus_moving_callback.enabled", true);
 pref("camera.control.face_detection.enabled", true);
+
+// Fetch API.
+pref("dom.fetch.enabled", false);
 #ifdef MOZ_WIDGET_GONK
 // Empirically, this is the value returned by hal::GetTotalSystemMemory()
 // when Flame's memory is limited to 512MiB. If the camera stack determines

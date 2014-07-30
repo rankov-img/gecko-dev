@@ -298,10 +298,17 @@ static inline T UnexpectedFailure(T rv)
 }
 
 void
-TraceXPCGlobal(JSTracer *trc, JSObject *obj)
+xpc::TraceXPCGlobal(JSTracer *trc, JSObject *obj)
 {
     if (js::GetObjectClass(obj)->flags & JSCLASS_DOM_GLOBAL)
         mozilla::dom::TraceProtoAndIfaceCache(trc, obj);
+
+    // We might be called from a GC during the creation of a global, before we've
+    // been able to set up the compartment private or the XPCWrappedNativeScope,
+    // so we need to null-check those.
+    xpc::CompartmentPrivate* compartmentPrivate = xpc::CompartmentPrivate::Get(obj);
+    if (compartmentPrivate && compartmentPrivate->scope)
+        compartmentPrivate->scope->TraceInside(trc);
 }
 
 namespace xpc {
@@ -374,6 +381,13 @@ InitGlobalObject(JSContext* aJSContext, JS::Handle<JSObject*> aGlobal, uint32_t 
                        status == nsIPrincipal::APP_STATUS_CERTIFIED;
         }
         JS::CompartmentOptionsRef(aGlobal).setDiscardSource(isSystem);
+    }
+
+    if (ExtraWarningsForSystemJS()) {
+        nsIPrincipal *prin = GetObjectPrincipal(aGlobal);
+        bool isSystem = nsContentUtils::IsSystemPrincipal(prin);
+        if (isSystem)
+            JS::CompartmentOptionsRef(aGlobal).extraWarningsOverride().set(true);
     }
 
     // Stuff coming through this path always ends up as a DOM global.

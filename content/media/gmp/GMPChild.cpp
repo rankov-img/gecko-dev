@@ -6,6 +6,7 @@
 #include "GMPChild.h"
 #include "GMPVideoDecoderChild.h"
 #include "GMPVideoEncoderChild.h"
+#include "GMPDecryptorChild.h"
 #include "GMPVideoHost.h"
 #include "nsIFile.h"
 #include "nsXULAppAPI.h"
@@ -25,6 +26,8 @@ using mozilla::dom::CrashReporterChild;
 #if defined(XP_WIN)
 #define TARGET_SANDBOX_EXPORTS
 #include "mozilla/sandboxTarget.h"
+#elif defined(XP_LINUX) && defined(MOZ_GMP_SANDBOX)
+#include "mozilla/Sandbox.h"
 #endif
 
 namespace mozilla {
@@ -41,23 +44,30 @@ GMPChild::~GMPChild()
 {
 }
 
+void
+GMPChild::CheckThread()
+{
+  MOZ_ASSERT(mGMPMessageLoop == MessageLoop::current());
+}
+
 bool
 GMPChild::Init(const std::string& aPluginPath,
                base::ProcessHandle aParentProcessHandle,
                MessageLoop* aIOLoop,
                IPC::Channel* aChannel)
 {
-#ifdef GMP_CRASHREPORTER_READY
-// See bug 1041226
+  if (!Open(aChannel, aParentProcessHandle, aIOLoop)) {
+    return false;
+  }
+
 #ifdef MOZ_CRASHREPORTER
   SendPCrashReporterConstructor(CrashReporter::CurrentThreadId());
-#endif
 #endif
 #if defined(XP_WIN)
   mozilla::SandboxTarget::Instance()->StartSandbox();
 #endif
-  return LoadPluginLibrary(aPluginPath) &&
-         Open(aChannel, aParentProcessHandle, aIOLoop);
+
+  return LoadPluginLibrary(aPluginPath);
 }
 
 bool
@@ -90,6 +100,13 @@ GMPChild::LoadPluginLibrary(const std::string& aPluginPath)
 
   nsAutoCString nativePath;
   libFile->GetNativePath(nativePath);
+
+#if defined(XP_LINUX) && defined(MOZ_GMP_SANDBOX)
+  // Enable sandboxing here -- we know the plugin file's path, but
+  // this process's execution hasn't been affected by its content yet.
+  mozilla::SetMediaPluginSandbox(nativePath.get());
+#endif
+
   mLib = PR_LoadLibrary(nativePath.get());
   if (!mLib) {
     return false;
@@ -188,6 +205,19 @@ GMPChild::DeallocPGMPVideoDecoderChild(PGMPVideoDecoderChild* aActor)
   return true;
 }
 
+PGMPDecryptorChild*
+GMPChild::AllocPGMPDecryptorChild()
+{
+  return new GMPDecryptorChild(this);
+}
+
+bool
+GMPChild::DeallocPGMPDecryptorChild(PGMPDecryptorChild* aActor)
+{
+  delete aActor;
+  return true;
+}
+
 PGMPVideoEncoderChild*
 GMPChild::AllocPGMPVideoEncoderChild()
 {
@@ -229,6 +259,23 @@ GMPChild::RecvPGMPVideoEncoderConstructor(PGMPVideoEncoderChild* aActor)
   }
 
   vec->Init(static_cast<GMPVideoEncoder*>(ve));
+
+  return true;
+}
+
+bool
+GMPChild::RecvPGMPDecryptorConstructor(PGMPDecryptorChild* aActor)
+{
+  GMPDecryptorChild* child = static_cast<GMPDecryptorChild*>(aActor);
+  GMPDecryptorHost* host = static_cast<GMPDecryptorHost*>(child);
+
+  void* session = nullptr;
+  GMPErr err = mGetAPIFunc("eme-decrypt", host, &session);
+  if (err != GMPNoErr || !session) {
+    return false;
+  }
+
+  child->Init(static_cast<GMPDecryptor*>(session));
 
   return true;
 }

@@ -6,6 +6,7 @@
 
 const MAX_ORDINAL = 99;
 const ZOOM_PREF = "devtools.toolbox.zoomValue";
+const SPLITCONSOLE_ENABLED_PREF = "devtools.toolbox.splitconsoleEnabled";
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 2;
 
@@ -247,7 +248,6 @@ Toolbox.prototype = {
         this._buildDockButtons();
         this._buildOptions();
         this._buildTabs();
-        let buttonsPromise = this._buildButtons();
         this._applyCacheSettings();
         this._addKeysToWindow();
         this._addReloadKeys();
@@ -255,10 +255,19 @@ Toolbox.prototype = {
         this._addZoomKeys();
         this._loadInitialZoom();
 
+        let splitConsolePromise = promise.resolve();
+        if (Services.prefs.getBoolPref(SPLITCONSOLE_ENABLED_PREF)) {
+          splitConsolePromise = this.openSplitConsole();
+        }
+        let buttonsPromise = this._buildButtons();
+
         this._telemetry.toolOpened("toolbox");
 
         this.selectTool(this._defaultToolId).then(panel => {
-          buttonsPromise.then(() => {
+          promise.all([
+            splitConsolePromise,
+            buttonsPromise
+          ]).then(() => {
             this.emit("ready");
             deferred.resolve();
           }, deferred.reject);
@@ -302,20 +311,8 @@ Toolbox.prototype = {
     }, true);
   },
 
-  _isResponsiveModeActive: function() {
-    let responsiveModeActive = false;
-    if (this.target.isLocalTab) {
-      let tab = this.target.tab;
-      let browserWindow = tab.ownerDocument.defaultView;
-      let responsiveUIManager = browserWindow.ResponsiveUI.ResponsiveUIManager;
-      responsiveModeActive = responsiveUIManager.isActiveForTab(tab);
-    }
-    return responsiveModeActive;
-  },
-
   _splitConsoleOnKeypress: function(e) {
-    let responsiveModeActive = this._isResponsiveModeActive();
-    if (e.keyCode === e.DOM_VK_ESCAPE && !responsiveModeActive) {
+    if (e.keyCode === e.DOM_VK_ESCAPE) {
       this.toggleSplitConsole();
       // If the debugger is paused, don't let the ESC key stop any pending
       // navigation.
@@ -374,7 +371,7 @@ Toolbox.prototype = {
       webconsolePanel.removeAttribute("collapsed");
     } else {
       deck.removeAttribute("collapsed");
-      if (this._splitConsole) {
+      if (this.splitConsole) {
         webconsolePanel.removeAttribute("collapsed");
         splitter.removeAttribute("hidden");
       } else {
@@ -441,9 +438,8 @@ Toolbox.prototype = {
     zoomValue = Math.min(zoomValue, MAX_ZOOM);
 
     let contViewer = this.frame.docShell.contentViewer;
-    let docViewer = contViewer.QueryInterface(Ci.nsIMarkupDocumentViewer);
 
-    docViewer.fullZoom = zoomValue;
+    contViewer.fullZoom = zoomValue;
 
     Services.prefs.setCharPref(ZOOM_PREF, zoomValue);
   },
@@ -743,7 +739,7 @@ Toolbox.prototype = {
       radio.appendChild(image);
     }
 
-    if (toolDefinition.label) {
+    if (toolDefinition.label && !toolDefinition.iconOnly) {
       let label = this.doc.createElement("label");
       label.setAttribute("value", toolDefinition.label)
       label.setAttribute("crop", "end");
@@ -974,24 +970,50 @@ Toolbox.prototype = {
   },
 
   /**
+   * Opens the split console.
+   *
+   * @returns {Promise} a promise that resolves once the tool has been
+   *          loaded and focused.
+   */
+  openSplitConsole: function() {
+    this._splitConsole = true;
+    Services.prefs.setBoolPref(SPLITCONSOLE_ENABLED_PREF, true);
+    this._refreshConsoleDisplay();
+    this.emit("split-console");
+    return this.loadTool("webconsole").then(() => {
+      this.focusConsoleInput();
+    });
+  },
+
+  /**
+   * Closes the split console.
+   *
+   * @returns {Promise} a promise that resolves once the tool has been
+   *          closed.
+   */
+  closeSplitConsole: function() {
+    this._splitConsole = false;
+    Services.prefs.setBoolPref(SPLITCONSOLE_ENABLED_PREF, false);
+    this._refreshConsoleDisplay();
+    this.emit("split-console");
+    return promise.resolve();
+  },
+
+  /**
    * Toggles the split state of the webconsole.  If the webconsole panel
-   * is already selected, then this command is ignored.
+   * is already selected then this command is ignored.
+   *
+   * @returns {Promise} a promise that resolves once the tool has been
+   *          opened or closed.
    */
   toggleSplitConsole: function() {
-    let openedConsolePanel = this.currentToolId === "webconsole";
-
-    // Don't allow changes when console is open, since it could be confusing
-    if (!openedConsolePanel) {
-      this._splitConsole = !this._splitConsole;
-      this._refreshConsoleDisplay();
-      this.emit("split-console");
-
-      if (this._splitConsole) {
-        this.loadTool("webconsole").then(() => {
-          this.focusConsoleInput();
-        });
-      }
+    if (this.currentToolId !== "webconsole") {
+      return this.splitConsole ?
+             this.closeSplitConsole() :
+             this.openSplitConsole();
     }
+
+    return promise.resolve();
   },
 
   /**

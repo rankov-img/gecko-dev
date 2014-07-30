@@ -512,6 +512,9 @@ public:
 
   static bool IsChromeWindow(JSContext* /* unused */, JSObject* aObj);
 
+  static bool IsShowModalDialogEnabled(JSContext* /* unused */ = nullptr,
+                                       JSObject* /* unused */ = nullptr);
+
   bool DoNewResolve(JSContext* aCx, JS::Handle<JSObject*> aObj,
                     JS::Handle<jsid> aId,
                     JS::MutableHandle<JSPropertyDescriptor> aDesc);
@@ -915,8 +918,8 @@ public:
             mozilla::ErrorResult& aError);
   void Btoa(const nsAString& aBinaryData, nsAString& aAsciiBase64String,
             mozilla::ErrorResult& aError);
-  nsIDOMStorage* GetSessionStorage(mozilla::ErrorResult& aError);
-  nsIDOMStorage* GetLocalStorage(mozilla::ErrorResult& aError);
+  mozilla::dom::DOMStorage* GetSessionStorage(mozilla::ErrorResult& aError);
+  mozilla::dom::DOMStorage* GetLocalStorage(mozilla::ErrorResult& aError);
   mozilla::dom::Selection* GetSelection(mozilla::ErrorResult& aError);
   mozilla::dom::indexedDB::IDBFactory* GetIndexedDB(mozilla::ErrorResult& aError);
   already_AddRefed<nsICSSDeclaration>
@@ -1545,8 +1548,8 @@ protected:
   // it wouldn't see the ~External function's declaration.
   nsCOMPtr<nsISupports>         mExternal;
 
-  nsCOMPtr<nsIDOMStorage>      mLocalStorage;
-  nsCOMPtr<nsIDOMStorage>      mSessionStorage;
+  nsRefPtr<mozilla::dom::DOMStorage> mLocalStorage;
+  nsRefPtr<mozilla::dom::DOMStorage> mSessionStorage;
 
   // These member variable are used only on inner windows.
   nsRefPtr<mozilla::EventListenerManager> mListenerManager;

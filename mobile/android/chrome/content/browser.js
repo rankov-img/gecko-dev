@@ -191,7 +191,7 @@ function doChangeMaxLineBoxWidth(aWidth) {
   gReflowPending = null;
   let webNav = BrowserApp.selectedTab.window.QueryInterface(Ci.nsIInterfaceRequestor).getInterface(Ci.nsIWebNavigation);
   let docShell = webNav.QueryInterface(Ci.nsIDocShell);
-  let docViewer = docShell.contentViewer.QueryInterface(Ci.nsIMarkupDocumentViewer);
+  let docViewer = docShell.contentViewer;
 
   let range = null;
   if (BrowserApp.selectedTab._mReflozPoint) {
@@ -1391,10 +1391,6 @@ var BrowserApp = {
   },
 
   sanitize: function (aItems, callback) {
-    if (!aItems) {
-      return;
-    }
-
     let success = true;
 
     for (let key in aItems) {
@@ -1620,8 +1616,7 @@ var BrowserApp = {
         break;
 
       case "Browser:Quit":
-        Services.console.logStringMessage(aData);
-        this.quit(JSON.parse(aData));
+        this.quit(aData ? JSON.parse(aData) : null);
         break;
 
       case "SaveAs:PDF":
@@ -1658,7 +1653,7 @@ var BrowserApp = {
       case "Passwords:Init": {
         let storage = Cc["@mozilla.org/login-manager/storage/mozStorage;1"].
                       getService(Ci.nsILoginManagerStorage);
-        storage.init();
+        storage.initialize();
         Services.obs.removeObserver(this, "Passwords:Init");
         break;
       }
@@ -3089,6 +3084,39 @@ function Tab(aURL, aParams) {
   this.create(aURL, aParams);
 }
 
+/*
+ * Sanity limit for URIs passed to UI code.
+ *
+ * 2000 is the typical industry limit, largely due to older IE versions.
+ *
+ * We use 25000, so we'll allow almost any value through.
+ *
+ * Still, this truncation doesn't affect history, so this is only a practical
+ * concern in two ways: the truncated value is used when editing URIs, and as
+ * the key for favicon fetches.
+ */
+const MAX_URI_LENGTH = 25000;
+
+/*
+ * Similar restriction for titles. This is only a display concern.
+ */
+const MAX_TITLE_LENGTH = 255;
+
+/**
+ * Ensure that a string is of a sane length.
+ */
+function truncate(text, max) {
+  if (!text || !max) {
+    return text;
+  }
+
+  if (text.length <= max) {
+    return text;
+  }
+
+  return text.slice(0, max) + "…";
+}
+
 Tab.prototype = {
   create: function(aURL, aParams) {
     if (this.browser)
@@ -3159,12 +3187,12 @@ Tab.prototype = {
       let message = {
         type: "Tab:Added",
         tabID: this.id,
-        uri: uri,
+        uri: truncate(uri, MAX_URI_LENGTH),
         parentId: ("parentId" in aParams) ? aParams.parentId : -1,
         tabIndex: ("tabIndex" in aParams) ? aParams.tabIndex : -1,
         external: ("external" in aParams) ? aParams.external : false,
         selected: ("selected" in aParams) ? aParams.selected : true,
-        title: title,
+        title: truncate(title, MAX_TITLE_LENGTH),
         delayLoad: aParams.delayLoad || false,
         desktopMode: this.desktopMode,
         isPrivate: isPrivate,
@@ -3213,7 +3241,7 @@ Tab.prototype = {
       this.browser.__SS_data = {
         entries: [{
           url: aURL,
-          title: title
+          title: truncate(title, MAX_TITLE_LENGTH)
         }],
         index: 1
       };
@@ -3268,7 +3296,7 @@ Tab.prototype = {
     // Reflow was completed, so now re-enable painting.
     let webNav = BrowserApp.selectedTab.window.QueryInterface(Ci.nsIInterfaceRequestor).getInterface(Ci.nsIWebNavigation);
     let docShell = webNav.QueryInterface(Ci.nsIDocShell);
-    let docViewer = docShell.contentViewer.QueryInterface(Ci.nsIMarkupDocumentViewer);
+    let docViewer = docShell.contentViewer;
     docViewer.resumePainting();
 
     BrowserApp.selectedTab._mReflozPositioned = false;
@@ -3522,7 +3550,7 @@ Tab.prototype = {
         BrowserApp.selectedTab.probablyNeedRefloz) {
       let webNav = BrowserApp.selectedTab.window.QueryInterface(Ci.nsIInterfaceRequestor).getInterface(Ci.nsIWebNavigation);
       let docShell = webNav.QueryInterface(Ci.nsIDocShell);
-      docViewer = docShell.contentViewer.QueryInterface(Ci.nsIMarkupDocumentViewer);
+      docViewer = docShell.contentViewer;
       docViewer.pausePainting();
 
       BrowserApp.selectedTab.performReflowOnZoom(aViewport);
@@ -3952,7 +3980,7 @@ Tab.prototype = {
         sendMessageToJava({
           type: "DOMTitleChanged",
           tabID: this.id,
-          title: aEvent.target.title.substring(0, 255)
+          title: truncate(aEvent.target.title, MAX_TITLE_LENGTH)
         });
         break;
       }
@@ -4141,7 +4169,7 @@ Tab.prototype = {
       let message = {
         type: "Content:StateChange",
         tabID: this.id,
-        uri: uri,
+        uri: truncate(uri, MAX_URI_LENGTH),
         state: aStateFlags,
         restoring: restoring,
         success: success
@@ -4207,7 +4235,7 @@ Tab.prototype = {
     let message = {
       type: "Content:LocationChange",
       tabID: this.id,
-      uri: fixedURI.spec,
+      uri: truncate(fixedURI.spec, MAX_URI_LENGTH),
       userSearch: this.userSearch || "",
       baseDomain: baseDomain,
       contentType: (contentType ? contentType : ""),
@@ -4925,7 +4953,7 @@ var BrowserEventHandler = {
       // Before we perform a reflow on zoom, let's disable painting.
       let webNav = BrowserApp.selectedTab.window.QueryInterface(Ci.nsIInterfaceRequestor).getInterface(Ci.nsIWebNavigation);
       let docShell = webNav.QueryInterface(Ci.nsIDocShell);
-      let docViewer = docShell.contentViewer.QueryInterface(Ci.nsIMarkupDocumentViewer);
+      let docViewer = docShell.contentViewer;
       docViewer.pausePainting();
 
       BrowserApp.selectedTab.probablyNeedRefloz = true;
@@ -7137,6 +7165,7 @@ var SearchEngines = {
             name = title.value + " " + i;
 
           Services.search.addEngineWithDetails(name, favicon, null, null, method, formURL);
+          NativeWindow.toast.show(Strings.browser.formatStringFromName("alertSearchEngineAddedToast", [name], 1), "long");
           let engine = Services.search.getEngineByName(name);
           engine.wrappedJSObject._queryCharset = charset;
           for (let i = 0; i < formData.length; ++i) {
@@ -7410,8 +7439,8 @@ let Reader = {
           sendMessageToJava({
             type: "Reader:Added",
             result: result,
-            title: article.title,
-            url: url,
+            title: truncate(article.title, MAX_TITLE_LENGTH),
+            url: truncate(url, MAX_URI_LENGTH),
             length: article.length,
             excerpt: article.excerpt
           });

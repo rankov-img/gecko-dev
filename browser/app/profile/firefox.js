@@ -256,6 +256,7 @@ pref("browser.uitour.themeOrigin", "https://addons.mozilla.org/%LOCALE%/firefox/
 pref("browser.uitour.pinnedTabUrl", "https://support.mozilla.org/%LOCALE%/kb/pinned-tabs-keep-favorite-websites-open");
 pref("browser.uitour.url", "https://www.mozilla.org/%LOCALE%/firefox/%VERSION%/tour/");
 pref("browser.uitour.whitelist.add.260", "www.mozilla.org,support.mozilla.org");
+pref("browser.uitour.whitelist.add.340", "about:home");
 
 pref("browser.customizemode.tip0.shown", false);
 pref("browser.customizemode.tip0.learnMoreUrl", "https://support.mozilla.org/1/firefox/%VERSION%/%OS%/%LOCALE%/customize");
@@ -313,8 +314,14 @@ pref("browser.urlbar.doubleClickSelectsAll", true);
 #else
 pref("browser.urlbar.doubleClickSelectsAll", false);
 #endif
+
+// Control autoFill behavior
 pref("browser.urlbar.autoFill", true);
 pref("browser.urlbar.autoFill.typed", true);
+
+// Use the new unifiedComplete component
+pref("browser.urlbar.unifiedcomplete", true);
+
 // 0: Match anywhere (e.g., middle of words)
 // 1: Match on word boundaries and then try matching anywhere
 // 2: Match only on word boundaries (e.g., after / or .)
@@ -809,10 +816,36 @@ pref("plugin.state.f5 ssl vpn plugin", 2);
 pref("plugin.state.f5 sam inspection host plugin", 2);
 #endif
 
+// Roblox Launcher Plugin, bug 1024073
+#ifdef XP_WIN
+pref("plugin.state.nprobloxproxy", 2);
+#endif
+#ifdef XP_MACOSX
+pref("plugins.state.nproblox", 2);
+#endif
+
+// Box Edit, bug 1029654
+#ifdef XP_WIN
+pref("plugins.state.npboxedit", 2);
+#endif
+#ifdef XP_MACOSX
+pref("plugins.state.box edit", 2);
+#endif
+
+// Nexus Personal, bug 1024965
+#ifdef XP_WIN
+pref("plugins.state.np_prsnl", 2);
+#endif
+#ifdef XP_MACOSX
+pref("plugins.state.personalplugin", 2);
+#endif
+#ifdef UNIX_BUT_NOT_MAC
+pref("plugins.state.libplugins", 2);
+#endif
+
 // display door hanger if flash not installed
 pref("plugins.notifyMissingFlash", true);
 
-pref("browser.preferences.instantApply", true);
 #ifdef XP_MACOSX
 pref("browser.preferences.animateFadeIn", true);
 #else
@@ -820,7 +853,17 @@ pref("browser.preferences.animateFadeIn", false);
 #endif
 
 // Toggles between the two Preferences implementations, pop-up window and in-content
+#ifdef NIGHTLY_BUILD
 pref("browser.preferences.inContent", true);
+pref("browser.preferences.instantApply", true);
+#else
+pref("browser.preferences.inContent", false);
+#ifdef XP_WIN
+pref("browser.preferences.instantApply", false);
+#else
+pref("browser.preferences.instantApply", true);
+#endif
+#endif
 
 pref("browser.download.show_plugins_in_list", true);
 pref("browser.download.hide_plugins_without_extensions", true);
@@ -1249,6 +1292,7 @@ pref("devtools.toolbox.selectedTool", "webconsole");
 pref("devtools.toolbox.toolbarSpec", '["splitconsole", "paintflashing toggle","tilt toggle","scratchpad","resize toggle","eyedropper","screenshot --fullpage"]');
 pref("devtools.toolbox.sideEnabled", true);
 pref("devtools.toolbox.zoomValue", "1");
+pref("devtools.toolbox.splitconsoleEnabled", false);
 
 // Toolbox Button preferences
 pref("devtools.command-button-pick.enabled", true);
@@ -1347,6 +1391,7 @@ pref("devtools.styleeditor.autocompletion-enabled", true);
 pref("devtools.styleeditor.showMediaSidebar", true);
 pref("devtools.styleeditor.mediaSidebarWidth", 238);
 pref("devtools.styleeditor.navSidebarWidth", 245);
+pref("devtools.styleeditor.transitions", true);
 
 // Enable the Shader Editor.
 pref("devtools.shadereditor.enabled", false);
@@ -1469,6 +1514,9 @@ pref("browser.newtab.preload", true);
 
 // Toggles the content of 'about:newtab'. Shows the grid when enabled.
 pref("browser.newtabpage.enabled", true);
+
+// Toggles the enhancement of history content of 'about:newtab'
+pref("browser.newtabpage.enhanced", false);
 
 // number of rows of newtab grid
 pref("browser.newtabpage.rows", 3);

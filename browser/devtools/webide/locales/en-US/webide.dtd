@@ -35,6 +35,8 @@
 <!ENTITY runtimeMenu_takeScreenshot_accesskey "S">
 <!ENTITY runtimeMenu_showDetails_label "Runtime Info">
 <!ENTITY runtimeMenu_showDetails_accesskey "E">
+<!ENTITY runtimeMenu_showMonitor_label "Monitor">
+<!ENTITY runtimeMenu_showMonitor_accesskey "M">
 
 <!ENTITY viewMenu_label "View">
 <!ENTITY viewMenu_accesskey "V">
@@ -64,7 +66,7 @@
 <!ENTITY runtimePanel_WiFiDevices "WiFi Devices">
 <!ENTITY runtimePanel_simulators "Simulators">
 <!ENTITY runtimePanel_custom "Custom">
-<!ENTITY runtimePanel_nosimulator "Install Simulator">
+<!ENTITY runtimePanel_installsimulator "Install Simulator">
 <!ENTITY runtimePanel_noadbhelper "Install ADB Helper">
 <!ENTITY runtimePanel_nousbdevice "Can't see your device?">
 
@@ -106,15 +108,15 @@
 <!ENTITY prefs_options_templatesurl_tooltip "Index of available templates">
 <!ENTITY prefs_options_showeditor "Show editor">
 <!ENTITY prefs_options_showeditor_tooltip "Show internal editor">
-<!ENTITY prefs_options_detectindentation "Detect indentation">
+<!ENTITY prefs_options_tabsize "Tab size">
+<!ENTITY prefs_options_expandtab "Soft tabs">
+<!ENTITY prefs_options_expandtab_tooltip "Use spaces instead of the tab character">
+<!ENTITY prefs_options_detectindentation "Autoindent">
 <!ENTITY prefs_options_detectindentation_tooltip "Guess indentation based on source content">
+<!ENTITY prefs_options_autocomplete "Autocomplete">
+<!ENTITY prefs_options_autocomplete_tooltip "Enable code autocompletion">
 <!ENTITY prefs_options_autoclosebrackets "Autoclose brackets">
 <!ENTITY prefs_options_autoclosebrackets_tooltip "Automatically insert closing brackets">
-<!ENTITY prefs_options_expandtab "Indent using spaces">
-<!ENTITY prefs_options_expandtab_tooltip "Use spaces instead of the tab character">
-<!ENTITY prefs_options_autocomplete "Autocompletion">
-<!ENTITY prefs_options_autocomplete_tooltip "Enable code autocompletion">
-<!ENTITY prefs_options_tabsize "Tab size">
 
 <!-- Permissions Table -->
 <!ENTITY permissionstable_title "Permissions Table">
@@ -122,3 +124,13 @@
 
 <!-- Runtime Details -->
 <!ENTITY runtimedetails_title "Runtime Info">
+<!ENTITY runtimedetails_adbIsRoot "ADB is root: ">
+<!ENTITY runtimedetails_summonADBRoot "root device">
+<!ENTITY runtimedetails_ADBRootWarning "(requires unlocked bootloader)">
+<!ENTITY runtimedetails_restrictedPrivileges "DevTools restricted privileges: ">
+<!ENTITY runtimedetails_requestPrivileges "request higher privileges">
+<!ENTITY runtimedetails_privilegesWarning "(Will reboot device. Requires root access.)">
+
+<!-- Monitor -->
+<!ENTITY monitor_title "Monitor">
+<!ENTITY monitor_help "Help">
