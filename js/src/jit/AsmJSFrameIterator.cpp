@@ -109,6 +109,10 @@ static const unsigned StoredFP = 12;
 static const unsigned PushedRetAddr = 4;
 static const unsigned PushedFP = 16;
 static const unsigned StoredFP = 20;
+#elif defined(JS_CODEGEN_MIPS)
+static const unsigned PushedRetAddr = 8;
+static const unsigned PushedFP = 24;
+static const unsigned StoredFP = 28;
 #endif
 
 static void
@@ -274,7 +278,12 @@ js::GenerateAsmJSFunctionEpilogue(MacroAssembler &masm, unsigned framePushed,
         masm.bind(&labels->profilingJump);
 #if defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_X64)
         masm.twoByteNop();
-#elif defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_MIPS)
+#elif defined(JS_CODEGEN_ARM)
+        masm.nop();
+#elif defined(JS_CODEGEN_MIPS)
+        masm.nop();
+        masm.nop();
+        masm.nop();
         masm.nop();
 #endif
     }
@@ -503,12 +512,14 @@ AsmJSProfilingFrameIterator::AsmJSProfilingFrameIterator(const AsmJSActivation &
         JS_ASSERT(offsetInModule < codeRange->end());
         uint32_t offsetInCodeRange = offsetInModule - codeRange->begin();
         void **sp = (void**)state.sp;
-#if defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_MIPS)
+#if defined(JS_CODEGEN_ARM)
         if (offsetInCodeRange < PushedRetAddr) {
             callerPC_ = state.lr;
             callerFP_ = fp;
             AssertMatchesCallSite(*module_, codeRange, callerPC_, callerFP_, sp - 2);
         } else
+#elif defined(JS_CODEGEN_MIPS)
+        MOZ_ASSUME_UNREACHABLE("NYI");
 #endif
         if (offsetInCodeRange < PushedFP || offsetInModule == codeRange->profilingReturn()) {
             callerPC_ = *sp;

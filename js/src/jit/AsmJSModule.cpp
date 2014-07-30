@@ -1556,6 +1556,9 @@ AsmJSModule::setProfilingEnabled(bool enabled)
         BOffImm calleeOffset;
         callerInsn->as<InstBLImm>()->extractImm(&calleeOffset);
         void *callee = calleeOffset.getDest(callerInsn);
+#elif defined(JS_CODEGEN_MIPS)
+        Instruction *instr = (Instruction *)(callerRetAddr - 4 * sizeof(uint32_t));
+        void *callee = (void *)Assembler::ExtractLuiOriValue(instr, instr->next());
 #else
 # error "Missing architecture"
 #endif
@@ -1574,6 +1577,11 @@ AsmJSModule::setProfilingEnabled(bool enabled)
         JSC::X86Assembler::setRel32(callerRetAddr, newCallee);
 #elif defined(JS_CODEGEN_ARM)
         new (caller) InstBLImm(BOffImm(newCallee - caller), Assembler::Always);
+#elif defined(JS_CODEGEN_MIPS)
+        Assembler::WriteLuiOriInstructions(instr, instr->next(),
+                                           ScratchRegister, (uint32_t)newCallee);
+        instr[2] = InstReg(op_special, ScratchRegister, zero, ra, ff_jalr);
+        AutoFlushICache::flush(uintptr_t(instr), 3 * sizeof(uint32_t));
 #else
 # error "Missing architecture"
 #endif
@@ -1630,6 +1638,19 @@ AsmJSModule::setProfilingEnabled(bool enabled)
         } else {
             JS_ASSERT(reinterpret_cast<Instruction*>(jump)->is<InstBImm>());
             new (jump) InstNOP();
+        }
+#elif defined(JS_CODEGEN_MIPS)
+        Instruction *instr = (Instruction *)jump;
+        if (enabled) {
+            Assembler::WriteLuiOriInstructions(instr, instr->next(),
+                                               ScratchRegister, (uint32_t)profilingEpilogue);
+            instr[2] = InstReg(op_special, ScratchRegister, zero, zero, ff_jr);
+            AutoFlushICache::flush(uintptr_t(instr), 3 * sizeof(uint32_t));
+        } else {
+            instr[0].makeNop();
+            instr[1].makeNop();
+            instr[2].makeNop();
+            AutoFlushICache::flush(uintptr_t(instr), 3 * sizeof(uint32_t));
         }
 #else
 # error "Missing architecture"
