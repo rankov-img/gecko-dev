@@ -6017,20 +6017,24 @@ GenerateEntry(ModuleCompiler &m, unsigned exportIndex)
             masm.load32(src, iter->gpr());
             break;
           case ABIArg::FPU:
-#if defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_MIPS)
-            masm.loadDouble(src, iter->fpu().doubleOverlay(0));
-#else
-            masm.loadDouble(src, iter->fpu());
-#endif
+            if (iter.mirType() == MIRType_Double) {
+                masm.loadDouble(src, iter->fpu());
+            } else {
+                JS_ASSERT(iter.mirType() == MIRType_Float32);
+                masm.loadFloat32(src, iter->fpu());
+            }
             break;
           case ABIArg::Stack:
             if (iter.mirType() == MIRType_Int32) {
                 masm.load32(src, scratch);
                 masm.storePtr(scratch, Address(StackPointer, iter->offsetFromArgBase()));
-            } else {
-                JS_ASSERT(iter.mirType() == MIRType_Double || iter.mirType() == MIRType_Float32);
+            } else if (iter.mirType() == MIRType_Double) {
                 masm.loadDouble(src, ScratchDoubleReg);
                 masm.storeDouble(ScratchDoubleReg, Address(StackPointer, iter->offsetFromArgBase()));
+            } else {
+                JS_ASSERT(iter.mirType() == MIRType_Float32);
+                masm.loadFloat32(src, ScratchFloat32Reg);
+                masm.storeFloat32(ScratchFloat32Reg, Address(StackPointer, iter->offsetFromArgBase()));
             }
             break;
         }

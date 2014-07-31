@@ -1611,7 +1611,6 @@ AsmJSModule::setProfilingEnabled(bool enabled, JSContext *cx)
         Assembler::WriteLuiOriInstructions(instr, instr->next(),
                                            ScratchRegister, (uint32_t)newCallee);
         instr[2] = InstReg(op_special, ScratchRegister, zero, ra, ff_jalr);
-        AutoFlushICache::flush(uintptr_t(instr), 3 * sizeof(uint32_t));
 #elif defined(JS_CODEGEN_NONE)
         MOZ_CRASH();
 #else
@@ -1677,12 +1676,10 @@ AsmJSModule::setProfilingEnabled(bool enabled, JSContext *cx)
             Assembler::WriteLuiOriInstructions(instr, instr->next(),
                                                ScratchRegister, (uint32_t)profilingEpilogue);
             instr[2] = InstReg(op_special, ScratchRegister, zero, zero, ff_jr);
-            AutoFlushICache::flush(uintptr_t(instr), 3 * sizeof(uint32_t));
         } else {
             instr[0].makeNop();
             instr[1].makeNop();
             instr[2].makeNop();
-            AutoFlushICache::flush(uintptr_t(instr), 3 * sizeof(uint32_t));
         }
 #elif defined(JS_CODEGEN_NONE)
         MOZ_CRASH();
