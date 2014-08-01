@@ -270,6 +270,7 @@ pref("media.gstreamer.enabled", true);
 #endif
 #ifdef MOZ_APPLEMEDIA
 pref("media.apple.mp3.enabled", true);
+pref("media.apple.mp4.enabled", true);
 #endif
 #ifdef MOZ_WEBRTC
 pref("media.navigator.enabled", true);
@@ -366,6 +367,7 @@ pref("media.navigator.enabled", true);
 // do not enable screensharing before source constraints are finalized: Bug 1033885
 // do not enable screensharing before UX is ready: Bug 1035577
 pref("media.getusermedia.screensharing.enabled", false);
+pref("media.getusermedia.screensharing.allowed_domains", "");
 
 // TextTrack support
 pref("media.webvtt.enabled", true);
@@ -1646,7 +1648,6 @@ pref("security.notification_enable_delay", 500);
 pref("security.csp.enable", true);
 pref("security.csp.debug", false);
 pref("security.csp.experimentalEnabled", false);
-pref("security.csp.newbackend.enable", true);
 
 // Mixed content blocking
 pref("security.mixed_content.block_active_content", false);
