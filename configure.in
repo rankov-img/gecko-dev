@@ -8614,6 +8614,14 @@ if test "$MOZ_WIDGET_TOOLKIT" = gonk -a -n "$MOZ_NUWA_PROCESS"; then
     AC_DEFINE(MOZ_NUWA_PROCESS)
 fi
 AC_SUBST(MOZ_NUWA_PROCESS)
+if test "$MOZ_WIDGET_TOOLKIT" = gonk -a -n "$MOZ_B2G_LOADER"; then
+    if test -z "$MOZ_NUWA_PROCESS"; then
+       AC_MSG_ERROR([B2G loader works with Nuwa]);
+    fi
+    export MOZ_B2G_LOADER
+    AC_DEFINE(MOZ_B2G_LOADER)
+fi
+AC_SUBST(MOZ_B2G_LOADER)
 
 AC_SUBST(NSPR_CFLAGS)
 AC_SUBST(NSPR_LIBS)
@@ -8960,13 +8968,7 @@ if test -z "$MOZ_NATIVE_JEMALLOC" -a "$MOZ_MEMORY" && test -n "$MOZ_JEMALLOC3" -
     mkdir -p memory/jemalloc
   fi
 
-  dnl jemalloc's configure uses $srcdir in AC_CONFIG_HEADERS, which syntax uses
-  dnl colons, conflicting with the windows-style path in $srcdir.
-  dnl Turn it into a msys path just for jemalloc's configure
-  _save_srcdir="$srcdir"
-  srcdir=`cd $srcdir; pwd`
   AC_OUTPUT_SUBDIRS(memory/jemalloc/src)
-  srcdir="$_save_srcdir"
   ac_configure_args="$_SUBDIR_CONFIG_ARGS"
 fi
 
