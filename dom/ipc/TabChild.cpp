@@ -2783,11 +2783,11 @@ TabChild::DoSendBlockingMessage(JSContext* aCx,
   }
   if (aIsSync) {
     return SendSyncMessage(PromiseFlatString(aMessage), data, cpows,
-                           aPrincipal, aJSONRetVal);
+                           Principal(aPrincipal), aJSONRetVal);
   }
 
   return CallRpcMessage(PromiseFlatString(aMessage), data, cpows,
-                        aPrincipal, aJSONRetVal);
+                        Principal(aPrincipal), aJSONRetVal);
 }
 
 bool
@@ -2808,7 +2808,7 @@ TabChild::DoSendAsyncMessage(JSContext* aCx,
     }
   }
   return SendAsyncMessage(PromiseFlatString(aMessage), data, cpows,
-                          aPrincipal);
+                          Principal(aPrincipal));
 }
 
 TabChild*
@@ -2855,6 +2855,19 @@ TabChild::OnHideTooltip()
 {
     SendHideTooltip();
     return NS_OK;
+}
+
+bool
+TabChild::RecvRequestNotifyAfterRemotePaint()
+{
+  // Get the CompositorChild instance for this content thread.
+  CompositorChild* compositor = CompositorChild::Get();
+
+  // Tell the CompositorChild that, when it gets a RemotePaintIsReady
+  // message that it should forward it us so that we can bounce it to our
+  // RenderFrameParent.
+  compositor->RequestNotifyAfterRemotePaint(this);
+  return true;
 }
 
 bool

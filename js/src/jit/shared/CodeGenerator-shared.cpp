@@ -1018,16 +1018,22 @@ CodeGeneratorShared::computeDivisionConstants(int d) {
 bool
 CodeGeneratorShared::emitTracelogScript(bool isStart)
 {
+    Label done;
+
     RegisterSet regs = RegisterSet::Volatile();
     Register logger = regs.takeGeneral();
     Register script = regs.takeGeneral();
 
     masm.Push(logger);
-    masm.Push(script);
 
     CodeOffsetLabel patchLogger = masm.movWithPatch(ImmPtr(nullptr), logger);
     if (!patchableTraceLoggers_.append(patchLogger))
         return false;
+
+    Address enabledAddress(logger, TraceLogger::offsetOfEnabled());
+    masm.branch32(Assembler::Equal, enabledAddress, Imm32(0), &done);
+
+    masm.Push(script);
 
     CodeOffsetLabel patchScript = masm.movWithPatch(ImmWord(0), script);
     if (!patchableTLScripts_.append(patchScript))
@@ -1039,6 +1045,9 @@ CodeGeneratorShared::emitTracelogScript(bool isStart)
         masm.tracelogStop(logger, script);
 
     masm.Pop(script);
+
+    masm.bind(&done);
+
     masm.Pop(logger);
     return true;
 }
@@ -1049,6 +1058,7 @@ CodeGeneratorShared::emitTracelogTree(bool isStart, uint32_t textId)
     if (!TraceLogTextIdEnabled(textId))
         return true;
 
+    Label done;
     RegisterSet regs = RegisterSet::Volatile();
     Register logger = regs.takeGeneral();
 
@@ -1057,6 +1067,9 @@ CodeGeneratorShared::emitTracelogTree(bool isStart, uint32_t textId)
     CodeOffsetLabel patchLocation = masm.movWithPatch(ImmPtr(nullptr), logger);
     if (!patchableTraceLoggers_.append(patchLocation))
         return false;
+
+    Address enabledAddress(logger, TraceLogger::offsetOfEnabled());
+    masm.branch32(Assembler::Equal, enabledAddress, Imm32(0), &done);
 
     if (isStart) {
         masm.tracelogStart(logger, textId);
@@ -1067,6 +1080,8 @@ CodeGeneratorShared::emitTracelogTree(bool isStart, uint32_t textId)
         masm.tracelogStop(logger);
 #endif
     }
+
+    masm.bind(&done);
 
     masm.Pop(logger);
     return true;

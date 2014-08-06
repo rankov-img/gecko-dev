@@ -573,6 +573,7 @@ if CONFIG['MOZ_B2G_BT']:
             'BluetoothDiscoveryHandle.webidl',
             'BluetoothManager2.webidl',
             'BluetoothPairingHandle.webidl',
+            'BluetoothPairingListener.webidl',
         ]
     else:
         WEBIDL_FILES += [
@@ -723,6 +724,11 @@ if CONFIG['MOZ_WIDGET_TOOLKIT'] == 'gonk':
         'MozWifiP2pStatusChangeEvent.webidl',
         'MozWifiStationInfoEvent.webidl',
         'MozWifiStatusChangeEvent.webidl',
+    ]
+
+if CONFIG['MOZ_NFC']:
+    GENERATED_EVENTS_WEBIDL_FILES += [
+        'MozNFCPeerEvent.webidl',
     ]
 
 if CONFIG['MOZ_BUILD_APP'] in ['browser', 'xulrunner']:
