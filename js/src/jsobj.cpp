@@ -5730,7 +5730,6 @@ js::PrimitiveToObject(JSContext *cx, const Value &v)
         Rooted<JSString*> str(cx, v.toString());
         return StringObject::create(cx, str);
     }
-
     if (v.isNumber())
         return NumberObject::create(cx, v.toNumber());
     if (v.isBoolean())

@@ -2177,7 +2177,6 @@ CodeGeneratorMIPS::visitAsmJSLoadFuncPtr(LAsmJSLoadFuncPtr *ins)
     const MAsmJSLoadFuncPtr *mir = ins->mir();
 
     Register index = ToRegister(ins->index());
-    Register tmp = ToRegister(ins->temp());
     Register out = ToRegister(ins->output());
     unsigned addr = mir->globalDataOffset();
 

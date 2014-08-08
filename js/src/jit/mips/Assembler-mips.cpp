@@ -1359,7 +1359,6 @@ Assembler::retarget(Label *label, Label *target)
 }
 
 void dbg_break() {}
-static int stopBKPT = -1;
 void
 Assembler::as_break(uint32_t code)
 {
@@ -1530,9 +1529,9 @@ InstImm Assembler::invertBranch(InstImm branch, BOffImm16 skipOffset)
         else
             branch.setRT((RTField) ((rt | 0x1) << RTShift));
         return branch;
+      default:
+        MOZ_ASSUME_UNREACHABLE("Error creating long branch.");
     }
-
-    MOZ_ASSUME_UNREACHABLE("Error creating long branch.");
     return branch;
 }
 
