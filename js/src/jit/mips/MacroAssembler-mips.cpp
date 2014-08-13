@@ -2800,6 +2800,35 @@ MacroAssemblerMIPSCompat::moveValue(const Value &val, const ValueOperand &dest)
 }
 
 CodeOffsetJump
+MacroAssemblerMIPSCompat::backedgeJump(RepatchLabel *label)
+{
+    // Only one branch per label.
+    MOZ_ASSERT(!label->used());
+    uint32_t dest = label->bound() ? label->offset() : LabelBase::INVALID_OFFSET;
+    BufferOffset bo = nextOffset();
+    label->use(bo.getOffset());
+
+    // Backedges are short jumps when bound, but can become long when patched.
+    m_buffer.ensureSpace(8 * sizeof(uint32_t));
+    if (label->bound()) {
+        int32_t offset = label->offset() - bo.getOffset();
+        MOZ_ASSERT(BOffImm16::IsInRange(offset));
+        as_b(BOffImm16(offset));
+    } else {
+        // Jump to lui and ori pair is default.
+        as_b(BOffImm16(2 * sizeof(uint32_t)));
+    }
+    // No need for nop here. We can safely put next instruction in delay slot.
+    ma_liPatchable(ScratchRegister, Imm32(dest));
+    as_jr(ScratchRegister);
+    // No need for nop here. We can safely put next instruction in delay slot.
+    ma_liPatchable(ScratchRegister, Imm32(dest));
+    as_jr(ScratchRegister);
+    as_nop();
+    return CodeOffsetJump(bo.getOffset());
+}
+
+CodeOffsetJump
 MacroAssemblerMIPSCompat::jumpWithPatch(RepatchLabel *label)
 {
     // Only one branch per label.
@@ -2814,7 +2843,6 @@ MacroAssemblerMIPSCompat::jumpWithPatch(RepatchLabel *label)
     as_nop();
     return CodeOffsetJump(bo.getOffset());
 }
-
 
 /////////////////////////////////////////////////////////////////
 // X86/X64-common/ARM/MIPS interface.

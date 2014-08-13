@@ -10,6 +10,7 @@
 #include "mozilla/ArrayUtils.h"
 
 #include "jit/IonCode.h"
+#include "jit/JitCompartment.h"
 #include "jit/shared/Assembler-shared.h"
 
 namespace js {
@@ -742,6 +743,11 @@ PatchJump(CodeLocationJump jump, CodeLocationLabel label)
         JSC::X86Assembler::setRel32(jump.raw(), jump.jumpTableEntry());
         Assembler::PatchJumpEntry(jump.jumpTableEntry(), label.raw());
     }
+}
+static inline void
+PatchBackedge(CodeLocationJump &jump_, CodeLocationLabel label, JitRuntime::BackedgeTarget target)
+{
+    PatchJump(jump_, label);
 }
 
 static inline bool
