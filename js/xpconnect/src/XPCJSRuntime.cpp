@@ -1187,7 +1187,7 @@ class WatchdogManager : public nsIObserver
         MOZ_ASSERT(NS_IsMainThread());
         Maybe<AutoLockWatchdog> lock;
         if (mWatchdog)
-            lock.construct(mWatchdog);
+            lock.emplace(mWatchdog);
 
         // Write state.
         mTimestamps[TimestampRuntimeStateChange] = PR_Now();
@@ -1211,7 +1211,7 @@ class WatchdogManager : public nsIObserver
         // The watchdog thread always holds the lock when it runs.
         Maybe<AutoLockWatchdog> maybeLock;
         if (NS_IsMainThread() && mWatchdog)
-            maybeLock.construct(mWatchdog);
+            maybeLock.emplace(mWatchdog);
         mTimestamps[aCategory] = PR_Now();
     }
     PRTime GetTimestamp(WatchdogTimestampCategory aCategory)
@@ -1219,7 +1219,7 @@ class WatchdogManager : public nsIObserver
         // The watchdog thread always holds the lock when it runs.
         Maybe<AutoLockWatchdog> maybeLock;
         if (NS_IsMainThread() && mWatchdog)
-            maybeLock.construct(mWatchdog);
+            maybeLock.emplace(mWatchdog);
         return mTimestamps[aCategory];
     }
 
@@ -3114,15 +3114,15 @@ XPCJSRuntime::XPCJSRuntime(nsXPConnect* aXPConnect)
    mAutoRoots(nullptr),
    mResolveName(JSID_VOID),
    mResolvingWrapper(nullptr),
-   mWrappedJSMap(JSObject2WrappedJSMap::newMap(XPC_JS_MAP_SIZE)),
-   mWrappedJSClassMap(IID2WrappedJSClassMap::newMap(XPC_JS_CLASS_MAP_SIZE)),
-   mIID2NativeInterfaceMap(IID2NativeInterfaceMap::newMap(XPC_NATIVE_INTERFACE_MAP_SIZE)),
-   mClassInfo2NativeSetMap(ClassInfo2NativeSetMap::newMap(XPC_NATIVE_SET_MAP_SIZE)),
-   mNativeSetMap(NativeSetMap::newMap(XPC_NATIVE_SET_MAP_SIZE)),
-   mThisTranslatorMap(IID2ThisTranslatorMap::newMap(XPC_THIS_TRANSLATOR_MAP_SIZE)),
-   mNativeScriptableSharedMap(XPCNativeScriptableSharedMap::newMap(XPC_NATIVE_JSCLASS_MAP_SIZE)),
-   mDyingWrappedNativeProtoMap(XPCWrappedNativeProtoMap::newMap(XPC_DYING_NATIVE_PROTO_MAP_SIZE)),
-   mDetachedWrappedNativeProtoMap(XPCWrappedNativeProtoMap::newMap(XPC_DETACHED_NATIVE_PROTO_MAP_SIZE)),
+   mWrappedJSMap(JSObject2WrappedJSMap::newMap(XPC_JS_MAP_LENGTH)),
+   mWrappedJSClassMap(IID2WrappedJSClassMap::newMap(XPC_JS_CLASS_MAP_LENGTH)),
+   mIID2NativeInterfaceMap(IID2NativeInterfaceMap::newMap(XPC_NATIVE_INTERFACE_MAP_LENGTH)),
+   mClassInfo2NativeSetMap(ClassInfo2NativeSetMap::newMap(XPC_NATIVE_SET_MAP_LENGTH)),
+   mNativeSetMap(NativeSetMap::newMap(XPC_NATIVE_SET_MAP_LENGTH)),
+   mThisTranslatorMap(IID2ThisTranslatorMap::newMap(XPC_THIS_TRANSLATOR_MAP_LENGTH)),
+   mNativeScriptableSharedMap(XPCNativeScriptableSharedMap::newMap(XPC_NATIVE_JSCLASS_MAP_LENGTH)),
+   mDyingWrappedNativeProtoMap(XPCWrappedNativeProtoMap::newMap(XPC_DYING_NATIVE_PROTO_MAP_LENGTH)),
+   mDetachedWrappedNativeProtoMap(XPCWrappedNativeProtoMap::newMap(XPC_DETACHED_NATIVE_PROTO_MAP_LENGTH)),
    mGCIsRunning(false),
    mWrappedJSToReleaseArray(),
    mNativesToReleaseArray(),

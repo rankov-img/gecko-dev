@@ -565,6 +565,10 @@ ContentChild::Init(MessageLoop* aIOLoop,
     Open(aChannel, aParentHandle, aIOLoop);
     sSingleton = this;
 
+    // Make sure there's an nsAutoScriptBlocker on the stack when dispatching
+    // urgent messages.
+    GetIPCChannel()->BlockScripts();
+
 #ifdef MOZ_X11
     // Send the parent our X socket to act as a proxy reference for our X
     // resources.
@@ -918,7 +922,9 @@ ContentChild::RecvSetProcessSandbox()
   // at some point; see bug 880808.
 #if defined(MOZ_CONTENT_SANDBOX)
 #if defined(XP_LINUX)
-    SetContentProcessSandbox();
+    if (CanSandboxContentProcess()) {
+        SetContentProcessSandbox();
+    }
 #elif defined(XP_WIN)
     mozilla::SandboxTarget::Instance()->StartSandbox();
 #endif
@@ -1646,8 +1652,8 @@ ContentChild::RecvActivateA11y()
 #ifdef ACCESSIBILITY
     // Start accessibility in content process if it's running in chrome
     // process.
-    nsCOMPtr<nsIAccessibilityService> accService =
-        do_GetService("@mozilla.org/accessibilityService;1");
+	nsCOMPtr<nsIAccessibilityService> accService =
+        services::GetAccessibilityService();
 #endif
     return true;
 }

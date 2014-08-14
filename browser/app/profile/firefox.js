@@ -1683,8 +1683,6 @@ pref("media.gmp-manager.certs.1.commonName", "aus4.mozilla.org");
 pref("media.gmp-manager.certs.2.issuerName", "CN=Thawte SSL CA,O=\"Thawte, Inc.\",C=US");
 pref("media.gmp-manager.certs.2.commonName", "aus4.mozilla.org");
 
-// Delete HTTP cache v2 data of users that didn't opt-in manually
-pref("browser.cache.auto_delete_cache_version", 1);
 // Play with different values of the decay time and get telemetry,
 // 0 means to randomize (and persist) the experiment value in users' profiles,
 // -1 means no experiment is run and we use the preferred value for frecency (6h)
@@ -1699,8 +1697,6 @@ pref("browser.translation.ui.show", false);
 pref("experiments.enabled", true);
 pref("experiments.manifest.fetchIntervalSeconds", 86400);
 pref("experiments.manifest.uri", "https://telemetry-experiment.cdn.mozilla.net/manifest/v1/firefox/%VERSION%/%CHANNEL%");
-pref("experiments.manifest.certs.1.commonName", "*.cdn.mozilla.net");
-pref("experiments.manifest.certs.1.issuerName", "CN=Cybertrust Public SureServer SV CA,O=Cybertrust Inc");
 // Whether experiments are supported by the current application profile.
 pref("experiments.supported", true);
 

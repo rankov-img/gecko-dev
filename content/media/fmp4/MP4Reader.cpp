@@ -15,6 +15,10 @@
 #include "mozilla/Preferences.h"
 #include "mozilla/dom/TimeRanges.h"
 
+#ifdef MOZ_EME
+#include "mozilla/CDMProxy.h"
+#endif
+
 using mozilla::layers::Image;
 using mozilla::layers::LayerManager;
 using mozilla::layers::LayersBackend;
@@ -74,7 +78,7 @@ public:
     uint32_t sum = 0;
     uint32_t bytesRead = 0;
     do {
-      uint32_t offset = aOffset + sum;
+      uint64_t offset = aOffset + sum;
       char* buffer = reinterpret_cast<char*>(aBuffer) + sum;
       uint32_t toRead = aCount - sum;
       nsresult rv = mResource->ReadAt(offset, buffer, toRead, &bytesRead);
@@ -204,6 +208,7 @@ MP4Reader::Init(MediaDecoderReader* aCloneDonor)
   return NS_OK;
 }
 
+#ifdef MOZ_EME
 class DispatchKeyNeededEvent : public nsRunnable {
 public:
   DispatchKeyNeededEvent(AbstractMediaDecoder* aDecoder,
@@ -229,9 +234,17 @@ private:
   nsTArray<uint8_t> mInitData;
   nsString mInitDataType;
 };
+#endif
 
-bool MP4Reader::IsWaitingMediaResources()
-{
+bool MP4Reader::IsWaitingOnCodecResource() {
+#ifdef MOZ_GONK_MEDIACODEC
+  return mVideo.mDecoder && mVideo.mDecoder->IsWaitingMediaResources();
+#endif
+  return false;
+}
+
+bool MP4Reader::IsWaitingOnCDMResource() {
+#ifdef MOZ_EME
   nsRefPtr<CDMProxy> proxy;
   {
     ReentrantMonitorAutoEnter mon(mDecoder->GetReentrantMonitor());
@@ -251,6 +264,18 @@ bool MP4Reader::IsWaitingMediaResources()
     LOG("MP4Reader::IsWaitingMediaResources() capsKnown=%d", caps.AreCapsKnown());
     return !caps.AreCapsKnown();
   }
+#else
+  return false;
+#endif
+}
+
+bool MP4Reader::IsWaitingMediaResources()
+{
+  // IsWaitingOnCDMResource() *must* come first, because we don't know whether
+  // we can create a decoder until the CDM is initialized and it has told us
+  // whether *it* will decode, or whether we need to create a PDM to do the
+  // decoding
+  return IsWaitingOnCDMResource() || IsWaitingOnCodecResource();
 }
 
 void
@@ -294,8 +319,14 @@ MP4Reader::ReadMetadata(MediaInfo* aInfo,
     // an encrypted stream and we need to wait for a CDM to be set, we don't
     // need to reinit the demuxer.
     mDemuxerInitialized = true;
+  } else if (mPlatform && !IsWaitingMediaResources()) {
+    *aInfo = mInfo;
+    *aTags = nullptr;
+    return NS_OK;
   }
+
   if (mDemuxer->Crypto().valid) {
+#ifdef MOZ_EME
     if (!sIsEMEEnabled) {
       // TODO: Need to signal DRM/EME required somehow...
       return NS_ERROR_FAILURE;
@@ -330,6 +361,10 @@ MP4Reader::ReadMetadata(MediaInfo* aInfo,
                                                         HasVideo(),
                                                         GetTaskQueue());
     NS_ENSURE_TRUE(mPlatform, NS_ERROR_FAILURE);
+#else
+    // EME not supported.
+    return NS_ERROR_FAILURE;
+#endif
   } else {
     mPlatform = PlatformDecoderModule::Create();
     NS_ENSURE_TRUE(mPlatform, NS_ERROR_FAILURE);
@@ -346,6 +381,10 @@ MP4Reader::ReadMetadata(MediaInfo* aInfo,
     NS_ENSURE_TRUE(mAudio.mDecoder != nullptr, NS_ERROR_FAILURE);
     nsresult rv = mAudio.mDecoder->Init();
     NS_ENSURE_SUCCESS(rv, rv);
+
+    // Decode one audio frame to detect potentially incorrect channels count or
+    // sampling rate from demuxer.
+    Decode(kAudio);
   }
 
   if (HasVideo()) {
@@ -550,7 +589,15 @@ MP4Reader::Output(TrackType aTrack, MediaData* aSample)
   switch (aTrack) {
     case kAudio: {
       MOZ_ASSERT(aSample->mType == MediaData::AUDIO_SAMPLES);
-      AudioQueue().Push(static_cast<AudioData*>(aSample));
+      AudioData* audioData = static_cast<AudioData*>(aSample);
+      AudioQueue().Push(audioData);
+      if (audioData->mChannels != mInfo.mAudio.mChannels ||
+          audioData->mRate != mInfo.mAudio.mRate) {
+        LOG("MP4Reader::Output change of sampling rate:%d->%d",
+            mInfo.mAudio.mRate, audioData->mRate);
+        mInfo.mAudio.mRate = audioData->mRate;
+        mInfo.mAudio.mChannels = audioData->mChannels;
+      }
       break;
     }
     case kVideo: {
@@ -710,13 +757,27 @@ void
 MP4Reader::NotifyDataArrived(const char* aBuffer, uint32_t aLength,
                              int64_t aOffset)
 {
-  nsTArray<MediaByteRange> ranges;
-  if (NS_FAILED(mDecoder->GetResource()->GetCachedRanges(ranges))) {
-    return;
+  if (NS_IsMainThread()) {
+    MediaTaskQueue* queue =
+      mAudio.mTaskQueue ? mAudio.mTaskQueue : mVideo.mTaskQueue;
+    queue->Dispatch(NS_NewRunnableMethod(this, &MP4Reader::UpdateIndex));
+  } else {
+    UpdateIndex();
   }
+}
 
+void
+MP4Reader::UpdateIndex()
+{
+  nsTArray<MediaByteRange> ranges;
   nsTArray<Interval<Microseconds>> timeRanges;
-  mDemuxer->ConvertByteRangesToTime(ranges, &timeRanges);
+
+  MediaResource* resource = mDecoder->GetResource();
+  resource->Pin();
+  if (NS_SUCCEEDED(resource->GetCachedRanges(ranges))) {
+    mDemuxer->ConvertByteRangesToTime(ranges, &timeRanges);
+  }
+  resource->Unpin();
 
   MonitorAutoLock mon(mTimeRangesMonitor);
   mTimeRanges = timeRanges;
@@ -733,6 +794,38 @@ MP4Reader::GetBuffered(dom::TimeRanges* aBuffered, int64_t aStartTime)
   }
 
   return NS_OK;
+}
+
+bool MP4Reader::IsDormantNeeded()
+{
+#ifdef MOZ_GONK_MEDIACODEC
+  return mVideo.mDecoder && mVideo.mDecoder->IsDormantNeeded();
+#endif
+  return false;
+}
+
+void MP4Reader::ReleaseMediaResources()
+{
+#ifdef MOZ_GONK_MEDIACODEC
+  // Before freeing a video codec, all video buffers needed to be released
+  // even from graphics pipeline.
+  VideoFrameContainer* container = mDecoder->GetVideoFrameContainer();
+  if (container) {
+    container->ClearCurrentFrame();
+  }
+  if (mVideo.mDecoder) {
+    mVideo.mDecoder->ReleaseMediaResources();
+  }
+#endif
+}
+
+void MP4Reader::NotifyResourcesStatusChanged()
+{
+#ifdef MOZ_GONK_MEDIACODEC
+  if (mDecoder) {
+    mDecoder->NotifyWaitingForResourcesStatusChanged();
+  }
+#endif
 }
 
 } // namespace mozilla

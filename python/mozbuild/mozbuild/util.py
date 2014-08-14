@@ -20,6 +20,7 @@ from collections import (
     defaultdict,
     OrderedDict,
 )
+from functools import wraps
 from StringIO import StringIO
 
 
@@ -52,8 +53,14 @@ class ReadOnlyDict(dict):
     def __init__(self, *args, **kwargs):
         dict.__init__(self, *args, **kwargs)
 
-    def __setitem__(self, name, value):
+    def __delitem__(self, key):
+        raise Exception('Object does not support deletion.')
+
+    def __setitem__(self, key, value):
         raise Exception('Object does not support assignment.')
+
+    def update(self, *args, **kwargs):
+        raise Exception('Object does not support update.')
 
 
 class undefined_default(object):
@@ -248,12 +255,16 @@ class List(list):
         return list.__setslice__(self, i, j, sequence)
 
     def __add__(self, other):
+        # Allow None is a special case because it makes undefined variable
+        # references in moz.build behave better.
+        other = [] if other is None else other
         if not isinstance(other, list):
             raise ValueError('Only lists can be appended to lists.')
 
-        return list.__add__(self, other)
+        return List(list.__add__(self, other))
 
     def __iadd__(self, other):
+        other = [] if other is None else other
         if not isinstance(other, list):
             raise ValueError('Only lists can be appended to lists.')
 
@@ -706,3 +717,14 @@ class OrderedDefaultDict(OrderedDict):
         except KeyError:
             value = self[key] = self._default_factory()
             return value
+
+
+def memoize(func):
+    cache = {}
+
+    @wraps(func)
+    def wrapper(*args):
+        if args not in cache:
+            cache[args] = func(*args)
+        return cache[args]
+    return wrapper

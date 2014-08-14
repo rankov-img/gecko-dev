@@ -48,7 +48,8 @@ describe("loop.panel", function() {
         return "en-US";
       },
       setLoopCharPref: sandbox.stub(),
-      getLoopCharPref: sandbox.stub().returns("unseen")
+      getLoopCharPref: sandbox.stub().returns("unseen"),
+      copyString: sandbox.stub()
     };
 
     document.mozL10n.initialize(navigator.mozLoop);
@@ -247,6 +248,21 @@ describe("loop.panel", function() {
 
     describe("Rendering the component should generate a call URL", function() {
 
+      beforeEach(function() {
+        document.mozL10n.initialize({
+          getStrings: function(key) {
+            var text;
+
+            if (key === "share_email_subject2")
+              text = "email-subject";
+            else if (key === "share_email_body")
+              text = "{{callUrl}}";
+
+            return JSON.stringify({textContent: text});
+          }
+        });
+      });
+
       it("should make a request to requestCallUrl", function() {
         sandbox.stub(fakeClient, "requestCallUrl");
         var view = TestUtils.renderIntoDocument(loop.panel.CallUrlResult({
@@ -288,6 +304,39 @@ describe("loop.panel", function() {
 
       it("should reset all pending notifications", function() {
         sinon.assert.calledOnce(view.props.notifier.clear);
+      });
+
+      it("should display a share button for email", function() {
+        fakeClient.requestCallUrl = sandbox.stub();
+        var mailto = 'mailto:?subject=email-subject&body=http://example.com';
+        var view = TestUtils.renderIntoDocument(loop.panel.CallUrlResult({
+          notifier: notifier,
+          client: fakeClient
+        }));
+        view.setState({pending: false, callUrl: "http://example.com"});
+
+        TestUtils.findRenderedDOMComponentWithClass(view, "btn-email");
+        expect(view.getDOMNode().querySelector(".btn-email").dataset.mailto)
+              .to.equal(encodeURI(mailto));
+      });
+
+      it("should feature a copy button capable of copying the call url when clicked", function() {
+        fakeClient.requestCallUrl = sandbox.stub();
+        var view = TestUtils.renderIntoDocument(loop.panel.CallUrlResult({
+          notifier: notifier,
+          client: fakeClient
+        }));
+        view.setState({
+          pending: false,
+          copied: false,
+          callUrl: "http://example.com"
+        });
+
+        TestUtils.Simulate.click(view.getDOMNode().querySelector(".btn-copy"));
+
+        sinon.assert.calledOnce(navigator.mozLoop.copyString);
+        sinon.assert.calledWithExactly(navigator.mozLoop.copyString,
+          view.state.callUrl);
       });
 
       it("should notify the user when the operation failed", function() {

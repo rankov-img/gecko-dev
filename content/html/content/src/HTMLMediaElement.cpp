@@ -2653,9 +2653,11 @@ nsresult HTMLMediaElement::FinishDecoderSetup(MediaDecoder* aDecoder,
   mDecoder->SetPreservesPitch(mPreservesPitch);
   mDecoder->SetPlaybackRate(mPlaybackRate);
 
+#ifdef MOZ_EME
   if (mMediaKeys) {
     mDecoder->SetCDMProxy(mMediaKeys->GetCDMProxy());
   }
+#endif
   if (mPreloadAction == HTMLMediaElement::PRELOAD_METADATA) {
     mDecoder->SetMinimizePrerollUntilPlaybackStarts();
   }
@@ -3652,10 +3654,14 @@ already_AddRefed<TimeRanges>
 HTMLMediaElement::Buffered() const
 {
   nsRefPtr<TimeRanges> ranges = new TimeRanges();
-  if (mDecoder && mReadyState > nsIDOMHTMLMediaElement::HAVE_NOTHING) {
-    // If GetBuffered fails we ignore the error result and just return the
-    // time ranges we found up till the error.
-    mDecoder->GetBuffered(ranges);
+  if (mReadyState > nsIDOMHTMLMediaElement::HAVE_NOTHING) {
+    if (mMediaSource) {
+      mMediaSource->GetBuffered(ranges);
+    } else if (mDecoder) {
+      // If GetBuffered fails we ignore the error result and just return the
+      // time ranges we found up till the error.
+      mDecoder->GetBuffered(ranges);
+    }
   }
   ranges->Normalize();
   return ranges.forget();
@@ -3891,7 +3897,8 @@ void HTMLMediaElement::UpdateAudioChannelPlayingState()
      (!mPaused &&
       (HasAttr(kNameSpaceID_None, nsGkAtoms::loop) ||
        (mReadyState >= nsIDOMHTMLMediaElement::HAVE_CURRENT_DATA &&
-        !IsPlaybackEnded())));
+        !IsPlaybackEnded()) ||
+       mPlayingBeforeSeek));
   if (playingThroughTheAudioChannel != mPlayingThroughTheAudioChannel) {
     mPlayingThroughTheAudioChannel = playingThroughTheAudioChannel;
 

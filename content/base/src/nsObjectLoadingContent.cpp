@@ -185,39 +185,49 @@ CheckPluginStopEvent::Run()
     return NS_OK;
   }
 
+  // CheckPluginStopEvent is queued when we either lose our frame, are removed
+  // from the document, or the document goes inactive. To avoid stopping the
+  // plugin when script is reparenting us or layout is rebuilding, we wait until
+  // this event to decide to stop.
+
   nsCOMPtr<nsIContent> content =
     do_QueryInterface(static_cast<nsIImageLoadingContent *>(objLC));
   if (!InActiveDocument(content)) {
-    // Unload the object entirely
     LOG(("OBJLC [%p]: Unloading plugin outside of document", this));
-    objLC->UnloadObject();
+    objLC->StopPluginInstance();
     return NS_OK;
   }
 
-  if (!content->GetPrimaryFrame()) {
-    LOG(("OBJLC [%p]: CheckPluginStopEvent - No frame, flushing layout", this));
-    nsIDocument* currentDoc = content->GetCurrentDoc();
-    if (currentDoc) {
-      currentDoc->FlushPendingNotifications(Flush_Layout);
-      if (objLC->mPendingCheckPluginStopEvent != this) {
-        LOG(("OBJLC [%p]: CheckPluginStopEvent - superseded in layout flush",
-             this));
-        return NS_OK;
-      } else if (content->GetPrimaryFrame()) {
-        LOG(("OBJLC [%p]: CheckPluginStopEvent - frame gained in layout flush",
-             this));
-        objLC->mPendingCheckPluginStopEvent = nullptr;
-        return NS_OK;
-      }
-    }
-    // Still no frame, suspend plugin. HasNewFrame will restart us when we
-    // become rendered again
-    LOG(("OBJLC [%p]: Stopping plugin that lost frame", this));
-    // Okay to leave loaded as a plugin, but stop the unrendered instance
-    objLC->StopPluginInstance();
+  if (content->GetPrimaryFrame()) {
+    LOG(("OBJLC [%p]: CheckPluginStopEvent - in active document with frame"
+         ", no action", this));
+    objLC->mPendingCheckPluginStopEvent = nullptr;
+    return NS_OK;
   }
 
-  objLC->mPendingCheckPluginStopEvent = nullptr;
+  // In an active document, but still no frame. Flush layout to see if we can
+  // regain a frame now.
+  LOG(("OBJLC [%p]: CheckPluginStopEvent - No frame, flushing layout", this));
+  nsIDocument* currentDoc = content->GetCurrentDoc();
+  if (currentDoc) {
+    currentDoc->FlushPendingNotifications(Flush_Layout);
+    if (objLC->mPendingCheckPluginStopEvent != this) {
+      LOG(("OBJLC [%p]: CheckPluginStopEvent - superseded in layout flush",
+           this));
+      return NS_OK;
+    } else if (content->GetPrimaryFrame()) {
+      LOG(("OBJLC [%p]: CheckPluginStopEvent - frame gained in layout flush",
+           this));
+      objLC->mPendingCheckPluginStopEvent = nullptr;
+      return NS_OK;
+    }
+  }
+
+  // Still no frame, suspend plugin. HasNewFrame will restart us when we
+  // become rendered again
+  LOG(("OBJLC [%p]: Stopping plugin that lost frame", this));
+  objLC->StopPluginInstance();
+
   return NS_OK;
 }
 
@@ -914,8 +924,9 @@ nsObjectLoadingContent::NotifyOwnerDocumentActivityChanged()
 
   // If we have a plugin we want to queue an event to stop it unless we are
   // moved into an active document before returning to the event loop.
-  if (mInstanceOwner || mInstantiating)
+  if (mInstanceOwner || mInstantiating) {
     QueueCheckPluginStopEvent();
+  }
 }
 
 // nsIRequestObserver
@@ -988,6 +999,17 @@ nsObjectLoadingContent::OnStopRequest(nsIRequest *aRequest,
 {
   PROFILER_LABEL("nsObjectLoadingContent", "OnStopRequest",
     js::ProfileEntry::Category::NETWORK);
+
+  // Handle object not loading error because source was a tracking URL.
+  // We make a note of this object node by including it in a dedicated
+  // array of blocked tracking nodes under its parent document.
+  if (aStatusCode == NS_ERROR_TRACKING_URI) {
+    nsCOMPtr<nsIContent> thisNode =
+      do_QueryInterface(static_cast<nsIObjectLoadingContent*>(this));
+    if (thisNode) {
+      thisNode->GetCurrentDoc()->AddBlockedTrackingNode(thisNode);
+    }
+  }
 
   NS_ENSURE_TRUE(nsContentUtils::IsCallerChrome(), NS_ERROR_NOT_AVAILABLE);
 
@@ -2404,7 +2426,9 @@ nsObjectLoadingContent::DestroyContent()
     mFrameLoader = nullptr;
   }
 
-  QueueCheckPluginStopEvent();
+  if (mInstanceOwner || mInstantiating) {
+    QueueCheckPluginStopEvent();
+  }
 }
 
 /* static */

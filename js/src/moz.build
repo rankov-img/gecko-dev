@@ -167,12 +167,14 @@ UNIFIED_SOURCES += [
     'jit/IonMacroAssembler.cpp',
     'jit/IonOptimizationLevels.cpp',
     'jit/IonSpewer.cpp',
+    'jit/JitcodeMap.cpp',
     'jit/JitOptions.cpp',
     'jit/JSONSpewer.cpp',
     'jit/LICM.cpp',
     'jit/LinearScan.cpp',
     'jit/LIR.cpp',
     'jit/LiveRangeAllocator.cpp',
+    'jit/LoopUnroller.cpp',
     'jit/Lowering.cpp',
     'jit/MCallOptimize.cpp',
     'jit/MIR.cpp',
@@ -394,10 +396,6 @@ if CONFIG['ENABLE_ION']:
         SOURCES += [
             'assembler/assembler/MacroAssemblerX86Common.cpp',
         ]
-    elif CONFIG['JS_CODEGEN_ARM']:
-        SOURCES += [
-            'assembler/assembler/MacroAssemblerARM.cpp',
-        ]
 
 if CONFIG['JS_HAS_CTYPES']:
     SOURCES += [
@@ -455,10 +453,20 @@ if CONFIG['JS_SHARED_LIBRARY']:
 FORCE_STATIC_LIB = True
 STATIC_LIBRARY_NAME = 'js_static'
 
-if not CONFIG['MOZ_NATIVE_ZLIB'] and not CONFIG['ZLIB_IN_MOZGLUE']:
+if CONFIG['JS_HAS_CTYPES']:
     USE_LIBS += [
-        'mozz',
+        'ffi',
     ]
+
+if CONFIG['ENABLE_INTL_API']:
+    USE_LIBS += [
+        'icu',
+    ]
+
+USE_LIBS += [
+    'nspr',
+    'zlib',
+]
 
 if CONFIG['MOZ_ETW']:
     GENERATED_FILES = [
@@ -503,8 +511,6 @@ if CONFIG['OS_ARCH'] not in ('WINNT', 'HP-UX'):
     OS_LIBS += [
         'm',
     ]
-
-OS_LIBS += CONFIG['MOZ_ZLIB_LIBS']
 
 if CONFIG['OS_ARCH'] == 'FreeBSD':
     OS_LIBS += [

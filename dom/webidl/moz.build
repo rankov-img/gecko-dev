@@ -21,6 +21,7 @@ WEBIDL_FILES = [
     'AlarmsManager.webidl',
     'AnalyserNode.webidl',
     'Animatable.webidl',
+    'Animation.webidl',
     'AnimationEvent.webidl',
     'AnimationPlayer.webidl',
     'AnimationTimeline.webidl',
@@ -70,6 +71,7 @@ WEBIDL_FILES = [
     'Contacts.webidl',
     'ConvolverNode.webidl',
     'Coordinates.webidl',
+    'CSPReport.webidl',
     'CSS.webidl',
     'CSSPrimitiveValue.webidl',
     'CSSRuleList.webidl',
@@ -261,6 +263,7 @@ WEBIDL_FILES = [
     'MozNamedAttrMap.webidl',
     'MozPowerManager.webidl',
     'MozSelfSupport.webidl',
+    'MozTetheringManager.webidl',
     'MozTimeManager.webidl',
     'MozWakeLock.webidl',
     'MutationEvent.webidl',
@@ -475,6 +478,8 @@ WEBIDL_FILES = [
     'VTTRegion.webidl',
     'WaveShaperNode.webidl',
     'WebComponents.webidl',
+    'WebGL2RenderingContext.webidl',
+    'WebGLRenderingContext.webidl',
     'WebSocket.webidl',
     'WheelEvent.webidl',
     'WifiOptions.webidl',
@@ -499,12 +504,6 @@ WEBIDL_FILES = [
 if CONFIG['MOZ_AUDIO_CHANNEL_MANAGER']:
     WEBIDL_FILES += [
         'AudioChannelManager.webidl',
-    ]
-
-if CONFIG['MOZ_WEBGL']:
-    WEBIDL_FILES += [
-        'WebGL2RenderingContext.webidl',
-        'WebGLRenderingContext.webidl',
     ]
 
 if CONFIG['MOZ_WEBRTC']:
@@ -724,11 +723,6 @@ if CONFIG['MOZ_WIDGET_TOOLKIT'] == 'gonk':
         'MozWifiP2pStatusChangeEvent.webidl',
         'MozWifiStationInfoEvent.webidl',
         'MozWifiStatusChangeEvent.webidl',
-    ]
-
-if CONFIG['MOZ_NFC']:
-    GENERATED_EVENTS_WEBIDL_FILES += [
-        'MozNFCPeerEvent.webidl',
     ]
 
 if CONFIG['MOZ_BUILD_APP'] in ['browser', 'xulrunner']:

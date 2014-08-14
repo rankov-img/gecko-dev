@@ -210,7 +210,7 @@ class MacroAssembler : public MacroAssemblerSpecific
 
         if (!icx->temp) {
             JS_ASSERT(cx);
-            alloc_.construct(cx);
+            alloc_.emplace(cx);
         }
 
         moveResolver_.setAllocator(*icx->temp);
@@ -228,9 +228,9 @@ class MacroAssembler : public MacroAssemblerSpecific
         sps_(nullptr)
     {
         constructRoot(cx);
-        ionContext_.construct(cx, (js::jit::TempAllocator *)nullptr);
-        alloc_.construct(cx);
-        moveResolver_.setAllocator(*ionContext_.ref().temp);
+        ionContext_.emplace(cx, (js::jit::TempAllocator *)nullptr);
+        alloc_.emplace(cx);
+        moveResolver_.setAllocator(*ionContext_->temp);
 #ifdef JS_CODEGEN_ARM
         initWithAllocator();
         m_buffer.id = GetIonContext()->getNextAssemblerId();
@@ -241,8 +241,8 @@ class MacroAssembler : public MacroAssemblerSpecific
                 // We have to update the SPS pc when this IC stub calls into
                 // the VM.
                 spsPc_ = pc;
-                spsInstrumentation_.construct(&cx->runtime()->spsProfiler, &spsPc_);
-                sps_ = spsInstrumentation_.addr();
+                spsInstrumentation_.emplace(&cx->runtime()->spsProfiler, &spsPc_);
+                sps_ = spsInstrumentation_.ptr();
                 sps_->setPushed(script);
             }
         }
@@ -271,7 +271,7 @@ class MacroAssembler : public MacroAssemblerSpecific
     }
 
     void constructRoot(JSContext *cx) {
-        autoRooter_.construct(cx, this);
+        autoRooter_.emplace(cx, this);
     }
 
     MoveResolver &moveResolver() {
@@ -497,17 +497,26 @@ class MacroAssembler : public MacroAssemblerSpecific
         return extractObject(source, scratch);
     }
 
-    void PushRegsInMask(RegisterSet set);
+    void PushRegsInMask(RegisterSet set, FloatRegisterSet simdSet);
+    void PushRegsInMask(RegisterSet set) {
+        PushRegsInMask(set, FloatRegisterSet());
+    }
     void PushRegsInMask(GeneralRegisterSet set) {
         PushRegsInMask(RegisterSet(set, FloatRegisterSet()));
     }
     void PopRegsInMask(RegisterSet set) {
         PopRegsInMaskIgnore(set, RegisterSet());
     }
+    void PopRegsInMask(RegisterSet set, FloatRegisterSet simdSet) {
+        PopRegsInMaskIgnore(set, RegisterSet(), simdSet);
+    }
     void PopRegsInMask(GeneralRegisterSet set) {
         PopRegsInMask(RegisterSet(set, FloatRegisterSet()));
     }
-    void PopRegsInMaskIgnore(RegisterSet set, RegisterSet ignore);
+    void PopRegsInMaskIgnore(RegisterSet set, RegisterSet ignore, FloatRegisterSet simdSet);
+    void PopRegsInMaskIgnore(RegisterSet set, RegisterSet ignore) {
+        PopRegsInMaskIgnore(set, ignore, FloatRegisterSet());
+    }
 
     void branchIfFunctionHasNoScript(Register fun, Label *label) {
         // 16-bit loads are slow and unaligned 32-bit loads may be too so

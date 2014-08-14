@@ -69,6 +69,7 @@
 #include "SVGTextFrame.h"
 #include "nsStyleStructInlines.h"
 #include "nsStyleTransformMatrix.h"
+#include "nsStyleUtil.h"
 #include "nsIFrameInlines.h"
 #include "ImageContainer.h"
 #include "nsComputedDOMStyle.h"
@@ -330,19 +331,19 @@ TextAlignTrueEnabledPrefChangeCallback(const char* aPrefName, void* aClosure)
     isTextAlignTrueEnabled ? eCSSKeyword_true : eCSSKeyword_UNKNOWN;
 }
 
-static ElementAnimationCollection*
+static AnimationPlayerCollection*
 GetAnimationsOrTransitionsForCompositor(nsIContent* aContent,
                                         nsIAtom* aAnimationProperty,
                                         nsCSSProperty aProperty)
 {
-  ElementAnimationCollection* collection =
-    static_cast<ElementAnimationCollection*>(
+  AnimationPlayerCollection* collection =
+    static_cast<AnimationPlayerCollection*>(
       aContent->GetProperty(aAnimationProperty));
   if (collection) {
     bool propertyMatches = collection->HasAnimationOfProperty(aProperty);
     if (propertyMatches &&
         collection->CanPerformOnCompositorThread(
-          ElementAnimationCollection::CanAnimate_AllowPartial)) {
+          AnimationPlayerCollection::CanAnimate_AllowPartial)) {
       return collection;
     }
   }
@@ -362,13 +363,13 @@ nsLayoutUtils::HasAnimationsForCompositor(nsIContent* aContent,
            aContent, nsGkAtoms::transitionsProperty, aProperty);
 }
 
-static ElementAnimationCollection*
+static AnimationPlayerCollection*
 GetAnimationsOrTransitions(nsIContent* aContent,
                            nsIAtom* aAnimationProperty,
                            nsCSSProperty aProperty)
 {
-  ElementAnimationCollection* collection =
-    static_cast<ElementAnimationCollection*>(aContent->GetProperty(
+  AnimationPlayerCollection* collection =
+    static_cast<AnimationPlayerCollection*>(aContent->GetProperty(
         aAnimationProperty));
   if (collection) {
     bool propertyMatches = collection->HasAnimationOfProperty(aProperty);
@@ -399,8 +400,8 @@ nsLayoutUtils::HasCurrentAnimations(nsIContent* aContent,
   if (!aContent->MayHaveAnimations())
     return false;
 
-  ElementAnimationCollection* collection =
-    static_cast<ElementAnimationCollection*>(
+  AnimationPlayerCollection* collection =
+    static_cast<AnimationPlayerCollection*>(
       aContent->GetProperty(aAnimationProperty));
   return (collection && collection->HasCurrentAnimations());
 }
@@ -463,19 +464,20 @@ GetMinAndMaxScaleForAnimationProperty(nsIContent* aContent,
                                       gfxSize& aMaxScale,
                                       gfxSize& aMinScale)
 {
-  ElementAnimationCollection* collection =
+  AnimationPlayerCollection* collection =
     GetAnimationsOrTransitionsForCompositor(aContent, aAnimationProperty,
                                             eCSSProperty_transform);
   if (!collection)
     return;
 
-  for (uint32_t animIdx = collection->mAnimations.Length(); animIdx-- != 0; ) {
-    mozilla::ElementAnimation* anim = collection->mAnimations[animIdx];
-    if (anim->IsFinishedTransition()) {
+  for (size_t playerIdx = collection->mPlayers.Length(); playerIdx-- != 0; ) {
+    AnimationPlayer* player = collection->mPlayers[playerIdx];
+    if (!player->GetSource() || player->GetSource()->IsFinishedTransition()) {
       continue;
     }
-    for (uint32_t propIdx = anim->mProperties.Length(); propIdx-- != 0; ) {
-      AnimationProperty& prop = anim->mProperties[propIdx];
+    dom::Animation* anim = player->GetSource();
+    for (size_t propIdx = anim->Properties().Length(); propIdx-- != 0; ) {
+      AnimationProperty& prop = anim->Properties()[propIdx];
       if (prop.mProperty == eCSSProperty_transform) {
         for (uint32_t segIdx = prop.mSegments.Length(); segIdx-- != 0; ) {
           AnimationPropertySegment& segment = prop.mSegments[segIdx];
@@ -4195,8 +4197,8 @@ nsLayoutUtils::ComputeSizeWithIntrinsicDimensions(
   if (isFlexItem) {
     // Flex items use their "flex-basis" property in place of their main-size
     // property (e.g. "width") for sizing purposes, *unless* they have
-    // "flex-basis:auto", in which case they use their main-size property after
-    // all.
+    // "flex-basis:main-size", in which case they use their main-size property
+    // after all.
     uint32_t flexDirection =
       aFrame->GetParent()->StylePosition()->mFlexDirection;
     isHorizontalFlexItem =
@@ -4206,21 +4208,8 @@ nsLayoutUtils::ComputeSizeWithIntrinsicDimensions(
     // NOTE: The logic here should match the similar chunk for determining
     // widthStyleCoord and heightStyleCoord in nsFrame::ComputeSize().
     const nsStyleCoord* flexBasis = &(stylePos->mFlexBasis);
-    if (flexBasis->GetUnit() != eStyleUnit_Auto) {
-      if (isHorizontalFlexItem) {
-        widthStyleCoord = flexBasis;
-      } else {
-        // One caveat for vertical flex items: We don't support enumerated
-        // values (e.g. "max-content") for height properties yet. So, if our
-        // computed flex-basis is an enumerated value, we'll just behave as if
-        // it were "auto", which means "use the main-size property after all"
-        // (which is "height", in this case).
-        // NOTE: Once we support intrinsic sizing keywords for "height",
-        // we should remove this check.
-        if (flexBasis->GetUnit() != eStyleUnit_Enumerated) {
-          heightStyleCoord = flexBasis;
-        }
-      }
+    if (!nsStyleUtil::IsFlexBasisMainSize(*flexBasis, isHorizontalFlexItem)) {
+      (isHorizontalFlexItem ? widthStyleCoord : heightStyleCoord) = flexBasis;
     }
   }
 
@@ -6775,7 +6764,7 @@ nsLayoutUtils::CalculateScrollableRectForFrame(nsIScrollableFrame* aScrollableFr
     // provide the special behaviour, this code will cause it to break. We can remove
     // the ifndef once Fennec switches over to APZ or if we add the special handling
     // to Fennec
-#ifndef MOZ_WIDGET_ANDROID
+#if !defined(MOZ_WIDGET_ANDROID) || defined(MOZ_ANDROID_APZ)
     nsPoint scrollPosition = aScrollableFrame->GetScrollPosition();
     if (aScrollableFrame->GetScrollbarStyles().mVertical == NS_STYLE_OVERFLOW_HIDDEN) {
       contentBounds.y = scrollPosition.y;

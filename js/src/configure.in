@@ -1651,7 +1651,7 @@ ia64*-hpux*)
         _DEFINES_CXXFLAGS='-FI $(DEPTH)/js/src/js-confdefs.h -DMOZILLA_CLIENT'
         CFLAGS="$CFLAGS -W3 -Gy"
         CXXFLAGS="$CXXFLAGS -W3 -Gy"
-        if test "$_CC_SUITE" -ge "11"; then
+        if test "$_CC_SUITE" -ge "11" -a "$CPU_ARCH" = "x86"; then
             dnl VS2012+ defaults to -arch:SSE2.
             CFLAGS="$CFLAGS -arch:IA32"
             CXXFLAGS="$CXXFLAGS -arch:IA32"
@@ -2157,7 +2157,7 @@ dnl Quota support
 MOZ_CHECK_HEADERS(sys/quota.h)
 MOZ_CHECK_HEADERS(linux/quota.h)
 
-AC_ARG_ENABLE(dtrace,
+MOZ_ARG_ENABLE_BOOL(dtrace,
               [  --enable-dtrace         build with dtrace support if available (default=no)],
               [enable_dtrace="yes"],)
 if test "x$enable_dtrace" = "xyes"; then

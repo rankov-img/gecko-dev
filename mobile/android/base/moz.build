@@ -63,6 +63,7 @@ gujar.sources += [
     'util/GeckoBackgroundThread.java',
     'util/GeckoEventListener.java',
     'util/GeckoJarReader.java',
+    'util/GeckoRequest.java',
     'util/HardwareUtils.java',
     'util/INIParser.java',
     'util/INISection.java',
@@ -381,15 +382,15 @@ gbjar.sources += [
     'SurfaceBits.java',
     'Tab.java',
     'Tabs.java',
+    'tabs/PrivateTabsPanel.java',
+    'tabs/RemoteTabsContainerPanel.java',
+    'tabs/RemoteTabsList.java',
+    'tabs/RemoteTabsPanel.java',
+    'tabs/RemoteTabsSetupPanel.java',
+    'tabs/RemoteTabsVerificationPanel.java',
+    'tabs/TabsPanel.java',
+    'tabs/TabsTray.java',
     'TabsAccessor.java',
-    'tabspanel/PrivateTabsPanel.java',
-    'tabspanel/RemoteTabsContainerPanel.java',
-    'tabspanel/RemoteTabsList.java',
-    'tabspanel/RemoteTabsPanel.java',
-    'tabspanel/RemoteTabsSetupPanel.java',
-    'tabspanel/RemoteTabsVerificationPanel.java',
-    'tabspanel/TabsPanel.java',
-    'tabspanel/TabsTray.java',
     'Telemetry.java',
     'TelemetryContract.java',
     'TextSelection.java',
@@ -701,3 +702,11 @@ if CONFIG['MOZ_CRASHREPORTER']:
 if CONFIG['MOZ_ANDROID_MLS_STUMBLER']:
     main.included_projects += ['../FennecStumbler']
     main.referenced_projects += ['../FennecStumbler']
+
+if CONFIG['MOZ_ANDROID_SEARCH_ACTIVITY']:
+    searchactivity = add_android_eclipse_library_project('FennecResourcesSearch')
+    searchactivity.package_name = 'org.mozilla.fennec.resources.search'
+    searchactivity.res = SRCDIR + '/../search/res'
+    searchactivity.included_projects += ['../' + resources.name]
+
+    main.included_projects += ['../' + searchactivity.name]

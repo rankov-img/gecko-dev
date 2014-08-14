@@ -167,8 +167,8 @@ gfxPlatformFontList::MemoryReporter::CollectReports(
 }
 
 gfxPlatformFontList::gfxPlatformFontList(bool aNeedFullnamePostscriptNames)
-    : mFontFamilies(100), mOtherFamilyNames(30),
-      mPrefFonts(10), mBadUnderlineFamilyNames(10), mSharedCmaps(16),
+    : mFontFamilies(64), mOtherFamilyNames(16),
+      mPrefFonts(8), mBadUnderlineFamilyNames(8), mSharedCmaps(8),
       mStartIndex(0), mIncrement(1), mNumFamilies(0)
 {
     mOtherFamilyNamesInitialized = false;
@@ -397,7 +397,7 @@ gfxPlatformFontList::LookupInFaceNameLists(const nsAString& aFaceName)
         // names not completely initialized, so keep track of lookup misses
         if (!mFaceNameListsInitialized) {
             if (!mFaceNamesMissed) {
-                mFaceNamesMissed = new nsTHashtable<nsStringHashKey>(4);
+                mFaceNamesMissed = new nsTHashtable<nsStringHashKey>(2);
             }
             mFaceNamesMissed->PutEntry(aFaceName);
         }
@@ -416,7 +416,7 @@ gfxPlatformFontList::PreloadNamesList()
     for (uint32_t i = 0; i < numFonts; i++) {
         nsAutoString key;
         GenerateFontListKey(preloadFonts[i], key);
-        
+
         // only search canonical names!
         gfxFontFamily *familyEntry = mFontFamilies.GetWeak(key);
         if (familyEntry) {
@@ -511,7 +511,7 @@ gfxPlatformFontList::GetFontList(nsIAtom *aLangGroup,
 }
 
 struct FontFamilyListData {
-    FontFamilyListData(nsTArray<nsRefPtr<gfxFontFamily> >& aFamilyArray) 
+    explicit FontFamilyListData(nsTArray<nsRefPtr<gfxFontFamily> >& aFamilyArray) 
         : mFamilyArray(aFamilyArray)
     {}
 
@@ -760,7 +760,7 @@ gfxPlatformFontList::FindFamily(const nsAString& aFamily)
             // localized family names load timed out, add name to list of
             // names to check after localized names are loaded
             if (!mOtherNamesMissed) {
-                mOtherNamesMissed = new nsTHashtable<nsStringHashKey>(4);
+                mOtherNamesMissed = new nsTHashtable<nsStringHashKey>(2);
             }
             mOtherNamesMissed->PutEntry(key);
         }
@@ -968,7 +968,7 @@ gfxPlatformFontList::LoadFontInfo()
 }
 
 struct LookupMissedFaceNamesData {
-    LookupMissedFaceNamesData(gfxPlatformFontList *aFontList)
+    explicit LookupMissedFaceNamesData(gfxPlatformFontList *aFontList)
         : mFontList(aFontList), mFoundName(false) {}
 
     gfxPlatformFontList *mFontList;
@@ -990,7 +990,7 @@ gfxPlatformFontList::LookupMissedFaceNamesProc(nsStringHashKey *aKey,
 }
 
 struct LookupMissedOtherNamesData {
-    LookupMissedOtherNamesData(gfxPlatformFontList *aFontList)
+    explicit LookupMissedOtherNamesData(gfxPlatformFontList *aFontList)
         : mFontList(aFontList), mFoundName(false) {}
 
     gfxPlatformFontList *mFontList;

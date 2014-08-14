@@ -157,6 +157,10 @@ mozNfc.prototype = {
   _window: null,
   nfcObject: null,
 
+  _wrap: function _wrap(obj) {
+    return Cu.cloneInto(obj, this._window);
+  },
+
   init: function init(aWindow) {
     debug("mozNfc init called");
     this._window = aWindow;
@@ -200,17 +204,15 @@ mozNfc.prototype = {
     if (this._nfcContentHelper.setSessionToken(sessionToken)) {
       return this._window.MozNFCTag._create(this._window, obj);
     }
-    throw new Error("Unable to create NFCTag object, Reason:  Bad SessionToken " +
-                     sessionToken);
+    return null;
   },
 
   getNFCPeer: function getNFCPeer(sessionToken) {
     if (!sessionToken || !this._nfcContentHelper.setSessionToken(sessionToken)) {
-      throw new Error("Unable to create NFCPeer object, Reason:  Bad SessionToken " +
-                      sessionToken);
+      return null;
     }
 
-    if (!this.nfcObject) {
+    if (!this.nfcObject || this.nfcObject.session != sessionToken) {
       let obj = new MozNFCPeer();
       obj.initialize(this._window, sessionToken);
       this.nfcObject = obj;
@@ -267,10 +269,10 @@ mozNfc.prototype = {
     this.session = sessionToken;
 
     debug("fire onpeerready sessionToken : " + sessionToken);
-    let eventData = {
-      "peer":this.getNFCPeer(sessionToken)
+    let detail = {
+      "detail":sessionToken
     };
-    let event = new this._window.MozNFCPeerEvent("peerready", eventData);
+    let event = new this._window.CustomEvent("peerready", this._wrap(detail));
     this.__DOM_IMPL__.dispatchEvent(event);
   },
 

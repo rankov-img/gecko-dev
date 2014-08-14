@@ -183,6 +183,9 @@ struct JSCompartment
      */
     inline js::GlobalObject *maybeGlobal() const;
 
+    /* An unbarriered getter for use while tracing. */
+    inline js::GlobalObject *unsafeUnbarrieredMaybeGlobal() const;
+
     inline void initGlobal(js::GlobalObject &global);
 
   public:
@@ -450,6 +453,11 @@ struct JSCompartment
 
     /* Used by memory reporters and invalid otherwise. */
     void               *compartmentStats;
+
+    // These flags help us to discover if a compartment that shouldn't be alive
+    // manages to outlive a GC.
+    bool scheduledForDestruction;
+    bool maybeAlive;
 
   private:
     js::jit::JitCompartment *jitCompartment_;

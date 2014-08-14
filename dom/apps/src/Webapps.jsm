@@ -821,7 +821,7 @@ this.DOMApplicationRegistry = {
       root = aManifest.entry_points[aEntryPoint];
     }
 
-    if (!root.activities) {
+    if (!root || !root.activities) {
       return activitiesToRegister;
     }
 
@@ -882,6 +882,10 @@ this.DOMApplicationRegistry = {
       let app = aApp.app;
       activitiesToRegister.push.apply(activitiesToRegister,
         this._createActivitiesToRegister(manifest, app, null, aRunUpdate));
+
+      if (aRunUpdate) {
+        cpmm.sendAsyncMessage("Activities:UnregisterAll", app.manifestURL);
+      }
 
       if (!manifest.entry_points) {
         return;
@@ -2908,6 +2912,10 @@ this.DOMApplicationRegistry = {
     });
 
     let zipFile = yield this._getPackage(requestChannel, aId, aOldApp, aNewApp);
+
+    // After this point, it's too late to cancel the download.
+    AppDownloadManager.remove(aNewApp.manifestURL);
+
     let hash = yield this._computeFileHash(zipFile.path);
 
     let responseStatus = requestChannel.responseStatus;
@@ -2925,8 +2933,6 @@ this.DOMApplicationRegistry = {
 
     let newManifest = yield this._openAndReadPackage(zipFile, aOldApp, aNewApp,
             isLocalFileInstall, aIsUpdate, aManifest, requestChannel, hash);
-
-    AppDownloadManager.remove(aNewApp.manifestURL);
 
     return [aOldApp.id, newManifest];
 

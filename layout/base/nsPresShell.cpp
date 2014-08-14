@@ -6896,6 +6896,7 @@ PresShell::HandleEvent(nsIFrame* aFrame,
       NS_WARNING(warning.get());
     }
 #endif
+    nsContentUtils::WarnScriptWasIgnored(GetDocument());
     return NS_OK;
   }
 
@@ -6982,12 +6983,16 @@ PresShell::HandleEvent(nsIFrame* aFrame,
         nsIDocument::UnlockPointer();
       }
 
+      nsWeakFrame weakFrame(frame);
       {  // scope for scriptBlocker.
         nsAutoScriptBlocker scriptBlocker;
         GetRootPresShell()->GetDocument()->
           EnumerateSubDocuments(FlushThrottledStyles, nullptr);
       }
-      frame = GetNearestFrameContainingPresShell(this);
+
+      if (!weakFrame.IsAlive()) {
+        frame = GetNearestFrameContainingPresShell(this);
+      }
     }
 
     NS_WARN_IF_FALSE(frame, "Nothing to handle this event!");
@@ -9433,7 +9438,8 @@ CompareTrees(nsPresContext* aFirstPresContext, nsIFrame* aFirstFrame,
     }
 
     nsIntRect r1, r2;
-    nsView* v1, *v2;
+    nsView* v1;
+    nsView* v2;
     for (nsFrameList::Enumerator e1(kids1), e2(kids2);
          ;
          e1.Next(), e2.Next()) {

@@ -11,6 +11,7 @@
 #include "Layers.h"
 #include "ContentChild.h"
 #include "IndexedDBChild.h"
+#include "TabParent.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/ClearOnShutdown.h"
 #include "mozilla/EventListenerManager.h"
@@ -68,7 +69,7 @@
 #include "nsWeakReference.h"
 #include "nsWindowWatcher.h"
 #include "PermissionMessageUtils.h"
-#include "PCOMContentPermissionRequestChild.h"
+#include "nsContentPermissionHelper.h"
 #include "PuppetWidget.h"
 #include "StructuredCloneUtils.h"
 #include "nsViewportInfo.h"
@@ -78,15 +79,15 @@
 #include "mozilla/gfx/Matrix.h"
 #include "UnitTransforms.h"
 #include "ClientLayerManager.h"
+#include "LayersLogging.h"
 
 #include "nsColorPickerProxy.h"
 
-#ifdef DEBUG
-#include "PCOMContentPermissionRequestChild.h"
-#endif /* DEBUG */
-
 #define BROWSER_ELEMENT_CHILD_SCRIPT \
     NS_LITERAL_STRING("chrome://global/content/BrowserElementChild.js")
+
+#define TABC_LOG(...)
+// #define TABC_LOG(...) printf_stderr("TABC: " __VA_ARGS__)
 
 using namespace mozilla;
 using namespace mozilla::dom;
@@ -174,12 +175,16 @@ TabChildBase::InitializeRootMetrics()
   // as the resolution.
   mLastRootMetrics.mResolution = mLastRootMetrics.mCumulativeResolution / LayoutDeviceToParentLayerScale(1);
   mLastRootMetrics.SetScrollOffset(CSSPoint(0, 0));
+
+  TABC_LOG("After InitializeRootMetrics, mLastRootMetrics is %s\n",
+    Stringify(mLastRootMetrics).c_str());
 }
 
 void
 TabChildBase::SetCSSViewport(const CSSSize& aSize)
 {
   mOldViewportSize = aSize;
+  TABC_LOG("Setting CSS viewport to %s\n", Stringify(aSize).c_str());
 
   if (mContentDocumentIsDisplayed) {
     nsCOMPtr<nsIDOMWindowUtils> utils(GetDOMWindowUtils());
@@ -213,11 +218,14 @@ TabChildBase::GetPageSize(nsCOMPtr<nsIDocument> aDocument, const CSSSize& aViewp
 }
 
 bool
-TabChildBase::HandlePossibleViewportChange()
+TabChildBase::HandlePossibleViewportChange(const ScreenIntSize& aOldScreenSize)
 {
   if (!IsAsyncPanZoomEnabled()) {
     return false;
   }
+
+  TABC_LOG("HandlePossibleViewportChange aOldScreenSize=%s mInnerSize=%s\n",
+    Stringify(aOldScreenSize).c_str(), Stringify(mInnerSize).c_str());
 
   nsCOMPtr<nsIDocument> document(GetDocument());
   nsCOMPtr<nsIDOMWindowUtils> utils(GetDOMWindowUtils());
@@ -249,6 +257,8 @@ TabChildBase::HandlePossibleViewportChange()
     return false;
   }
 
+  TABC_LOG("HandlePossibleViewportChange mOldViewportSize=%s viewport=%s\n",
+    Stringify(mOldViewportSize).c_str(), Stringify(viewport).c_str());
   CSSSize oldBrowserSize = mOldViewportSize;
   mLastRootMetrics.mViewport.SizeTo(viewport);
   if (oldBrowserSize == CSSSize()) {
@@ -269,9 +279,7 @@ TabChildBase::HandlePossibleViewportChange()
     return false;
   }
 
-  ScreenIntSize oldScreenSize = ViewAs<ScreenPixel>(
-      RoundedToInt(mLastRootMetrics.mCompositionBounds).Size(),
-      PixelCastJustification::ScreenToParentLayerForRoot);
+  ScreenIntSize oldScreenSize = aOldScreenSize;
   if (oldScreenSize == ScreenIntSize()) {
     oldScreenSize = mInnerSize;
   }
@@ -481,10 +489,6 @@ TabChildBase::ProcessUpdateFrame(const FrameMetrics& aFrameMetrics)
         data.AppendLiteral(", \"height\" : ");
         data.AppendFloat(newMetrics.mScrollableRect.height);
         data.AppendLiteral(" }");
-        data.AppendPrintf(", \"resolution\" : "); // TODO: check if it's actually used?
-        data.AppendPrintf("{ \"width\" : ");
-        data.AppendFloat(newMetrics.CalculateIntrinsicScale().scale);
-        data.AppendPrintf(" }");
     data.AppendLiteral(", \"cssCompositedRect\" : ");
         data.AppendLiteral("{ \"width\" : ");
         data.AppendFloat(cssCompositedSize.width);
@@ -526,6 +530,11 @@ TabChildBase::DispatchWidgetEvent(WidgetGUIEvent& event)
   if (!event.widget)
     return nsEventStatus_eConsumeNoDefault;
 
+  if (TabParent* capturer = TabParent::GetEventCapturer()) {
+    if (capturer->TryCapture(event)) {
+      return nsEventStatus_eConsumeNoDefault;
+    }
+  }
   nsEventStatus status;
   NS_ENSURE_SUCCESS(event.widget->DispatchEvent(&event, status),
                     nsEventStatus_eConsumeNoDefault);
@@ -748,7 +757,7 @@ TabChild::HandleEvent(nsIDOMEvent* aEvent)
   if (eventType.EqualsLiteral("DOMMetaAdded")) {
     // This meta data may or may not have been a meta viewport tag. If it was,
     // we should handle it immediately.
-    HandlePossibleViewportChange();
+    HandlePossibleViewportChange(mInnerSize);
   }
 
   return NS_OK;
@@ -799,7 +808,7 @@ TabChild::Observe(nsISupports *aSubject,
           InitializeRootMetrics();
           utils->SetResolution(mLastRootMetrics.mResolution.scale,
                                mLastRootMetrics.mResolution.scale);
-          HandlePossibleViewportChange();
+          HandlePossibleViewportChange(mInnerSize);
         }
       }
     }
@@ -1396,19 +1405,6 @@ TabChild::SendPendingTouchPreventedResponse(bool aPreventDefault,
   }
 }
 
-#ifdef DEBUG
-PContentPermissionRequestChild*
-TabChild:: SendPContentPermissionRequestConstructor(PContentPermissionRequestChild* aActor,
-                                                    const InfallibleTArray<PermissionRequest>& aRequests,
-                                                    const IPC::Principal& aPrincipal)
-{
-  PCOMContentPermissionRequestChild* child = static_cast<PCOMContentPermissionRequestChild*>(aActor);
-  PContentPermissionRequestChild* request = PBrowserChild::SendPContentPermissionRequestConstructor(aActor, aRequests, aPrincipal);
-  child->mIPCOpen = true;
-  return request;
-}
-#endif /* DEBUG */
-
 void
 TabChild::DestroyWindow()
 {
@@ -1732,16 +1728,13 @@ TabChild::RecvShow(const nsIntSize& size)
 }
 
 bool
-TabChild::RecvUpdateDimensions(const nsRect& rect, const nsIntSize& size, const ScreenOrientation& orientation)
+TabChild::RecvUpdateDimensions(const nsIntRect& rect, const nsIntSize& size, const ScreenOrientation& orientation)
 {
     if (!mRemoteFrame) {
         return true;
     }
 
-    mOuterRect.x = rect.x;
-    mOuterRect.y = rect.y;
-    mOuterRect.width = rect.width;
-    mOuterRect.height = rect.height;
+    mOuterRect = rect;
 
     bool initialSizing = !HasValidInnerSize()
                       && (size.width != 0 && size.height != 0);
@@ -1750,6 +1743,7 @@ TabChild::RecvUpdateDimensions(const nsRect& rect, const nsIntSize& size, const 
     }
 
     mOrientation = orientation;
+    ScreenIntSize oldScreenSize = mInnerSize;
     mInnerSize = ScreenIntSize::FromUnknownSize(
       gfx::IntSize(size.width, size.height));
     mWidget->Resize(0, 0, size.width, size.height,
@@ -1767,7 +1761,7 @@ TabChild::RecvUpdateDimensions(const nsRect& rect, const nsIntSize& size, const 
       InitializeRootMetrics();
     }
 
-    HandlePossibleViewportChange();
+    HandlePossibleViewportChange(oldScreenSize);
 
     return true;
 }
@@ -2348,13 +2342,9 @@ TabChild::AllocPContentPermissionRequestChild(const InfallibleTArray<PermissionR
 bool
 TabChild::DeallocPContentPermissionRequestChild(PContentPermissionRequestChild* actor)
 {
-    PCOMContentPermissionRequestChild* child =
-        static_cast<PCOMContentPermissionRequestChild*>(actor);
-#ifdef DEBUG
-    child->mIPCOpen = false;
-#endif /* DEBUG */
-    child->IPDLRelease();
-    return true;
+  RemotePermissionRequest* child = static_cast<RemotePermissionRequest*>(actor);
+  child->IPDLRelease();
+  return true;
 }
 
 PFilePickerChild*

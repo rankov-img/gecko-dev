@@ -17,33 +17,6 @@ namespace js {
 
 class Shape;
 
-/*
- * This auto class should be used around any code that might cause a mark bit to
- * be set on an object in a dead zone. See AutoMaybeTouchDeadZones
- * for more details.
- */
-struct AutoMarkInDeadZone
-{
-    explicit AutoMarkInDeadZone(JS::Zone *zone)
-      : zone(zone),
-        scheduled(zone->scheduledForDestruction)
-    {
-        gc::GCRuntime &gc = zone->runtimeFromMainThread()->gc;
-        if (gc.isManipulatingDeadZones() && zone->scheduledForDestruction) {
-            gc.incObjectsMarkedInDeadZone();
-            zone->scheduledForDestruction = false;
-        }
-    }
-
-    ~AutoMarkInDeadZone() {
-        zone->scheduledForDestruction = scheduled;
-    }
-
-  private:
-    JS::Zone *zone;
-    bool scheduled;
-};
-
 inline Allocator *
 ThreadSafeContext::allocator() const
 {
@@ -718,7 +691,7 @@ AllocateObjectForCacheHit(JSContext *cx, AllocKind kind, InitialHeap heap)
 
     JSObject *obj = AllocateObject<NoGC>(cx, kind, 0, heap);
     if (!obj && allowGC) {
-        MaybeGC(cx);
+        cx->runtime()->gc.maybeGC(cx->zone());
         return nullptr;
     }
 

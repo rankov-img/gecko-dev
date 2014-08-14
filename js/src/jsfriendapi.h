@@ -422,6 +422,13 @@ SetSourceHook(JSRuntime *rt, mozilla::UniquePtr<SourceHook> hook);
 extern JS_FRIEND_API(mozilla::UniquePtr<SourceHook>)
 ForgetSourceHook(JSRuntime *rt);
 
+#ifdef NIGHTLY_BUILD
+typedef void (*AssertOnScriptEntryHook)(JSContext *cx, JS::HandleScript script);
+
+extern JS_FRIEND_API(void)
+SetAssertOnScriptEntryHook(JSRuntime *rt, AssertOnScriptEntryHook hook);
+#endif
+
 extern JS_FRIEND_API(JS::Zone *)
 GetCompartmentZone(JSCompartment *comp);
 
@@ -1280,7 +1287,7 @@ class MOZ_STACK_CLASS AutoStableStringChars
     bool ownsChars_;
 
   public:
-    AutoStableStringChars(JSContext *cx)
+    explicit AutoStableStringChars(JSContext *cx)
       : s_(cx), state_(Uninitialized), ownsChars_(false)
     {};
     ~AutoStableStringChars();
@@ -1332,7 +1339,7 @@ ErrorReportToString(JSContext *cx, JSErrorReport *reportp);
 
 struct MOZ_STACK_CLASS JS_FRIEND_API(ErrorReport)
 {
-    ErrorReport(JSContext *cx);
+    explicit ErrorReport(JSContext *cx);
     ~ErrorReport();
 
     bool init(JSContext *cx, JS::HandleValue exn);

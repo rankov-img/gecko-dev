@@ -159,6 +159,15 @@ static const uint32_t StackAlignment = 8;
 static const uint32_t CodeAlignment = 4;
 static const bool StackKeptAligned = true;
 
+// This boolean indicates whether we support SIMD instructions flavoured for
+// this architecture or not. Rather than a method in the LIRGenerator, it is
+// here such that it is accessible from the entire codebase. Once full support
+// for SIMD is reached on all tier-1 platforms, this constant can be deleted.
+static const bool SupportsSimd = false;
+// TODO this is just a filler to prevent a build failure. The MIPS SIMD
+// alignment requirements still need to be explored.
+static const uint32_t SimdStackAlignment = 8;
+
 static const Scale ScalePointer = TimesFour;
 
 // MIPS instruction types

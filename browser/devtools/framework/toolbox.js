@@ -1356,16 +1356,14 @@ Toolbox.prototype = {
     }
 
     // Destroying the walker and inspector fronts
-    outstanding.push(this.destroyInspector());
-    // Removing buttons
-    outstanding.push(() => {
-      this._pickerButton.removeEventListener("command", this._togglePicker, false);
-      this._pickerButton = null;
-      let container = this.doc.getElementById("toolbox-buttons");
-      while (container.firstChild) {
-        container.removeChild(container.firstChild);
+    outstanding.push(this.destroyInspector().then(() => {
+      // Removing buttons
+      if (this._pickerButton) {
+        this._pickerButton.removeEventListener("command", this._togglePicker, false);
+        this._pickerButton = null;
       }
-    });
+    }));
+
     // Remove the host UI
     outstanding.push(this.destroyHost());
 
@@ -1390,10 +1388,22 @@ Toolbox.prototype = {
       return target.destroy();
     }).then(() => {
       this.emit("destroyed");
+
+      // We need to grab a reference to win before this._host is destroyed.
+      let win = this.frame.ownerGlobal;
+
       // Free _host after the call to destroyed in order to let a chance
       // to destroyed listeners to still query toolbox attributes
       this._host = null;
       this._toolPanels.clear();
+
+      // Force GC to prevent long GC pauses when running tests and to free up
+      // memory in general when the toolbox is closed.
+      if (gDevTools.testing) {
+        win.QueryInterface(Ci.nsIInterfaceRequestor)
+           .getInterface(Ci.nsIDOMWindowUtils)
+           .garbageCollect();
+      }
     }).then(null, console.error);
   },
 

@@ -314,6 +314,7 @@ static const char *FourCC2MIME(uint32_t fourcc) {
             return MEDIA_MIMETYPE_VIDEO_H263;
 
         case FOURCC('a', 'v', 'c', '1'):
+        case FOURCC('a', 'v', 'c', '3'):
             return MEDIA_MIMETYPE_VIDEO_AVC;
 
         default:
@@ -1297,6 +1298,7 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
         case FOURCC('H', '2', '6', '3'):
         case FOURCC('h', '2', '6', '3'):
         case FOURCC('a', 'v', 'c', '1'):
+        case FOURCC('a', 'v', 'c', '3'):
         {
             mHasVideo = true;
 
@@ -3175,11 +3177,11 @@ status_t MPEG4Source::read(
         // fall through
     }
 
-    off64_t offset;
-    size_t size;
-    uint32_t cts;
-    uint32_t duration;
-    bool isSyncSample;
+    off64_t offset = 0;
+    size_t size = 0;
+    uint32_t cts = 0;
+    uint32_t duration = 0;
+    bool isSyncSample = false;
     bool newBuffer = false;
     if (mBuffer == NULL) {
         newBuffer = true;
@@ -3420,7 +3422,7 @@ status_t MPEG4Source::fragmentedRead(
     }
 
     off64_t offset = 0;
-    size_t size;
+    size_t size = 0;
     uint32_t cts = 0;
     uint32_t duration = 0;
     bool isSyncSample = false;
@@ -3430,7 +3432,6 @@ status_t MPEG4Source::fragmentedRead(
 
         if (mCurrentSampleIndex >= mCurrentSamples.size()) {
             // move to next fragment
-            Sample lastSample = mCurrentSamples[mCurrentSamples.size() - 1];
             off64_t nextMoof = mNextMoofOffset; // lastSample.offset + lastSample.size;
 
             // If we're pointing to a sidx box then we skip it.

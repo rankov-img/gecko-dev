@@ -125,7 +125,7 @@ public class BrowserToolbar extends ThemedRelativeLayout
     private RelativeLayout.LayoutParams urlBarEntryShrunkenLayoutParams;
     private ImageView urlBarTranslatingEdge;
     private boolean isSwitchingTabs;
-    private ShapedButton tabsButton;
+    private ThemedImageButton tabsButton;
     private ImageButton backButton;
     private ImageButton forwardButton;
 
@@ -197,7 +197,8 @@ public class BrowserToolbar extends ThemedRelativeLayout
         urlBarEntryDefaultLayoutParams = (RelativeLayout.LayoutParams) urlBarEntry.getLayoutParams();
         // API level 19 adds a RelativeLayout.LayoutParams copy constructor, so we explicitly cast
         // to ViewGroup.MarginLayoutParams to ensure consistency across platforms.
-        urlBarEntryShrunkenLayoutParams = new RelativeLayout.LayoutParams(urlBarEntryDefaultLayoutParams);
+        urlBarEntryShrunkenLayoutParams =
+                new RelativeLayout.LayoutParams((ViewGroup.MarginLayoutParams) urlBarEntryDefaultLayoutParams);
         // Note: a shrunken phone layout is not displayed on any known devices,
         // and thus shrunken layout params for phone are not maintained.
         if (HardwareUtils.isTablet()) {
@@ -212,7 +213,7 @@ public class BrowserToolbar extends ThemedRelativeLayout
             urlBarTranslatingEdge.getDrawable().setLevel(6000);
         }
 
-        tabsButton = (ShapedButton) findViewById(R.id.tabs);
+        tabsButton = (ThemedImageButton) findViewById(R.id.tabs);
         tabsCounter = (TabCounter) findViewById(R.id.tabs_counter);
         if (Versions.feature11Plus) {
             tabsCounter.setLayerType(View.LAYER_TYPE_SOFTWARE, null);

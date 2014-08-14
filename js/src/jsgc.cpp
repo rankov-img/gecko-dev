@@ -1031,7 +1031,7 @@ class js::gc::AutoMaybeStartBackgroundAllocation
     MOZ_DECL_USE_GUARD_OBJECT_NOTIFIER
 
   public:
-    AutoMaybeStartBackgroundAllocation(MOZ_GUARD_OBJECT_NOTIFIER_ONLY_PARAM)
+    explicit AutoMaybeStartBackgroundAllocation(MOZ_GUARD_OBJECT_NOTIFIER_ONLY_PARAM)
       : runtime(nullptr)
     {
         MOZ_GUARD_OBJECT_NOTIFIER_INIT;
@@ -1112,12 +1112,13 @@ GCRuntime::GCRuntime(JSRuntime *rt) :
     chunkAllocationSinceLastGC(false),
     nextFullGCTime(0),
     lastGCTime(0),
-    jitReleaseTime(0),
     mode(JSGC_MODE_INCREMENTAL),
     decommitThreshold(32 * 1024 * 1024),
     cleanUpEverything(false),
     grayBitsValid(false),
     isNeeded(0),
+    majorGCNumber(0),
+    jitReleaseNumber(0),
     number(0),
     startNumber(0),
     isFull(false),
@@ -1248,8 +1249,11 @@ GCRuntime::initZeal()
 
 #endif
 
-/* Lifetime for type sets attached to scripts containing observed types. */
-static const int64_t JIT_SCRIPT_RELEASE_TYPES_INTERVAL = 60 * 1000 * 1000;
+/*
+ * Lifetime in number of major GCs for type sets attached to scripts containing
+ * observed types.
+ */
+static const uint64_t JIT_SCRIPT_RELEASE_TYPES_PERIOD = 20;
 
 bool
 GCRuntime::init(uint32_t maxbytes, uint32_t maxNurseryBytes)
@@ -1276,9 +1280,7 @@ GCRuntime::init(uint32_t maxbytes, uint32_t maxNurseryBytes)
     tunables.setParameter(JSGC_MAX_BYTES, maxbytes);
     setMaxMallocBytes(maxbytes);
 
-#ifndef JS_MORE_DETERMINISTIC
-    jitReleaseTime = PRMJ_Now() + JIT_SCRIPT_RELEASE_TYPES_INTERVAL;
-#endif
+    jitReleaseNumber = majorGCNumber + JIT_SCRIPT_RELEASE_TYPES_PERIOD;
 
 #ifdef JSGC_GENERATIONAL
     if (!nursery.init(maxNurseryBytes))
@@ -2235,7 +2237,7 @@ ArenaLists::refillFreeList(ThreadSafeContext *cx, AllocKind thingKind)
             mozilla::Maybe<AutoLockHelperThreadState> lock;
             JSRuntime *rt = zone->runtimeFromAnyThread();
             if (rt->exclusiveThreadsPresent()) {
-                lock.construct();
+                lock.emplace();
                 while (rt->isHeapBusy())
                     HelperThreadState().wait(GlobalHelperThreadState::PRODUCER);
             }
@@ -2415,13 +2417,7 @@ GCRuntime::triggerZoneGC(Zone *zone, JS::gcreason::Reason reason)
     return true;
 }
 
-void
-js::MaybeGC(JSContext *cx)
-{
-    cx->runtime()->gc.maybeGC(cx->zone());
-}
-
-void
+bool
 GCRuntime::maybeGC(Zone *zone)
 {
     JS_ASSERT(CurrentThreadCanAccessRuntime(rt));
@@ -2430,13 +2426,13 @@ GCRuntime::maybeGC(Zone *zone)
     if (zealMode == ZealAllocValue || zealMode == ZealPokeValue) {
         JS::PrepareForFullGC(rt);
         GC(rt, GC_NORMAL, JS::gcreason::MAYBEGC);
-        return;
+        return true;
     }
 #endif
 
     if (isNeeded) {
         GCSlice(rt, GC_NORMAL, JS::gcreason::MAYBEGC);
-        return;
+        return true;
     }
 
     double factor = schedulingState.inHighFrequencyGCMode() ? 0.85 : 0.9;
@@ -2447,15 +2443,25 @@ GCRuntime::maybeGC(Zone *zone)
     {
         PrepareZoneForGC(zone);
         GCSlice(rt, GC_NORMAL, JS::gcreason::MAYBEGC);
-        return;
+        return true;
     }
 
-#ifndef JS_MORE_DETERMINISTIC
+    return false;
+}
+
+void
+GCRuntime::maybePeriodicFullGC()
+{
     /*
+     * Trigger a periodic full GC.
+     *
+     * This is a source of non-determinism, but is not called from the shell.
+     *
      * Access to the counters and, on 32 bit, setting gcNextFullGCTime below
      * is not atomic and a race condition could trigger or suppress the GC. We
      * tolerate this.
      */
+#ifndef JS_MORE_DETERMINISTIC
     int64_t now = PRMJ_Now();
     if (nextFullGCTime && nextFullGCTime <= now) {
         if (chunkAllocationSinceLastGC ||
@@ -2523,7 +2529,7 @@ GCRuntime::decommitArenasFromAvailableList(Chunk **availableListHeadp)
                  */
                 Maybe<AutoUnlockGC> maybeUnlock;
                 if (!isHeapBusy())
-                    maybeUnlock.construct(rt);
+                    maybeUnlock.emplace(rt);
                 ok = MarkPagesUnused(aheader->getArena(), ArenaSize);
             }
 
@@ -2881,7 +2887,7 @@ GCHelperState::onBackgroundThread()
 }
 
 bool
-GCRuntime::releaseObservedTypes()
+GCRuntime::shouldReleaseObservedTypes()
 {
     bool releaseTypes = false;
 
@@ -2890,13 +2896,12 @@ GCRuntime::releaseObservedTypes()
         releaseTypes = true;
 #endif
 
-#ifndef JS_MORE_DETERMINISTIC
-    int64_t now = PRMJ_Now();
-    if (now >= jitReleaseTime)
+    /* We may miss the exact target GC due to resets. */
+    if (majorGCNumber >= jitReleaseNumber)
         releaseTypes = true;
+
     if (releaseTypes)
-        jitReleaseTime = now + JIT_SCRIPT_RELEASE_TYPES_INTERVAL;
-#endif
+        jitReleaseNumber = majorGCNumber + JIT_SCRIPT_RELEASE_TYPES_PERIOD;
 
     return releaseTypes;
 }
@@ -3149,14 +3154,14 @@ GCRuntime::beginMarkPhase(JS::gcreason::Reason reason)
             isFull = false;
         }
 
-        zone->scheduledForDestruction = false;
-        zone->maybeAlive = false;
         zone->setPreservingCode(false);
     }
 
     for (CompartmentsIter c(rt, WithAtoms); !c.done(); c.next()) {
         JS_ASSERT(c->gcLiveArrayBuffers.empty());
         c->marked = false;
+        c->scheduledForDestruction = false;
+        c->maybeAlive = false;
         if (shouldPreserveJITCode(c, currentTime, reason))
             c->zone()->setPreservingCode(true);
     }
@@ -3255,40 +3260,50 @@ GCRuntime::beginMarkPhase(JS::gcreason::Reason reason)
         bufferGrayRoots();
 
     /*
-     * This code ensures that if a zone is "dead", then it will be
-     * collected in this GC. A zone is considered dead if its maybeAlive
+     * This code ensures that if a compartment is "dead", then it will be
+     * collected in this GC. A compartment is considered dead if its maybeAlive
      * flag is false. The maybeAlive flag is set if:
-     *   (1) the zone has incoming cross-compartment edges, or
-     *   (2) an object in the zone was marked during root marking, either
+     *   (1) the compartment has incoming cross-compartment edges, or
+     *   (2) an object in the compartment was marked during root marking, either
      *       as a black root or a gray root.
      * If the maybeAlive is false, then we set the scheduledForDestruction flag.
-     * At any time later in the GC, if we try to mark an object whose
-     * zone is scheduled for destruction, we will assert.
-     * NOTE: Due to bug 811587, we only assert if gcManipulatingDeadCompartments
-     * is true (e.g., if we're doing a brain transplant).
+     * At the end of the GC, we look for compartments where
+     * scheduledForDestruction is true. These are compartments that were somehow
+     * "revived" during the incremental GC. If any are found, we do a special,
+     * non-incremental GC of those compartments to try to collect them.
      *
-     * The purpose of this check is to ensure that a zone that we would
-     * normally destroy is not resurrected by a read barrier or an
-     * allocation. This might happen during a function like JS_TransplantObject,
-     * which iterates over all compartments, live or dead, and operates on their
-     * objects. See bug 803376 for details on this problem. To avoid the
-     * problem, we are very careful to avoid allocation and read barriers during
-     * JS_TransplantObject and the like. The code here ensures that we don't
-     * regress.
+     * Compartments can be revived for a variety of reasons. On reason is bug
+     * 811587, where a reflector that was dead can be revived by DOM code that
+     * still refers to the underlying DOM node.
      *
-     * Note that there are certain cases where allocations or read barriers in
-     * dead zone are difficult to avoid. We detect such cases (via the
-     * gcObjectsMarkedInDeadCompartment counter) and redo any ongoing GCs after
-     * the JS_TransplantObject function has finished. This ensures that the dead
-     * zones will be cleaned up. See AutoMarkInDeadZone and
-     * AutoMaybeTouchDeadZones for details.
+     * Read barriers and allocations can also cause revival. This might happen
+     * during a function like JS_TransplantObject, which iterates over all
+     * compartments, live or dead, and operates on their objects. See bug 803376
+     * for details on this problem. To avoid the problem, we try to avoid
+     * allocation and read barriers during JS_TransplantObject and the like.
      */
 
     /* Set the maybeAlive flag based on cross-compartment edges. */
     for (CompartmentsIter c(rt, SkipAtoms); !c.done(); c.next()) {
         for (JSCompartment::WrapperEnum e(c); !e.empty(); e.popFront()) {
-            Cell *dst = e.front().key().wrapped;
-            dst->tenuredZone()->maybeAlive = true;
+            const CrossCompartmentKey &key = e.front().key();
+            JSCompartment *dest;
+            switch (key.kind) {
+              case CrossCompartmentKey::ObjectWrapper:
+              case CrossCompartmentKey::DebuggerObject:
+              case CrossCompartmentKey::DebuggerSource:
+              case CrossCompartmentKey::DebuggerEnvironment:
+                dest = static_cast<JSObject *>(key.wrapped)->compartment();
+                break;
+              case CrossCompartmentKey::DebuggerScript:
+                dest = static_cast<JSScript *>(key.wrapped)->compartment();
+                break;
+              default:
+                dest = nullptr;
+                break;
+            }
+            if (dest)
+                dest->maybeAlive = true;
         }
     }
 
@@ -3297,9 +3312,9 @@ GCRuntime::beginMarkPhase(JS::gcreason::Reason reason)
      * during MarkRuntime.
      */
 
-    for (GCZonesIter zone(rt); !zone.done(); zone.next()) {
-        if (!zone->maybeAlive && !rt->isAtomsZone(zone))
-            zone->scheduledForDestruction = true;
+    for (GCCompartmentsIter c(rt); !c.done(); c.next()) {
+        if (!c->maybeAlive && !rt->isAtomsCompartment(c))
+            c->scheduledForDestruction = true;
     }
     foundBlackGrayEdges = false;
 
@@ -4147,10 +4162,9 @@ GCRuntime::beginSweepingZoneGroup()
             zone->discardJitCode(&fop);
         }
 
-        bool releaseTypes = releaseObservedTypes();
         for (GCCompartmentGroupIter c(rt); !c.done(); c.next()) {
             gcstats::AutoSCC scc(stats, zoneGroupIndex);
-            c->sweep(&fop, releaseTypes && !c->zone()->isPreservingCode());
+            c->sweep(&fop, releaseObservedTypes && !c->zone()->isPreservingCode());
         }
 
         for (GCZoneGroupIter zone(rt); !zone.done(); zone.next()) {
@@ -4161,15 +4175,15 @@ GCRuntime::beginSweepingZoneGroup()
             // overapproximates the possible types in the zone), but the
             // constraints might not have been triggered on the deoptimization
             // or even copied over completely. In this case, destroy all JIT
-            // code and new script addendums in the zone, the only things whose
-            // correctness depends on the type constraints.
+            // code and new script information in the zone, the only things
+            // whose correctness depends on the type constraints.
             bool oom = false;
-            zone->sweep(&fop, releaseTypes && !zone->isPreservingCode(), &oom);
+            zone->sweep(&fop, releaseObservedTypes && !zone->isPreservingCode(), &oom);
 
             if (oom) {
                 zone->setPreservingCode(false);
                 zone->discardJitCode(&fop);
-                zone->types.clearAllNewScriptAddendumsOnOOM();
+                zone->types.clearAllNewScriptsOnOOM();
             }
         }
     }
@@ -4253,6 +4267,8 @@ GCRuntime::beginSweepPhase(bool lastGC)
     gcstats::AutoPhase ap(stats, gcstats::PHASE_SWEEP);
 
     sweepOnBackgroundThread = !lastGC && !TraceEnabled() && CanUseExtraThreads();
+
+    releaseObservedTypes = shouldReleaseObservedTypes();
 
 #ifdef DEBUG
     for (CompartmentsIter c(rt, SkipAtoms); !c.done(); c.next()) {
@@ -4420,7 +4436,7 @@ GCRuntime::endSweepPhase(JSGCInvocationKind gckind, bool lastGC)
             SweepScriptData(rt);
 
         /* Clear out any small pools that we're hanging on to. */
-        if (JSC::ExecutableAllocator *execAlloc = rt->maybeExecAlloc())
+        if (jit::ExecutableAllocator *execAlloc = rt->maybeExecAlloc())
             execAlloc->purge();
 
         if (rt->jitRuntime() && rt->jitRuntime()->hasIonAlloc()) {
@@ -4510,7 +4526,7 @@ GCRuntime::endSweepPhase(JSGCInvocationKind gckind, bool lastGC)
 
         for (JSCompartment::WrapperEnum e(c); !e.empty(); e.popFront()) {
             if (e.front().key().kind != CrossCompartmentKey::StringWrapper)
-                AssertNotOnGrayList(&e.front().value().get().toObject());
+                AssertNotOnGrayList(&e.front().value().unbarrieredGet().toObject());
         }
     }
 #endif
@@ -4631,8 +4647,8 @@ GCRuntime::resetIncrementalGC(const char *reason)
       case SWEEP:
         marker.reset();
 
-        for (ZonesIter zone(rt, WithAtoms); !zone.done(); zone.next())
-            zone->scheduledForDestruction = false;
+        for (CompartmentsIter c(rt, SkipAtoms); !c.done(); c.next())
+            c->scheduledForDestruction = false;
 
         /* Finish sweeping the current zone group, then abort. */
         abortSweepAfterCurrentGroup = true;
@@ -4976,6 +4992,8 @@ GCRuntime::gcCycle(bool incremental, int64_t budget, JSGCInvocationKind gckind,
     interFrameGC = true;
 
     number++;
+    if (incrementalState == NO_INCREMENTAL)
+        majorGCNumber++;
 
     // It's ok if threads other than the main thread have suppressGC set, as
     // they are operating on zones which will not be collected from here.
@@ -5152,12 +5170,29 @@ GCRuntime::collect(bool incremental, int64_t budget, JSGCInvocationKind gckind,
             JS::PrepareForFullGC(rt);
 
         /*
+         * This code makes an extra effort to collect compartments that we
+         * thought were dead at the start of the GC. See the large comment in
+         * beginMarkPhase.
+         */
+        bool repeatForDeadZone = false;
+        if (incremental && incrementalState == NO_INCREMENTAL) {
+            for (CompartmentsIter c(rt, SkipAtoms); !c.done(); c.next()) {
+                if (c->scheduledForDestruction) {
+                    incremental = false;
+                    repeatForDeadZone = true;
+                    reason = JS::gcreason::COMPARTMENT_REVIVED;
+                    c->zone()->scheduleGC();
+                }
+            }
+        }
+
+        /*
          * If we reset an existing GC, we need to start a new one. Also, we
          * repeat GCs that happen during shutdown (the gcShouldCleanUpEverything
          * case) until we can be sure that no additional garbage is created
          * (which typically happens if roots are dropped during finalizers).
          */
-        repeat = (poked && cleanUpEverything) || wasReset;
+        repeat = (poked && cleanUpEverything) || wasReset || repeatForDeadZone;
     } while (repeat);
 
     if (incrementalState == NO_INCREMENTAL)
@@ -5716,34 +5751,6 @@ ArenaLists::containsArena(JSRuntime *rt, ArenaHeader *needle)
     return false;
 }
 
-
-AutoMaybeTouchDeadZones::AutoMaybeTouchDeadZones(JSContext *cx)
-  : runtime(cx->runtime()),
-    markCount(runtime->gc.objectsMarkedInDeadZonesCount()),
-    inIncremental(JS::IsIncrementalGCInProgress(runtime)),
-    manipulatingDeadZones(runtime->gc.isManipulatingDeadZones())
-{
-    runtime->gc.setManipulatingDeadZones(true);
-}
-
-AutoMaybeTouchDeadZones::AutoMaybeTouchDeadZones(JSObject *obj)
-  : runtime(obj->compartment()->runtimeFromMainThread()),
-    markCount(runtime->gc.objectsMarkedInDeadZonesCount()),
-    inIncremental(JS::IsIncrementalGCInProgress(runtime)),
-    manipulatingDeadZones(runtime->gc.isManipulatingDeadZones())
-{
-    runtime->gc.setManipulatingDeadZones(true);
-}
-
-AutoMaybeTouchDeadZones::~AutoMaybeTouchDeadZones()
-{
-    runtime->gc.setManipulatingDeadZones(manipulatingDeadZones);
-
-    if (inIncremental && runtime->gc.objectsMarkedInDeadZonesCount() != markCount) {
-        JS::PrepareForFullGC(runtime);
-        js::GC(runtime, GC_NORMAL, JS::gcreason::TRANSPLANT);
-    }
-}
 
 AutoSuppressGC::AutoSuppressGC(ExclusiveContext *cx)
   : suppressGC_(cx->perThreadData->suppressGC)

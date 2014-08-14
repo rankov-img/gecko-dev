@@ -254,18 +254,17 @@ static void DrawVelGraph(const nsIntRect& aClipRect,
 
 static void PrintUniformityInfo(Layer* aLayer)
 {
-
-  if(Layer::TYPE_CONTAINER != aLayer->GetType()) {
-    return;
-  }
-
   // Don't want to print a log for smaller layers
   if (aLayer->GetEffectiveVisibleRegion().GetBounds().width < 300 ||
       aLayer->GetEffectiveVisibleRegion().GetBounds().height < 300) {
     return;
   }
 
-  FrameMetrics frameMetrics = aLayer->AsContainerLayer()->GetFrameMetrics();
+  FrameMetrics frameMetrics = aLayer->GetFrameMetrics();
+  if (!frameMetrics.IsScrollable()) {
+    return;
+  }
+
   LayerIntPoint scrollOffset = RoundedToInt(frameMetrics.GetScrollOffsetInLayerPixels());
   const gfx::Point layerTransform = GetScrollData(aLayer);
   gfx::Point layerScroll;
@@ -530,6 +529,10 @@ ContainerRender(ContainerT* aContainer,
     LayerManagerComposite::AutoAddMaskEffect autoMaskEffect(aContainer->GetMaskLayer(),
                                                             effectChain,
                                                             !aContainer->GetTransform().CanDraw2D());
+    if (autoMaskEffect.Failed()) {
+      NS_WARNING("Failed to apply a mask effect.");
+      return;
+    }
 
     aContainer->AddBlendModeEffect(effectChain);
     effectChain.mPrimaryEffect = new EffectRenderTarget(surface);
