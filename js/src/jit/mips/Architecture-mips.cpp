@@ -127,8 +127,9 @@ FloatRegister::GetPushSizeInBytes(const FloatRegisterSet &s)
 {
     FloatRegisterSet ss = s.reduceSetForPush();
     uint64_t bits = ss.bits();
-    uint32_t ret = mozilla::CountPopulation32(bits & 0xffffffff) * sizeof(float);
-    ret +=  mozilla::CountPopulation32(bits >> 32) * sizeof(double);
+    // We are only pushing double registers.
+    MOZ_ASSERT((bits & 0xffffffff) == 0);
+    uint32_t ret =  mozilla::CountPopulation32(bits >> 32) * sizeof(double);
     return ret;
 }
 uint32_t

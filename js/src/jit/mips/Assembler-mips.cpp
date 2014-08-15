@@ -165,6 +165,8 @@ jit::PatchJump(CodeLocationJump &jump_, CodeLocationLabel label)
     AutoFlushICache::flush(uintptr_t(inst1), 8);
 }
 
+// For more infromation about backedges look at comment in
+// MacroAssemblerMIPSCompat::backedgeJump()
 void
 jit::PatchBackedge(CodeLocationJump &jump, CodeLocationLabel label,
                    JitRuntime::BackedgeTarget target)
@@ -173,20 +175,20 @@ jit::PatchBackedge(CodeLocationJump &jump, CodeLocationLabel label,
     uint32_t targetAddr = (uint32_t)label.raw();
     InstImm *branch = (InstImm *)jump.raw();
 
-    MOZ_ASSERT(branch->extractOpcode() == ((uint32_t)op_beq >> OpcodeShift));
+    MOZ_ASSERT(branch->extractOpcode() == (uint32_t(op_beq) >> OpcodeShift));
 
     if (BOffImm16::IsInRange(targetAddr - sourceAddr)) {
         branch->setBOffImm16(BOffImm16(targetAddr - sourceAddr));
     } else {
         if (target == JitRuntime::BackedgeLoopHeader) {
-            // Jump to ori. The lui will be executed in delay slot.
-            branch->setBOffImm16(BOffImm16(2 * sizeof(uint32_t)));
             Instruction *lui = &branch[1];
             Assembler::UpdateLuiOriValue(lui, lui->next(), targetAddr);
+            // Jump to ori. The lui will be executed in delay slot.
+            branch->setBOffImm16(BOffImm16(2 * sizeof(uint32_t)));
         } else {
-            branch->setBOffImm16(BOffImm16(4 * sizeof(uint32_t)));
             Instruction *lui = &branch[4];
             Assembler::UpdateLuiOriValue(lui, lui->next(), targetAddr);
+            branch->setBOffImm16(BOffImm16(4 * sizeof(uint32_t)));
         }
     }
 }

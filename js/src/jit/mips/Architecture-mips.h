@@ -288,7 +288,7 @@ class FloatRegisters
     static const uint32_t Allocatable = 42;
     // When saving all registers we only need to do is save double registers.
     static const uint32_t TotalPhys = 16;
-    static const uint64_t AllDoubleMask = ((1ULL << 32) - 1) << 32;
+    static const uint64_t AllDoubleMask = 0x55555555ULL << 32;
     static const uint64_t AllMask = AllDoubleMask  | ((1ULL << 32) - 1);
 
     static const uint64_t NonVolatileDoubleMask =
@@ -321,23 +321,7 @@ class FloatRegisters
     static const uint64_t WrapperMask = VolatileMask;
 
     static const uint64_t NonAllocatableDoubleMask =
-        ((1ULL << FloatRegisters::f1) |
-         (1ULL << FloatRegisters::f3) |
-         (1ULL << FloatRegisters::f5) |
-         (1ULL << FloatRegisters::f7) |
-         (1ULL << FloatRegisters::f9) |
-         (1ULL << FloatRegisters::f11) |
-         (1ULL << FloatRegisters::f13) |
-         (1ULL << FloatRegisters::f15) |
-         (1ULL << FloatRegisters::f17) |
-         (1ULL << FloatRegisters::f19) |
-         (1ULL << FloatRegisters::f21) |
-         (1ULL << FloatRegisters::f23) |
-         (1ULL << FloatRegisters::f25) |
-         (1ULL << FloatRegisters::f27) |
-         (1ULL << FloatRegisters::f29) |
-         (1ULL << FloatRegisters::f31) |
-         (1ULL << FloatRegisters::f16) |
+        ((1ULL << FloatRegisters::f16) |
          (1ULL << FloatRegisters::f18)) << 32;
     // f16-single and f17-single alias f16-double ...
     static const uint64_t NonAllocatableMask =
@@ -369,18 +353,16 @@ class FloatRegister
     typedef FloatRegisters Codes;
     typedef Codes::Code Code;
 
-  protected:
-    RegType kind_ : 1;
-  public:
     uint32_t code_ : 6;
   protected:
+    RegType kind_ : 1;
 
   public:
     MOZ_CONSTEXPR FloatRegister(uint32_t code, RegType kind = Double)
-      : kind_(kind), code_ (Code(code))
+      : code_ (Code(code)), kind_(kind)
     { }
     MOZ_CONSTEXPR FloatRegister()
-      : kind_(Double), code_(Code(FloatRegisters::invalid_freg))
+      : code_(Code(FloatRegisters::invalid_freg)), kind_(Double)
     { }
 
     bool operator==(const FloatRegister &other) const {
@@ -390,7 +372,6 @@ class FloatRegister
     }
     bool isDouble() const { return kind_ == Double; }
     bool isSingle() const { return kind_ == Single; }
-    bool isFloat() const { return (kind_ == Double) || (kind_ == Single); }
     bool equiv(const FloatRegister &other) const { return other.kind_ == kind_; }
     size_t size() const { return (kind_ == Double) ? 8 : 4; }
     bool isInvalid() const {
@@ -404,7 +385,6 @@ class FloatRegister
 
     Code code() const {
         JS_ASSERT(!isInvalid());
-        JS_ASSERT(isFloat());
         return Code(code_  | (kind_ << 5));
     }
     uint32_t id() const {
@@ -426,8 +406,8 @@ class FloatRegister
 
     bool volatile_() const {
         if (isDouble())
-            return !!(code_ & FloatRegisters::VolatileMask);
-        return !!((code_ & ~1) & FloatRegisters::VolatileMask);
+            return !!((1ULL << code_) & FloatRegisters::VolatileMask);
+        return !!((1ULL << (code_ & ~1)) & FloatRegisters::VolatileMask);
     }
     const char *name() const {
         return FloatRegisters::GetName(code_);
@@ -472,23 +452,17 @@ class FloatRegister
     }
     // |        f0-double        |
     // | f0-float32 | f1-float32 |
-    // If we've stored f0-float32 and f1-float32 in memory, we also want to
-    // say that f0-double is stored there, but it is only stored at the
-    // location where it is aligned e.g. at f0-float32, not f1-float32.
+    // We only push double registers on MIPS. So, if we've stored f0-double
+    // we also want to f0-float32 is stored there.
     void alignedAliased(uint32_t aliasIdx, FloatRegister *ret) {
+        MOZ_ASSERT(isDouble());
+        MOZ_ASSERT((code_ & 1) == 0);
         if (aliasIdx == 0) {
             *ret = *this;
             return;
         }
-        JS_ASSERT(aliasIdx == 1);
-        if (isDouble()) {
-            MOZ_ASSERT((code_ & 1) == 0);
-            *ret = singleOverlay(aliasIdx - 1);
-            return;
-        }
-        MOZ_ASSERT((code_ & 1) == 0);
-        *ret = doubleOverlay(aliasIdx - 1);
-        return;
+        MOZ_ASSERT(aliasIdx == 1);
+        *ret = singleOverlay(aliasIdx - 1);
     }
     typedef FloatRegisters::SetType SetType;
     static uint32_t SetSize(SetType x) {
