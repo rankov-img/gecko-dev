@@ -3476,7 +3476,7 @@ MacroAssemblerMIPSCompat::toggledCall(JitCode *target, bool enabled)
         as_nop();
         as_nop();
     }
-    MOZ_ASSERT(nextOffset().getOffset() - offset.offset() == ToggledCallSize());
+    MOZ_ASSERT(nextOffset().getOffset() - offset.offset() == ToggledCallSize(nullptr));
     return offset;
 }
 

@@ -1628,7 +1628,7 @@ class MOZ_STACK_CLASS ModuleCompiler
             link.patchAtOffset = patchAtOffset;
 
             InstImm *inst = (InstImm *)(module_->codeBase() + patchAtOffset);
-            link.targetOffset = Assembler::extractLuiOriValue(inst, inst->next()) -
+            link.targetOffset = Assembler::ExtractLuiOriValue(inst, inst->next()) -
                                 (uint32_t)module_->codeBase();
 
             if (!module_->addRelativeLink(link))
