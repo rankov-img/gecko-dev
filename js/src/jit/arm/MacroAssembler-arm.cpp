@@ -1822,6 +1822,18 @@ MacroAssemblerARMCompat::callIon(Register callee)
 }
 
 void
+MacroAssembler::alignFrameForICArguments(AfterICSaveLive &aic)
+{
+    // Exists for MIPS compatibility.
+}
+
+void
+MacroAssembler::restoreFrameAlignmentForICArguments(AfterICSaveLive &aic)
+{
+    // Exists for MIPS compatibility.
+}
+
+void
 MacroAssemblerARMCompat::reserveStack(uint32_t amount)
 {
     if (amount)
