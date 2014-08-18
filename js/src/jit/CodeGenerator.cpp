@@ -1411,15 +1411,6 @@ CodeGenerator::visitStart(LStart *lir)
 }
 
 bool
-CodeGenerator::visitPcOffset(LPcOffset *lir)
-{
-    if (!addNativeToBytecodeEntry(lir->mir()->trackedSite()))
-        return false;
-
-    return true;
-}
-
-bool
 CodeGenerator::visitReturn(LReturn *lir)
 {
 #if defined(JS_NUNBOX32)

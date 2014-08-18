@@ -1675,13 +1675,6 @@ LIRGenerator::visitStart(MStart *start)
 }
 
 bool
-LIRGenerator::visitPcOffset(MPcOffset *pcOffset)
-{
-    LPcOffset *lir = new(alloc()) LPcOffset;
-    return add(lir, pcOffset);
-}
-
-bool
 LIRGenerator::visitNop(MNop *nop)
 {
     return true;
@@ -2581,8 +2574,6 @@ LIRGenerator::visitInArray(MInArray *ins)
     LAllocation object;
     if (ins->needsNegativeIntCheck())
         object = useRegister(ins->object());
-    else
-        object = LConstantIndex::Bogus();
 
     LInArray *lir = new(alloc()) LInArray(useRegister(ins->elements()),
                                           useRegisterOrConstant(ins->index()),

@@ -292,6 +292,7 @@ TraceDataRelocations(JSTracer *trc, uint8_t *buffer, CompactBufferReader &reader
 
         // No barrier needed since these are constants.
         gc::MarkGCThingUnbarriered(trc, reinterpret_cast<void **>(&ptr), "ion-masm-ptr");
+        Assembler::UpdateLuiOriValue(inst, inst->next(), uint32_t(ptr));
     }
 }
 
@@ -306,6 +307,7 @@ TraceDataRelocations(JSTracer *trc, MIPSBuffer *buffer, CompactBufferReader &rea
 
         // No barrier needed since these are constants.
         gc::MarkGCThingUnbarriered(trc, reinterpret_cast<void **>(&ptr), "ion-masm-ptr");
+        Assembler::UpdateLuiOriValue(iter.cur(), iter.next(), uint32_t(ptr));
     }
 }
 
