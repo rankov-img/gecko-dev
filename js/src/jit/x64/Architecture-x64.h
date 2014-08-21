@@ -269,6 +269,11 @@ hasMultiAlias()
     return false;
 }
 
+inline bool
+HandleSigBusErrors() {
+    return false;
+}
+
 } // namespace jit
 } // namespace js
 

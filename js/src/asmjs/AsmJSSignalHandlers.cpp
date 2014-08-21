@@ -883,6 +883,13 @@ HandleSignal(int signum, siginfo_t *info, void *ctx)
 
     void *faultingAddress = info->si_addr;
 
+    if (HandleSigBusErrors() && signum == 10) {
+        if (faultingAddress == nullptr)
+            faultingAddress = pc;
+        else
+            return false;
+    }
+
     JSRuntime *rt = RuntimeForCurrentThread();
 
     // Don't allow recursive handling of signals, see AutoSetHandlingSignal.
@@ -1016,6 +1023,10 @@ js::EnsureAsmJSSignalHandlersInstalled(JSRuntime *rt)
     sigemptyset(&sigAction.sa_mask);
     if (sigaction(SIGSEGV, &sigAction, &sPrevHandler))
         return false;
+    if (HandleSigBusErrors()) {
+        if (sigaction(SIGBUS, &sigAction, &sPrevHandler))
+            return false;
+    }
 # endif
 
     sInstalledHandlers = true;

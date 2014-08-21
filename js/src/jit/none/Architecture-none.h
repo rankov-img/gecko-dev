@@ -104,6 +104,9 @@ struct FloatRegister
 inline bool hasUnaliasedDouble() { MOZ_CRASH(); }
 inline bool hasMultiAlias() { MOZ_CRASH(); }
 
+inline bool HandleSigBusErrors() { MOZ_CRASH(); }
+
+
 static const uint32_t ShadowStackSpace = 0;
 
 #ifdef JS_NUNBOX32
