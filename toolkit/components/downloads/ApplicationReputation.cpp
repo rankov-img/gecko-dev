@@ -422,6 +422,14 @@ PendingLookup::LookupNext()
     return lookup->LookupSpec(spec, true);
   }
 #ifdef XP_WIN
+  // If there is no service URL for querying application reputation, abort.
+  nsCString serviceUrl;
+  NS_ENSURE_SUCCESS(Preferences::GetCString(PREF_SB_APP_REP_URL, &serviceUrl),
+                    NS_ERROR_NOT_AVAILABLE);
+  if (serviceUrl.EqualsLiteral("")) {
+    return OnComplete(false, NS_ERROR_NOT_AVAILABLE);
+  }
+
   // There are no more URIs to check against local list. If the file is not
   // eligible for remote lookup, bail.
   if (!IsBinaryFile()) {
@@ -987,8 +995,9 @@ PendingLookup::OnStopRequestInternal(nsIRequest *aRequest,
   // DANGEROUS_HOST for now and treat everything else as SAFE.
   Accumulate(mozilla::Telemetry::APPLICATION_REPUTATION_SERVER,
     SERVER_RESPONSE_VALID);
-  Accumulate(mozilla::Telemetry::APPLICATION_REPUTATION_SERVER_RESPONSE,
-    response.verdict());
+  // Clamp responses 0-7, we only know about 0-4 for now.
+  Accumulate(mozilla::Telemetry::APPLICATION_REPUTATION_SERVER_VERDICT,
+    std::min<uint32_t>(response.verdict(), 7));
   switch(response.verdict()) {
     case safe_browsing::ClientDownloadResponse::DANGEROUS:
     case safe_browsing::ClientDownloadResponse::DANGEROUS_HOST:
@@ -1062,14 +1071,6 @@ nsresult ApplicationReputationService::QueryReputationInternal(
   nsresult rv;
   // If malware checks aren't enabled, don't query application reputation.
   if (!Preferences::GetBool(PREF_SB_MALWARE_ENABLED, false)) {
-    return NS_ERROR_NOT_AVAILABLE;
-  }
-
-  // If there is no service URL for querying application reputation, abort.
-  nsCString serviceUrl;
-  NS_ENSURE_SUCCESS(Preferences::GetCString(PREF_SB_APP_REP_URL, &serviceUrl),
-                    NS_ERROR_NOT_AVAILABLE);
-  if (serviceUrl.EqualsLiteral("")) {
     return NS_ERROR_NOT_AVAILABLE;
   }
 

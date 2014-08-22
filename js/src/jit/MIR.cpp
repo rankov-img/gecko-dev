@@ -232,6 +232,23 @@ MDefinition::analyzeEdgeCasesBackward()
 {
 }
 
+void
+MInstruction::setResumePoint(MResumePoint *resumePoint)
+{
+    JS_ASSERT(!resumePoint_);
+    resumePoint_ = resumePoint;
+    resumePoint_->setInstruction(this);
+}
+
+void
+MInstruction::stealResumePoint(MInstruction *ins)
+{
+    MOZ_ASSERT(ins->resumePoint_->instruction() == ins);
+    resumePoint_ = ins->resumePoint_;
+    ins->resumePoint_ = nullptr;
+    resumePoint_->replaceInstruction(this);
+}
+
 static bool
 MaybeEmulatesUndefined(MDefinition *op)
 {
@@ -338,6 +355,34 @@ void
 MDefinition::dump() const
 {
     dump(stderr);
+}
+
+void
+MDefinition::dumpLocation(FILE *fp) const
+{
+    MResumePoint *rp = nullptr;
+    const char *linkWord = nullptr;
+    if (isInstruction() && toInstruction()->resumePoint()) {
+        rp = toInstruction()->resumePoint();
+        linkWord = "at";
+    } else {
+        rp = block()->entryResumePoint();
+        linkWord = "after";
+    }
+
+    while (rp) {
+        JSScript *script = rp->block()->info().script();
+        uint32_t lineno = PCToLineNumber(rp->block()->info().script(), rp->pc());
+        fprintf(fp, "  %s %s:%d\n", linkWord, script->filename(), lineno);
+        rp = rp->caller();
+        linkWord = "in";
+    }
+}
+
+void
+MDefinition::dumpLocation() const
+{
+    dumpLocation(stderr);
 }
 
 #ifdef DEBUG
@@ -1088,7 +1133,7 @@ MPhi::reserveLength(size_t length)
 {
     // Initializes a new MPhi to have an Operand vector of at least the given
     // capacity. This permits use of addInput() instead of addInputSlow(), the
-    // latter of which may call realloc_().
+    // latter of which may call pod_realloc().
     JS_ASSERT(numOperands() == 0);
 #if DEBUG
     capacity_ = length;
@@ -1246,7 +1291,7 @@ MPhi::addInputSlow(MDefinition *ins, bool *ptypeChange)
     uint32_t index = inputs_.length();
     bool performingRealloc = !inputs_.canAppendWithoutRealloc(1);
 
-    // Remove all MUses from all use lists, in case realloc_() moves.
+    // Remove all MUses from all use lists, in case pod_realloc() moves.
     if (performingRealloc) {
         for (uint32_t i = 0; i < index; i++) {
             MUse *use = &inputs_[i];
@@ -1297,7 +1342,7 @@ MCall::addArg(size_t argnum, MDefinition *arg)
 void
 MBitNot::infer()
 {
-    if (getOperand(0)->mightBeType(MIRType_Object))
+    if (getOperand(0)->mightBeType(MIRType_Object) || getOperand(0)->mightBeType(MIRType_Symbol))
         specialization_ = MIRType_None;
     else
         specialization_ = MIRType_Int32;
@@ -1379,7 +1424,8 @@ MBinaryBitwiseInstruction::specializeAsInt32()
 void
 MShiftInstruction::infer(BaselineInspector *, jsbytecode *)
 {
-    if (getOperand(0)->mightBeType(MIRType_Object) || getOperand(1)->mightBeType(MIRType_Object))
+    if (getOperand(0)->mightBeType(MIRType_Object) || getOperand(1)->mightBeType(MIRType_Object) ||
+        getOperand(0)->mightBeType(MIRType_Symbol) || getOperand(1)->mightBeType(MIRType_Symbol))
         specialization_ = MIRType_None;
     else
         specialization_ = MIRType_Int32;
@@ -1388,7 +1434,9 @@ MShiftInstruction::infer(BaselineInspector *, jsbytecode *)
 void
 MUrsh::infer(BaselineInspector *inspector, jsbytecode *pc)
 {
-    if (getOperand(0)->mightBeType(MIRType_Object) || getOperand(1)->mightBeType(MIRType_Object)) {
+    if (getOperand(0)->mightBeType(MIRType_Object) || getOperand(1)->mightBeType(MIRType_Object) ||
+        getOperand(0)->mightBeType(MIRType_Symbol) || getOperand(1)->mightBeType(MIRType_Symbol))
+    {
         specialization_ = MIRType_None;
         setResultType(MIRType_Value);
         return;
@@ -1806,10 +1854,12 @@ MBinaryArithInstruction::infer(TempAllocator &alloc, BaselineInspector *inspecto
 
     specialization_ = MIRType_None;
 
-    // Don't specialize if one operand could be an object. If we specialize
-    // as int32 or double based on baseline feedback, we could DCE this
-    // instruction and fail to invoke any valueOf methods.
+    // Don't specialize if one operand could be an object or symbol. If we
+    // specialize as int32 or double based on baseline feedback, we could DCE
+    // this instruction and fail to invoke any valueOf methods.
     if (getOperand(0)->mightBeType(MIRType_Object) || getOperand(1)->mightBeType(MIRType_Object))
+        return;
+    if (getOperand(0)->mightBeType(MIRType_Symbol) || getOperand(1)->mightBeType(MIRType_Symbol))
         return;
 
     // Anything complex - strings, symbols, and objects - are not specialized
@@ -2376,6 +2426,20 @@ MResumePoint::New(TempAllocator &alloc, MBasicBlock *block, jsbytecode *pc, MRes
     for (size_t i = 0; i < operands.length(); i++)
         resume->initOperand(i, operands[i]);
 
+    return resume;
+}
+
+MResumePoint *
+MResumePoint::Copy(TempAllocator &alloc, MResumePoint *src)
+{
+    MResumePoint *resume = new(alloc) MResumePoint(src->block(), src->pc(),
+                                                   src->caller(), src->mode());
+    // Copy the operands from the original resume point, and not from the
+    // current block stack.
+    if (!resume->operands_.init(alloc, src->stackDepth()))
+        return nullptr;
+    for (size_t i = 0; i < resume->stackDepth(); i++)
+        resume->initOperand(i, src->getOperand(i));
     return resume;
 }
 
@@ -3375,6 +3439,9 @@ MBoundsCheck::foldsTo(TempAllocator &alloc)
 
 MDefinition *
 MArrayJoin::foldsTo(TempAllocator &alloc) {
+    // :TODO: Enable this optimization after fixing Bug 977966 test cases.
+    return this;
+
     MDefinition *arr = array();
 
     if (!arr->isStringSplit())
@@ -3440,6 +3507,13 @@ jit::ElementAccessIsPacked(types::CompilerConstraintList *constraints, MDefiniti
 {
     types::TemporaryTypeSet *types = obj->resultTypeSet();
     return types && !types->hasObjectFlags(constraints, types::OBJECT_FLAG_NON_PACKED);
+}
+
+bool
+jit::ElementAccessMightBeCopyOnWrite(types::CompilerConstraintList *constraints, MDefinition *obj)
+{
+    types::TemporaryTypeSet *types = obj->resultTypeSet();
+    return !types || types->hasObjectFlags(constraints, types::OBJECT_FLAG_COPY_ON_WRITE);
 }
 
 bool

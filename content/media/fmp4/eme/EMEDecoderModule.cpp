@@ -19,7 +19,7 @@
 #include "SharedThreadPool.h"
 #include "mozilla/EMELog.h"
 #include "EMEH264Decoder.h"
-#include "EMEAACDecoder.h"
+#include "EMEAudioDecoder.h"
 #include <string>
 
 namespace mozilla {
@@ -83,7 +83,7 @@ public:
                            mp4_demuxer::MP4Sample* aSample) MOZ_OVERRIDE {
       if (NS_FAILED(aResult)) {
         mDecryptor->mCallback->Error();
-        delete aSample;
+        MOZ_ASSERT(!aSample);
       } else {
         RefPtr<nsIRunnable> task;
         task = NS_NewRunnableMethodWithArg<MP4Sample*>(mDecryptor,
@@ -227,21 +227,21 @@ EMEDecoderModule::CreateH264Decoder(const VideoDecoderConfig& aConfig,
 }
 
 already_AddRefed<MediaDataDecoder>
-EMEDecoderModule::CreateAACDecoder(const AudioDecoderConfig& aConfig,
-                                   MediaTaskQueue* aAudioTaskQueue,
-                                   MediaDataDecoderCallback* aCallback)
+EMEDecoderModule::CreateAudioDecoder(const AudioDecoderConfig& aConfig,
+                                     MediaTaskQueue* aAudioTaskQueue,
+                                     MediaDataDecoderCallback* aCallback)
 {
   if (mCDMDecodesAudio) {
-    nsRefPtr<MediaDataDecoder> decoder(new EMEAACDecoder(mProxy,
-                                                         aConfig,
-                                                         aAudioTaskQueue,
-                                                         aCallback));
+    nsRefPtr<MediaDataDecoder> decoder(new EMEAudioDecoder(mProxy,
+                                                           aConfig,
+                                                           aAudioTaskQueue,
+                                                           aCallback));
     return decoder.forget();
   }
 
-  nsRefPtr<MediaDataDecoder> decoder(mPDM->CreateAACDecoder(aConfig,
-                                                            aAudioTaskQueue,
-                                                            aCallback));
+  nsRefPtr<MediaDataDecoder> decoder(mPDM->CreateAudioDecoder(aConfig,
+                                                              aAudioTaskQueue,
+                                                              aCallback));
   if (!decoder) {
     return nullptr;
   }

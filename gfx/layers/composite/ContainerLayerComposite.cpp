@@ -34,6 +34,9 @@
 #include "TextRenderer.h"               // for TextRenderer
 #include <vector>
 
+#define CULLING_LOG(...)
+// #define CULLING_LOG(...) printf_stderr("CULLING: " __VA_ARGS__)
+
 namespace mozilla {
 namespace layers {
 
@@ -52,6 +55,8 @@ GetOpaqueRect(Layer* aLayer)
 
   // Just bail if there's anything difficult to handle.
   if (!is2D || aLayer->GetMaskLayer() ||
+    aLayer->GetIsFixedPosition() ||
+    aLayer->GetIsStickyPosition() ||
     aLayer->GetEffectiveOpacity() != 1.0f ||
     matrix.HasNonIntegerTranslation()) {
     return result;
@@ -81,27 +86,6 @@ GetOpaqueRect(Layer* aLayer)
   return result;
 }
 
-struct LayerVelocityUserData : public LayerUserData {
-public:
-  LayerVelocityUserData() {
-    MOZ_COUNT_CTOR(LayerVelocityUserData);
-  }
-  ~LayerVelocityUserData() {
-    MOZ_COUNT_DTOR(LayerVelocityUserData);
-  }
-
-  struct VelocityData {
-    VelocityData(TimeStamp frameTime, int scrollX, int scrollY)
-      : mFrameTime(frameTime)
-      , mPoint(scrollX, scrollY)
-    {}
-
-    TimeStamp mFrameTime;
-    gfx::Point mPoint;
-  };
-  std::vector<VelocityData> mData;
-};
-
 static gfx::Point GetScrollData(Layer* aLayer) {
   gfx::Matrix matrix;
   if (aLayer->GetLocalTransform().Is2D(&matrix)) {
@@ -112,7 +96,7 @@ static gfx::Point GetScrollData(Layer* aLayer) {
   return origin;
 }
 
-static void DrawLayerInfo(const nsIntRect& aClipRect,
+static void DrawLayerInfo(const RenderTargetIntRect& aClipRect,
                           LayerManagerComposite* aManager,
                           Layer* aLayer)
 {
@@ -138,120 +122,6 @@ static void DrawLayerInfo(const nsIntRect& aClipRect,
 
 }
 
-static LayerVelocityUserData* GetVelocityData(Layer* aLayer) {
-  static char sLayerVelocityUserDataKey;
-  void* key = reinterpret_cast<void*>(&sLayerVelocityUserDataKey);
-  if (!aLayer->HasUserData(key)) {
-    LayerVelocityUserData* newData = new LayerVelocityUserData();
-    aLayer->SetUserData(key, newData);
-  }
-
-  return static_cast<LayerVelocityUserData*>(aLayer->GetUserData(key));
-}
-
-static void DrawVelGraph(const nsIntRect& aClipRect,
-                         LayerManagerComposite* aManager,
-                         Layer* aLayer) {
-  Compositor* compositor = aManager->GetCompositor();
-  gfx::Rect clipRect(aClipRect.x, aClipRect.y,
-                     aClipRect.width, aClipRect.height);
-
-  TimeStamp now = TimeStamp::Now();
-  LayerVelocityUserData* velocityData = GetVelocityData(aLayer);
-
-  if (velocityData->mData.size() >= 1 &&
-    now > velocityData->mData[velocityData->mData.size() - 1].mFrameTime +
-      TimeDuration::FromMilliseconds(200)) {
-    // clear stale data
-    velocityData->mData.clear();
-  }
-
-  const gfx::Point layerTransform = GetScrollData(aLayer);
-  velocityData->mData.push_back(
-    LayerVelocityUserData::VelocityData(now,
-      static_cast<int>(layerTransform.x), static_cast<int>(layerTransform.y)));
-
-  // TODO: dump to file
-  // XXX: Uncomment these lines to enable ScrollGraph logging. This is
-  //      useful for HVGA phones or to output the data to accurate
-  //      graphing software.
-  // printf_stderr("ScrollGraph (%p): %f, %f\n",
-  // aLayer, layerTransform.x, layerTransform.y);
-
-  // Keep a circular buffer of 100.
-  size_t circularBufferSize = 100;
-  if (velocityData->mData.size() > circularBufferSize) {
-    velocityData->mData.erase(velocityData->mData.begin());
-  }
-
-  if (velocityData->mData.size() == 1) {
-    return;
-  }
-
-  // Clear and disable the graph when it's flat
-  for (size_t i = 1; i < velocityData->mData.size(); i++) {
-    if (velocityData->mData[i - 1].mPoint != velocityData->mData[i].mPoint) {
-      break;
-    }
-    if (i == velocityData->mData.size() - 1) {
-      velocityData->mData.clear();
-      return;
-    }
-  }
-
-  if (aLayer->GetEffectiveVisibleRegion().GetBounds().width < 300 ||
-      aLayer->GetEffectiveVisibleRegion().GetBounds().height < 300) {
-    // Don't want a graph for smaller layers
-    return;
-  }
-
-  aManager->SetDebugOverlayWantsNextFrame(true);
-
-  const Matrix4x4& transform = aLayer->GetEffectiveTransform();
-  nsIntRect bounds = aLayer->GetEffectiveVisibleRegion().GetBounds();
-  IntSize graphSize = IntSize(200, 100);
-  Rect graphRect = Rect(bounds.x, bounds.y, graphSize.width, graphSize.height);
-
-  RefPtr<DrawTarget> dt = aManager->CreateDrawTarget(graphSize, SurfaceFormat::B8G8R8A8);
-  dt->FillRect(Rect(0, 0, graphSize.width, graphSize.height),
-               ColorPattern(Color(0.2f,0,0,1)));
-
-  int yScaleFactor = 3;
-  Point prev = Point(0,0);
-  bool first = true;
-  for (int32_t i = (int32_t)velocityData->mData.size() - 2; i >= 0; i--) {
-    const gfx::Point& p1 = velocityData->mData[i+1].mPoint;
-    const gfx::Point& p2 = velocityData->mData[i].mPoint;
-    int vel = sqrt((p1.x - p2.x) * (p1.x - p2.x) +
-                   (p1.y - p2.y) * (p1.y - p2.y));
-    Point next = Point(graphRect.width / circularBufferSize * i,
-                       graphRect.height - vel/yScaleFactor);
-    if (first) {
-      first = false;
-    } else {
-      dt->StrokeLine(prev, next, ColorPattern(Color(0,1,0,1)));
-    }
-    prev = next;
-  }
-
-  RefPtr<DataTextureSource> textureSource = compositor->CreateDataTextureSource();
-  RefPtr<SourceSurface> snapshot = dt->Snapshot();
-  RefPtr<DataSourceSurface> data = snapshot->GetDataSurface();
-  textureSource->Update(data);
-
-  EffectChain effectChain;
-  effectChain.mPrimaryEffect = CreateTexturedEffect(SurfaceFormat::B8G8R8A8,
-                                                    textureSource,
-                                                    Filter::POINT,
-                                                    true);
-
-  compositor->DrawQuad(graphRect,
-                       clipRect,
-                       effectChain,
-                       1.0f,
-                       transform);
-}
-
 static void PrintUniformityInfo(Layer* aLayer)
 {
   // Don't want to print a log for smaller layers
@@ -265,11 +135,9 @@ static void PrintUniformityInfo(Layer* aLayer)
     return;
   }
 
-  LayerIntPoint scrollOffset = RoundedToInt(frameMetrics.GetScrollOffsetInLayerPixels());
+  const LayerPoint scrollOffset = frameMetrics.GetScrollOffsetInLayerPixels();
   const gfx::Point layerTransform = GetScrollData(aLayer);
-  gfx::Point layerScroll;
-  layerScroll.x = scrollOffset.x - layerTransform.x;
-  layerScroll.y = scrollOffset.y - layerTransform.y;
+  const gfx::Point layerScroll = scrollOffset.ToUnknownPoint() - layerTransform;
 
   printf_stderr("UniformityInfo Layer_Move %llu %p %f, %f\n",
     TimeStamp::Now(), aLayer, layerScroll.x, layerScroll.y);
@@ -278,10 +146,10 @@ static void PrintUniformityInfo(Layer* aLayer)
 /* all of the per-layer prepared data we need to maintain */
 struct PreparedLayer
 {
-  PreparedLayer(LayerComposite *aLayer, nsIntRect aClipRect, bool aRestoreVisibleRegion, nsIntRegion &aVisibleRegion) :
+  PreparedLayer(LayerComposite *aLayer, RenderTargetIntRect aClipRect, bool aRestoreVisibleRegion, nsIntRegion &aVisibleRegion) :
     mLayer(aLayer), mClipRect(aClipRect), mRestoreVisibleRegion(aRestoreVisibleRegion), mSavedVisibleRegion(aVisibleRegion) {}
   LayerComposite* mLayer;
-  nsIntRect mClipRect;
+  RenderTargetIntRect mClipRect;
   bool mRestoreVisibleRegion;
   nsIntRegion mSavedVisibleRegion;
 };
@@ -297,7 +165,7 @@ struct PreparedData
 template<class ContainerT> void
 ContainerPrepare(ContainerT* aContainer,
                  LayerManagerComposite* aManager,
-                 const nsIntRect& aClipRect)
+                 const RenderTargetIntRect& aClipRect)
 {
   aContainer->mPrepared = MakeUnique<PreparedData>();
 
@@ -315,22 +183,32 @@ ContainerPrepare(ContainerT* aContainer,
       continue;
     }
 
-    nsIntRect clipRect = layerToRender->GetLayer()->
+    RenderTargetIntRect clipRect = layerToRender->GetLayer()->
         CalculateScissorRect(aClipRect, &aManager->GetWorldTransform());
     if (clipRect.IsEmpty()) {
       continue;
     }
 
+    CULLING_LOG("Preparing sublayer %p\n", layerToRender->GetLayer());
+
     nsIntRegion savedVisibleRegion;
     bool restoreVisibleRegion = false;
+    gfx::Matrix matrix;
+    bool is2D = layerToRender->GetLayer()->GetBaseTransform().Is2D(&matrix);
     if (i + 1 < children.Length() &&
-        layerToRender->GetLayer()->GetEffectiveTransform().IsIdentity()) {
+        is2D && !matrix.HasNonIntegerTranslation()) {
       LayerComposite* nextLayer = static_cast<LayerComposite*>(children.ElementAt(i + 1)->ImplData());
+      CULLING_LOG("Culling against %p\n", nextLayer->GetLayer());
       nsIntRect nextLayerOpaqueRect;
       if (nextLayer && nextLayer->GetLayer()) {
         nextLayerOpaqueRect = GetOpaqueRect(nextLayer->GetLayer());
+        gfx::Point point = matrix.GetTranslation();
+        nextLayerOpaqueRect.MoveBy(static_cast<int>(-point.x), static_cast<int>(-point.y));
+        CULLING_LOG("  point %i, %i\n", static_cast<int>(-point.x), static_cast<int>(-point.y));
+        CULLING_LOG("  opaque rect %i, %i, %i, %i\n", nextLayerOpaqueRect.x, nextLayerOpaqueRect.y, nextLayerOpaqueRect.width, nextLayerOpaqueRect.height);
       }
       if (!nextLayerOpaqueRect.IsEmpty()) {
+        CULLING_LOG("  draw\n");
         savedVisibleRegion = layerToRender->GetShadowVisibleRegion();
         nsIntRegion visibleRegion;
         visibleRegion.Sub(savedVisibleRegion, nextLayerOpaqueRect);
@@ -339,11 +217,15 @@ ContainerPrepare(ContainerT* aContainer,
         }
         layerToRender->SetShadowVisibleRegion(visibleRegion);
         restoreVisibleRegion = true;
+      } else {
+        CULLING_LOG("  skip\n");
       }
     }
     layerToRender->Prepare(clipRect);
     aContainer->mPrepared->mLayers.AppendElement(PreparedLayer(layerToRender, clipRect, restoreVisibleRegion, savedVisibleRegion));
   }
+
+  CULLING_LOG("Preparing container layer %p\n", aContainer->GetLayer());
 
   /**
    * Setup our temporary surface for rendering the contents of this container.
@@ -358,7 +240,7 @@ ContainerPrepare(ContainerT* aContainer,
       // If we don't need a copy we can render to the intermediate now to avoid
       // unecessary render target switching. This brings a big perf boost on mobile gpus.
       RefPtr<CompositingRenderTarget> surface = CreateTemporaryTarget(aContainer, aManager);
-      RenderIntermediate(aContainer, aManager, aClipRect, surface);
+      RenderIntermediate(aContainer, aManager, RenderTargetPixel::ToUntyped(aClipRect), surface);
       aContainer->mPrepared->mTmpTarget = surface;
     }
   }
@@ -367,7 +249,7 @@ ContainerPrepare(ContainerT* aContainer,
 template<class ContainerT> void
 RenderLayers(ContainerT* aContainer,
 	     LayerManagerComposite* aManager,
-	     const nsIntRect& aClipRect)
+	     const RenderTargetIntRect& aClipRect)
 {
   Compositor* compositor = aManager->GetCompositor();
 
@@ -390,9 +272,10 @@ RenderLayers(ContainerT* aContainer,
         EffectChain effectChain(aContainer);
         effectChain.mPrimaryEffect = new EffectSolidColor(ToColor(color));
         gfx::Rect clipRect(aClipRect.x, aClipRect.y, aClipRect.width, aClipRect.height);
-        Compositor* compositor = aManager->GetCompositor();
-        compositor->DrawQuad(compositor->ClipRectInLayersCoordinates(clipRect),
-            clipRect, effectChain, opacity, Matrix4x4());
+        compositor->DrawQuad(
+          RenderTargetPixel::ToUnknown(
+            compositor->ClipRectInLayersCoordinates(aClipRect)),
+          clipRect, effectChain, opacity, Matrix4x4());
       }
     }
   }
@@ -400,7 +283,8 @@ RenderLayers(ContainerT* aContainer,
   for (size_t i = 0u; i < aContainer->mPrepared->mLayers.Length(); i++) {
     PreparedLayer& preparedData = aContainer->mPrepared->mLayers[i];
     LayerComposite* layerToRender = preparedData.mLayer;
-    nsIntRect clipRect = preparedData.mClipRect;
+    const RenderTargetIntRect& clipRect = preparedData.mClipRect;
+
     if (layerToRender->HasLayerBeenComposited()) {
       // Composer2D will compose this layer so skip GPU composition
       // this time & reset composition flag for next composition phase
@@ -413,16 +297,12 @@ RenderLayers(ContainerT* aContainer,
         layerToRender->SetClearRect(nsIntRect(0, 0, 0, 0));
       }
     } else {
-      layerToRender->RenderLayer(clipRect);
+      layerToRender->RenderLayer(RenderTargetPixel::ToUntyped(clipRect));
     }
 
     if (preparedData.mRestoreVisibleRegion) {
       // Restore the region in case it's not covered by opaque content next time
       layerToRender->SetShadowVisibleRegion(preparedData.mSavedVisibleRegion);
-    }
-
-    if (gfxPrefs::LayersScrollGraph()) {
-      DrawVelGraph(clipRect, aManager, layerToRender->GetLayer());
     }
 
     if (gfxPrefs::UniformityInfo()) {
@@ -491,7 +371,7 @@ RenderIntermediate(ContainerT* aContainer,
 
   compositor->SetRenderTarget(surface);
   // pre-render all of the layers into our temporary
-  RenderLayers(aContainer, aManager, aClipRect);
+  RenderLayers(aContainer, aManager, RenderTargetPixel::FromUntyped(aClipRect));
   // Unbind the current surface and rebind the previous one.
   compositor->SetRenderTarget(previousTarget);
 }
@@ -508,7 +388,8 @@ ContainerRender(ContainerT* aContainer,
     if (!aContainer->mPrepared->mTmpTarget) {
       // we needed to copy the background so we waited until now to render the intermediate
       surface = CreateTemporaryTargetAndCopyFromBackground(aContainer, aManager);
-      RenderIntermediate(aContainer, aManager, aClipRect, surface);
+      RenderIntermediate(aContainer, aManager,
+                         aClipRect, surface);
     } else {
       surface = aContainer->mPrepared->mTmpTarget;
     }
@@ -542,7 +423,7 @@ ContainerRender(ContainerT* aContainer,
     aManager->GetCompositor()->DrawQuad(rect, clipRect, effectChain, opacity,
                                         aContainer->GetEffectiveTransform());
   } else {
-    RenderLayers(aContainer, aManager, aClipRect);
+    RenderLayers(aContainer, aManager, RenderTargetPixel::FromUntyped(aClipRect));
   }
   aContainer->mPrepared = nullptr;
 
@@ -611,7 +492,7 @@ ContainerLayerComposite::RenderLayer(const nsIntRect& aClipRect)
 }
 
 void
-ContainerLayerComposite::Prepare(const nsIntRect& aClipRect)
+ContainerLayerComposite::Prepare(const RenderTargetIntRect& aClipRect)
 {
   ContainerPrepare(this, mCompositeManager, aClipRect);
 }
@@ -660,7 +541,7 @@ RefLayerComposite::RenderLayer(const nsIntRect& aClipRect)
 }
 
 void
-RefLayerComposite::Prepare(const nsIntRect& aClipRect)
+RefLayerComposite::Prepare(const RenderTargetIntRect& aClipRect)
 {
   ContainerPrepare(this, mCompositeManager, aClipRect);
 }

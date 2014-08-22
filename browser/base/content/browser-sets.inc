@@ -38,7 +38,7 @@
 
     <commandset id="editMenuCommands"/>
 
-    <command id="View:PageSource" oncommand="BrowserViewSourceOfDocument(content.document);" observes="isImage"/>
+    <command id="View:PageSource" oncommand="BrowserViewSourceOfDocument(window.gBrowser.selectedBrowser.contentDocumentAsCPOW);" observes="isImage"/>
     <command id="View:PageInfo" oncommand="BrowserPageInfo();"/>
     <command id="View:FullScreen" oncommand="BrowserFullScreen();"/>
     <command id="cmd_find"
@@ -119,7 +119,7 @@
 #endif
     <command id="History:UndoCloseTab" oncommand="undoCloseTab();"/>
     <command id="History:UndoCloseWindow" oncommand="undoCloseWindow();"/>
-    <command id="Social:SharePage" oncommand="SocialShare.sharePage();"/>
+    <command id="Social:SharePage" oncommand="SocialShare.sharePage();" disabled="true"/>
     <command id="Social:ToggleSidebar" oncommand="SocialSidebar.toggleSidebar();" hidden="true"/>
     <command id="Social:ToggleNotifications" oncommand="Social.toggleNotifications();" hidden="true"/>
     <command id="Social:Addons" oncommand="BrowserOpenAddonsMgr('addons://list/service');"/>

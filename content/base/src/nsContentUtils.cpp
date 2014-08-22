@@ -214,9 +214,7 @@ nsILineBreaker *nsContentUtils::sLineBreaker;
 nsIWordBreaker *nsContentUtils::sWordBreaker;
 nsIBidiKeyboard *nsContentUtils::sBidiKeyboard = nullptr;
 uint32_t nsContentUtils::sScriptBlockerCount = 0;
-#ifdef DEBUG
 uint32_t nsContentUtils::sDOMNodeRemovedSuppressCount = 0;
-#endif
 uint32_t nsContentUtils::sMicroTaskLevel = 0;
 nsTArray< nsCOMPtr<nsIRunnable> >* nsContentUtils::sBlockedScriptRunners = nullptr;
 uint32_t nsContentUtils::sRunnersCountAtFirstBlocker = 0;
@@ -1953,19 +1951,6 @@ nsContentUtils::TraceSafeJSContext(JSTracer* aTrc)
   }
 }
 
-nsPIDOMWindow *
-nsContentUtils::GetWindowFromCaller()
-{
-  JSContext *cx = GetCurrentJSContext();
-  if (cx) {
-    nsCOMPtr<nsPIDOMWindow> win =
-      do_QueryInterface(nsJSUtils::GetDynamicScriptGlobal(cx));
-    return win;
-  }
-
-  return nullptr;
-}
-
 nsIDocument*
 nsContentUtils::GetDocumentFromCaller()
 {
@@ -1978,24 +1963,6 @@ nsContentUtils::GetDocumentFromCaller()
   }
 
   return win->GetExtantDoc();
-}
-
-nsIDocument*
-nsContentUtils::GetDocumentFromContext()
-{
-  JSContext *cx = GetCurrentJSContext();
-  if (cx) {
-    nsIScriptGlobalObject *sgo = nsJSUtils::GetDynamicScriptGlobal(cx);
-
-    if (sgo) {
-      nsCOMPtr<nsPIDOMWindow> pwin = do_QueryInterface(sgo);
-      if (pwin) {
-        return pwin->GetExtantDoc();
-      }
-    }
-  }
-
-  return nullptr;
 }
 
 bool
@@ -2632,6 +2599,7 @@ nsContentUtils::GenerateStateKey(nsIContent* aContent,
 nsIPrincipal*
 nsContentUtils::SubjectPrincipal()
 {
+  MOZ_ASSERT(IsInitialized());
   JSContext* cx = GetCurrentJSContext();
   if (!cx) {
     return GetSystemPrincipal();
@@ -3919,30 +3887,27 @@ nsContentUtils::MaybeFireNodeRemoved(nsINode* aChild, nsINode* aParent,
   NS_PRECONDITION(aChild->GetParentNode() == aParent, "Wrong parent");
   NS_PRECONDITION(aChild->OwnerDoc() == aOwnerDoc, "Wrong owner-doc");
 
-  // This checks that IsSafeToRunScript is true since we don't want to fire
-  // events when that is false. We can't rely on EventDispatcher to assert
-  // this in this situation since most of the time there are no mutation
-  // event listeners, in which case we won't even attempt to dispatch events.
-  // However this also allows for two exceptions. First off, we don't assert
-  // if the mutation happens to native anonymous content since we never fire
-  // mutation events on such content anyway.
-  // Second, we don't assert if sDOMNodeRemovedSuppressCount is true since
-  // that is a know case when we'd normally fire a mutation event, but can't
-  // make that safe and so we suppress it at this time. Ideally this should
-  // go away eventually.
-  NS_ASSERTION((aChild->IsNodeOfType(nsINode::eCONTENT) &&
-               static_cast<nsIContent*>(aChild)->
-                 IsInNativeAnonymousSubtree()) ||
-               IsSafeToRunScript() ||
-               sDOMNodeRemovedSuppressCount,
-               "Want to fire DOMNodeRemoved event, but it's not safe");
-
   // Having an explicit check here since it's an easy mistake to fall into,
   // and there might be existing code with problems. We'd rather be safe
   // than fire DOMNodeRemoved in all corner cases. We also rely on it for
   // nsAutoScriptBlockerSuppressNodeRemoved.
   if (!IsSafeToRunScript()) {
-    WarnScriptWasIgnored(aOwnerDoc);
+    // This checks that IsSafeToRunScript is true since we don't want to fire
+    // events when that is false. We can't rely on EventDispatcher to assert
+    // this in this situation since most of the time there are no mutation
+    // event listeners, in which case we won't even attempt to dispatch events.
+    // However this also allows for two exceptions. First off, we don't assert
+    // if the mutation happens to native anonymous content since we never fire
+    // mutation events on such content anyway.
+    // Second, we don't assert if sDOMNodeRemovedSuppressCount is true since
+    // that is a know case when we'd normally fire a mutation event, but can't
+    // make that safe and so we suppress it at this time. Ideally this should
+    // go away eventually.
+    if (!(aChild->IsContent() && aChild->AsContent()->IsInNativeAnonymousSubtree()) &&
+        !sDOMNodeRemovedSuppressCount) {
+      NS_ERROR("Want to fire DOMNodeRemoved event, but it's not safe");
+      WarnScriptWasIgnored(aOwnerDoc);
+    }
     return;
   }
 
@@ -4697,6 +4662,7 @@ nsContentUtils::CheckSecurityBeforeLoad(nsIURI* aURIToLoad,
 bool
 nsContentUtils::IsSystemPrincipal(nsIPrincipal* aPrincipal)
 {
+  MOZ_ASSERT(IsInitialized());
   return aPrincipal == sSystemPrincipal;
 }
 
@@ -4710,6 +4676,7 @@ nsContentUtils::IsExpandedPrincipal(nsIPrincipal* aPrincipal)
 nsIPrincipal*
 nsContentUtils::GetSystemPrincipal()
 {
+  MOZ_ASSERT(IsInitialized());
   return sSystemPrincipal;
 }
 
@@ -5521,6 +5488,7 @@ JSContext *
 nsContentUtils::GetCurrentJSContext()
 {
   MOZ_ASSERT(NS_IsMainThread());
+  MOZ_ASSERT(IsInitialized());
   return sXPConnect->GetCurrentJSContext();
 }
 
@@ -5529,6 +5497,7 @@ JSContext *
 nsContentUtils::GetSafeJSContext()
 {
   MOZ_ASSERT(NS_IsMainThread());
+  MOZ_ASSERT(IsInitialized());
   return sXPConnect->GetSafeJSContext();
 }
 
@@ -5536,6 +5505,7 @@ nsContentUtils::GetSafeJSContext()
 JSContext *
 nsContentUtils::GetDefaultJSContextForThread()
 {
+  MOZ_ASSERT(IsInitialized());
   if (MOZ_LIKELY(NS_IsMainThread())) {
     return GetSafeJSContext();
   } else {
@@ -5547,6 +5517,7 @@ nsContentUtils::GetDefaultJSContextForThread()
 JSContext *
 nsContentUtils::GetCurrentJSContextForThread()
 {
+  MOZ_ASSERT(IsInitialized());
   if (MOZ_LIKELY(NS_IsMainThread())) {
     return GetCurrentJSContext();
   } else {
@@ -5555,14 +5526,13 @@ nsContentUtils::GetCurrentJSContextForThread()
 }
 
 /* static */
-nsresult
+void
 nsContentUtils::ASCIIToLower(nsAString& aStr)
 {
   char16_t* iter = aStr.BeginWriting();
   char16_t* end = aStr.EndWriting();
-  if (MOZ_UNLIKELY(!iter || !end)) {
-    return NS_ERROR_OUT_OF_MEMORY;
-  }
+  MOZ_ASSERT(iter && end);
+
   while (iter != end) {
     char16_t c = *iter;
     if (c >= 'A' && c <= 'Z') {
@@ -5570,43 +5540,38 @@ nsContentUtils::ASCIIToLower(nsAString& aStr)
     }
     ++iter;
   }
-  return NS_OK;
 }
 
 /* static */
-nsresult
+void
 nsContentUtils::ASCIIToLower(const nsAString& aSource, nsAString& aDest)
 {
   uint32_t len = aSource.Length();
   aDest.SetLength(len);
-  if (aDest.Length() == len) {
-    char16_t* dest = aDest.BeginWriting();
-    if (MOZ_UNLIKELY(!dest)) {
-      return NS_ERROR_OUT_OF_MEMORY;
-    }
-    const char16_t* iter = aSource.BeginReading();
-    const char16_t* end = aSource.EndReading();
-    while (iter != end) {
-      char16_t c = *iter;
-      *dest = (c >= 'A' && c <= 'Z') ?
-         c + ('a' - 'A') : c;
-      ++iter;
-      ++dest;
-    }
-    return NS_OK;
+  MOZ_ASSERT(aDest.Length() == len);
+
+  char16_t* dest = aDest.BeginWriting();
+  MOZ_ASSERT(dest);
+
+  const char16_t* iter = aSource.BeginReading();
+  const char16_t* end = aSource.EndReading();
+  while (iter != end) {
+    char16_t c = *iter;
+    *dest = (c >= 'A' && c <= 'Z') ?
+       c + ('a' - 'A') : c;
+    ++iter;
+    ++dest;
   }
-  return NS_ERROR_OUT_OF_MEMORY;
 }
 
 /* static */
-nsresult
+void
 nsContentUtils::ASCIIToUpper(nsAString& aStr)
 {
   char16_t* iter = aStr.BeginWriting();
   char16_t* end = aStr.EndWriting();
-  if (MOZ_UNLIKELY(!iter || !end)) {
-    return NS_ERROR_OUT_OF_MEMORY;
-  }
+  MOZ_ASSERT(iter && end);
+
   while (iter != end) {
     char16_t c = *iter;
     if (c >= 'a' && c <= 'z') {
@@ -5614,32 +5579,28 @@ nsContentUtils::ASCIIToUpper(nsAString& aStr)
     }
     ++iter;
   }
-  return NS_OK;
 }
 
 /* static */
-nsresult
+void
 nsContentUtils::ASCIIToUpper(const nsAString& aSource, nsAString& aDest)
 {
   uint32_t len = aSource.Length();
   aDest.SetLength(len);
-  if (aDest.Length() == len) {
-    char16_t* dest = aDest.BeginWriting();
-    if (MOZ_UNLIKELY(!dest)) {
-      return NS_ERROR_OUT_OF_MEMORY;
-    }
-    const char16_t* iter = aSource.BeginReading();
-    const char16_t* end = aSource.EndReading();
-    while (iter != end) {
-      char16_t c = *iter;
-      *dest = (c >= 'a' && c <= 'z') ?
-         c + ('A' - 'a') : c;
-      ++iter;
-      ++dest;
-    }
-    return NS_OK;
+  MOZ_ASSERT(aDest.Length() == len);
+
+  char16_t* dest = aDest.BeginWriting();
+  MOZ_ASSERT(dest);
+
+  const char16_t* iter = aSource.BeginReading();
+  const char16_t* end = aSource.EndReading();
+  while (iter != end) {
+    char16_t c = *iter;
+    *dest = (c >= 'a' && c <= 'z') ?
+      c + ('A' - 'a') : c;
+    ++iter;
+    ++dest;
   }
-  return NS_ERROR_OUT_OF_MEMORY;
 }
 
 /* static */

@@ -3219,10 +3219,10 @@ ContentParent::RecvSpeakerManagerGetSpeakerStatus(bool* aValue)
 #ifdef MOZ_WIDGET_GONK
     *aValue = false;
     nsRefPtr<SpeakerManagerService> service =
-      SpeakerManagerService::GetSpeakerManagerService();
-    if (service) {
-        *aValue = service->GetSpeakerStatus();
-    }
+      SpeakerManagerService::GetOrCreateSpeakerManagerService();
+    MOZ_ASSERT(service);
+
+    *aValue = service->GetSpeakerStatus();
     return true;
 #endif
     return false;
@@ -3233,10 +3233,10 @@ ContentParent::RecvSpeakerManagerForceSpeaker(const bool& aEnable)
 {
 #ifdef MOZ_WIDGET_GONK
     nsRefPtr<SpeakerManagerService> service =
-      SpeakerManagerService::GetSpeakerManagerService();
-    if (service) {
-        service->ForceSpeaker(aEnable, mChildID);
-    }
+      SpeakerManagerService::GetOrCreateSpeakerManagerService();
+    MOZ_ASSERT(service);
+    service->ForceSpeaker(aEnable, mChildID);
+
     return true;
 #endif
     return false;
@@ -3361,6 +3361,7 @@ ContentParent::RecvShowAlertNotification(const nsString& aImageUrl, const nsStri
                                          const nsString& aText, const bool& aTextClickable,
                                          const nsString& aCookie, const nsString& aName,
                                          const nsString& aBidi, const nsString& aLang,
+                                         const nsString& aData,
                                          const IPC::Principal& aPrincipal)
 {
 #ifdef MOZ_CHILD_PERMISSIONS
@@ -3374,7 +3375,8 @@ ContentParent::RecvShowAlertNotification(const nsString& aImageUrl, const nsStri
     nsCOMPtr<nsIAlertsService> sysAlerts(do_GetService(NS_ALERTSERVICE_CONTRACTID));
     if (sysAlerts) {
         sysAlerts->ShowAlertNotification(aImageUrl, aTitle, aText, aTextClickable,
-                                         aCookie, this, aName, aBidi, aLang, aPrincipal);
+                                         aCookie, this, aName, aBidi, aLang,
+                                         aData, aPrincipal);
     }
     return true;
 }

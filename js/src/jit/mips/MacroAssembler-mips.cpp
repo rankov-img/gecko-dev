@@ -2824,7 +2824,7 @@ MacroAssemblerMIPSCompat::moveValue(const Value &val, const ValueOperand &dest)
  *      jr at
  *      nop                # In delay slot.
  *
- * The backedge i done this way to avoid patching lui+ori pair while it is
+ * The backedge is done this way to avoid patching lui+ori pair while it is
  * being executed. Look also at jit::PatchBackedge().
  */
 CodeOffsetJump
@@ -2843,7 +2843,7 @@ MacroAssemblerMIPSCompat::backedgeJump(RepatchLabel *label)
         MOZ_ASSERT(BOffImm16::IsInRange(offset));
         as_b(BOffImm16(offset));
     } else {
-        // Jump to ori is default. The lui is executed in delay slot.
+        // Jump to "label1" by default to jump to the loop header.
         as_b(BOffImm16(2 * sizeof(uint32_t)));
     }
     // No need for nop here. We can safely put next instruction in delay slot.

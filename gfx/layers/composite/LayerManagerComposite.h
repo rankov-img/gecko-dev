@@ -73,7 +73,7 @@ class LayerManagerComposite : public LayerManager
   typedef mozilla::gfx::SurfaceFormat SurfaceFormat;
 
 public:
-  LayerManagerComposite(Compositor* aCompositor);
+  explicit LayerManagerComposite(Compositor* aCompositor);
   ~LayerManagerComposite();
 
   virtual void Destroy() MOZ_OVERRIDE;
@@ -315,7 +315,7 @@ private:
 class LayerComposite
 {
 public:
-  LayerComposite(LayerManagerComposite* aManager);
+  explicit LayerComposite(LayerManagerComposite* aManager);
 
   virtual ~LayerComposite();
 
@@ -336,8 +336,9 @@ public:
    * This allows us on to avoid framebuffer switches in the middle of our render
    * which is inefficient. This must be called before RenderLayer.
    */
-  virtual void Prepare(const nsIntRect& aClipRect) {}
+  virtual void Prepare(const RenderTargetIntRect& aClipRect) {}
 
+  // TODO: This should also take RenderTargetIntRect like Prepare.
   virtual void RenderLayer(const nsIntRect& aClipRect) = 0;
 
   virtual bool SetCompositableHost(CompositableHost*)

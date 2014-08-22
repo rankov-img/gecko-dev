@@ -187,6 +187,7 @@ class ParallelSafetyVisitor : public MDefinitionVisitor
     SAFE_OP(MaybeToDoubleElement)
     CUSTOM_OP(ToString)
     CUSTOM_OP(NewArray)
+    UNSAFE_OP(NewArrayCopyOnWrite)
     CUSTOM_OP(NewObject)
     CUSTOM_OP(NewCallObject)
     CUSTOM_OP(NewRunOnceCallObject)
@@ -336,17 +337,15 @@ class ParallelSafetyVisitor : public MDefinitionVisitor
 
     // It looks like this could easily be made safe:
     UNSAFE_OP(ConvertElementsToDoubles)
+    UNSAFE_OP(MaybeCopyElementsForWrite)
 };
 
 static void
 TransplantResumePoint(MInstruction *oldInstruction, MInstruction *replacementInstruction)
 {
     MOZ_ASSERT(!oldInstruction->isDiscarded());
-    if (MResumePoint *rp = oldInstruction->resumePoint()) {
+    if (oldInstruction->resumePoint())
         replacementInstruction->stealResumePoint(oldInstruction);
-        if (rp->instruction() == oldInstruction)
-            rp->setInstruction(replacementInstruction);
-    }
 }
 
 bool

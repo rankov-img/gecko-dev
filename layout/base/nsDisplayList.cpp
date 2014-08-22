@@ -583,6 +583,11 @@ void nsDisplayListBuilder::SetContainsBlendMode(uint8_t aBlendMode)
   mContainedBlendModes += gfx::CompositionOpForOp(op);
 }
 
+bool nsDisplayListBuilder::NeedToForceTransparentSurfaceForItem(nsDisplayItem* aItem)
+{
+  return aItem == mGlassDisplayItem || aItem->ClearsBackground();
+}
+
 void nsDisplayListBuilder::MarkOutOfFlowFrameForDisplay(nsIFrame* aDirtyFrame,
                                                         nsIFrame* aFrame,
                                                         const nsRect& aDirtyRect)
@@ -1885,6 +1890,11 @@ nsDisplayBackgroundImage::AppendBackgroundItemsToTop(nsDisplayListBuilder* aBuil
   }
 
   if (isThemed) {
+    nsITheme* theme = presContext->GetTheme();
+    if (theme->NeedToClearBackgroundBehindWidget(aFrame->StyleDisplay()->mAppearance)) {
+      bgItemList.AppendNewToTop(
+        new (aBuilder) nsDisplayClearBackground(aBuilder, aFrame));
+    }
     nsDisplayThemedBackground* bgItem =
       new (aBuilder) nsDisplayThemedBackground(aBuilder, aFrame);
     bgItemList.AppendNewToTop(bgItem);
@@ -2650,6 +2660,29 @@ nsDisplayBackgroundColor::WriteDebugInfo(nsACString& aTo)
           mColor.b, mColor.a);
 }
 #endif
+
+already_AddRefed<Layer>
+nsDisplayClearBackground::BuildLayer(nsDisplayListBuilder* aBuilder,
+                                     LayerManager* aManager,
+                                     const ContainerLayerParameters& aParameters)
+{
+  nsRefPtr<ColorLayer> layer = static_cast<ColorLayer*>
+    (aManager->GetLayerBuilder()->GetLeafLayerFor(aBuilder, this));
+  if (!layer) {
+    layer = aManager->CreateColorLayer();
+    if (!layer)
+      return nullptr;
+  }
+  layer->SetColor(NS_RGBA(0, 0, 0, 0));
+  layer->SetMixBlendMode(gfx::CompositionOp::OP_SOURCE);
+
+  bool snap;
+  nsRect bounds = GetBounds(aBuilder, &snap);
+  int32_t appUnitsPerDevPixel = mFrame->PresContext()->AppUnitsPerDevPixel();
+  layer->SetBounds(bounds.ToNearestPixels(appUnitsPerDevPixel)); // XXX Do we need to respect the parent layer's scale here?
+
+  return layer.forget();
+}
 
 nsRect
 nsDisplayOutline::GetBounds(nsDisplayListBuilder* aBuilder, bool* aSnap) {
@@ -4725,11 +4758,16 @@ nsDisplayTransform::GetResultingTransformMatrixInternal(const FrameTransformProp
     FrameTransformProperties props(frame->GetParent(),
                                    aAppUnitsPerPixel,
                                    nullptr);
+
+    // If this frame isn't transformed (but we exist for backface-visibility),
+    // then we're not a reference frame so no offset to origin will be added. Our
+    // parent transform however *is* the reference frame, so we pass true for
+    // aOffsetByOrigin to convert into the correct coordinate space.
     gfx3DMatrix parent =
       GetResultingTransformMatrixInternal(props,
                                           aOrigin - frame->GetPosition(),
                                           aAppUnitsPerPixel, nullptr,
-                                          aOutAncestor, false);
+                                          aOutAncestor, !frame->IsTransformed());
 
     result.ChangeBasis(offsetBetweenOrigins);
     result = result * parent;
@@ -4868,7 +4906,7 @@ nsDisplayTransform::GetTransform()
        */
       mTransform = ToMatrix4x4(
         GetResultingTransformMatrix(mFrame, ToReferenceFrame(), scale,
-                                    nullptr, nullptr, true));
+                                    nullptr, nullptr, mFrame->IsTransformed()));
     }
   }
   return mTransform;

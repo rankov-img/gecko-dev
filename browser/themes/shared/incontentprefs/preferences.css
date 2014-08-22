@@ -100,6 +100,10 @@ prefpane {
 
 /* General Pane */
 
+#isNotDefaultLabel {
+  font-weight: bold;
+}
+
 #downloadFolder {
   -moz-margin-start: 0;
 }
@@ -308,11 +312,6 @@ description > html|a {
   /* Default dialog dimensions */
   height: 30em;
   width: 66ch;
-}
-
-/* needs to be removed with bug 1035625 */
-:-moz-any(dialog, window, prefwindow) resizer {
-  display: none;
 }
 
 tree:not(#rejectsTree) {

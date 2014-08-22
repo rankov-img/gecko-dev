@@ -23,13 +23,9 @@ class TempAllocator
 {
     LifoAllocScope lifoScope_;
 
-    // Linked list of GCThings rooted by this allocator.
-    CompilerRootNode *rootList_;
-
   public:
     explicit TempAllocator(LifoAlloc *lifoAlloc)
-      : lifoScope_(lifoAlloc),
-        rootList_(nullptr)
+      : lifoScope_(lifoAlloc)
     { }
 
     void *allocateInfallible(size_t bytes)
@@ -61,35 +57,11 @@ class TempAllocator
         return &lifoScope_.alloc();
     }
 
-    CompilerRootNode *&rootList()
-    {
-        return rootList_;
-    }
-
     bool ensureBallast() {
         // Most infallible Ion allocations are small, so we use a ballast of
         // ~16K for now.
         return lifoScope_.alloc().ensureUnusedApproximate(16 * 1024);
     }
-};
-
-// Stack allocated rooter for all roots associated with a TempAllocator
-class AutoTempAllocatorRooter : private JS::AutoGCRooter
-{
-  public:
-    explicit AutoTempAllocatorRooter(JSContext *cx, TempAllocator *temp
-                                     MOZ_GUARD_OBJECT_NOTIFIER_PARAM)
-      : JS::AutoGCRooter(cx, IONALLOC), temp(temp)
-    {
-        MOZ_GUARD_OBJECT_NOTIFIER_INIT;
-    }
-
-    friend void JS::AutoGCRooter::trace(JSTracer *trc);
-    void trace(JSTracer *trc);
-
-  private:
-    TempAllocator *temp;
-    MOZ_DECL_USE_GUARD_OBJECT_NOTIFIER
 };
 
 class IonAllocPolicy
@@ -113,11 +85,13 @@ class IonAllocPolicy
             memset(p, 0, numElems * sizeof(T));
         return p;
     }
-    void *realloc_(void *p, size_t oldBytes, size_t bytes) {
-        void *n = static_cast<void *>(pod_malloc<uint8_t>(bytes));
+    template <typename T>
+    T *pod_realloc(T *p, size_t oldSize, size_t newSize) {
+        T *n = pod_malloc<T>(newSize);
         if (!n)
             return n;
-        memcpy(n, p, Min(oldBytes, bytes));
+        MOZ_ASSERT(!(oldSize & mozilla::tl::MulOverflowMask<sizeof(T)>::value));
+        memcpy(n, p, Min(oldSize * sizeof(T), newSize * sizeof(T)));
         return n;
     }
     void free_(void *p) {

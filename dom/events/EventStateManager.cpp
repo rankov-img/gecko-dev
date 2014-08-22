@@ -1595,8 +1595,9 @@ EventStateManager::GenerateDragGesture(nsPresContext* aPresContext,
     // fire drag gesture if mouse has moved enough
     LayoutDeviceIntPoint pt = aEvent->refPoint +
       LayoutDeviceIntPoint::FromUntyped(aEvent->widget->WidgetToScreenOffset());
-    if (DeprecatedAbs(pt.x - mGestureDownPoint.x) > pixelThresholdX ||
-        DeprecatedAbs(pt.y - mGestureDownPoint.y) > pixelThresholdY) {
+    LayoutDeviceIntPoint distance = pt - mGestureDownPoint;
+    if (Abs(distance.x.value) > SafeCast<uint32_t>(pixelThresholdX) ||
+        Abs(distance.y.value) > SafeCast<uint32_t>(pixelThresholdY)) {
       if (Prefs::ClickHoldContextMenu()) {
         // stop the click-hold before we fire off the drag gesture, in case
         // it takes a long time
@@ -2020,6 +2021,9 @@ EventStateManager::DoScrollZoom(nsIFrame* aTargetFrame,
       } else {
         ChangeTextSize(change);
       }
+      nsContentUtils::DispatchChromeEvent(mDocument, static_cast<nsIDocument*>(mDocument),
+                                          NS_LITERAL_STRING("ZoomChangeUsingMouseWheel"),
+                                          true, true);
     }
 }
 

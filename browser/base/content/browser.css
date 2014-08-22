@@ -290,6 +290,7 @@ toolbarpaletteitem > #personal-bookmarks > #bookmarks-toolbar-placeholder,
   display: -moz-box;
 }
 
+#nav-bar-customization-target > #personal-bookmarks,
 toolbar:not(#TabsToolbar) > #wrapper-personal-bookmarks,
 toolbar:not(#TabsToolbar) > #personal-bookmarks {
   -moz-box-flex: 1;
@@ -680,6 +681,13 @@ window[chromehidden~="toolbar"] toolbar:not(.toolbar-primary):not(.chromeclass-m
 
 #invalid-form-popup > description {
   max-width: 280px;
+}
+
+.form-validation-anchor {
+  /* should occupy space but not be visible */
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 #addon-progress-notification {

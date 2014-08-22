@@ -1151,8 +1151,8 @@ JS_InitStandardClasses(JSContext *cx, HandleObject obj)
 typedef struct JSStdName {
     size_t      atomOffset;     /* offset of atom pointer in JSAtomState */
     JSProtoKey  key;
-    bool isDummy() const { return key == JSProto_Null; };
-    bool isSentinel() const { return key == JSProto_LIMIT; };
+    bool isDummy() const { return key == JSProto_Null; }
+    bool isSentinel() const { return key == JSProto_LIMIT; }
 } JSStdName;
 
 static const JSStdName*
@@ -1415,11 +1415,12 @@ JS_malloc(JSContext *cx, size_t nbytes)
 }
 
 JS_PUBLIC_API(void *)
-JS_realloc(JSContext *cx, void *p, size_t nbytes)
+JS_realloc(JSContext *cx, void *p, size_t oldBytes, size_t newBytes)
 {
     AssertHeapIsIdle(cx);
     CHECK_REQUEST(cx);
-    return cx->realloc_(p, nbytes);
+    return static_cast<void *>(cx->zone()->pod_realloc<uint8_t>(static_cast<uint8_t *>(p), oldBytes,
+                                                                newBytes));
 }
 
 JS_PUBLIC_API(void)
@@ -4331,9 +4332,9 @@ JS::OwningCompileOptions::copy(JSContext *cx, const ReadOnlyCompileOptions &rhs)
     setElementAttributeName(rhs.elementAttributeName());
     setIntroductionScript(rhs.introductionScript());
 
-    return (setFileAndLine(cx, rhs.filename(), rhs.lineno) &&
-            setSourceMapURL(cx, rhs.sourceMapURL()) &&
-            setIntroducerFilename(cx, rhs.introducerFilename()));
+    return setFileAndLine(cx, rhs.filename(), rhs.lineno) &&
+           setSourceMapURL(cx, rhs.sourceMapURL()) &&
+           setIntroducerFilename(cx, rhs.introducerFilename());
 }
 
 bool

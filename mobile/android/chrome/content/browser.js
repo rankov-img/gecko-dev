@@ -1124,7 +1124,7 @@ var BrowserApp = {
     aTab.browser.dispatchEvent(evt);
   },
 
-  quit: function quit(aClear = {}) {
+  quit: function quit(aClear = { sanitize: {}, dontSaveSession: false }) {
     // Figure out if there's at least one other browser window around.
     let lastBrowser = true;
     let e = Services.wm.getEnumerator("navigator:browser");
@@ -1144,7 +1144,13 @@ var BrowserApp = {
       Services.obs.notifyObservers(null, "browser-lastwindow-close-granted", null);
     }
 
-    BrowserApp.sanitize(aClear, function() {
+    // Tell session store to forget about this window
+    if (aClear.dontSaveSession) {
+      let ss = Cc["@mozilla.org/browser/sessionstore;1"].getService(Ci.nsISessionStore);
+      ss.removeWindow(window);
+    }
+
+    BrowserApp.sanitize(aClear.sanitize, function() {
       window.QueryInterface(Ci.nsIDOMChromeWindow).minimize();
       window.close();
     });
@@ -3028,10 +3034,6 @@ nsBrowserAccess.prototype = {
   isTabContentWindow: function(aWindow) {
     return BrowserApp.getBrowserForWindow(aWindow) != null;
   },
-
-  get contentWindow() {
-    return BrowserApp.selectedBrowser.contentWindow;
-  }
 };
 
 
@@ -4198,7 +4200,7 @@ Tab.prototype = {
 
     // In guest sessions, we refuse to let you open any file urls.
     if (BrowserApp.isGuest) {
-      let bannedSchemes = ["file", "chrome", "resource", "jar"];
+      let bannedSchemes = ["file", "chrome", "resource", "jar", "wyciwyg"];
 
       if (bannedSchemes.indexOf(fixedURI.scheme) > -1) {
         aRequest.cancel(Cr.NS_BINDING_ABORTED);

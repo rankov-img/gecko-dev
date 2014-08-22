@@ -113,7 +113,6 @@ JitFrameIterator::JitFrameIterator(IonJSFrameLayout *fp, ExecutionMode mode)
     mode_(mode),
     kind_(Kind_FrameIterator)
 {
-    verifyReturnAddressUsingNativeToBytecodeMap();
 }
 
 IonBailoutIterator *
@@ -331,7 +330,6 @@ JitFrameIterator::operator++()
     returnAddressToFp_ = current()->returnAddress();
     current_ = prev;
 
-    verifyReturnAddressUsingNativeToBytecodeMap();
 
     return *this;
 }
@@ -1358,13 +1356,6 @@ void UpdateJitActivationsForMinorGC<gc::ForkJoinNursery>(PerThreadData *ptd, JST
 #endif
 
 #endif
-
-void
-AutoTempAllocatorRooter::trace(JSTracer *trc)
-{
-    for (CompilerRootNode *root = temp->rootList(); root != nullptr; root = root->next)
-        gc::MarkGCThingRoot(trc, root->address(), "ion-compiler-root");
-}
 
 void
 GetPcScript(JSContext *cx, JSScript **scriptRes, jsbytecode **pcRes)

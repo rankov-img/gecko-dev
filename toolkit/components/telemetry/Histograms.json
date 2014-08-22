@@ -45,10 +45,10 @@
     "n_values": 3,
     "description": "Application reputation remote status (0=OK, 1=FAIL, 2=INVALID)"
   },
-  "APPLICATION_REPUTATION_SERVER_RESPONSE": {
+  "APPLICATION_REPUTATION_SERVER_VERDICT": {
     "expires_in_version": "never",
     "kind": "enumerated",
-    "n_values": 5,
+    "n_values": 8,
     "description": "Application reputation remote response (0=SAFE, 1=DANGEROUS, 2=UNCOMMON, 3=POTENTIALLY_UNWANTED, 4=DANGEROUS_HOST)"
   },
   "APPLICATION_REPUTATION_COUNT": {
@@ -3078,6 +3078,19 @@
     "high": 524288,
     "n_buckets" : 100,
     "description": "PLACES: Size of favicon files without a specific file type probe, loaded from the web (Bytes)"
+  },
+  "LINK_ICON_SIZES_ATTR_USAGE": {
+    "expires_in_version" : "never",
+    "kind": "enumerated",
+    "n_values": 4,
+    "description": "The possible types of the 'sizes' attribute for <link rel=icon>. 0: Attribute not specified, 1: 'any', 2: Integer dimensions, 3: Invalid value."
+  },
+  "LINK_ICON_SIZES_ATTR_DIMENSION": {
+    "expires_in_version" : "never",
+    "kind": "linear",
+    "high": 513,
+    "n_buckets" : 64,
+    "description": "The width dimension of the 'sizes' attribute for <link rel=icon>."
   },
   "FENNEC_DISTRIBUTION_REFERRER_INVALID": {
     "expires_in_version": "never",

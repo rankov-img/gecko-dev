@@ -269,7 +269,7 @@ ArrayBufferObject::class_constructor(JSContext *cx, unsigned argc, Value *vp)
 static ArrayBufferObject::BufferContents
 AllocateArrayBufferContents(JSContext *cx, uint32_t nbytes)
 {
-    void *p = cx->runtime()->callocCanGC(nbytes);
+    uint8_t *p = cx->runtime()->pod_callocCanGC<uint8_t>(nbytes);
     if (!p)
         js_ReportOutOfMemory(cx);
 
@@ -392,11 +392,6 @@ ArrayBufferObject::changeContents(JSContext *cx, BufferContents newContents)
     }
 }
 
-#if defined(JS_CODEGEN_X64)
-// Refer to comment above AsmJSMappedSize in AsmJS.h.
-JS_STATIC_ASSERT(AsmJSAllocationGranularity == AsmJSPageSize);
-#endif
-
 /* static */ bool
 ArrayBufferObject::prepareForAsmJSNoSignals(JSContext *cx, Handle<ArrayBufferObject*> buffer)
 {
@@ -449,7 +444,7 @@ ArrayBufferObject::prepareForAsmJS(JSContext *cx, Handle<ArrayBufferObject*> buf
 # endif
 
     // Enable access to the valid region.
-    JS_ASSERT(buffer->byteLength() % AsmJSAllocationGranularity == 0);
+    JS_ASSERT(buffer->byteLength() % AsmJSPageSize == 0);
 # ifdef XP_WIN
     if (!VirtualAlloc(data, buffer->byteLength(), MEM_COMMIT, PAGE_READWRITE)) {
         VirtualFree(data, 0, MEM_RELEASE);
@@ -1145,6 +1140,12 @@ JS_IsArrayBufferObject(JSObject *obj)
 {
     obj = CheckedUnwrap(obj);
     return obj ? obj->is<ArrayBufferObject>() : false;
+}
+
+JS_FRIEND_API(bool)
+JS_ArrayBufferHasData(JSObject *obj)
+{
+    return CheckedUnwrap(obj)->as<ArrayBufferObject>().hasData();
 }
 
 JS_FRIEND_API(JSObject *)

@@ -677,13 +677,13 @@ Range::or_(TempAllocator &alloc, const Range *lhs, const Range *rhs)
         if (lhs->lower() == 0)
             return new(alloc) Range(*rhs);
         if (lhs->lower() == -1)
-            return new(alloc) Range(*lhs);;
+            return new(alloc) Range(*lhs);
     }
     if (rhs->lower() == rhs->upper()) {
         if (rhs->lower() == 0)
             return new(alloc) Range(*lhs);
         if (rhs->lower() == -1)
-            return new(alloc) Range(*rhs);;
+            return new(alloc) Range(*rhs);
     }
 
     // The code below uses CountLeadingZeroes32, which has undefined behavior
@@ -1520,11 +1520,11 @@ MStringLength::computeRange(TempAllocator &alloc)
 void
 MArgumentsLength::computeRange(TempAllocator &alloc)
 {
-    // This is is a conservative upper bound on what |TooManyArguments| checks.
-    // If exceeded, Ion will not be entered in the first place.
-    static_assert(SNAPSHOT_MAX_NARGS <= UINT32_MAX,
-                  "NewUInt32Range requires a uint32 value");
-    setRange(Range::NewUInt32Range(alloc, 0, SNAPSHOT_MAX_NARGS));
+    // This is is a conservative upper bound on what |TooManyActualArguments|
+    // checks.  If exceeded, Ion will not be entered in the first place.
+    MOZ_ASSERT(js_JitOptions.maxStackArgs <= UINT32_MAX,
+               "NewUInt32Range requires a uint32 value");
+    setRange(Range::NewUInt32Range(alloc, 0, js_JitOptions.maxStackArgs));
 }
 
 void
@@ -2274,7 +2274,8 @@ MToDouble::truncate(TruncateKind kind)
 bool
 MLoadTypedArrayElementStatic::truncate(TruncateKind kind)
 {
-    setInfallible();
+    if (kind >= IndirectTruncate)
+        setInfallible();
     return false;
 }
 

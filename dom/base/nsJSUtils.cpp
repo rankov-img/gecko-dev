@@ -63,21 +63,6 @@ nsJSUtils::GetStaticScriptContext(JSObject* aObj)
   return nativeGlobal->GetScriptContext();
 }
 
-nsIScriptGlobalObject *
-nsJSUtils::GetDynamicScriptGlobal(JSContext* aContext)
-{
-  nsIScriptContext *scriptCX = GetDynamicScriptContext(aContext);
-  if (!scriptCX)
-    return nullptr;
-  return scriptCX->GetGlobalObject();
-}
-
-nsIScriptContext *
-nsJSUtils::GetDynamicScriptContext(JSContext *aContext)
-{
-  return GetScriptContextFromJSContext(aContext);
-}
-
 uint64_t
 nsJSUtils::GetCurrentlyRunningCodeInnerWindowID(JSContext *aContext)
 {
@@ -124,7 +109,7 @@ nsJSUtils::ReportPendingException(JSContext *aContext)
         // The SafeJSContext has no default object associated with it.
         MOZ_ASSERT(NS_IsMainThread());
         MOZ_ASSERT(aContext == nsContentUtils::GetSafeJSContext());
-        scope = xpc::GetSafeJSContextGlobal();
+        scope = xpc::UnprivilegedJunkScope(); // Usage approved by bholley
       }
       JSAutoCompartment ac(aContext, scope);
       JS_ReportPendingException(aContext);

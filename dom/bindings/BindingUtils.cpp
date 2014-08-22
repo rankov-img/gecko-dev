@@ -43,6 +43,7 @@
 #include "mozilla/dom/HTMLAppletElementBinding.h"
 #include "mozilla/dom/Promise.h"
 #include "WorkerPrivate.h"
+#include "nsDOMClassInfo.h"
 
 namespace mozilla {
 namespace dom {
@@ -1740,8 +1741,9 @@ ReparentWrapper(JSContext* aCx, JS::Handle<JSObject*> aObjArg)
   js::AssertSameCompartment(aCx, aObjArg);
 
   // Check if we're near the stack limit before we get anywhere near the
-  // transplanting code.
-  JS_CHECK_RECURSION(aCx, return NS_ERROR_FAILURE);
+  // transplanting code. We use a conservative check since we'll use a little
+  // more space before we actually hit the critical "can't fail" path.
+  JS_CHECK_RECURSION_CONSERVATIVE(aCx, return NS_ERROR_FAILURE);
 
   JS::Rooted<JSObject*> aObj(aCx, aObjArg);
   const DOMJSClass* domClass = GetDOMClass(aObj);
@@ -2355,6 +2357,14 @@ CheckPermissions(JSContext* aCx, JSObject* aObj, const char* const aPermissions[
 }
 
 bool
+CheckSafetyInPrerendering(JSContext* aCx, JSObject* aObj)
+{
+  //TODO: Check if page is being prerendered.
+  //Returning false for now.
+  return false;
+}
+
+bool
 GenericBindingGetter(JSContext* cx, unsigned argc, JS::Value* vp)
 {
   JS::CallArgs args = JS::CallArgsFromVp(argc, vp);
@@ -2561,11 +2571,44 @@ CreateGlobalOptions<nsGlobalWindow>::TraceGlobal(JSTracer* aTrc, JSObject* aObj)
   xpc::TraceXPCGlobal(aTrc, aObj);
 }
 
+static bool sRegisteredDOMNames = false;
+
+nsresult
+RegisterDOMNames()
+{
+  if (sRegisteredDOMNames) {
+    return NS_OK;
+  }
+
+  nsresult rv = nsDOMClassInfo::Init();
+  if (NS_FAILED(rv)) {
+    NS_ERROR("Could not initialize nsDOMClassInfo");
+    return rv;
+  }
+
+  // Register new DOM bindings
+  nsScriptNameSpaceManager* nameSpaceManager = GetNameSpaceManager();
+  if (!nameSpaceManager) {
+    NS_ERROR("Could not initialize nsScriptNameSpaceManager");
+    return NS_ERROR_FAILURE;
+  }
+  mozilla::dom::Register(nameSpaceManager);
+
+  sRegisteredDOMNames = true;
+
+  return NS_OK;
+}
+
 /* static */
 bool
 CreateGlobalOptions<nsGlobalWindow>::PostCreateGlobal(JSContext* aCx,
                                                       JS::Handle<JSObject*> aGlobal)
 {
+  nsresult rv = RegisterDOMNames();
+  if (NS_FAILED(rv)) {
+    return Throw(aCx, rv);
+  }
+
   // Invoking the XPCWrappedNativeScope constructor automatically hooks it
   // up to the compartment of aGlobal.
   (void) new XPCWrappedNativeScope(aCx, aGlobal);
@@ -2610,6 +2653,13 @@ AssertReturnTypeMatchesJitinfo(const JSJitInfo* aJitInfo,
   }
 }
 #endif
+
+bool
+CallerSubsumes(JSObject *aObject)
+{
+  nsIPrincipal* objPrin = nsContentUtils::ObjectPrincipal(js::UncheckedUnwrap(aObject));
+  return nsContentUtils::SubjectPrincipal()->Subsumes(objPrin);
+}
 
 } // namespace dom
 } // namespace mozilla
