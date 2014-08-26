@@ -145,6 +145,9 @@ jit::InitializeIon()
     if (!TlsIonContext.initialized() && !TlsIonContext.init())
         return false;
     CheckLogging();
+#if defined(JS_CODEGEN_ARM)
+    InitARMFlags();
+#endif
     CheckPerf();
     return true;
 }
@@ -277,6 +280,11 @@ JitRuntime::initialize(JSContext *cx)
     IonSpew(IonSpew_Codegen, "# Emitting Pre Barrier for Shape");
     shapePreBarrier_ = generatePreBarrier(cx, MIRType_Shape);
     if (!shapePreBarrier_)
+        return false;
+
+    IonSpew(IonSpew_Codegen, "# Emitting Pre Barrier for TypeObject");
+    typeObjectPreBarrier_ = generatePreBarrier(cx, MIRType_TypeObject);
+    if (!typeObjectPreBarrier_)
         return false;
 
     IonSpew(IonSpew_Codegen, "# Emitting malloc stub");
@@ -475,7 +483,7 @@ jit::RequestInterruptForIonCode(JSRuntime *rt, JSRuntime::InterruptMode mode)
         break;
 
       default:
-        MOZ_ASSUME_UNREACHABLE("Bad interrupt mode");
+        MOZ_CRASH("Bad interrupt mode");
     }
 }
 
@@ -1152,7 +1160,7 @@ IonScript::getSafepointIndex(uint32_t disp) const
         }
     }
 
-    MOZ_ASSUME_UNREACHABLE("displacement not found.");
+    MOZ_CRASH("displacement not found.");
 }
 
 const OsiIndex *
@@ -1166,7 +1174,7 @@ IonScript::getOsiIndex(uint32_t disp) const
             return it;
     }
 
-    MOZ_ASSUME_UNREACHABLE("Failed to find OSI point return address");
+    MOZ_CRASH("Failed to find OSI point return address");
 }
 
 const OsiIndex *
@@ -1421,14 +1429,16 @@ OptimizeMIR(MIRGenerator *mir)
         if (mir->shouldCancel("Alias analysis"))
             return false;
 
-        // Eliminating dead resume point operands requires basic block
-        // instructions to be numbered. Reuse the numbering computed during
-        // alias analysis.
-        if (!EliminateDeadResumePointOperands(mir, graph))
-            return false;
+        if (!mir->compilingAsmJS()) {
+            // Eliminating dead resume point operands requires basic block
+            // instructions to be numbered. Reuse the numbering computed during
+            // alias analysis.
+            if (!EliminateDeadResumePointOperands(mir, graph))
+                return false;
 
-        if (mir->shouldCancel("Eliminate dead resume point operands"))
-            return false;
+            if (mir->shouldCancel("Eliminate dead resume point operands"))
+                return false;
+        }
     }
 
     if (mir->optimizationInfo().gvnEnabled()) {
@@ -1695,7 +1705,7 @@ GenerateLIR(MIRGenerator *mir)
           }
 
           default:
-            MOZ_ASSUME_UNREACHABLE("Bad regalloc");
+            MOZ_CRASH("Bad regalloc");
         }
 
         if (mir->shouldCancel("Allocate Registers"))
@@ -2237,6 +2247,8 @@ jit::CanEnter(JSContext *cx, RunState &state)
     if (script->hasIonScript() && script->ionScript()->bailoutExpected())
         return Method_Skipped;
 
+    RootedScript rscript(cx, script);
+
     // If constructing, allocate a new |this| object before building Ion.
     // Creating |this| is done before building Ion because it may change the
     // type information and invalidate compilation results.
@@ -2255,18 +2267,8 @@ jit::CanEnter(JSContext *cx, RunState &state)
             return Method_CantCompile;
         }
 
-        if (invoke.constructing() && invoke.args().thisv().isPrimitive()) {
-            RootedScript scriptRoot(cx, script);
-            RootedObject callee(cx, &invoke.args().callee());
-            RootedObject obj(cx, CreateThisForFunction(cx, callee,
-                                                       invoke.useNewType()
-                                                       ? SingletonObject
-                                                       : GenericObject));
-            if (!obj || !jit::IsIonEnabled(cx)) // Note: OOM under CreateThis can disable TI.
-                return Method_Skipped;
-            invoke.args().setThis(ObjectValue(*obj));
-            script = scriptRoot;
-        }
+        if (!state.maybeCreateThisForConstructor(cx))
+            return Method_Skipped;
     } else if (state.isGenerator()) {
         IonSpew(IonSpew_Abort, "generator frame");
         ForbidCompilation(cx, script);
@@ -2275,7 +2277,6 @@ jit::CanEnter(JSContext *cx, RunState &state)
 
     // If --ion-eager is used, compile with Baseline first, so that we
     // can directly enter IonMonkey.
-    RootedScript rscript(cx, script);
     if (js_JitOptions.eagerCompilation && !rscript->hasBaselineScript()) {
         MethodStatus status = CanEnterBaselineMethod(cx, state);
         if (status != Method_Compiled)
@@ -2582,7 +2583,7 @@ InvalidateActivation(FreeOp *fop, uint8_t *jitTop, bool invalidateAll)
             break;
           case JitFrame_Unwound_IonJS:
           case JitFrame_Unwound_BaselineStub:
-            MOZ_ASSUME_UNREACHABLE("invalid");
+            MOZ_CRASH("invalid");
           case JitFrame_Unwound_Rectifier:
             IonSpew(IonSpew_Invalidate, "#%d unwound rectifier frame @ %p", frameno, it.fp());
             break;
@@ -2826,7 +2827,7 @@ jit::Invalidate(JSContext *cx, JSScript *script, ExecutionMode mode, bool resetU
             return false;
         break;
       default:
-        MOZ_ASSUME_UNREACHABLE("No such execution mode");
+        MOZ_CRASH("No such execution mode");
     }
 
     Invalidate(cx, scripts, resetUses, cancelOffThread);
@@ -2879,7 +2880,7 @@ jit::FinishInvalidation(FreeOp *fop, JSScript *script)
         return;
 
       default:
-        MOZ_ASSUME_UNREACHABLE("bad execution mode");
+        MOZ_CRASH("bad execution mode");
     }
 }
 
@@ -2888,18 +2889,6 @@ jit::FinishInvalidation<SequentialExecution>(FreeOp *fop, JSScript *script);
 
 template void
 jit::FinishInvalidation<ParallelExecution>(FreeOp *fop, JSScript *script);
-
-void
-jit::MarkValueFromIon(JSRuntime *rt, Value *vp)
-{
-    gc::MarkValueUnbarriered(&rt->gc.marker, vp, "write barrier");
-}
-
-void
-jit::MarkShapeFromIon(JSRuntime *rt, Shape **shapep)
-{
-    gc::MarkShapeUnbarriered(&rt->gc.marker, shapep, "write barrier");
-}
 
 void
 jit::ForbidCompilation(JSContext *cx, JSScript *script)
@@ -2940,10 +2929,10 @@ jit::ForbidCompilation(JSContext *cx, JSScript *script, ExecutionMode mode)
         return;
 
       default:
-        MOZ_ASSUME_UNREACHABLE("No such execution mode");
+        MOZ_CRASH("No such execution mode");
     }
 
-    MOZ_ASSUME_UNREACHABLE("No such execution mode");
+    MOZ_CRASH("No such execution mode");
 }
 
 AutoFlushICache *

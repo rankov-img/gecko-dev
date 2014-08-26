@@ -119,7 +119,8 @@ enum {
     JS_TELEMETRY_GC_INCREMENTAL_DISABLED,
     JS_TELEMETRY_GC_NON_INCREMENTAL,
     JS_TELEMETRY_GC_SCC_SWEEP_TOTAL_MS,
-    JS_TELEMETRY_GC_SCC_SWEEP_MAX_PAUSE_MS
+    JS_TELEMETRY_GC_SCC_SWEEP_MAX_PAUSE_MS,
+    JS_TELEMETRY_DEPRECATED_LANGUAGE_EXTENSIONS_IN_CONTENT
 };
 
 typedef void
@@ -720,13 +721,6 @@ AssertSameCompartment(JSObject *objA, JSObject *objB);
 #else
 inline void AssertSameCompartment(JSObject *objA, JSObject *objB) {}
 #endif
-
-// For legacy consumers only. This whole concept is going away soon.
-JS_FRIEND_API(JSObject *)
-DefaultObjectForContextOrNull(JSContext *cx);
-
-JS_FRIEND_API(void)
-SetDefaultObjectForContext(JSContext *cx, JSObject *obj);
 
 JS_FRIEND_API(void)
 NotifyAnimationActivity(JSObject *obj);
@@ -1663,7 +1657,7 @@ Get ## Type ## ArrayLengthAndData(JSObject *obj, uint32_t *length, type **data) 
 { \
     JS_ASSERT(GetObjectClass(obj) == detail::Type ## ArrayClassPtr); \
     const JS::Value &slot = GetReservedSlot(obj, detail::TypedArrayLengthSlot); \
-    *length = mozilla::SafeCast<uint32_t>(slot.toInt32()); \
+    *length = mozilla::AssertedCast<uint32_t>(slot.toInt32()); \
     *data = static_cast<type*>(GetObjectPrivate(obj)); \
 }
 

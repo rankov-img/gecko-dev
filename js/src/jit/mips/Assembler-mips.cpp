@@ -61,7 +61,7 @@ ABIArgGenerator::next(MIRType type)
         }
         break;
       default:
-        MOZ_ASSUME_UNREACHABLE("Unexpected argument type");
+        MOZ_CRASH("Unexpected argument type");
     }
     return current_;
 
@@ -423,8 +423,7 @@ Assembler::InvertCondition(Condition cond)
       case NotSigned:
         return Signed;
       default:
-        MOZ_ASSUME_UNREACHABLE("unexpected condition");
-        return Equal;
+        MOZ_CRASH("unexpected condition");
     }
 }
 
@@ -461,8 +460,7 @@ Assembler::InvertCondition(DoubleCondition cond)
       case DoubleLessThanOrEqualOrUnordered:
         return DoubleGreaterThan;
       default:
-        MOZ_ASSUME_UNREACHABLE("unexpected condition");
-        return DoubleEqual;
+        MOZ_CRASH("unexpected condition");
     }
 }
 
@@ -669,7 +667,7 @@ Assembler::getBranchCode(Register s, Condition c)
       case Assembler::LessThanOrEqual:
         return InstImm(op_blez, s, zero, BOffImm16(0));
       default:
-        MOZ_ASSUME_UNREACHABLE("Condition not supported.");
+        MOZ_CRASH("Condition not supported.");
     }
 }
 
@@ -1567,8 +1565,7 @@ InstImm Assembler::invertBranch(InstImm branch, BOffImm16 skipOffset)
             return branch;
         }
 
-        MOZ_ASSUME_UNREACHABLE("Error creating long branch.");
-        return branch;
+        MOZ_CRASH("Error creating long branch.");
 
       case op_cop1:
         MOZ_ASSERT(branch.extractRS() == rs_bc1 >> RSShift);
@@ -1581,7 +1578,7 @@ InstImm Assembler::invertBranch(InstImm branch, BOffImm16 skipOffset)
             branch.setRT((RTField) ((rt | 0x1) << RTShift));
         return branch;
       default:
-        MOZ_ASSUME_UNREACHABLE("Error creating long branch.");
+        MOZ_CRASH("Error creating long branch.");
     }
     return branch;
 }

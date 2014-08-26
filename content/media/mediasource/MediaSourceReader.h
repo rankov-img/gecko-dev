@@ -18,7 +18,7 @@
 namespace mozilla {
 
 class MediaSourceDecoder;
-class SubBufferDecoder;
+class SourceBufferDecoder;
 
 namespace dom {
 
@@ -29,7 +29,7 @@ class MediaSource;
 class MediaSourceReader : public MediaDecoderReader
 {
 public:
-  MediaSourceReader(MediaSourceDecoder* aDecoder, dom::MediaSource* aSource);
+  MediaSourceReader(MediaSourceDecoder* aDecoder);
 
   nsresult Init(MediaDecoderReader* aCloneDonor) MOZ_OVERRIDE
   {
@@ -70,7 +70,7 @@ public:
   nsresult ReadMetadata(MediaInfo* aInfo, MetadataTags** aTags) MOZ_OVERRIDE;
   nsresult Seek(int64_t aTime, int64_t aStartTime, int64_t aEndTime,
                 int64_t aCurrentTime) MOZ_OVERRIDE;
-  already_AddRefed<SubBufferDecoder> CreateSubDecoder(const nsACString& aType);
+  already_AddRefed<SourceBufferDecoder> CreateSubDecoder(const nsACString& aType);
 
   void Shutdown();
 
@@ -98,20 +98,16 @@ private:
   bool SwitchAudioReader(MediaDecoderReader* aTargetReader);
   bool SwitchVideoReader(MediaDecoderReader* aTargetReader);
 
-  void SetMediaSourceDuration(double aDuration) ;
-
   // These are read and written on the decode task queue threads.
   int64_t mTimeThreshold;
   bool mDropAudioBeforeThreshold;
   bool mDropVideoBeforeThreshold;
 
-  nsTArray<nsRefPtr<SubBufferDecoder>> mPendingDecoders;
-  nsTArray<nsRefPtr<SubBufferDecoder>> mDecoders;
+  nsTArray<nsRefPtr<SourceBufferDecoder>> mPendingDecoders;
+  nsTArray<nsRefPtr<SourceBufferDecoder>> mDecoders;
 
   nsRefPtr<MediaDecoderReader> mAudioReader;
   nsRefPtr<MediaDecoderReader> mVideoReader;
-
-  dom::MediaSource* mMediaSource;
 };
 
 } // namespace mozilla

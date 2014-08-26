@@ -1316,8 +1316,14 @@ nsEventStatus AsyncPanZoomController::OnScaleEnd(const PinchGestureInput& aEvent
     // that into a pinch by increasing the span sufficiently. In such a case,
     // there is no snap-back animation to get us out of overscroll, so we need
     // to get out of it somehow.
-    mX.ClearOverscroll();
-    mY.ClearOverscroll();
+    // Moreover, in cases of scroll handoff, the overscroll can be on an APZC
+    // further up in the handoff chain rather than on the current APZC, so
+    // we need to clear overscroll along the entire handoff chain.
+    if (HasReadyTouchBlock()) {
+      CurrentTouchBlock()->GetOverscrollHandoffChain()->ClearOverscroll();
+    } else {
+      ClearOverscroll();
+    }
 
     ScheduleComposite();
     RequestContentRepaint();
@@ -1897,12 +1903,17 @@ void AsyncPanZoomController::CancelAnimation() {
   // preempt normal mechanisms for relieving overscroll, so we need to clear
   // overscroll here.
   if (mX.IsOverscrolled() || mY.IsOverscrolled()) {
-    mX.ClearOverscroll();
-    mY.ClearOverscroll();
+    ClearOverscroll();
     RequestContentRepaint();
     ScheduleComposite();
     UpdateSharedCompositorFrameMetrics();
   }
+}
+
+void AsyncPanZoomController::ClearOverscroll() {
+  ReentrantMonitorAutoEnter lock(mMonitor);
+  mX.ClearOverscroll();
+  mY.ClearOverscroll();
 }
 
 void AsyncPanZoomController::SetCompositorParent(CompositorParent* aCompositorParent) {
@@ -2091,8 +2102,8 @@ void AsyncPanZoomController::RequestContentRepaint(FrameMetrics& aFrameMetrics) 
       fabsf(mLastPaintRequestMetrics.GetScrollOffset().y -
             aFrameMetrics.GetScrollOffset().y) < EPSILON &&
       aFrameMetrics.GetZoom() == mLastPaintRequestMetrics.GetZoom() &&
-      fabsf(aFrameMetrics.mViewport.width - mLastPaintRequestMetrics.mViewport.width) < EPSILON &&
-      fabsf(aFrameMetrics.mViewport.height - mLastPaintRequestMetrics.mViewport.height) < EPSILON) {
+      fabsf(aFrameMetrics.GetViewport().width - mLastPaintRequestMetrics.GetViewport().width) < EPSILON &&
+      fabsf(aFrameMetrics.GetViewport().height - mLastPaintRequestMetrics.GetViewport().height) < EPSILON) {
     return;
   }
 
@@ -2419,11 +2430,11 @@ void AsyncPanZoomController::NotifyLayersUpdated(const FrameMetrics& aLayerMetri
       FuzzyEqualsAdditive(aLayerMetrics.mCompositionBounds.height, mFrameMetrics.mCompositionBounds.height)) {
     // Remote content has sync'd up to the composition geometry
     // change, so we can accept the viewport it's calculated.
-    if (mFrameMetrics.mViewport.width != aLayerMetrics.mViewport.width ||
-        mFrameMetrics.mViewport.height != aLayerMetrics.mViewport.height) {
+    if (mFrameMetrics.GetViewport().width != aLayerMetrics.GetViewport().width ||
+        mFrameMetrics.GetViewport().height != aLayerMetrics.GetViewport().height) {
       needContentRepaint = true;
     }
-    mFrameMetrics.mViewport = aLayerMetrics.mViewport;
+    mFrameMetrics.SetViewport(aLayerMetrics.GetViewport());
   }
 
   // If the layers update was not triggered by our own repaint request, then
@@ -2853,7 +2864,7 @@ void AsyncPanZoomController::SendAsyncScrollEvent() {
   {
     ReentrantMonitorAutoEnter lock(mMonitor);
 
-    isRoot = mFrameMetrics.mIsRoot;
+    isRoot = mFrameMetrics.GetIsRoot();
     scrollableSize = mFrameMetrics.mScrollableRect.Size();
     contentRect = mFrameMetrics.CalculateCompositedRectInCssPixels();
     contentRect.MoveTo(mCurrentAsyncScrollOffset);

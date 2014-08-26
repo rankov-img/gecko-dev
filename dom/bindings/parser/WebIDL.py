@@ -1007,7 +1007,14 @@ class IDLInterface(IDLObjectWithScope):
 
         if (self.getExtendedAttribute("Pref") and
             self._exposureGlobalNames != set([self.parentScope.primaryGlobalName])):
-            raise WebIDLError("[Pref] used on an member that is not %s-only" %
+            raise WebIDLError("[Pref] used on an interface that is not %s-only" %
+                              self.parentScope.primaryGlobalName,
+                              [self.location])
+
+        if (self.getExtendedAttribute("CheckPermissions") and
+            self._exposureGlobalNames != set([self.parentScope.primaryGlobalName])):
+            raise WebIDLError("[CheckPermissions] used on an interface that is "
+                              "not %s-only" %
                               self.parentScope.primaryGlobalName,
                               [self.location])
 
@@ -3022,6 +3029,13 @@ class IDLInterfaceMember(IDLObjectWithIdentifier):
                               "%s-only" % self._scope.primaryGlobalName,
                               [self.location])
 
+        if (self.getExtendedAttribute("CheckPermissions") and
+            self.exposureSet != set([self._scope.primaryGlobalName])):
+            raise WebIDLError("[CheckPermissions] used on an interface member "
+                              "that is not %s-only" %
+                              self._scope.primaryGlobalName,
+                              [self.location])
+
 class IDLConst(IDLInterfaceMember):
     def __init__(self, location, identifier, type, value):
         IDLInterfaceMember.__init__(self, location, identifier,
@@ -3197,8 +3211,7 @@ class IDLAttribute(IDLInterfaceMember):
               (identifier == "StoreInSlot" and
                (self.getExtendedAttribute("Throws") or
                 self.getExtendedAttribute("GetterThrows")))):
-            raise WebIDLError("Throwing things can't be [Pure] or [Constant] "
-                              "or [SameObject] or [StoreInSlot]",
+            raise WebIDLError("Throwing things can't be [StoreInSlot]",
                               [attr.location])
         elif identifier == "LenientThis":
             if not attr.noArguments():

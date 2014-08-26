@@ -66,7 +66,7 @@ class TextRenderer;
 class CompositingRenderTarget;
 struct FPSState;
 
-class LayerManagerComposite : public LayerManager
+class LayerManagerComposite MOZ_FINAL : public LayerManager
 {
   typedef mozilla::gfx::DrawTarget DrawTarget;
   typedef mozilla::gfx::IntSize IntSize;
@@ -269,8 +269,12 @@ private:
 
   void WorldTransformRect(nsIntRect& aRect);
 
-  RefPtr<CompositingRenderTarget> PushGroup();
-  void PopGroup(RefPtr<CompositingRenderTarget> aPreviousTarget, nsIntRect aClipRect);
+  RefPtr<CompositingRenderTarget> PushGroupForLayerEffects();
+  void PopGroupForLayerEffects(RefPtr<CompositingRenderTarget> aPreviousTarget,
+                               nsIntRect aClipRect,
+                               bool aGrayscaleEffect,
+                               bool aInvertEffect,
+                               float aContrastEffect);
 
   RefPtr<Compositor> mCompositor;
   nsAutoPtr<LayerProperties> mClonedLayerTreeProperties;
