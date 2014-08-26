@@ -289,7 +289,7 @@ class FloatRegisters
     // When saving all registers we only need to do is save double registers.
     static const uint32_t TotalPhys = 16;
     static const uint64_t AllDoubleMask = 0x55555555ULL << 32;
-    static const uint64_t AllMask = AllDoubleMask  | ((1ULL << 32) - 1);
+    static const uint64_t AllMask = AllDoubleMask | ((1ULL << 32) - 1);
 
     static const uint64_t NonVolatileDoubleMask =
         ((1ULL << FloatRegisters::f20) |
