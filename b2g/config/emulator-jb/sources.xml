@@ -12,12 +12,12 @@
   <!--original fetch url was https://git.mozilla.org/releases-->
   <remote fetch="https://git.mozilla.org/releases" name="mozillaorg"/>
   <!-- B2G specific things. -->
-  <project name="platform_build" path="build" remote="b2g" revision="3aa6abd313f965a84aa86c6b213dc154e4875139">
+  <project name="platform_build" path="build" remote="b2g" revision="7eef86294cd794ab9e6a53d218c238bfc63c3a6d">
     <copyfile dest="Makefile" src="core/root.mk"/>
   </project>
   <project name="rilproxy" path="rilproxy" remote="b2g" revision="827214fcf38d6569aeb5c6d6f31cb296d1f09272"/>
   <project name="fake-libdvm" path="dalvik" remote="b2g" revision="d50ae982b19f42f0b66d08b9eb306be81687869f"/>
-  <project name="gaia" path="gaia" remote="mozillaorg" revision="640ce38ca03f1e26a4524ff4215b8b3f7731e2f0"/>
+  <project name="gaia" path="gaia" remote="mozillaorg" revision="a51633e29a7826b6bf07cb1c5ad81b3217b9820a"/>
   <project name="gonk-misc" path="gonk-misc" remote="b2g" revision="b89cbb6a0880826513b421d2c5a6fb401dfbc3c1"/>
   <project name="moztt" path="external/moztt" remote="b2g" revision="ce95d372e6d285725b96490afdaaf489ad8f9ca9"/>
   <project name="apitrace" path="external/apitrace" remote="apitrace" revision="4a7d860ef54cf6e119238b247522a85c13d17dd6"/>
@@ -131,6 +131,6 @@
   <project name="platform_external_qemu" path="external/qemu" remote="b2g" revision="30d0dfa566651fea8031551e86cec6018b7bbb12"/>
   <project name="platform/external/wpa_supplicant_8" path="external/wpa_supplicant_8" revision="0e56e450367cd802241b27164a2979188242b95f"/>
   <project name="platform_hardware_ril" path="hardware/ril" remote="b2g" revision="9f28c4faea3b2f01db227b2467b08aeba96d9bec"/>
-  <project name="platform_system_nfcd" path="system/nfcd" remote="b2g" revision="d0aa65b140a45016975ed0ecf35f280dd336e1d3"/>
+  <project name="platform_system_nfcd" path="system/nfcd" remote="b2g" revision="8224e114560a0a0b64328f49fdc025e4ff346f87"/>
   <project name="android-sdk" path="sdk" remote="b2g" revision="8b1365af38c9a653df97349ee53a3f5d64fd590a"/>
 </manifest>

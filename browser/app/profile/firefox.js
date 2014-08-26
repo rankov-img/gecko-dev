@@ -968,7 +968,11 @@ pref("browser.safebrowsing.reportMalwareURL", "http://%LOCALE%.malware-report.mo
 pref("browser.safebrowsing.reportMalwareErrorURL", "http://%LOCALE%.malware-error.mozilla.com/?hl=%LOCALE%");
 
 pref("browser.safebrowsing.malware.reportURL", "https://safebrowsing.google.com/safebrowsing/diagnostic?client=%NAME%&hl=%LOCALE%&site=");
+
+// Turn off remote lookups in beta and stable channel.
+#ifndef RELEASE_BUILD
 pref("browser.safebrowsing.appRepURL", "https://sb-ssl.google.com/safebrowsing/clientreport/download?key=%GOOGLE_API_KEY%");
+#endif
 
 #ifdef MOZILLA_OFFICIAL
 // Normally the "client ID" sent in updates is appinfo.name, but for
@@ -1499,7 +1503,7 @@ pref("browser.newtabpage.rows", 3);
 // number of columns of newtab grid
 pref("browser.newtabpage.columns", 3);
 
-pref("browser.newtabpage.directory.source", "chrome://global/content/directoryLinks.json");
+pref("browser.newtabpage.directory.source", "data:application/json,{}");
 
 // Enable the DOM fullscreen API.
 pref("full-screen-api.enabled", true);
@@ -1600,8 +1604,6 @@ pref("ui.key.menuAccessKeyFocuses", true);
 // Encrypted media extensions.
 pref("media.eme.enabled", false);
 
-// Delete HTTP cache v2 data of users that didn't opt-in manually
-pref("browser.cache.auto_delete_cache_version", 1);
 // Play with different values of the decay time and get telemetry,
 // 0 means to randomize (and persist) the experiment value in users' profiles,
 // -1 means no experiment is run and we use the preferred value for frecency (6h)

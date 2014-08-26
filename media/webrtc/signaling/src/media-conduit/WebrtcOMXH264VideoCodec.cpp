@@ -23,6 +23,7 @@ using namespace android;
 // WebRTC
 #include "common_video/interface/texture_video_frame.h"
 #include "video_engine/include/vie_external_codec.h"
+#include "runnable_utils.h"
 
 // Gecko
 #include "GonkNativeWindow.h"
@@ -104,6 +105,12 @@ struct EncodedFrame
   int64_t mRenderTimeMs;
 };
 
+static void
+ShutdownThread(nsCOMPtr<nsIThread>& aThread)
+{
+  aThread->Shutdown();
+}
+
 // Base runnable class to repeatly pull OMX output buffers in seperate thread.
 // How to use:
 // - implementing DrainOutput() to get output. Remember to return false to tell
@@ -137,7 +144,9 @@ public:
     if (mThread != nullptr) {
       MonitorAutoUnlock unlock(mMonitor);
       CODEC_LOGD("OMXOutputDrain thread shutdown");
-      mThread->Shutdown();
+      NS_DispatchToMainThread(
+        WrapRunnableNM<decltype(&ShutdownThread),
+                       nsCOMPtr<nsIThread> >(&ShutdownThread, mThread));
       mThread = nullptr;
     }
     CODEC_LOGD("OMXOutputDrain stopped");
@@ -225,6 +234,7 @@ public:
     , mStarted(false)
     , mDecodedFrameLock("WebRTC decoded frame lock")
     , mCallback(aCallback)
+    , mEnding(false)
   {
     // Create binder thread pool required by stagefright.
     android::ProcessState::self()->startThreadPool();
@@ -238,6 +248,7 @@ public:
 
   virtual ~WebrtcOMXDecoder()
   {
+    CODEC_LOGD("WebrtcOMXH264VideoDecoder:%p OMX destructor", this);
     if (mStarted) {
       Stop();
     }
@@ -417,6 +428,10 @@ public:
       {
         // Store info of this frame. OnNewFrame() will need the timestamp later.
         MutexAutoLock lock(mDecodedFrameLock);
+        if (mEnding) {
+          mCodec->releaseOutputBuffer(index);
+          return err;
+        }
         mDecodedFrames.push(frame);
       }
       // Ask codec to queue buffer back to native window. OnNewFrame() will be
@@ -500,6 +515,10 @@ private:
       return OK;
     }
 
+    {
+      MutexAutoLock lock(mDecodedFrameLock);
+      mEnding = false;
+    }
     status_t err = mCodec->start();
     if (err == OK) {
       mStarted = true;
@@ -521,12 +540,14 @@ private:
     // Drop all 'pending to render' frames.
     {
       MutexAutoLock lock(mDecodedFrameLock);
+      mEnding = true;
       while (!mDecodedFrames.empty()) {
         mDecodedFrames.pop();
       }
     }
 
     if (mOutputDrain != nullptr) {
+      CODEC_LOGD("decoder's OutputDrain stopping");
       mOutputDrain->Stop();
       mOutputDrain = nullptr;
     }
@@ -540,7 +561,6 @@ private:
       MOZ_ASSERT(false);
     }
     CODEC_LOGD("OMXOutputDrain decoder stopped");
-
     return err;
   }
 
@@ -557,8 +577,9 @@ private:
   RefPtr<OutputDrain> mOutputDrain;
   webrtc::DecodedImageCallback* mCallback;
 
-  Mutex mDecodedFrameLock; // To protect mDecodedFrames.
+  Mutex mDecodedFrameLock; // To protect mDecodedFrames and mEnding
   std::queue<EncodedFrame> mDecodedFrames;
+  bool mEnding;
 };
 
 class EncOutputDrain : public OMXOutputDrain
@@ -1107,7 +1128,7 @@ WebrtcOMXH264VideoDecoder::Release()
 {
   CODEC_LOGD("WebrtcOMXH264VideoDecoder:%p will be released", this);
 
-  mOMX = nullptr;
+  mOMX = nullptr; // calls Stop()
   mReservation->ReleaseOMXCodec();
 
   return WEBRTC_VIDEO_CODEC_OK;
