@@ -375,7 +375,7 @@ class LUMod : public LBinaryMath<0>
     }
 };
 
-class LAsmJSLoadFuncPtr : public LInstructionHelper<1, 1, 1>
+class LAsmJSLoadFuncPtr : public LInstructionHelper<1, 1, 0>
 {
   public:
     LIR_HEADER(AsmJSLoadFuncPtr);
