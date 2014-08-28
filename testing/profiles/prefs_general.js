@@ -41,7 +41,7 @@ user_pref("security.warn_viewing_mixed", false);
 user_pref("app.update.enabled", false);
 user_pref("app.update.staging.enabled", false);
 // Make sure GMPInstallManager won't hit the network.
-user_pref("media.gmp-manager.url.override", "http://%(server)s/dummy.xml");
+user_pref("media.gmp-manager.url.override", "http://%(server)s/dummy-gmp-manager.xml");
 user_pref("browser.panorama.experienced_first_run", true); // Assume experienced
 user_pref("dom.w3c_touch_events.enabled", 1);
 user_pref("dom.undo_manager.enabled", true);
@@ -242,3 +242,7 @@ user_pref("browser.newtabpage.directory.ping", "");
 
 // Enable Loop
 user_pref("loop.enabled", true);
+
+// Ensure UITour won't hit the network
+user_pref("browser.uitour.pinnedTabUrl", "http://%(server)s/uitour-dummy/pinnedTab");
+user_pref("browser.uitour.url", "http://%(server)s/uitour-dummy/tour");

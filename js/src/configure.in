@@ -557,6 +557,7 @@ if test -n "$_WIN32_MSVC"; then
 
     AC_DEFINE(HAVE_LOCALECONV)
     AC_DEFINE(HAVE_HYPOT)
+    AC_CHECK_FUNCS([_getc_nolock])
 fi
 
 fi # COMPILE_ENVIRONMENT
@@ -1621,6 +1622,9 @@ ia64*-hpux*)
         DLL_PREFIX=
         IMPORT_LIB_SUFFIX=dll.a
 
+        WIN32_CONSOLE_EXE_LDFLAGS=-mconsole
+        WIN32_GUI_EXE_LDFLAGS=-mwindows
+
         # We use mix of both POSIX and Win32 printf format across the tree, so format
         # warnings are useless on mingw.
         MOZ_C_SUPPORTS_WARNING(-Wno-, format, ac_c_has_wno_format)
@@ -1651,7 +1655,15 @@ ia64*-hpux*)
         MKCSHLIB='$(LD) -NOLOGO -DLL -OUT:$@ -PDB:$(LINK_PDBFILE) $(DSO_LDOPTS)'
         MKSHLIB_FORCE_ALL=
         MKSHLIB_UNFORCE_ALL=
-        DSO_LDOPTS=-SUBSYSTEM:WINDOWS
+        dnl Set subsystem version 5 for Windows XP.
+        if test "$CPU_ARCH" = "x86"; then
+            WIN32_SUBSYSTEM_VERSION=5.01
+        else
+            WIN32_SUBSYSTEM_VERSION=5.02
+        fi
+        WIN32_CONSOLE_EXE_LDFLAGS=-SUBSYSTEM:CONSOLE,$WIN32_SUBSYSTEM_VERSION
+        WIN32_GUI_EXE_LDFLAGS=-SUBSYSTEM:WINDOWS,$WIN32_SUBSYSTEM_VERSION
+        DSO_LDOPTS=-SUBSYSTEM:WINDOWS,$WIN32_SUBSYSTEM_VERSION
         _USE_CPP_INCLUDE_FLAG=1
         _DEFINES_CFLAGS='-FI $(DEPTH)/js/src/js-confdefs.h -DMOZILLA_CLIENT'
         _DEFINES_CXXFLAGS='-FI $(DEPTH)/js/src/js-confdefs.h -DMOZILLA_CLIENT'
@@ -3176,6 +3188,10 @@ MOZ_ARG_ENABLE_BOOL(mips-simulator,
     JS_MIPS_SIMULATOR=1,
     JS_MIPS_SIMULATOR= )
 
+if test -n "$JS_ARM_SIMULATOR" && test -n "$JS_MIPS_SIMULATOR"; then
+    AC_MSG_ERROR([Flags --enable-arm-simulator and --enable-mips-simulator cannot be used together.])
+fi
+
 if test -z "$ENABLE_ION"; then
     AC_DEFINE(JS_CODEGEN_NONE)
     JS_CODEGEN_NONE=1
@@ -3867,6 +3883,8 @@ AC_SUBST(CC_VERSION)
 AC_SUBST(CXX_VERSION)
 AC_SUBST(MSMANIFEST_TOOL)
 AC_SUBST(MOZ_LINKER)
+AC_SUBST(WIN32_CONSOLE_EXE_LDFLAGS)
+AC_SUBST(WIN32_GUI_EXE_LDFLAGS)
 
 AC_CHECK_FUNCS(posix_fadvise posix_fallocate)
 

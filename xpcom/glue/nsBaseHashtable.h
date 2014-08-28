@@ -124,7 +124,7 @@ public:
   void Put(KeyType aKey, const UserDataType& aData)
   {
     if (!Put(aKey, aData, fallible_t())) {
-      NS_ABORT_OOM(this->mTable.entrySize * this->mTable.entryCount);
+      NS_ABORT_OOM(this->mTable.EntrySize() * this->mTable.EntryCount());
     }
   }
 
@@ -167,7 +167,7 @@ public:
    */
   uint32_t EnumerateRead(EnumReadFunction aEnumFunc, void* aUserArg) const
   {
-    NS_ASSERTION(this->mTable.entrySize,
+    NS_ASSERTION(this->mTable.ops,
                  "nsBaseHashtable was not initialized properly.");
 
     s_EnumReadArgs enumData = { aEnumFunc, aUserArg };
@@ -199,7 +199,7 @@ public:
    */
   uint32_t Enumerate(EnumFunction aEnumFunc, void* aUserArg)
   {
-    NS_ASSERTION(this->mTable.entrySize,
+    NS_ASSERTION(this->mTable.ops,
                  "nsBaseHashtable was not initialized properly.");
 
     s_EnumArgs enumData = { aEnumFunc, aUserArg };

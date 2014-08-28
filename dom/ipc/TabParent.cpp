@@ -149,7 +149,12 @@ private:
         FileDescriptor::PlatformHandleType handle =
             FileDescriptor::PlatformHandleType(PR_FileDesc2NativeHandle(mFD));
 
-        mozilla::unused << tabParent->SendCacheFileDescriptor(mPath, FileDescriptor(handle));
+        // Our TabParent may have been destroyed already.  If so, don't send any
+        // fds over, just go back to the IO thread and close them.
+        if (!tabParent->IsDestroyed()) {
+          mozilla::unused << tabParent->SendCacheFileDescriptor(mPath,
+                                                                FileDescriptor(handle));
+        }
 
         nsCOMPtr<nsIEventTarget> eventTarget;
         mEventTarget.swap(eventTarget);
@@ -237,7 +242,6 @@ TabParent::TabParent(nsIContentParent* aManager, const TabContext& aContext, uin
   , mMarkedDestroying(false)
   , mIsDestroyed(false)
   , mAppPackageFileDescriptorSent(false)
-  , mSendOfflineStatus(true)
   , mChromeFlags(aChromeFlags)
 {
   MOZ_ASSERT(aManager);
@@ -502,14 +506,6 @@ TabParent::LoadURL(nsIURI* aURI)
                                    spec.get()).get());
         return;
     }
-
-    uint32_t appId = OwnOrContainingAppId();
-    if (mSendOfflineStatus && NS_IsAppOffline(appId)) {
-      // If the app is offline in the parent process
-      // pass that state to the child process as well
-      unused << SendAppOfflineStatus(appId, true);
-    }
-    mSendOfflineStatus = false;
 
     unused << SendLoadURL(spec);
 
