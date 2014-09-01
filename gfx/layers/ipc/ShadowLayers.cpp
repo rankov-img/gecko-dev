@@ -529,6 +529,7 @@ ShadowLayerForwarder::EndTransaction(InfallibleTArray<EditReply>* aReplies,
                                      bool aScheduleComposite,
                                      uint32_t aPaintSequenceNumber,
                                      bool aIsRepeatTransaction,
+                                     const mozilla::TimeStamp& aTransactionStart,
                                      bool* aSent)
 {
   *aSent = false;
@@ -607,8 +608,7 @@ ShadowLayerForwarder::EndTransaction(InfallibleTArray<EditReply>* aReplies,
     common.maskLayerParent() = nullptr;
     common.animations() = mutant->GetAnimations();
     common.invalidRegion() = mutant->GetInvalidRegion();
-    common.metrics() = mutant->GetFrameMetrics();
-    common.scrollParentId() = mutant->GetScrollHandoffParentId();
+    common.metrics() = mutant->GetAllFrameMetrics();
     common.backgroundColor() = mutant->GetBackgroundColor();
     common.contentDescription() = mutant->GetContentDescription();
     attrs.specific() = null_t();
@@ -654,7 +654,8 @@ ShadowLayerForwarder::EndTransaction(InfallibleTArray<EditReply>* aReplies,
         !mShadowManager->IPCOpen() ||
         !mShadowManager->SendUpdate(cset, aId, targetConfig, mIsFirstPaint,
                                     aScheduleComposite, aPaintSequenceNumber,
-                                    aIsRepeatTransaction, aReplies)) {
+                                    aIsRepeatTransaction, aTransactionStart,
+                                    aReplies)) {
       MOZ_LAYERS_LOG(("[LayersForwarder] WARNING: sending transaction failed!"));
       return false;
     }
@@ -667,7 +668,7 @@ ShadowLayerForwarder::EndTransaction(InfallibleTArray<EditReply>* aReplies,
         !mShadowManager->IPCOpen() ||
         !mShadowManager->SendUpdateNoSwap(cset, aId, targetConfig, mIsFirstPaint,
                                           aScheduleComposite, aPaintSequenceNumber,
-                                          aIsRepeatTransaction)) {
+                                          aIsRepeatTransaction, aTransactionStart)) {
       MOZ_LAYERS_LOG(("[LayersForwarder] WARNING: sending transaction failed!"));
       return false;
     }

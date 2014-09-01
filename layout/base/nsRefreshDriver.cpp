@@ -856,13 +856,6 @@ nsRefreshDriver::EnsureTimerStarted(bool aAdjustingTimer)
     return;
   }
 
-  if (mPresContext->Document()->IsBeingUsedAsImage()) {
-    // Image documents receive ticks from clients' refresh drivers.
-    MOZ_ASSERT(!mActiveTimer,
-               "image document refresh driver should never have its own timer");
-    return;
-  }
-
   // We got here because we're either adjusting the time *or* we're
   // starting it for the first time.  Add to the right timer,
   // prehaps removing it from a previously-set one.
@@ -1107,6 +1100,9 @@ nsRefreshDriver::Tick(int64_t aNowEpoch, TimeStamp aNowTime)
 
   AutoRestore<bool> restoreInRefresh(mInRefresh);
   mInRefresh = true;
+
+  AutoRestore<TimeStamp> restoreTickStart(mTickStart);
+  mTickStart = TimeStamp::Now();
 
   /*
    * The timer holds a reference to |this| while calling |Notify|.
@@ -1430,6 +1426,12 @@ nsRefreshDriver::RevokeTransactionId(uint64_t aTransactionId)
     FinishedWaitingForTransaction();
   }
   mPendingTransaction--;
+}
+
+mozilla::TimeStamp
+nsRefreshDriver::GetTransactionStart()
+{
+  return mTickStart;
 }
 
 void

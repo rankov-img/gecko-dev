@@ -38,7 +38,6 @@ RenderbufferStorageBySamples(GLContext* aGL, GLsizei aSamples,
     }
 }
 
-
 GLuint
 CreateTexture(GLContext* aGL, GLenum aInternalFormat, GLenum aFormat,
               GLenum aType, const gfx::IntSize& aSize, bool linear)
@@ -47,10 +46,16 @@ CreateTexture(GLContext* aGL, GLenum aInternalFormat, GLenum aFormat,
     aGL->fGenTextures(1, &tex);
     ScopedBindTexture autoTex(aGL, tex);
 
-    aGL->fTexParameteri(LOCAL_GL_TEXTURE_2D, LOCAL_GL_TEXTURE_MIN_FILTER, linear ? LOCAL_GL_LINEAR : LOCAL_GL_NEAREST);
-    aGL->fTexParameteri(LOCAL_GL_TEXTURE_2D, LOCAL_GL_TEXTURE_MAG_FILTER, linear ? LOCAL_GL_LINEAR : LOCAL_GL_NEAREST);
-    aGL->fTexParameteri(LOCAL_GL_TEXTURE_2D, LOCAL_GL_TEXTURE_WRAP_S, LOCAL_GL_CLAMP_TO_EDGE);
-    aGL->fTexParameteri(LOCAL_GL_TEXTURE_2D, LOCAL_GL_TEXTURE_WRAP_T, LOCAL_GL_CLAMP_TO_EDGE);
+    aGL->fTexParameteri(LOCAL_GL_TEXTURE_2D,
+                        LOCAL_GL_TEXTURE_MIN_FILTER, linear ? LOCAL_GL_LINEAR
+                                                            : LOCAL_GL_NEAREST);
+    aGL->fTexParameteri(LOCAL_GL_TEXTURE_2D,
+                        LOCAL_GL_TEXTURE_MAG_FILTER, linear ? LOCAL_GL_LINEAR
+                                                            : LOCAL_GL_NEAREST);
+    aGL->fTexParameteri(LOCAL_GL_TEXTURE_2D, LOCAL_GL_TEXTURE_WRAP_S,
+                        LOCAL_GL_CLAMP_TO_EDGE);
+    aGL->fTexParameteri(LOCAL_GL_TEXTURE_2D, LOCAL_GL_TEXTURE_WRAP_T,
+                        LOCAL_GL_CLAMP_TO_EDGE);
 
     aGL->fTexImage2D(LOCAL_GL_TEXTURE_2D,
                      0,
@@ -833,7 +838,7 @@ GLBlitHelper::BlitTextureToFramebuffer(GLuint srcTex, GLuint destFB,
     if (!good) {
         // We're up against the wall, so bail.
         // This should really be MOZ_CRASH(why) or MOZ_RUNTIME_ASSERT(good).
-        printf_stderr("[%s:%d] Fatal Error: Failed to prepare to blit texture->framebuffer.\n");
+        printf_stderr("Fatal Error: Failed to prepare to blit texture->framebuffer.\n");
         MOZ_CRASH();
     }
     mGL->fDrawArrays(LOCAL_GL_TRIANGLE_STRIP, 0, 4);

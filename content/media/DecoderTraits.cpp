@@ -48,6 +48,10 @@
 #endif
 #endif
 #ifdef NECKO_PROTOCOL_rtsp
+#if ANDROID_VERSION >= 18
+#include "RtspMediaCodecDecoder.h"
+#include "RtspMediaCodecReader.h"
+#endif
 #include "RtspOmxDecoder.h"
 #include "RtspOmxReader.h"
 #endif
@@ -323,7 +327,7 @@ static bool
 IsMP4SupportedType(const nsACString& aType)
 {
   return Preferences::GetBool("media.fragmented-mp4.exposed", false) &&
-         MP4Decoder::GetSupportedCodecs(aType, nullptr);
+         MP4Decoder::CanHandleMediaType(aType);
 }
 #endif
 
@@ -406,8 +410,9 @@ DecoderTraits::CanHandleMediaType(const char* aMIMEType,
   }
 #endif
 #ifdef MOZ_FMP4
-  if (IsMP4SupportedType(nsDependentCString(aMIMEType))) {
-    result = aHaveRequestedCodecs ? CANPLAY_YES : CANPLAY_MAYBE;
+  if (MP4Decoder::CanHandleMediaType(nsDependentCString(aMIMEType),
+                                     aRequestedCodecs)) {
+    return aHaveRequestedCodecs ? CANPLAY_YES : CANPLAY_MAYBE;
   }
 #endif
 #ifdef MOZ_GSTREAMER
@@ -554,7 +559,13 @@ InstantiateDecoder(const nsACString& aType, MediaDecoderOwner* aOwner)
 #endif
 #ifdef NECKO_PROTOCOL_rtsp
   if (IsRtspSupportedType(aType)) {
+#if ANDROID_VERSION >= 18
+    decoder = MediaDecoder::IsOmxAsyncEnabled()
+      ? static_cast<MediaDecoder*>(new RtspMediaCodecDecoder())
+      : static_cast<MediaDecoder*>(new RtspOmxDecoder());
+#else
     decoder = new RtspOmxDecoder();
+#endif
     return decoder.forget();
   }
 #endif
@@ -683,6 +694,14 @@ MediaDecoderReader* DecoderTraits::CreateReader(const nsACString& aType, Abstrac
 /* static */
 bool DecoderTraits::IsSupportedInVideoDocument(const nsACString& aType)
 {
+  // Forbid playing media in video documents if the user has opted
+  // not to, using either the legacy WMF specific pref, or the newer
+  // catch-all pref.
+  if (!Preferences::GetBool("media.windows-media-foundation.play-stand-alone", true) ||
+      !Preferences::GetBool("media.play-stand-alone", true)) {
+    return false;
+  }
+
   return
     IsOggType(aType) ||
 #ifdef MOZ_OMX_DECODER
@@ -703,8 +722,7 @@ bool DecoderTraits::IsSupportedInVideoDocument(const nsACString& aType)
     IsMP4SupportedType(aType) ||
 #endif
 #ifdef MOZ_WMF
-    (IsWMFSupportedType(aType) &&
-     Preferences::GetBool("media.windows-media-foundation.play-stand-alone", true)) ||
+    IsWMFSupportedType(aType) ||
 #endif
 #ifdef MOZ_DIRECTSHOW
     IsDirectShowSupportedType(aType) ||

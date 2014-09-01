@@ -4543,6 +4543,9 @@ class MClz
     static MClz *New(TempAllocator &alloc, MDefinition *num) {
         return new(alloc) MClz(num);
     }
+    static MClz *NewAsmJS(TempAllocator &alloc, MDefinition *num) {
+        return new(alloc) MClz(num);
+    }
     MDefinition *num() const {
         return getOperand(0);
     }
@@ -11184,7 +11187,7 @@ class MAsmJSLoadGlobalVar : public MNullaryInstruction
     MAsmJSLoadGlobalVar(MIRType type, unsigned globalDataOffset, bool isConstant)
       : globalDataOffset_(globalDataOffset), isConstant_(isConstant)
     {
-        JS_ASSERT(IsNumberType(type));
+        JS_ASSERT(IsNumberType(type) || IsSimdType(type));
         setResultType(type);
         setMovable();
     }

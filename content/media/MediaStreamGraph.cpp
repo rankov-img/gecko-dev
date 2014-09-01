@@ -508,6 +508,10 @@ MediaStreamGraphImpl::UpdateStreamOrder()
         stream->AsSourceStream()->NeedsMixing()) {
       shouldAEC = true;
     }
+    // If this is a AudioNodeStream, force a AudioCallbackDriver.
+    if (stream->AsAudioNodeStream()) {
+      audioTrackPresent = true;
+    }
     for (StreamBuffer::TrackIter tracks(stream->GetStreamBuffer(), MediaSegment::AUDIO);
          !tracks.IsEnded(); tracks.Next()) {
       audioTrackPresent = true;
@@ -1310,12 +1314,14 @@ MediaStreamGraphImpl::Process(GraphTime aFrom, GraphTime aTo)
     // Only playback audio and video in real-time mode
     if (mRealtime) {
       CreateOrDestroyAudioStreams(aFrom, stream);
-      TrackTicks ticksPlayedForThisStream = PlayAudio(stream, aFrom, aTo);
-      if (!ticksPlayed) {
-        ticksPlayed = ticksPlayedForThisStream;
-      } else {
-        MOZ_ASSERT(!ticksPlayedForThisStream || ticksPlayedForThisStream == ticksPlayed,
-            "Each stream should have the same number of frame.");
+      if (CurrentDriver()->AsAudioCallbackDriver()) {
+        TrackTicks ticksPlayedForThisStream = PlayAudio(stream, aFrom, aTo);
+        if (!ticksPlayed) {
+          ticksPlayed = ticksPlayedForThisStream;
+        } else {
+          MOZ_ASSERT(!ticksPlayedForThisStream || ticksPlayedForThisStream == ticksPlayed,
+              "Each stream should have the same number of frame.");
+        }
       }
       PlayVideo(stream);
     }

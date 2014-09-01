@@ -3150,13 +3150,17 @@ public:
   virtual already_AddRefed<Layer> BuildLayer(nsDisplayListBuilder* aBuilder,
                                              LayerManager* aManager,
                                              const ContainerLayerParameters& aContainerParameters) MOZ_OVERRIDE;
-  
+
+  gfxRect BBoxInUserSpace() const;
+  gfxPoint UserSpaceOffset() const;
+
+  virtual nsDisplayItemGeometry* AllocateGeometry(nsDisplayListBuilder* aBuilder) MOZ_OVERRIDE
+  {
+    return new nsDisplaySVGEffectsGeometry(this, aBuilder);
+  }
   virtual void ComputeInvalidationRegion(nsDisplayListBuilder* aBuilder,
                                          const nsDisplayItemGeometry* aGeometry,
-                                         nsRegion* aInvalidRegion) MOZ_OVERRIDE
-  {
-    // We don't need to compute an invalidation region since we have LayerTreeInvalidation
-  }
+                                         nsRegion* aInvalidRegion) MOZ_OVERRIDE;
 
   void PaintAsLayer(nsDisplayListBuilder* aBuilder,
                     nsRenderingContext* aCtx,
@@ -3187,6 +3191,7 @@ private:
 class nsDisplayTransform: public nsDisplayItem
 {
   typedef mozilla::gfx::Matrix4x4 Matrix4x4;
+  typedef mozilla::gfx::Point3D Point3D;
 public:
   /**
    * Returns a matrix (in pixels) for the current frame. The matrix should be relative to
@@ -3318,12 +3323,12 @@ public:
   bool UntransformVisibleRect(nsDisplayListBuilder* aBuilder,
                               nsRect* aOutRect);
 
-  static gfxPoint3D GetDeltaToTransformOrigin(const nsIFrame* aFrame,
-                                              float aAppUnitsPerPixel,
-                                              const nsRect* aBoundsOverride);
+  static Point3D GetDeltaToTransformOrigin(const nsIFrame* aFrame,
+                                           float aAppUnitsPerPixel,
+                                           const nsRect* aBoundsOverride);
 
-  static gfxPoint3D GetDeltaToPerspectiveOrigin(const nsIFrame* aFrame,
-                                                float aAppUnitsPerPixel);
+  static Point3D GetDeltaToPerspectiveOrigin(const nsIFrame* aFrame,
+                                             float aAppUnitsPerPixel);
 
   /**
    * Returns the bounds of a frame as defined for resolving percentage
@@ -3347,8 +3352,8 @@ public:
                              float aAppUnitsPerPixel,
                              const nsRect* aBoundsOverride);
     FrameTransformProperties(nsCSSValueSharedList* aTransformList,
-                             const gfxPoint3D& aToTransformOrigin,
-                             const gfxPoint3D& aToPerspectiveOrigin,
+                             const Point3D& aToTransformOrigin,
+                             const Point3D& aToPerspectiveOrigin,
                              nscoord aChildPerspective)
       : mFrame(nullptr)
       , mTransformList(aTransformList)
@@ -3359,8 +3364,8 @@ public:
 
     const nsIFrame* mFrame;
     nsRefPtr<nsCSSValueSharedList> mTransformList;
-    const gfxPoint3D mToTransformOrigin;
-    const gfxPoint3D mToPerspectiveOrigin;
+    const Point3D mToTransformOrigin;
+    const Point3D mToPerspectiveOrigin;
     nscoord mChildPerspective;
   };
 

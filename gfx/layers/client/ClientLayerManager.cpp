@@ -32,6 +32,7 @@
 #include "gfxPrefs.h"
 #ifdef MOZ_WIDGET_ANDROID
 #include "AndroidBridge.h"
+#include "LayerMetricsWrapper.h"
 #endif
 
 namespace mozilla {
@@ -128,6 +129,7 @@ void
 ClientLayerManager::BeginTransactionWithTarget(gfxContext* aTarget)
 {
   mInTransaction = true;
+  mTransactionStart = TimeStamp::Now();
 
 #ifdef MOZ_LAYERS_HAVE_LOG
   MOZ_LAYERS_LOG(("[----- BeginTransaction"));
@@ -183,7 +185,6 @@ ClientLayerManager::BeginTransactionWithTarget(gfxContext* aTarget)
 void
 ClientLayerManager::BeginTransaction()
 {
-  mInTransaction = true;
   BeginTransactionWithTarget(nullptr);
 }
 
@@ -259,6 +260,9 @@ ClientLayerManager::EndTransaction(DrawThebesLayerCallback aCallback,
   for (size_t i = 0; i < mTexturePools.Length(); i++) {
     mTexturePools[i]->ReturnDeferredClients();
   }
+
+  mInTransaction = false;
+  mTransactionStart = TimeStamp();
 }
 
 bool
@@ -447,13 +451,19 @@ ClientLayerManager::ForwardTransaction(bool aScheduleComposite)
   mPhase = PHASE_FORWARD;
 
   mLatestTransactionId = mTransactionIdAllocator->GetTransactionId();
+  TimeStamp transactionStart;
+  if (!mTransactionIdAllocator->GetTransactionStart().IsNull()) {
+    transactionStart = mTransactionIdAllocator->GetTransactionStart();
+  } else {
+    transactionStart = mTransactionStart;
+  }
 
   // forward this transaction's changeset to our LayerManagerComposite
   bool sent;
   AutoInfallibleTArray<EditReply, 10> replies;
   if (mForwarder->EndTransaction(&replies, mRegionToClear,
         mLatestTransactionId, aScheduleComposite, mPaintSequenceNumber,
-        mIsRepeatTransaction, &sent)) {
+        mIsRepeatTransaction, transactionStart, &sent)) {
     for (nsTArray<EditReply>::size_type i = 0; i < replies.Length(); ++i) {
       const EditReply& reply = replies[i];
 
@@ -641,30 +651,26 @@ ClientLayerManager::ProgressiveUpdateCallback(bool aHasPendingNewThebesContent,
                                               bool aDrawingCritical)
 {
 #ifdef MOZ_WIDGET_ANDROID
-  Layer* primaryScrollable = GetPrimaryScrollableLayer();
-  if (primaryScrollable) {
-    const FrameMetrics& metrics = primaryScrollable->GetFrameMetrics();
+  MOZ_ASSERT(aMetrics.IsScrollable());
+  // This is derived from the code in
+  // gfx/layers/ipc/CompositorParent.cpp::TransformShadowTree.
+  CSSToLayerScale paintScale = aMetrics.LayersPixelsPerCSSPixel();
+  const CSSRect& metricsDisplayPort =
+    (aDrawingCritical && !aMetrics.mCriticalDisplayPort.IsEmpty()) ?
+      aMetrics.mCriticalDisplayPort : aMetrics.mDisplayPort;
+  LayerRect displayPort = (metricsDisplayPort + aMetrics.GetScrollOffset()) * paintScale;
 
-    // This is derived from the code in
-    // gfx/layers/ipc/CompositorParent.cpp::TransformShadowTree.
-    CSSToLayerScale paintScale = metrics.LayersPixelsPerCSSPixel();
-    const CSSRect& metricsDisplayPort =
-      (aDrawingCritical && !metrics.mCriticalDisplayPort.IsEmpty()) ?
-        metrics.mCriticalDisplayPort : metrics.mDisplayPort;
-    LayerRect displayPort = (metricsDisplayPort + metrics.GetScrollOffset()) * paintScale;
-
-    ScreenPoint scrollOffset;
-    CSSToScreenScale zoom;
-    bool ret = AndroidBridge::Bridge()->ProgressiveUpdateCallback(
-      aHasPendingNewThebesContent, displayPort, paintScale.scale, aDrawingCritical,
-      scrollOffset, zoom);
-    aMetrics.SetScrollOffset(scrollOffset / zoom);
-    aMetrics.SetZoom(zoom);
-    return ret;
-  }
-#endif
-
+  ScreenPoint scrollOffset;
+  CSSToScreenScale zoom;
+  bool ret = AndroidBridge::Bridge()->ProgressiveUpdateCallback(
+    aHasPendingNewThebesContent, displayPort, paintScale.scale, aDrawingCritical,
+    scrollOffset, zoom);
+  aMetrics.SetScrollOffset(scrollOffset / zoom);
+  aMetrics.SetZoom(zoom);
+  return ret;
+#else
   return false;
+#endif
 }
 
 ClientLayer::~ClientLayer()

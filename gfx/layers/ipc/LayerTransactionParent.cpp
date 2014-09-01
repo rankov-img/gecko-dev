@@ -11,7 +11,6 @@
 #include "ImageLayers.h"                // for ImageLayer
 #include "Layers.h"                     // for Layer, ContainerLayer, etc
 #include "ShadowLayerParent.h"          // for ShadowLayerParent
-#include "gfxPoint3D.h"                 // for gfxPoint3D
 #include "CompositableTransactionParent.h"  // for EditReplyVector
 #include "ShadowLayersManager.h"        // for ShadowLayersManager
 #include "mozilla/gfx/BasePoint3D.h"    // for BasePoint3D
@@ -185,10 +184,12 @@ LayerTransactionParent::RecvUpdateNoSwap(const InfallibleTArray<Edit>& cset,
                                          const bool& isFirstPaint,
                                          const bool& scheduleComposite,
                                          const uint32_t& paintSequenceNumber,
-                                         const bool& isRepeatTransaction)
+                                         const bool& isRepeatTransaction,
+                                         const mozilla::TimeStamp& aTransactionStart)
 {
   return RecvUpdate(cset, aTransactionId, targetConfig, isFirstPaint,
-      scheduleComposite, paintSequenceNumber, isRepeatTransaction, nullptr);
+      scheduleComposite, paintSequenceNumber, isRepeatTransaction,
+      aTransactionStart, nullptr);
 }
 
 bool
@@ -199,6 +200,7 @@ LayerTransactionParent::RecvUpdate(const InfallibleTArray<Edit>& cset,
                                    const bool& scheduleComposite,
                                    const uint32_t& paintSequenceNumber,
                                    const bool& isRepeatTransaction,
+                                   const mozilla::TimeStamp& aTransactionStart,
                                    InfallibleTArray<EditReply>* reply)
 {
   profiler_tracing("Paint", "Composite", TRACING_INTERVAL_START);
@@ -319,7 +321,6 @@ LayerTransactionParent::RecvUpdate(const InfallibleTArray<Edit>& cset,
       layer->SetAnimations(common.animations());
       layer->SetInvalidRegion(common.invalidRegion());
       layer->SetFrameMetrics(common.metrics());
-      layer->SetScrollHandoffParentId(common.scrollParentId());
       layer->SetBackgroundColor(common.backgroundColor().value());
       layer->SetContentDescription(common.contentDescription());
 
@@ -570,6 +571,16 @@ LayerTransactionParent::RecvUpdate(const InfallibleTArray<Edit>& cset,
   }
 #endif
 
+  TimeDuration latency = TimeStamp::Now() - aTransactionStart;
+  // Theshold is 200ms to trigger, 1000ms to hit red
+  if (latency > TimeDuration::FromMilliseconds(200)) {
+    float severity = (latency - TimeDuration::FromMilliseconds(200)).ToMilliseconds() / 800;
+    if (severity > 1.f) {
+      severity = 1.f;
+    }
+    mLayerManager->VisualFrameWarning(severity);
+  }
+
   return true;
 }
 
@@ -639,16 +650,16 @@ LayerTransactionParent::RecvGetAnimationTransform(PLayerParent* aParent,
                         1.0f);
   }
   float scale = 1;
-  gfxPoint3D scaledOrigin;
-  gfxPoint3D transformOrigin;
+  Point3D scaledOrigin;
+  Point3D transformOrigin;
   for (uint32_t i=0; i < layer->GetAnimations().Length(); i++) {
     if (layer->GetAnimations()[i].data().type() == AnimationData::TTransformData) {
       const TransformData& data = layer->GetAnimations()[i].data().get_TransformData();
       scale = data.appUnitsPerDevPixel();
       scaledOrigin =
-        gfxPoint3D(NS_round(NSAppUnitsToFloatPixels(data.origin().x, scale)),
-                   NS_round(NSAppUnitsToFloatPixels(data.origin().y, scale)),
-                   0.0f);
+        Point3D(NS_round(NSAppUnitsToFloatPixels(data.origin().x, scale)),
+                NS_round(NSAppUnitsToFloatPixels(data.origin().y, scale)),
+                0.0f);
       double cssPerDev =
         double(nsDeviceContext::AppUnitsPerCSSPixel()) / double(scale);
       transformOrigin = data.transformOrigin() * cssPerDev;
@@ -662,7 +673,7 @@ LayerTransactionParent::RecvGetAnimationTransform(PLayerParent* aParent,
 
   // Undo the rebasing applied by
   // nsDisplayTransform::GetResultingTransformMatrixInternal
-  gfxPoint3D basis = -scaledOrigin - transformOrigin;
+  Point3D basis = -scaledOrigin - transformOrigin;
   transform.ChangeBasis(basis.x, basis.y, basis.z);
 
   // Convert to CSS pixels (this undoes the operations performed by
@@ -680,6 +691,7 @@ LayerTransactionParent::RecvGetAnimationTransform(PLayerParent* aParent,
 
 bool
 LayerTransactionParent::RecvSetAsyncScrollOffset(PLayerParent* aLayer,
+                                                 const FrameMetrics::ViewID& aId,
                                                  const int32_t& aX, const int32_t& aY)
 {
   if (mDestroyed || !layer_manager() || layer_manager()->IsDestroyed()) {
@@ -690,7 +702,13 @@ LayerTransactionParent::RecvSetAsyncScrollOffset(PLayerParent* aLayer,
   if (!layer) {
     return false;
   }
-  AsyncPanZoomController* controller = layer->GetAsyncPanZoomController();
+  AsyncPanZoomController* controller = nullptr;
+  for (uint32_t i = 0; i < layer->GetFrameMetricsCount(); i++) {
+    if (layer->GetFrameMetrics(i).GetScrollId() == aId) {
+      controller = layer->GetAsyncPanZoomController(i);
+      break;
+    }
+  }
   if (!controller) {
     return false;
   }

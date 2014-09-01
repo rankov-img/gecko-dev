@@ -1125,10 +1125,6 @@ CrossSizeToUseWithRatio(const FlexItem& aFlexItem,
   return NS_AUTOHEIGHT;
 }
 
-// XXX This macro shamelessly stolen from nsLayoutUtils.cpp.
-// (Maybe it should be exposed via a nsLayoutUtils method?)
-#define MULDIV(a,b,c) (nscoord(int64_t(a) * int64_t(b) / int64_t(c)))
-
 // Convenience function; returns a main-size, given a cross-size and an
 // intrinsic ratio. The intrinsic ratio must not have 0 in its cross-axis
 // component (or else we'll divide by 0).
@@ -1142,10 +1138,10 @@ MainSizeFromAspectRatio(nscoord aCrossSize,
 
   if (IsAxisHorizontal(aAxisTracker.GetCrossAxis())) {
     // cross axis horiz --> aCrossSize is a width. Converting to height.
-    return MULDIV(aCrossSize, aIntrinsicRatio.height, aIntrinsicRatio.width);
+    return NSCoordMulDiv(aCrossSize, aIntrinsicRatio.height, aIntrinsicRatio.width);
   }
   // cross axis vert --> aCrossSize is a height. Converting to width.
-  return MULDIV(aCrossSize, aIntrinsicRatio.width, aIntrinsicRatio.height);
+  return NSCoordMulDiv(aCrossSize, aIntrinsicRatio.width, aIntrinsicRatio.height);
 }
 
 // Partially resolves "min-[width|height]:auto" and returns the resulting value.
@@ -1841,7 +1837,13 @@ nsFlexContainerFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
                                        const nsRect&           aDirtyRect,
                                        const nsDisplayListSet& aLists)
 {
+  // XXXdholbert hacky temporary band-aid for bug 1059138: Trivially pass this
+  // assertion (skip it, basically) if the first child is part of a shadow DOM.
+  // (IsOrderLEQWithDOMFallback doesn't know how to compare tree-position of a
+  // shadow-DOM element vs. a non-shadow-DOM element.)
   NS_ASSERTION(
+    (!mFrames.IsEmpty() &&
+     mFrames.FirstChild()->GetContent()->GetContainingShadow()) ||
     nsIFrame::IsFrameListSorted<IsOrderLEQWithDOMFallback>(mFrames),
     "Child frames aren't sorted correctly");
 
