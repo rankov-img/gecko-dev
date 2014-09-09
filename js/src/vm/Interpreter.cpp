@@ -2879,7 +2879,7 @@ CASE(JSOP_SETALIASEDVAR)
 
     // Avoid computing the name if no type updates are needed, as this may be
     // expensive on scopes with large numbers of variables.
-    PropertyName *name = (obj.hasSingletonType() && !obj.hasLazyType())
+    PropertyName *name = obj.hasSingletonType()
                          ? ScopeCoordinateName(cx->runtime()->scopeCoordinateNameCache, script, REGS.pc)
                          : nullptr;
 
@@ -3071,7 +3071,7 @@ CASE(JSOP_NEWARRAY)
     unsigned count = GET_UINT24(REGS.pc);
     RootedObject &obj = rootObject0;
     NewObjectKind newKind = UseNewTypeForInitializer(script, REGS.pc, &ArrayObject::class_);
-    obj = NewDenseAllocatedArray(cx, count, nullptr, newKind);
+    obj = NewDenseFullyAllocatedArray(cx, count, nullptr, newKind);
     if (!obj || !SetInitializerObjectType(cx, script, REGS.pc, obj, newKind))
         goto error;
 

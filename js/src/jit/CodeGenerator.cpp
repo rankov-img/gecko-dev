@@ -26,8 +26,8 @@
 #include "jit/IonCaches.h"
 #include "jit/IonLinker.h"
 #include "jit/IonOptimizationLevels.h"
-#include "jit/IonSpewer.h"
 #include "jit/JitcodeMap.h"
+#include "jit/JitSpewer.h"
 #include "jit/Lowering.h"
 #include "jit/MIRGenerator.h"
 #include "jit/MoveEmitter.h"
@@ -1384,7 +1384,7 @@ bool
 CodeGenerator::visitCloneLiteral(LCloneLiteral *lir)
 {
     pushArg(ImmWord(js::MaybeSingletonObject));
-    pushArg(ToRegister(lir->output()));
+    pushArg(ToRegister(lir->getObjectLiteral()));
     return callVM(DeepCloneObjectLiteralInfo, lir);
 }
 
@@ -1397,11 +1397,28 @@ CodeGenerator::visitParameter(LParameter *lir)
 bool
 CodeGenerator::visitCallee(LCallee *lir)
 {
-    // read number of actual arguments from the JS frame.
     Register callee = ToRegister(lir->output());
     Address ptr(StackPointer, frameSize() + IonJSFrameLayout::offsetOfCalleeToken());
 
-    masm.loadPtr(ptr, callee);
+    masm.loadFunctionFromCalleeToken(ptr, callee);
+    return true;
+}
+
+bool
+CodeGenerator::visitIsConstructing(LIsConstructing *lir)
+{
+    Register output = ToRegister(lir->output());
+    Address calleeToken(StackPointer, frameSize() + IonJSFrameLayout::offsetOfCalleeToken());
+    masm.loadPtr(calleeToken, output);
+
+    // We must be inside a function.
+    MOZ_ASSERT(current->mir()->info().script()->functionNonDelazifying());
+
+    // The low bit indicates whether this call is constructing, just clear the
+    // other bits.
+    static_assert(CalleeToken_Function == 0x0, "CalleeTokenTag value should match");
+    static_assert(CalleeToken_FunctionConstructing == 0x1, "CalleeTokenTag value should match");
+    masm.andPtr(Imm32(0x1), output);
     return true;
 }
 
@@ -1580,7 +1597,7 @@ CodeGenerator::visitMoveGroup(LMoveGroup *group)
           case LDefinition::DOUBLE:     moveType = MoveOp::DOUBLE;    break;
           case LDefinition::INT32X4:    moveType = MoveOp::INT32X4;   break;
           case LDefinition::FLOAT32X4:  moveType = MoveOp::FLOAT32X4; break;
-          default: MOZ_ASSUME_UNREACHABLE("Unexpected move type");
+          default: MOZ_CRASH("Unexpected move type");
         }
 
         if (!resolver.addMove(toMoveOperand(from), toMoveOperand(to), moveType))
@@ -2192,7 +2209,7 @@ CodeGenerator::visitCallNative(LCallNative *call)
         break;
 
       default:
-        MOZ_ASSUME_UNREACHABLE("No such execution mode");
+        MOZ_CRASH("No such execution mode");
     }
 
     // Test for failure.
@@ -2395,7 +2412,7 @@ CodeGenerator::visitCallGeneric(LCallGeneric *call)
     // Construct the IonFramePrefix.
     uint32_t descriptor = MakeFrameDescriptor(masm.framePushed(), JitFrame_IonJS);
     masm.Push(Imm32(call->numActualArgs()));
-    masm.Push(calleereg);
+    masm.PushCalleeToken(calleereg, call->mir()->isConstructing());
     masm.Push(Imm32(descriptor));
 
     // Check whether the provided arguments satisfy target argc.
@@ -2438,7 +2455,7 @@ CodeGenerator::visitCallGeneric(LCallGeneric *call)
         break;
 
       default:
-        MOZ_ASSUME_UNREACHABLE("No such execution mode");
+        MOZ_CRASH("No such execution mode");
     }
 
     masm.bind(&end);
@@ -2510,7 +2527,7 @@ CodeGenerator::visitCallKnown(LCallKnown *call)
     // Construct the IonFramePrefix.
     uint32_t descriptor = MakeFrameDescriptor(masm.framePushed(), JitFrame_IonJS);
     masm.Push(Imm32(call->numActualArgs()));
-    masm.Push(calleereg);
+    masm.PushCalleeToken(calleereg, call->mir()->isConstructing());
     masm.Push(Imm32(descriptor));
 
     // Finally call the function in objreg.
@@ -2538,7 +2555,7 @@ CodeGenerator::visitCallKnown(LCallKnown *call)
         break;
 
       default:
-        MOZ_ASSUME_UNREACHABLE("No such execution mode");
+        MOZ_CRASH("No such execution mode");
     }
 
     masm.bind(&end);
@@ -3406,7 +3423,7 @@ CodeGenerator::generateBody()
         if (current->isTrivial())
             continue;
 
-        IonSpew(IonSpew_Codegen, "# block%lu%s:", i,
+        JitSpew(JitSpew_Codegen, "# block%lu%s:", i,
                 current->mir()->isLoopHeader() ? " (loop header)" : "");
 
         masm.bind(current->label());
@@ -3424,10 +3441,10 @@ CodeGenerator::generateBody()
 
         for (LInstructionIterator iter = current->begin(); iter != current->end(); iter++) {
 #ifdef DEBUG
-            IonSpewStart(IonSpew_Codegen, "instruction %s", iter->opName());
+            JitSpewStart(JitSpew_Codegen, "instruction %s", iter->opName());
             if (const char *extra = iter->extraName())
-                IonSpewCont(IonSpew_Codegen, ":%s", extra);
-            IonSpewFin(IonSpew_Codegen);
+                JitSpewCont(JitSpew_Codegen, ":%s", extra);
+            JitSpewFin(JitSpew_Codegen);
 #endif
 
             if (counts)
@@ -3762,7 +3779,7 @@ ShouldInitFixedSlots(LInstruction *lir, JSObject *templateObj)
         iter = block->begin();
     }
 
-    MOZ_ASSUME_UNREACHABLE("Shouldn't get here");
+    MOZ_CRASH("Shouldn't get here");
 }
 
 bool
@@ -4647,7 +4664,7 @@ CodeGenerator::visitMathFunctionD(LMathFunctionD *ins)
         funptr = JS_FUNC_TO_DATA_PTR(void *, js::math_round_impl);
         break;
       default:
-        MOZ_ASSUME_UNREACHABLE("Unknown math function");
+        MOZ_CRASH("Unknown math function");
     }
 
 #   undef MAYBE_CACHED
@@ -4672,7 +4689,7 @@ CodeGenerator::visitMathFunctionF(LMathFunctionF *ins)
       case MMathFunction::Round: funptr = JS_FUNC_TO_DATA_PTR(void *, math_roundf_impl); break;
       case MMathFunction::Ceil:  funptr = JS_FUNC_TO_DATA_PTR(void *, ceilf);            break;
       default:
-        MOZ_ASSUME_UNREACHABLE("Unknown or unsupported float32 math function");
+        MOZ_CRASH("Unknown or unsupported float32 math function");
     }
 
     masm.callWithABI(funptr, MoveOp::FLOAT32);
@@ -4737,7 +4754,7 @@ CodeGenerator::visitBinaryV(LBinaryV *lir)
         return callVM(UrshInfo, lir);
 
       default:
-        MOZ_ASSUME_UNREACHABLE("Unexpected binary op");
+        MOZ_CRASH("Unexpected binary op");
     }
 }
 
@@ -4870,7 +4887,7 @@ CodeGenerator::visitCompareVM(LCompareVM *lir)
         return callVM(GeInfo, lir);
 
       default:
-        MOZ_ASSUME_UNREACHABLE("Unexpected compare op");
+        MOZ_CRASH("Unexpected compare op");
     }
 }
 
@@ -5237,7 +5254,7 @@ ConcatFatInlineString(MacroAssembler &masm, Register lhs, Register rhs, Register
         masm.pop(temp1);
         break;
       default:
-        MOZ_ASSUME_UNREACHABLE("No such execution mode");
+        MOZ_CRASH("No such execution mode");
     }
 
     // Store length and flags.
@@ -5358,7 +5375,7 @@ JitCompartment::generateStringConcatStub(JSContext *cx, ExecutionMode mode)
         masm.pop(temp1);
         break;
       default:
-        MOZ_ASSUME_UNREACHABLE("No such execution mode");
+        MOZ_CRASH("No such execution mode");
     }
 
     // Store rope length and flags. temp1 still holds the result of AND'ing the
@@ -6593,7 +6610,7 @@ CodeGenerator::visitRestPar(LRestPar *lir)
 bool
 CodeGenerator::generateAsmJS(AsmJSFunctionLabels *labels)
 {
-    IonSpew(IonSpew_Codegen, "# Emitting asm.js code");
+    JitSpew(JitSpew_Codegen, "# Emitting asm.js code");
 
     // AsmJS doesn't do SPS instrumentation.
     sps_.disable();
@@ -6642,7 +6659,7 @@ CodeGenerator::generateAsmJS(AsmJSFunctionLabels *labels)
 bool
 CodeGenerator::generate()
 {
-    IonSpew(IonSpew_Codegen, "# Emitting code for script %s:%d",
+    JitSpew(JitSpew_Codegen, "# Emitting code for script %s:%d",
             gen->info().script()->filename(),
             gen->info().script()->lineno());
 
@@ -6921,7 +6938,7 @@ CodeGenerator::link(JSContext *cx, types::CompilerConstraintList *constraints)
                                        ImmPtr(ionScript),
                                        ImmPtr((void*)-1));
 
-    IonSpew(IonSpew_Codegen, "Created IonScript %p (raw %p)",
+    JitSpew(JitSpew_Codegen, "Created IonScript %p (raw %p)",
             (void *) ionScript, (void *) code->raw());
 
     ionScript->setInvalidationEpilogueDataOffset(invalidateEpilogueData_.offset());
@@ -7003,7 +7020,7 @@ CodeGenerator::link(JSContext *cx, types::CompilerConstraintList *constraints)
         // turn on barriers.
         break;
       default:
-        MOZ_ASSUME_UNREACHABLE("No such execution mode");
+        MOZ_CRASH("No such execution mode");
     }
 
     // Attach any generated script counts to the script.
@@ -7284,7 +7301,7 @@ CodeGenerator::addGetPropertyCache(LInstruction *ins, RegisterSet liveRegs, Regi
         return addCache(ins, allocateCache(cache));
       }
       default:
-        MOZ_ASSUME_UNREACHABLE("Bad execution mode");
+        MOZ_CRASH("Bad execution mode");
     }
 }
 
@@ -7305,7 +7322,7 @@ CodeGenerator::addSetPropertyCache(LInstruction *ins, RegisterSet liveRegs, Regi
           return addCache(ins, allocateCache(cache));
       }
       default:
-        MOZ_ASSUME_UNREACHABLE("Bad execution mode");
+        MOZ_CRASH("Bad execution mode");
     }
 }
 
@@ -7330,7 +7347,7 @@ CodeGenerator::addSetElementCache(LInstruction *ins, Register obj, Register unbo
         return addCache(ins, allocateCache(cache));
       }
       default:
-        MOZ_ASSUME_UNREACHABLE("Bad execution mode");
+        MOZ_CRASH("Bad execution mode");
     }
 }
 
@@ -7428,7 +7445,7 @@ CodeGenerator::addGetElementCache(LInstruction *ins, Register obj, ConstantOrReg
         return addCache(ins, allocateCache(cache));
       }
       default:
-        MOZ_ASSUME_UNREACHABLE("No such execution mode");
+        MOZ_CRASH("No such execution mode");
     }
 }
 
@@ -7807,7 +7824,7 @@ CodeGenerator::visitBitOpV(LBitOpV *lir)
       default:
         break;
     }
-    MOZ_ASSUME_UNREACHABLE("unexpected bitop");
+    MOZ_CRASH("unexpected bitop");
 }
 
 class OutOfLineTypeOfV : public OutOfLineCodeBase<CodeGenerator>
@@ -8708,7 +8725,7 @@ CodeGenerator::visitProfilerStackOp(LProfilerStackOp *lir)
             return true;
 
         default:
-            MOZ_ASSUME_UNREACHABLE("invalid LProfilerStackOp type");
+            MOZ_CRASH("invalid LProfilerStackOp type");
     }
 }
 

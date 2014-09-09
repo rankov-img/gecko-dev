@@ -87,7 +87,7 @@ class SmsRequestChild : public PSmsRequestChild
   nsCOMPtr<nsIMobileMessageCallback> mReplyRequest;
 
 public:
-  SmsRequestChild(nsIMobileMessageCallback* aReplyRequest);
+  explicit SmsRequestChild(nsIMobileMessageCallback* aReplyRequest);
 
 protected:
   virtual ~SmsRequestChild()
@@ -113,7 +113,7 @@ public:
   NS_DECL_ISUPPORTS
   NS_DECL_NSICURSORCONTINUECALLBACK
 
-  MobileMessageCursorChild(nsIMobileMessageCursorCallback* aCallback);
+  explicit MobileMessageCursorChild(nsIMobileMessageCursorCallback* aCallback);
 
 protected:
   virtual ~MobileMessageCursorChild()
@@ -129,6 +129,13 @@ protected:
 
   virtual bool
   Recv__delete__(const int32_t& aError) MOZ_OVERRIDE;
+
+private:
+  void
+  DoNotifyResult(const nsTArray<MobileMessageData>& aData);
+
+  void
+  DoNotifyResult(const nsTArray<ThreadData>& aData);
 };
 
 } // namespace mobilemessage

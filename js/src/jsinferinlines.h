@@ -165,7 +165,7 @@ PrimitiveTypeFlag(JSValueType type)
       case JSVAL_TYPE_MAGIC:
         return TYPE_FLAG_LAZYARGS;
       default:
-        MOZ_ASSUME_UNREACHABLE("Bad type");
+        MOZ_CRASH("Bad JSValueType");
     }
 }
 
@@ -190,7 +190,7 @@ TypeFlagPrimitive(TypeFlags flags)
       case TYPE_FLAG_LAZYARGS:
         return JSVAL_TYPE_MAGIC;
       default:
-        MOZ_ASSUME_UNREACHABLE("Bad type");
+        MOZ_CRASH("Bad TypeFlags");
     }
 }
 
@@ -359,7 +359,7 @@ GetClassForProtoKey(JSProtoKey key)
         return &DataViewObject::class_;
 
       default:
-        MOZ_ASSUME_UNREACHABLE("Bad proto key");
+        MOZ_CRASH("Bad proto key");
     }
 }
 
@@ -445,6 +445,20 @@ CanHaveEmptyPropertyTypesForOwnProperty(JSObject *obj)
     // objects may be empty for 'own' properties if the global property still
     // has its initial undefined value.
     return obj->is<GlobalObject>();
+}
+
+inline bool
+PropertyHasBeenMarkedNonConstant(JSObject *obj, jsid id)
+{
+    // Non-constant properties are only relevant for singleton objects.
+    if (!obj->hasSingletonType())
+        return true;
+
+    // EnsureTrackPropertyTypes must have been called on this object.
+    if (obj->type()->unknownProperties())
+        return true;
+    HeapTypeSet *types = obj->type()->maybeGetProperty(IdToTypeId(id));
+    return types->nonConstantProperty();
 }
 
 inline bool
@@ -1294,10 +1308,8 @@ TypeNewScript::writeBarrierPre(TypeNewScript *newScript)
         return;
 
     JS::Zone *zone = newScript->fun->zoneFromAnyThread();
-    if (zone->needsIncrementalBarrier()) {
-        MarkObject(zone->barrierTracer(), &newScript->fun, "write barrier");
-        MarkObject(zone->barrierTracer(), &newScript->templateObject, "write barrier");
-    }
+    if (zone->needsIncrementalBarrier())
+        newScript->trace(zone->barrierTracer());
 #endif
 }
 

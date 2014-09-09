@@ -35,6 +35,7 @@
 #include "nsIObjectFrame.h"
 #include "nsBindingManager.h"
 #include "nsStyleCoord.h"
+#include "SelectionCarets.h"
 
 #include "mozilla/ContentEvents.h"
 #include "mozilla/dom/Element.h"
@@ -119,6 +120,24 @@ struct nsDelayedBlurOrFocusEvent
   nsCOMPtr<EventTarget> mTarget;
 };
 
+inline void ImplCycleCollectionUnlink(nsDelayedBlurOrFocusEvent& aField)
+{
+  aField.mPresShell = nullptr;
+  aField.mDocument = nullptr;
+  aField.mTarget = nullptr;
+}
+
+inline void
+ImplCycleCollectionTraverse(nsCycleCollectionTraversalCallback& aCallback,
+                            nsDelayedBlurOrFocusEvent& aField,
+                            const char* aName,
+                            uint32_t aFlags = 0)
+{
+  CycleCollectionNoteChild(aCallback, aField.mPresShell.get(), aName, aFlags);
+  CycleCollectionNoteChild(aCallback, aField.mDocument.get(), aName, aFlags);
+  CycleCollectionNoteChild(aCallback, aField.mTarget.get(), aName, aFlags);
+}
+
 NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(nsFocusManager)
   NS_INTERFACE_MAP_ENTRY(nsIFocusManager)
   NS_INTERFACE_MAP_ENTRY(nsIObserver)
@@ -135,7 +154,9 @@ NS_IMPL_CYCLE_COLLECTION(nsFocusManager,
                          mFocusedContent,
                          mFirstBlurEvent,
                          mFirstFocusEvent,
-                         mWindowBeingLowered)
+                         mWindowBeingLowered,
+                         mDelayedBlurFocusEvents,
+                         mMouseButtonEventHandlingDocument)
 
 nsFocusManager* nsFocusManager::sInstance = nullptr;
 bool nsFocusManager::sMouseFocusesFormControl = false;
@@ -1523,6 +1544,11 @@ nsFocusManager::Blur(nsPIDOMWindow* aWindowToClear,
   if (!presShell) {
     mFocusedContent = nullptr;
     return true;
+  }
+
+  nsRefPtr<SelectionCarets> selectionCarets = presShell->GetSelectionCarets();
+  if (selectionCarets) {
+    selectionCarets->SetVisibility(false);
   }
 
   bool clearFirstBlurEvent = false;

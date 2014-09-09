@@ -321,8 +321,6 @@ LayerTransactionParent::RecvUpdate(const InfallibleTArray<Edit>& cset,
       layer->SetAnimations(common.animations());
       layer->SetInvalidRegion(common.invalidRegion());
       layer->SetFrameMetrics(common.metrics());
-      layer->SetBackgroundColor(common.backgroundColor().value());
-      layer->SetContentDescription(common.contentDescription());
 
       typedef SpecificLayerAttributes Specific;
       const SpecificLayerAttributes& specific = attrs.specific();
@@ -573,8 +571,9 @@ LayerTransactionParent::RecvUpdate(const InfallibleTArray<Edit>& cset,
 
   TimeDuration latency = TimeStamp::Now() - aTransactionStart;
   // Theshold is 200ms to trigger, 1000ms to hit red
-  if (latency > TimeDuration::FromMilliseconds(200)) {
-    float severity = (latency - TimeDuration::FromMilliseconds(200)).ToMilliseconds() / 800;
+  if (latency > TimeDuration::FromMilliseconds(kVisualWarningTrigger)) {
+    float severity = (latency - TimeDuration::FromMilliseconds(kVisualWarningTrigger)).ToMilliseconds() /
+                       (kVisualWarningMax - kVisualWarningTrigger);
     if (severity > 1.f) {
       severity = 1.f;
     }
@@ -689,26 +688,35 @@ LayerTransactionParent::RecvGetAnimationTransform(PLayerParent* aParent,
   return true;
 }
 
+static AsyncPanZoomController*
+GetAPZCForViewID(Layer* aLayer, FrameMetrics::ViewID aScrollID)
+{
+  for (uint32_t i = 0; i < aLayer->GetFrameMetricsCount(); i++) {
+    if (aLayer->GetFrameMetrics(i).GetScrollId() == aScrollID) {
+      return aLayer->GetAsyncPanZoomController(i);
+    }
+  }
+  ContainerLayer* container = aLayer->AsContainerLayer();
+  if (container) {
+    for (Layer* l = container->GetFirstChild(); l; l = l->GetNextSibling()) {
+      AsyncPanZoomController* c = GetAPZCForViewID(l, aScrollID);
+      if (c) {
+        return c;
+      }
+    }
+  }
+  return nullptr;
+}
+
 bool
-LayerTransactionParent::RecvSetAsyncScrollOffset(PLayerParent* aLayer,
-                                                 const FrameMetrics::ViewID& aId,
+LayerTransactionParent::RecvSetAsyncScrollOffset(const FrameMetrics::ViewID& aScrollID,
                                                  const int32_t& aX, const int32_t& aY)
 {
   if (mDestroyed || !layer_manager() || layer_manager()->IsDestroyed()) {
     return false;
   }
 
-  Layer* layer = cast(aLayer)->AsLayer();
-  if (!layer) {
-    return false;
-  }
-  AsyncPanZoomController* controller = nullptr;
-  for (uint32_t i = 0; i < layer->GetFrameMetricsCount(); i++) {
-    if (layer->GetFrameMetrics(i).GetScrollId() == aId) {
-      controller = layer->GetAsyncPanZoomController(i);
-      break;
-    }
-  }
+  AsyncPanZoomController* controller = GetAPZCForViewID(mRoot, aScrollID);
   if (!controller) {
     return false;
   }
@@ -722,6 +730,20 @@ LayerTransactionParent::RecvGetAPZTestData(APZTestData* aOutData)
   mShadowLayersManager->GetAPZTestData(this, aOutData);
   return true;
 }
+
+bool
+LayerTransactionParent::RecvRequestProperty(const nsString& aProperty, float* aValue)
+{
+  if (aProperty.Equals(NS_LITERAL_STRING("overdraw"))) {
+    *aValue = layer_manager()->GetCompositor()->GetFillRatio();
+  } else if (aProperty.Equals(NS_LITERAL_STRING("missed_hwc"))) {
+    *aValue = layer_manager()->LastFrameMissedHWC() ? 1 : 0;
+  } else {
+    *aValue = -1;
+  }
+  return true;
+}
+
 
 bool
 LayerTransactionParent::Attach(ShadowLayerParent* aLayerParent,

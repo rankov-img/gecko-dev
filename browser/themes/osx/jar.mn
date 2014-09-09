@@ -5,6 +5,8 @@
 browser.jar:
 % skin browser classic/1.0 %skin/classic/browser/
   skin/classic/browser/sanitizeDialog.css                   (sanitizeDialog.css)
+  skin/classic/browser/aboutNetError.css                    (../shared/aboutNetError.css)
+  skin/classic/browser/aboutNetError_info.svg               (../shared/aboutNetError_info.svg)
 * skin/classic/browser/aboutSessionRestore.css              (aboutSessionRestore.css)
   skin/classic/browser/aboutSessionRestore-window-icon.png
   skin/classic/browser/aboutWelcomeBack.css                 (../shared/aboutWelcomeBack.css)
@@ -260,8 +262,7 @@ browser.jar:
   skin/classic/browser/social/services-16@2x.png            (social/services-16@2x.png)
   skin/classic/browser/social/services-64.png               (social/services-64.png)
   skin/classic/browser/social/services-64@2x.png            (social/services-64@2x.png)
-  skin/classic/browser/social/chat-icons.png                             (social/chat-icons.png)
-  skin/classic/browser/social/chat-icons@2x.png                          (social/chat-icons@2x.png)
+  skin/classic/browser/social/chat-icons.svg                             (../shared/social/chat-icons.svg)
   skin/classic/browser/social/gear_default.png                           (../shared/social/gear_default.png)
   skin/classic/browser/social/gear_clicked.png                           (../shared/social/gear_clicked.png)
   skin/classic/browser/tabbrowser/alltabs-box-bkgnd-icon.png             (tabbrowser/alltabs-box-bkgnd-icon.png)

@@ -149,6 +149,7 @@ struct PreparedData
 {
   RefPtr<CompositingRenderTarget> mTmpTarget;
   nsAutoTArray<PreparedLayer, 12> mLayers;
+  bool mNeedsSurfaceCopy;
 };
 
 // ContainerPrepare is shared between RefLayer and ContainerLayer
@@ -158,6 +159,7 @@ ContainerPrepare(ContainerT* aContainer,
                  const RenderTargetIntRect& aClipRect)
 {
   aContainer->mPrepared = MakeUnique<PreparedData>();
+  aContainer->mPrepared->mNeedsSurfaceCopy = false;
 
   /**
    * Determine which layers to draw.
@@ -242,6 +244,8 @@ ContainerPrepare(ContainerT* aContainer,
       RefPtr<CompositingRenderTarget> surface = CreateTemporaryTarget(aContainer, aManager);
       RenderIntermediate(aContainer, aManager, RenderTargetPixel::ToUntyped(aClipRect), surface);
       aContainer->mPrepared->mTmpTarget = surface;
+    } else {
+      aContainer->mPrepared->mNeedsSurfaceCopy = true;
     }
   }
 }
@@ -252,41 +256,6 @@ RenderLayers(ContainerT* aContainer,
 	     const RenderTargetIntRect& aClipRect)
 {
   Compositor* compositor = aManager->GetCompositor();
-
-  float opacity = aContainer->GetEffectiveOpacity();
-
-  // If this is a scrollable container layer, and it's overscrolled, the layer's
-  // contents are transformed in a way that would leave blank regions in the
-  // composited area. If the layer has a background color, fill these areas
-  // with the background color by drawing a rectangle of the background color
-  // over the entire composited area before drawing the container contents.
-  // Make sure not to do this on a "scrollinfo" layer because it's just a
-  // placeholder for APZ purposes.
-  if (aContainer->HasScrollableFrameMetrics() && !aContainer->IsScrollInfoLayer()) {
-    bool overscrolled = false;
-    for (uint32_t i = 0; i < aContainer->GetFrameMetricsCount(); i++) {
-      AsyncPanZoomController* apzc = aContainer->GetAsyncPanZoomController(i);
-      if (apzc && apzc->IsOverscrolled()) {
-        overscrolled = true;
-        break;
-      }
-    }
-    if (overscrolled) {
-      gfxRGBA color = aContainer->GetBackgroundColor();
-      // If the background is completely transparent, there's no point in
-      // drawing anything for it. Hopefully the layers behind, if any, will
-      // provide suitable content for the overscroll effect.
-      if (color.a != 0.0) {
-        EffectChain effectChain(aContainer);
-        effectChain.mPrimaryEffect = new EffectSolidColor(ToColor(color));
-        gfx::Rect clipRect(aClipRect.x, aClipRect.y, aClipRect.width, aClipRect.height);
-        compositor->DrawQuad(
-          RenderTargetPixel::ToUnknown(
-            compositor->ClipRectInLayersCoordinates(aContainer, aClipRect)),
-          clipRect, effectChain, opacity, Matrix4x4());
-      }
-    }
-  }
 
   for (size_t i = 0u; i < aContainer->mPrepared->mLayers.Length(); i++) {
     PreparedLayer& preparedData = aContainer->mPrepared->mLayers[i];
@@ -409,13 +378,18 @@ ContainerRender(ContainerT* aContainer,
   if (aContainer->UseIntermediateSurface()) {
     RefPtr<CompositingRenderTarget> surface;
 
-    if (!aContainer->mPrepared->mTmpTarget) {
+    if (aContainer->mPrepared->mNeedsSurfaceCopy) {
       // we needed to copy the background so we waited until now to render the intermediate
       surface = CreateTemporaryTargetAndCopyFromBackground(aContainer, aManager);
       RenderIntermediate(aContainer, aManager,
                          aClipRect, surface);
     } else {
       surface = aContainer->mPrepared->mTmpTarget;
+    }
+
+    if (!surface) {
+      aContainer->mPrepared = nullptr;
+      return;
     }
 
     float opacity = aContainer->GetEffectiveOpacity();
@@ -450,6 +424,24 @@ ContainerRender(ContainerT* aContainer,
     RenderLayers(aContainer, aManager, RenderTargetPixel::FromUntyped(aClipRect));
   }
   aContainer->mPrepared = nullptr;
+
+  // If it is a scrollable container layer with no child layers, and one of the APZCs
+  // attached to it has a nonempty async transform, then that transform is not applied
+  // to any visible content. Display a warning box (conditioned on the FPS display being
+  // enabled).
+  if (gfxPrefs::LayersDrawFPS() && aContainer->IsScrollInfoLayer()) {
+    // Since aContainer doesn't have any children we can just iterate from the top metrics
+    // on it down to the bottom using GetFirstChild and not worry about walking onto another
+    // underlying layer.
+    for (LayerMetricsWrapper i(aContainer); i; i = i.GetFirstChild()) {
+      if (AsyncPanZoomController* apzc = i.GetApzc()) {
+        if (!Matrix4x4(apzc->GetCurrentAsyncTransform()).IsIdentity()) {
+          aManager->UnusedApzTransformWarning();
+          break;
+        }
+      }
+    }
+  }
 }
 
 ContainerLayerComposite::ContainerLayerComposite(LayerManagerComposite *aManager)

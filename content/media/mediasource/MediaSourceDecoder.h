@@ -20,6 +20,7 @@ class MediaResource;
 class MediaDecoderStateMachine;
 class MediaSourceReader;
 class SourceBufferDecoder;
+class TrackBuffer;
 
 namespace dom {
 
@@ -31,7 +32,7 @@ class MediaSource;
 class MediaSourceDecoder : public MediaDecoder
 {
 public:
-  MediaSourceDecoder(dom::HTMLMediaElement* aElement);
+  explicit MediaSourceDecoder(dom::HTMLMediaElement* aElement);
 
   virtual MediaDecoder* Clone() MOZ_OVERRIDE;
   virtual MediaDecoderStateMachine* CreateStateMachine() MOZ_OVERRIDE;
@@ -46,6 +47,9 @@ public:
   void DetachMediaSource();
 
   already_AddRefed<SourceBufferDecoder> CreateSubDecoder(const nsACString& aType);
+  void AddTrackBuffer(TrackBuffer* aTrackBuffer);
+  void RemoveTrackBuffer(TrackBuffer* aTrackBuffer);
+  void OnTrackBufferConfigured(TrackBuffer* aTrackBuffer, const MediaInfo& aInfo);
 
   void Ended();
 
@@ -56,6 +60,10 @@ public:
 
   // Called whenever a SourceBuffer has new data appended.
   void NotifyGotData();
+
+  // Indicates the point in time at which the reader should consider
+  // registered TrackBuffers essential for initialization.
+  void PrepareReaderInitialization();
 
 private:
   // The owning MediaSource holds a strong reference to this decoder, and

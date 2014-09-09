@@ -69,6 +69,7 @@ using namespace js;
 using namespace js::gc;
 using namespace js::types;
 
+using mozilla::DebugOnly;
 using mozilla::Maybe;
 using mozilla::RoundUpPow2;
 
@@ -1741,25 +1742,44 @@ static inline JSObject *
 CreateThisForFunctionWithType(JSContext *cx, HandleTypeObject type, JSObject *parent,
                               NewObjectKind newKind)
 {
-    if (type->newScript()) {
-        /*
-         * Make an object with the type's associated finalize kind and shape,
-         * which reflects any properties that will definitely be added to the
-         * object before it is read from.
-         */
-        RootedObject templateObject(cx, type->newScript()->templateObject);
-        JS_ASSERT(templateObject->type() == type);
+    if (types::TypeNewScript *newScript = type->newScript()) {
+        if (newScript->analyzed()) {
+            // The definite properties analysis has been performed for this
+            // type, so get the shape and finalize kind to use from the
+            // TypeNewScript's template.
+            RootedObject templateObject(cx, newScript->templateObject());
+            JS_ASSERT(templateObject->type() == type);
 
-        RootedObject res(cx, CopyInitializerObject(cx, templateObject, newKind));
+            RootedObject res(cx, CopyInitializerObject(cx, templateObject, newKind));
+            if (!res)
+                return nullptr;
+
+            if (newKind == SingletonObject) {
+                Rooted<TaggedProto> proto(cx, TaggedProto(templateObject->getProto()));
+                if (!res->splicePrototype(cx, &JSObject::class_, proto))
+                    return nullptr;
+            } else {
+                res->setType(type);
+            }
+            return res;
+        }
+
+        // The initial objects registered with a TypeNewScript can't be in the
+        // nursery.
+        if (newKind == GenericObject)
+            newKind = MaybeSingletonObject;
+
+        // Not enough objects with this type have been created yet, so make a
+        // plain object and register it with the type. Use the maximum number
+        // of fixed slots, as is also required by the TypeNewScript.
+        gc::AllocKind allocKind = GuessObjectGCKind(JSObject::MAX_FIXED_SLOTS);
+        JSObject *res = NewObjectWithType(cx, type, parent, allocKind, newKind);
         if (!res)
             return nullptr;
-        if (newKind == SingletonObject) {
-            Rooted<TaggedProto> proto(cx, TaggedProto(templateObject->getProto()));
-            if (!res->splicePrototype(cx, &JSObject::class_, proto))
-                return nullptr;
-        } else {
-            res->setType(type);
-        }
+
+        if (newKind != SingletonObject)
+            newScript->registerNewObject(res);
+
         return res;
     }
 
@@ -1777,6 +1797,19 @@ js::CreateThisForFunctionWithProto(JSContext *cx, HandleObject callee, JSObject 
         RootedTypeObject type(cx, cx->getNewType(&JSObject::class_, TaggedProto(proto), &callee->as<JSFunction>()));
         if (!type)
             return nullptr;
+
+        if (type->newScript() && !type->newScript()->analyzed()) {
+            bool regenerate;
+            if (!type->newScript()->maybeAnalyze(cx, type, &regenerate))
+                return nullptr;
+            if (regenerate) {
+                // The script was analyzed successfully and may have changed
+                // the new type table, so refetch the type.
+                type = cx->getNewType(&JSObject::class_, TaggedProto(proto), &callee->as<JSFunction>());
+                JS_ASSERT(type && type->newScript());
+            }
+        }
+
         res = CreateThisForFunctionWithType(cx, type, callee->getParent(), newKind);
     } else {
         gc::AllocKind allocKind = NewObjectGCKind(&JSObject::class_);
@@ -2339,7 +2372,7 @@ js::CloneObjectLiteral(JSContext *cx, HandleObject parent, HandleObject srcObj)
     JS_ASSERT(srcObj->getElementsHeader()->ownerObject() == srcObj);
 
     size_t length = srcObj->as<ArrayObject>().length();
-    RootedObject res(cx, NewDenseAllocatedArray(cx, length, nullptr, MaybeSingletonObject));
+    RootedObject res(cx, NewDenseFullyAllocatedArray(cx, length, nullptr, MaybeSingletonObject));
     if (!res)
         return nullptr;
 
@@ -2943,6 +2976,25 @@ JSObject::setLastProperty(ThreadSafeContext *cx, HandleObject obj, HandleShape s
     return true;
 }
 
+void
+JSObject::setLastPropertyShrinkFixedSlots(Shape *shape)
+{
+    JS_ASSERT(!inDictionaryMode());
+    JS_ASSERT(!shape->inDictionary());
+    JS_ASSERT(shape->compartment() == compartment());
+    JS_ASSERT(lastProperty()->slotSpan() == shape->slotSpan());
+
+    DebugOnly<size_t> oldFixed = numFixedSlots();
+    DebugOnly<size_t> newFixed = shape->numFixedSlots();
+    JS_ASSERT(newFixed < oldFixed);
+    JS_ASSERT(shape->slotSpan() <= oldFixed);
+    JS_ASSERT(shape->slotSpan() <= newFixed);
+    JS_ASSERT(dynamicSlotsCount(oldFixed, shape->slotSpan(), getClass()) == 0);
+    JS_ASSERT(dynamicSlotsCount(newFixed, shape->slotSpan(), getClass()) == 0);
+
+    shape_ = shape;
+}
+
 /* static */ bool
 JSObject::setSlotSpan(ThreadSafeContext *cx, HandleObject obj, uint32_t span)
 {
@@ -3012,35 +3064,6 @@ JSObject::growSlots(ThreadSafeContext *cx, HandleObject obj, uint32_t oldCount, 
      * throttled well before the slot capacity can overflow.
      */
     JS_ASSERT(newCount < NELEMENTS_LIMIT);
-
-    /*
-     * If we are allocating slots for an object whose type is always created
-     * by calling 'new' on a particular script, bump the GC kind for that
-     * type to give these objects a larger number of fixed slots when future
-     * objects are constructed.
-     */
-    if (!obj->hasLazyType() && !oldCount && obj->type()->newScript()) {
-        JSObject *oldTemplate = obj->type()->newScript()->templateObject;
-        gc::AllocKind kind = gc::GetGCObjectFixedSlotsKind(oldTemplate->numFixedSlots());
-        uint32_t newScriptSlots = gc::GetGCKindSlots(kind);
-        if (newScriptSlots == obj->numFixedSlots() &&
-            gc::TryIncrementAllocKind(&kind) &&
-            cx->isJSContext())
-        {
-            JSContext *ncx = cx->asJSContext();
-            AutoEnterAnalysis enter(ncx);
-
-            Rooted<TypeObject*> typeObj(cx, obj->type());
-            RootedShape shape(cx, oldTemplate->lastProperty());
-            JSObject *reshapedObj = NewReshapedObject(ncx, typeObj, obj->getParent(), kind, shape,
-                                                      MaybeSingletonObject);
-            if (!reshapedObj)
-                return false;
-
-            typeObj->newScript()->templateObject = reshapedObj;
-            typeObj->markStateChange(ncx);
-        }
-    }
 
     if (!oldCount) {
         obj->slots = AllocateSlots(cx, obj, newCount);
@@ -3553,6 +3576,25 @@ JSObject::CopyElementsForWrite(ThreadSafeContext *cx, JSObject *obj)
     Debug_SetSlotRangeToCrashOnTouch(obj->elements + initlen, newCapacity - initlen);
 
     return true;
+}
+
+void
+JSObject::fixupAfterMovingGC()
+{
+    /*
+     * If this is a copy-on-write elements we may need to fix up both the
+     * elements' pointer back to the owner object, and the elements pointer
+     * itself if it points to inline elements in another object.
+     */
+    if (hasDynamicElements()) {
+        ObjectElements *header = getElementsHeader();
+        if (header->isCopyOnWrite()) {
+            HeapPtrObject &owner = header->ownerObject();
+            if (IsForwarded(owner.get()))
+                owner = Forwarded(owner.get());
+            elements = owner->getElementsHeader()->elements();
+        }
+    }
 }
 
 bool
@@ -4081,6 +4123,14 @@ UpdateShapeTypeAndValue(typename ExecutionModeTraits<mode>::ExclusiveContextType
                 return false;
         } else {
             obj->nativeSetSlotWithType(cx->asExclusiveContext(), shape, value, /* overwriting = */ false);
+        }
+
+        // Per the acquired properties analysis, when the shape of a partially
+        // initialized object is changed to its fully initialized shape, its
+        // type can be updated as well.
+        if (types::TypeNewScript *newScript = obj->typeRaw()->newScript()) {
+            if (newScript->initializedShape() == shape)
+                obj->setType(newScript->initializedType());
         }
     }
     if (!shape->hasSlot() || !shape->hasDefaultGetter() || !shape->hasDefaultSetter()) {
@@ -4869,7 +4919,11 @@ js::NativeSet(typename ExecutionModeTraits<mode>::ContextType cxArg,
                 if (!obj->nativeSetSlotIfHasType(shape, vp))
                     return false;
             } else {
-                obj->nativeSetSlotWithType(cxArg->asExclusiveContext(), shape, vp);
+                // Global properties declared with 'var' will be initially
+                // defined with an undefined value, so don't treat the initial
+                // assignments to such properties as overwrites.
+                bool overwriting = !obj->is<GlobalObject>() || !obj->nativeGetSlot(shape->slot()).isUndefined();
+                obj->nativeSetSlotWithType(cxArg->asExclusiveContext(), shape, vp, overwriting);
             }
 
             return true;
@@ -6087,6 +6141,8 @@ dumpValue(const Value &v)
         fprintf(stderr, "%g", v.toDouble());
     else if (v.isString())
         v.toString()->dump();
+    else if (v.isSymbol())
+        v.toSymbol()->dump();
     else if (v.isObject() && v.toObject().is<JSFunction>()) {
         JSFunction *fun = &v.toObject().as<JSFunction>();
         if (fun->displayAtom()) {

@@ -13,6 +13,8 @@ browser.jar:
   skin/classic/browser/aboutCertError_sectionCollapsed.png
   skin/classic/browser/aboutCertError_sectionCollapsed-rtl.png
   skin/classic/browser/aboutCertError_sectionExpanded.png
+  skin/classic/browser/aboutNetError.css                        (../shared/aboutNetError.css)
+  skin/classic/browser/aboutNetError_info.svg                   (../shared/aboutNetError_info.svg)
   skin/classic/browser/aboutSocialError.css
 #ifdef MOZ_SERVICES_SYNC
   skin/classic/browser/aboutSyncTabs.css
@@ -156,7 +158,7 @@ browser.jar:
   skin/classic/browser/social/services-64.png         (social/services-64.png)
   skin/classic/browser/social/share-button.png        (social/share-button.png)
   skin/classic/browser/social/share-button-active.png (social/share-button-active.png)
-  skin/classic/browser/social/chat-icons.png          (social/chat-icons.png)
+  skin/classic/browser/social/chat-icons.svg          (../shared/social/chat-icons.svg)
   skin/classic/browser/social/gear_default.png        (../shared/social/gear_default.png)
   skin/classic/browser/social/gear_clicked.png        (../shared/social/gear_clicked.png)
   skin/classic/browser/tabbrowser/alltabs.png         (tabbrowser/alltabs.png)

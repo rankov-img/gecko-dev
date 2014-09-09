@@ -133,6 +133,27 @@ MediaSourceDecoder::CreateSubDecoder(const nsACString& aType)
 }
 
 void
+MediaSourceDecoder::AddTrackBuffer(TrackBuffer* aTrackBuffer)
+{
+  MOZ_ASSERT(mReader);
+  mReader->AddTrackBuffer(aTrackBuffer);
+}
+
+void
+MediaSourceDecoder::RemoveTrackBuffer(TrackBuffer* aTrackBuffer)
+{
+  MOZ_ASSERT(mReader);
+  mReader->RemoveTrackBuffer(aTrackBuffer);
+}
+
+void
+MediaSourceDecoder::OnTrackBufferConfigured(TrackBuffer* aTrackBuffer, const MediaInfo& aInfo)
+{
+  MOZ_ASSERT(mReader);
+  mReader->OnTrackBufferConfigured(aTrackBuffer, aInfo);
+}
+
+void
 MediaSourceDecoder::Ended()
 {
   ReentrantMonitorAutoEnter mon(GetReentrantMonitor());
@@ -165,6 +186,13 @@ MediaSourceDecoder::NotifyGotData()
   MSE_DEBUG("MediaSourceDecoder(%p)::NotifyGotData()", this);
   ReentrantMonitorAutoEnter mon(GetReentrantMonitor());
   mon.NotifyAll();
+}
+
+void
+MediaSourceDecoder::PrepareReaderInitialization()
+{
+  MOZ_ASSERT(mReader);
+  mReader->PrepareInitialization();
 }
 
 } // namespace mozilla

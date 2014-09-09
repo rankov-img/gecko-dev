@@ -35,6 +35,7 @@
 #include "js/OldDebugAPI.h"
 #include "js/MemoryMetrics.h"
 #include "mozilla/Assertions.h"
+#include "mozilla/Attributes.h"
 #include "mozilla/ContentEvents.h"
 #include "mozilla/EventDispatcher.h"
 #include "mozilla/Likely.h"
@@ -223,7 +224,7 @@ struct WindowAction
   nsPIDOMWindow* mWindow;
   bool mDefaultAction;
 
-  WindowAction(nsPIDOMWindow* aWindow)
+  MOZ_IMPLICIT WindowAction(nsPIDOMWindow* aWindow)
   : mWindow(aWindow), mDefaultAction(true)
   { }
 
@@ -773,7 +774,7 @@ class TopLevelWorkerFinishedRunnable MOZ_FINAL : public nsRunnable
   WorkerPrivate* mFinishedWorker;
 
 public:
-  TopLevelWorkerFinishedRunnable(WorkerPrivate* aFinishedWorker)
+  explicit TopLevelWorkerFinishedRunnable(WorkerPrivate* aFinishedWorker)
   : mFinishedWorker(aFinishedWorker)
   {
     aFinishedWorker->AssertIsOnWorkerThread();
@@ -847,7 +848,7 @@ private:
 class CompileScriptRunnable MOZ_FINAL : public WorkerRunnable
 {
 public:
-  CompileScriptRunnable(WorkerPrivate* aWorkerPrivate)
+  explicit CompileScriptRunnable(WorkerPrivate* aWorkerPrivate)
   : WorkerRunnable(aWorkerPrivate, WorkerThreadModifyBusyCount)
   { }
 
@@ -874,7 +875,7 @@ private:
 class CloseEventRunnable MOZ_FINAL : public WorkerRunnable
 {
 public:
-  CloseEventRunnable(WorkerPrivate* aWorkerPrivate)
+  explicit CloseEventRunnable(WorkerPrivate* aWorkerPrivate)
   : WorkerRunnable(aWorkerPrivate, WorkerThreadUnchangedBusyCount)
   { }
 
@@ -1091,7 +1092,7 @@ private:
 class CloseRunnable MOZ_FINAL : public WorkerControlRunnable
 {
 public:
-  CloseRunnable(WorkerPrivate* aWorkerPrivate)
+  explicit CloseRunnable(WorkerPrivate* aWorkerPrivate)
   : WorkerControlRunnable(aWorkerPrivate, ParentThreadUnchangedBusyCount)
   { }
 
@@ -1108,7 +1109,7 @@ private:
 class SuspendRunnable MOZ_FINAL : public WorkerControlRunnable
 {
 public:
-  SuspendRunnable(WorkerPrivate* aWorkerPrivate)
+  explicit SuspendRunnable(WorkerPrivate* aWorkerPrivate)
   : WorkerControlRunnable(aWorkerPrivate, WorkerThreadUnchangedBusyCount)
   { }
 
@@ -1123,7 +1124,7 @@ private:
 class ResumeRunnable MOZ_FINAL : public WorkerControlRunnable
 {
 public:
-  ResumeRunnable(WorkerPrivate* aWorkerPrivate)
+  explicit ResumeRunnable(WorkerPrivate* aWorkerPrivate)
   : WorkerControlRunnable(aWorkerPrivate, WorkerThreadUnchangedBusyCount)
   { }
 
@@ -1332,7 +1333,7 @@ private:
 class TimerRunnable MOZ_FINAL : public WorkerRunnable
 {
 public:
-  TimerRunnable(WorkerPrivate* aWorkerPrivate)
+  explicit TimerRunnable(WorkerPrivate* aWorkerPrivate)
   : WorkerRunnable(aWorkerPrivate, WorkerThreadUnchangedBusyCount)
   { }
 
@@ -1425,7 +1426,7 @@ class KillCloseEventRunnable MOZ_FINAL : public WorkerRunnable
   class KillScriptRunnable MOZ_FINAL : public WorkerControlRunnable
   {
   public:
-    KillScriptRunnable(WorkerPrivate* aWorkerPrivate)
+    explicit KillScriptRunnable(WorkerPrivate* aWorkerPrivate)
     : WorkerControlRunnable(aWorkerPrivate, WorkerThreadUnchangedBusyCount)
     { }
 
@@ -1453,7 +1454,7 @@ class KillCloseEventRunnable MOZ_FINAL : public WorkerRunnable
   };
 
 public:
-  KillCloseEventRunnable(WorkerPrivate* aWorkerPrivate)
+  explicit KillCloseEventRunnable(WorkerPrivate* aWorkerPrivate)
   : WorkerRunnable(aWorkerPrivate, WorkerThreadUnchangedBusyCount)
   { }
 
@@ -1559,6 +1560,25 @@ public:
   WorkerRun(JSContext* aCx, WorkerPrivate* aWorkerPrivate) MOZ_OVERRIDE
   {
     aWorkerPrivate->UpdatePreferenceInternal(aCx, mPref, mValue);
+    return true;
+  }
+};
+
+class UpdateLanguagesRunnable MOZ_FINAL : public WorkerRunnable
+{
+  nsTArray<nsString> mLanguages;
+
+public:
+  UpdateLanguagesRunnable(WorkerPrivate* aWorkerPrivate,
+                          const nsTArray<nsString>& aLanguages)
+    : WorkerRunnable(aWorkerPrivate, WorkerThreadModifyBusyCount),
+      mLanguages(aLanguages)
+  { }
+
+  virtual bool
+  WorkerRun(JSContext* aCx, WorkerPrivate* aWorkerPrivate) MOZ_OVERRIDE
+  {
+    aWorkerPrivate->UpdateLanguagesInternal(aCx, mLanguages);
     return true;
   }
 };
@@ -1690,7 +1710,7 @@ class WorkerJSRuntimeStats : public JS::RuntimeStats
   const nsACString& mRtPath;
 
 public:
-  WorkerJSRuntimeStats(const nsACString& aRtPath)
+  explicit WorkerJSRuntimeStats(const nsACString& aRtPath)
   : JS::RuntimeStats(JsWorkerMallocSizeOf), mRtPath(aRtPath)
   { }
 
@@ -1872,7 +1892,7 @@ class WorkerPrivateParent<Derived>::EventTarget MOZ_FINAL
   nsCOMPtr<nsIEventTarget> mNestedEventTarget;
 
 public:
-  EventTarget(WorkerPrivate* aWorkerPrivate)
+  explicit EventTarget(WorkerPrivate* aWorkerPrivate)
   : mMutex("WorkerPrivateParent::EventTarget::mMutex"),
     mWorkerPrivate(aWorkerPrivate), mWeakNestedEventTarget(nullptr)
   {
@@ -1963,7 +1983,7 @@ class WorkerPrivate::MemoryReporter MOZ_FINAL : public nsIMemoryReporter
   bool mAlreadyMappedToAddon;
 
 public:
-  MemoryReporter(WorkerPrivate* aWorkerPrivate)
+  explicit MemoryReporter(WorkerPrivate* aWorkerPrivate)
   : mMutex(aWorkerPrivate->mMutex), mWorkerPrivate(aWorkerPrivate),
     mAlreadyMappedToAddon(false)
   {
@@ -2414,7 +2434,7 @@ WorkerPrivateParent<Derived>::Suspend(JSContext* aCx, nsPIDOMWindow* aWindow)
       nsPIDOMWindow* mWindow;
       bool mAllSuspended;
 
-      Closure(nsPIDOMWindow* aWindow)
+      explicit Closure(nsPIDOMWindow* aWindow)
       : mWindow(aWindow), mAllSuspended(true)
       {
         AssertIsOnMainThread();
@@ -2498,7 +2518,7 @@ WorkerPrivateParent<Derived>::Resume(JSContext* aCx, nsPIDOMWindow* aWindow)
       nsPIDOMWindow* mWindow;
       bool mAnyRunning;
 
-      Closure(nsPIDOMWindow* aWindow)
+      explicit Closure(nsPIDOMWindow* aWindow)
       : mWindow(aWindow), mAnyRunning(false)
       {
         AssertIsOnMainThread();
@@ -2892,6 +2912,21 @@ WorkerPrivateParent<Derived>::UpdatePreference(JSContext* aCx, WorkerPreference 
 
 template <class Derived>
 void
+WorkerPrivateParent<Derived>::UpdateLanguages(JSContext* aCx,
+                                              const nsTArray<nsString>& aLanguages)
+{
+  AssertIsOnParentThread();
+
+  nsRefPtr<UpdateLanguagesRunnable> runnable =
+    new UpdateLanguagesRunnable(ParentAsWorkerPrivate(), aLanguages);
+  if (!runnable->Dispatch(aCx)) {
+    NS_WARNING("Failed to update worker languages!");
+    JS_ClearPendingException(aCx);
+  }
+}
+
+template <class Derived>
+void
 WorkerPrivateParent<Derived>::UpdateJSWorkerMemoryParameter(JSContext* aCx,
                                                             JSGCParamKey aKey,
                                                             uint32_t aValue)
@@ -3249,7 +3284,7 @@ WorkerPrivateParent<Derived>::CloseSharedWorkersForWindow(
     nsPIDOMWindow* mWindow;
     nsAutoTArray<nsRefPtr<SharedWorker>, 10> mSharedWorkers;
 
-    Closure(nsPIDOMWindow* aWindow)
+    explicit Closure(nsPIDOMWindow* aWindow)
     : mWindow(aWindow)
     {
       AssertIsOnMainThread();
@@ -5523,6 +5558,23 @@ WorkerPrivate::UpdateRuntimeOptionsInternal(
 
   for (uint32_t index = 0; index < mChildWorkers.Length(); index++) {
     mChildWorkers[index]->UpdateRuntimeOptions(aCx, aRuntimeOptions);
+  }
+}
+
+void
+WorkerPrivate::UpdateLanguagesInternal(JSContext* aCx,
+                                       const nsTArray<nsString>& aLanguages)
+{
+  WorkerGlobalScope* globalScope = GlobalScope();
+  if (globalScope) {
+    nsRefPtr<WorkerNavigator> nav = globalScope->GetExistingNavigator();
+    if (nav) {
+      nav->SetLanguages(aLanguages);
+    }
+  }
+
+  for (uint32_t index = 0; index < mChildWorkers.Length(); index++) {
+    mChildWorkers[index]->UpdateLanguages(aCx, aLanguages);
   }
 }
 

@@ -194,6 +194,24 @@ SettingsListener.observe('devtools.overlay', false, (value) => {
   }
 });
 
+#ifdef MOZ_WIDGET_GONK
+let LogShake;
+SettingsListener.observe('devtools.logshake', false, (value) => {
+  if (value) {
+    if (!LogShake) {
+      let scope = {};
+      Cu.import('resource://gre/modules/LogShake.jsm', scope);
+      LogShake = scope.LogShake;
+    }
+    LogShake.init();
+  } else {
+    if (LogShake) {
+      LogShake.uninit();
+    }
+  }
+});
+#endif
+
 // =================== Device Storage ====================
 SettingsListener.observe('device.storage.writable.name', 'sdcard', function(value) {
   if (Services.prefs.getPrefType('device.storage.writable.name') != Ci.nsIPrefBranch.PREF_STRING) {
@@ -494,6 +512,10 @@ let settingsToObserve = {
   'ril.sms.strict7BitEncoding.enabled': {
     prefName: 'dom.sms.strict7BitEncoding',
     defaultValue: false
+  },
+  'ril.sms.maxReadAheadEntries': {
+    prefName: 'dom.sms.maxReadAheadEntries',
+    defaultValue: 7
   },
   'ui.touch.radius.leftmm': {
     resetToPref: true

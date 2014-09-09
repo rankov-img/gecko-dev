@@ -426,6 +426,9 @@ pref("media.audio_data.enabled", false);
 // Whether to use async panning and zooming
 pref("layers.async-pan-zoom.enabled", false);
 
+// Whether to enable containerless async scrolling
+pref("layout.async-containerless-scrolling.enabled", true);
+
 // APZ preferences. For documentation/details on what these prefs do, check 
 // gfx/layers/apz/src/AsyncPanZoomController.cpp.
 pref("apz.allow_checkerboarding", true);
@@ -436,8 +439,11 @@ pref("apz.asyncscroll.timeout", 300);
 // 0 = FREE (No locking at all)
 // 1 = STANDARD (Once locked, remain locked until scrolling ends)
 // 2 = STICKY (Allow lock to be broken, with hysteresis)
-pref("apz.axis_lock_mode", 0);
-
+pref("apz.axis_lock.mode", 0);
+pref("apz.axis_lock.lock_angle", "0.5235987");        // PI / 6 (30 degrees)
+pref("apz.axis_lock.breakout_threshold", "0.03125");  // 1/32 inches
+pref("apz.axis_lock.breakout_angle", "0.3926991");    // PI / 8 (22.5 degrees)
+pref("apz.axis_lock.direct_pan_angle", "1.047197");   // PI / 3 (60 degrees)
 pref("apz.content_response_timeout", 300);
 pref("apz.cross_slide.enabled", false);
 pref("apz.danger_zone_x", 50);
@@ -477,12 +483,14 @@ pref("apz.zoom_animation_duration_ms", 250);
 // Layerize scrollable subframes to allow async panning
 pref("apz.subframe.enabled", true);
 pref("apz.fling_repaint_interval", 16);
+pref("apz.smooth_scroll_repaint_interval", 16);
 pref("apz.pan_repaint_interval", 16);
 pref("apz.x_skate_size_multiplier", "2.5");
 pref("apz.y_skate_size_multiplier", "3.5");
 #else
 pref("apz.subframe.enabled", false);
 pref("apz.fling_repaint_interval", 75);
+pref("apz.smooth_scroll_repaint_interval", 75);
 pref("apz.pan_repaint_interval", 250);
 pref("apz.x_skate_size_multiplier", "1.5");
 pref("apz.y_skate_size_multiplier", "2.5");
@@ -903,8 +911,6 @@ pref("dom.sysmsg.enabled", false);
 pref("dom.webapps.useCurrentProfile", false);
 
 pref("dom.cycle_collector.incremental", true);
-
-pref("dom.window_experimental_bindings", true);
 
 // Parsing perf prefs. For now just mimic what the old code did.
 #ifndef XP_WIN
@@ -1963,11 +1969,7 @@ pref("layout.css.dpi", -1);
 pref("layout.css.devPixelsPerPx", "-1.0");
 
 // Is support for CSS Masking features enabled?
-#ifdef RELEASE_BUILD
-pref("layout.css.masking.enabled", false);
-#else
 pref("layout.css.masking.enabled", true);
-#endif
 
 // Is support for mix-blend-mode enabled?
 pref("layout.css.mix-blend-mode.enabled", true);
@@ -3826,6 +3828,8 @@ pref("layers.offmainthreadcomposition.enabled", true);
 
 #ifdef XP_MACOSX
 pref("layers.offmainthreadcomposition.enabled", true);
+pref("layers.enable-tiles", true);
+pref("layers.tiled-drawtarget.enabled", true);
 #endif
 
 // ANDROID covers android and b2g
@@ -3955,6 +3959,12 @@ pref("dom.sms.requestStatusReport", true);
 // Numeric default service id for SMS API calls with |serviceId| parameter
 // omitted.
 pref("dom.sms.defaultServiceId", 0);
+// MobileMessage GetMessages/GetThreads read ahead aggressiveness.
+//
+// positive: finite read-ahead entries,
+// 0: don't read ahead unless explicitly requested, (default)
+// negative: read ahead all IDs if possible.
+pref("dom.sms.maxReadAheadEntries", 0);
 
 // WebContacts
 pref("dom.mozContacts.enabled", false);
@@ -3980,6 +3990,9 @@ pref("dom.w3c_touch_events.enabled", 2);
 
 // W3C draft pointer events
 pref("dom.w3c_pointer_events.enabled", false);
+
+// W3C draft ImageCapture API
+pref("dom.imagecapture.enabled", false);
 
 // W3C touch-action css property (related to touch and pointer events)
 pref("layout.css.touch_action.enabled", false);

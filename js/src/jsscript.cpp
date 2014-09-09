@@ -701,7 +701,8 @@ js::XDRScript(XDRState<mode> *xdr, HandleObject enclosingScope, HandleScript enc
             options.setOriginPrincipals(xdr->originPrincipals());
             ss->initFromOptions(cx, options);
             sourceObject = ScriptSourceObject::create(cx, ss);
-            if (!sourceObject)
+            if (!sourceObject ||
+                !ScriptSourceObject::initFromOptions(cx, sourceObject, options))
                 return false;
         } else {
             JS_ASSERT(enclosingScript);
@@ -1305,6 +1306,9 @@ ScriptSourceObject::initFromOptions(JSContext *cx, HandleScriptSource source,
                                     const ReadOnlyCompileOptions &options)
 {
     assertSameCompartment(cx, source);
+    MOZ_ASSERT(source->getReservedSlot(ELEMENT_SLOT).isMagic(JS_GENERIC_MAGIC));
+    MOZ_ASSERT(source->getReservedSlot(ELEMENT_PROPERTY_SLOT).isMagic(JS_GENERIC_MAGIC));
+    MOZ_ASSERT(source->getReservedSlot(INTRODUCTION_SCRIPT_SLOT).isMagic(JS_GENERIC_MAGIC));
 
     RootedValue element(cx, ObjectOrNullValue(options.element()));
     if (!cx->compartment()->wrap(cx, &element))
@@ -3132,6 +3136,7 @@ void
 JSScript::destroyDebugScript(FreeOp *fop)
 {
     if (hasDebugScript_) {
+#ifdef DEBUG
         for (jsbytecode *pc = code(); pc < codeEnd(); pc++) {
             if (BreakpointSite *site = getBreakpointSite(pc)) {
                 /* Breakpoints are swept before finalization. */
@@ -3139,6 +3144,7 @@ JSScript::destroyDebugScript(FreeOp *fop)
                 JS_ASSERT(getBreakpointSite(pc) == nullptr);
             }
         }
+#endif
         fop->free_(releaseDebugScript());
     }
 }

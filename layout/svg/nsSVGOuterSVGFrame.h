@@ -24,7 +24,7 @@ class nsSVGOuterSVGFrame MOZ_FINAL : public nsSVGOuterSVGFrameBase,
   friend nsContainerFrame*
   NS_NewSVGOuterSVGFrame(nsIPresShell* aPresShell, nsStyleContext* aContext);
 protected:
-  nsSVGOuterSVGFrame(nsStyleContext* aContext);
+  explicit nsSVGOuterSVGFrame(nsStyleContext* aContext);
 
 public:
   NS_DECL_QUERYFRAME
@@ -115,8 +115,8 @@ public:
 
   // nsISVGChildFrame methods:
   virtual nsresult PaintSVG(nsRenderingContext* aContext,
-                            const nsIntRect *aDirtyRect,
-                            nsIFrame* aTransformRoot = nullptr) MOZ_OVERRIDE;
+                            const gfxMatrix& aTransform,
+                            const nsIntRect* aDirtyRect = nullptr) MOZ_OVERRIDE;
   virtual SVGBBox GetBBoxContribution(const Matrix &aToBBoxUserspace,
                                       uint32_t aFlags) MOZ_OVERRIDE;
 
@@ -241,7 +241,7 @@ class nsSVGOuterSVGAnonChildFrame
   NS_NewSVGOuterSVGAnonChildFrame(nsIPresShell* aPresShell,
                                   nsStyleContext* aContext);
 
-  nsSVGOuterSVGAnonChildFrame(nsStyleContext* aContext)
+  explicit nsSVGOuterSVGAnonChildFrame(nsStyleContext* aContext)
     : nsSVGOuterSVGAnonChildFrameBase(aContext)
   {}
 

@@ -561,19 +561,9 @@ WindowOrNull(JSObject *aObj)
     MOZ_ASSERT(aObj);
     MOZ_ASSERT(!js::IsWrapper(aObj));
 
-    // This will always return null until we have Window on WebIDL bindings,
-    // at which point it will do the right thing.
-    if (!IS_WN_CLASS(js::GetObjectClass(aObj))) {
-        nsGlobalWindow* win = nullptr;
-        UNWRAP_OBJECT(Window, aObj, win);
-        return win;
-    }
-
-    nsISupports* supports = XPCWrappedNative::Get(aObj)->GetIdentityObject();
-    nsCOMPtr<nsPIDOMWindow> piWin = do_QueryInterface(supports);
-    if (!piWin)
-        return nullptr;
-    return static_cast<nsGlobalWindow*>(piWin.get());
+    nsGlobalWindow* win = nullptr;
+    UNWRAP_OBJECT(Window, aObj, win);
+    return win;
 }
 
 nsGlobalWindow*
@@ -967,14 +957,14 @@ class WatchdogManager;
 class AutoLockWatchdog {
     Watchdog* const mWatchdog;
   public:
-    AutoLockWatchdog(Watchdog* aWatchdog);
+    explicit AutoLockWatchdog(Watchdog* aWatchdog);
     ~AutoLockWatchdog();
 };
 
 class Watchdog
 {
   public:
-    Watchdog(WatchdogManager *aManager)
+    explicit Watchdog(WatchdogManager *aManager)
       : mManager(aManager)
       , mLock(nullptr)
       , mWakeup(nullptr)
@@ -1097,8 +1087,8 @@ class WatchdogManager : public nsIObserver
   public:
 
     NS_DECL_ISUPPORTS
-    WatchdogManager(XPCJSRuntime *aRuntime) : mRuntime(aRuntime)
-                                            , mRuntimeState(RUNTIME_INACTIVE)
+    explicit WatchdogManager(XPCJSRuntime *aRuntime) : mRuntime(aRuntime)
+                                                     , mRuntimeState(RUNTIME_INACTIVE)
     {
         // All the timestamps start at zero except for runtime state change.
         PodArrayZero(mTimestamps);
@@ -2573,7 +2563,7 @@ SizeOfTreeIncludingThis(nsINode *tree)
 class OrphanReporter : public JS::ObjectPrivateVisitor
 {
   public:
-    OrphanReporter(GetISupportsFun aGetISupports)
+    explicit OrphanReporter(GetISupportsFun aGetISupports)
       : JS::ObjectPrivateVisitor(aGetISupports)
     {
     }

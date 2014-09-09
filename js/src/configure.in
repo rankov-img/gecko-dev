@@ -2001,40 +2001,35 @@ case "$target" in
 i?86-*)
     ENABLE_ION=1
     AC_DEFINE(JS_CPU_X86)
-    AC_DEFINE(JS_NUNBOX32)
     ;;
 x86_64*-*)
     ENABLE_ION=1
     AC_DEFINE(JS_CPU_X64)
-    AC_DEFINE(JS_PUNBOX64)
     ;;
 arm*-*)
     ENABLE_ION=1
     AC_DEFINE(JS_CPU_ARM)
-    AC_DEFINE(JS_NUNBOX32)
     ;;
-sparc*-*)
-    if test ! "$HAVE_64BIT_BUILD" ; then
+sparc-*)
 dnl ENABLE_ION=0
     AC_DEFINE(JS_CPU_SPARC)
-    AC_DEFINE(JS_NUNBOX32)
-    else
-    AC_DEFINE(JS_CPU_SPARC64)
-    AC_DEFINE(JS_PUNBOX64)
-    fi
-    ;;
-powerpc64-*)
-    AC_DEFINE(JS_CPU_PPC64)
-    AC_DEFINE(JS_PUNBOX64)
-    ;;
-powerpc-*)
-    AC_DEFINE(JS_CPU_PPC)
-    AC_DEFINE(JS_NUNBOX32)
     ;;
 mips*-*)
     ENABLE_ION=1
     AC_DEFINE(JS_CPU_MIPS)
-    AC_DEFINE(JS_NUNBOX32)
+    ;;
+esac
+
+case "$target" in
+mips*-*)
+     AC_DEFINE(JS_NUNBOX32)
+     ;;
+*)
+    if test "$HAVE_64BIT_BUILD" ; then
+        AC_DEFINE(JS_PUNBOX64)
+    else
+        AC_DEFINE(JS_NUNBOX32)
+    fi
     ;;
 esac
 
@@ -3394,18 +3389,7 @@ dnl ========================================================
 dnl = Enable using the clang plugin to build
 dnl ========================================================
 
-MOZ_ARG_ENABLE_BOOL(clang-plugin,
-[  --enable-clang-plugin   Enable building with the mozilla clang plugin ],
-   ENABLE_CLANG_PLUGIN=1,
-   ENABLE_CLANG_PLUGIN= )
-if test -n "$ENABLE_CLANG_PLUGIN"; then
-    if test -z "$CLANG_CC"; then
-        AC_MSG_ERROR([Can't use clang plugin without clang.])
-    fi
-    AC_DEFINE(MOZ_CLANG_PLUGIN)
-fi
-
-AC_SUBST(ENABLE_CLANG_PLUGIN)
+MOZ_CONFIG_CLANG_PLUGIN
 
 dnl ========================================================
 dnl = Enable static checking using sixgill

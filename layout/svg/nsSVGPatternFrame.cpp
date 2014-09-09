@@ -36,8 +36,8 @@ using namespace mozilla::gfx;
 class MOZ_STACK_CLASS nsSVGPatternFrame::AutoPatternReferencer
 {
 public:
-  AutoPatternReferencer(nsSVGPatternFrame *aFrame
-                        MOZ_GUARD_OBJECT_NOTIFIER_PARAM)
+  explicit AutoPatternReferencer(nsSVGPatternFrame *aFrame
+                                 MOZ_GUARD_OBJECT_NOTIFIER_PARAM)
     : mFrame(aFrame)
   {
     MOZ_GUARD_OBJECT_NOTIFIER_INIT;
@@ -413,7 +413,12 @@ nsSVGPatternFrame::PaintPattern(Matrix* patternMatrix,
       if (SVGFrame) {
         SVGFrame->NotifySVGChanged(nsISVGChildFrame::TRANSFORM_CHANGED);
       }
-      nsSVGUtils::PaintFrameWithEffects(context, nullptr, kid);
+      gfxMatrix tm = *(patternFrame->mCTM);
+      if (kid->GetContent()->IsSVG()) {
+        tm = static_cast<nsSVGElement*>(kid->GetContent())->
+              PrependLocalTransformsTo(tm, nsSVGElement::eUserSpaceToParent);
+      }
+      nsSVGUtils::PaintFrameWithEffects(kid, context, tm);
     }
     patternFrame->RemoveStateBits(NS_FRAME_DRAWING_AS_PAINTSERVER);
   }

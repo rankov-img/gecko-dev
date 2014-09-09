@@ -3833,6 +3833,7 @@ MOZ_ANDROID_BEAM=
 MOZ_LOCALE_SWITCHER=
 MOZ_ANDROID_SEARCH_ACTIVITY=
 MOZ_ANDROID_MLS_STUMBLER=
+MOZ_ANDROID_SHARE_OVERLAY=
 ACCESSIBILITY=1
 MOZ_TIME_MANAGER=
 MOZ_PAY=
@@ -4599,6 +4600,14 @@ AC_SUBST(MOZ_DISTRIBUTION_ID)
 
 
 dnl ========================================================
+dnl Google Play Services, placed here so it can depend on
+dnl values set by configure.sh above.
+dnl ========================================================
+
+MOZ_ANDROID_GOOGLE_PLAY_SERVICES
+
+
+dnl ========================================================
 dnl = Pango
 dnl ========================================================
 if test "$MOZ_ENABLE_GTK" -o "$MOZ_ENABLE_QT"
@@ -4853,6 +4862,13 @@ dnl = Include Mozilla Location Service Stumbler on Android
 dnl ========================================================
 if test -n "$MOZ_ANDROID_MLS_STUMBLER"; then
     AC_DEFINE(MOZ_ANDROID_MLS_STUMBLER)
+fi
+
+dnl ========================================================
+dnl = Include share overlay on Android
+dnl ========================================================
+if test -n "$MOZ_ANDROID_SHARE_OVERLAY"; then
+    AC_DEFINE(MOZ_ANDROID_SHARE_OVERLAY)
 fi
 
 dnl ========================================================
@@ -5623,7 +5639,7 @@ if test -n "${JAVA_BIN_PATH}" -o \
     AC_MSG_ERROR([The program keytool was not found.  Set \$JAVA_HOME to your Java SDK directory or use --with-java-bin-path={java-bin-dir}])
   fi
 
-  AC_MSG_CHECKING([for minimum required javac version = 1.7])
+  AC_MSG_CHECKING([for minimum required javac version >= 1.7])
 
   dnl Javac spits out something like `javac 1.7.0`. This line cuts off the 'javac'
   _javac_version=$($JAVAC -version 2>&1 | cut -d ' ' -f 2)
@@ -5637,8 +5653,8 @@ if test -n "${JAVA_BIN_PATH}" -o \
 
   dnl Fail if we have a version other than 1.7.X
   if test "$_javac_major_version" -ne "1" -o \
-      \( "$_javac_minor_version" -ne "7" \); then
-      AC_MSG_ERROR([javac 1.7 is required.])
+       \( "$_javac_minor_version" -lt "7" \); then
+      AC_MSG_ERROR([javac 1.7 or higher is required.])
   fi
 fi
 
@@ -6387,10 +6403,17 @@ if test -n "$gonkdir"; then
     MOZ_CONTENT_SANDBOX=$MOZ_SANDBOX
 fi
 
-MOZ_ARG_ENABLE_BOOL(content-sandbox,
-[  --enable-content-sandbox        Enable sandboxing support for content-processes],
-    MOZ_CONTENT_SANDBOX=1,
-    MOZ_CONTENT_SANDBOX=)
+case "$OS_TARGET:$NIGHTLY_BUILD" in
+WINNT:1)
+    MOZ_CONTENT_SANDBOX=$MOZ_SANDBOX
+    ;;
+*)
+    MOZ_ARG_ENABLE_BOOL(content-sandbox,
+    [  --enable-content-sandbox        Enable sandboxing support for content-processes],
+        MOZ_CONTENT_SANDBOX=1,
+        MOZ_CONTENT_SANDBOX=)
+    ;;
+esac
 
 if test -n "$MOZ_CONTENT_SANDBOX"; then
     AC_DEFINE(MOZ_CONTENT_SANDBOX)
@@ -7242,18 +7265,7 @@ dnl ========================================================
 dnl = Enable using the clang plugin to build
 dnl ========================================================
 
-MOZ_ARG_ENABLE_BOOL(clang-plugin,
-[  --enable-clang-plugin   Enable building with the mozilla clang plugin ],
-   ENABLE_CLANG_PLUGIN=1,
-   ENABLE_CLANG_PLUGIN= )
-if test -n "$ENABLE_CLANG_PLUGIN"; then
-    if test -z "$CLANG_CC"; then
-        AC_MSG_ERROR([Can't use clang plugin without clang.])
-    fi
-    AC_DEFINE(MOZ_CLANG_PLUGIN)
-fi
-
-AC_SUBST(ENABLE_CLANG_PLUGIN)
+MOZ_CONFIG_CLANG_PLUGIN
 
 dnl ========================================================
 dnl = Enable stripping of libs & executables
@@ -8339,6 +8351,12 @@ if test -n "$MOZ_SERVICES_SYNC"; then
   AC_DEFINE(MOZ_SERVICES_SYNC)
 fi
 
+dnl Build Services/CloudSync if required
+AC_SUBST(MOZ_SERVICES_CLOUDSYNC)
+if test -n "$MOZ_SERVICES_CLOUDSYNC"; then
+  AC_DEFINE(MOZ_SERVICES_CLOUDSYNC)
+fi
+
 dnl Build Captive Portal Detector if required
 AC_SUBST(MOZ_CAPTIVEDETECT)
 if test -n "$MOZ_CAPTIVEDETECT"; then
@@ -8447,6 +8465,7 @@ AC_SUBST(MOZ_ANDROID_BEAM)
 AC_SUBST(MOZ_LOCALE_SWITCHER)
 AC_SUBST(MOZ_DISABLE_GECKOVIEW)
 AC_SUBST(MOZ_ANDROID_SEARCH_ACTIVITY)
+AC_SUBST(MOZ_ANDROID_SHARE_OVERLAY)
 AC_SUBST(MOZ_ANDROID_MLS_STUMBLER)
 AC_SUBST(ENABLE_STRIP)
 AC_SUBST(PKG_SKIP_STRIP)
@@ -9102,11 +9121,6 @@ HOST_CFLAGS="$_SUBDIR_HOST_CFLAGS"
 HOST_CXXFLAGS="$_SUBDIR_HOST_CXXFLAGS"
 HOST_LDFLAGS="$_SUBDIR_HOST_LDFLAGS"
 RC=
-
-if test -n "$ENABLE_CLANG_PLUGIN"; then
-    ac_configure_args="$_SUBDIR_CONFIG_ARGS"
-    AC_OUTPUT_SUBDIRS(build/clang-plugin)
-fi
 
 # Run the SpiderMonkey 'configure' script.
 dist=$MOZ_BUILD_ROOT/dist

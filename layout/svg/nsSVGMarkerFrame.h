@@ -34,7 +34,7 @@ class nsSVGMarkerFrame : public nsSVGMarkerFrameBase
   friend nsContainerFrame*
   NS_NewSVGMarkerFrame(nsIPresShell* aPresShell, nsStyleContext* aContext);
 protected:
-  nsSVGMarkerFrame(nsStyleContext* aContext)
+  explicit nsSVGMarkerFrame(nsStyleContext* aContext)
     : nsSVGMarkerFrameBase(aContext)
     , mMarkedFrame(nullptr)
     , mInUse(false)
@@ -85,6 +85,7 @@ public:
 
   // nsSVGMarkerFrame methods:
   nsresult PaintMark(nsRenderingContext *aContext,
+                     const gfxMatrix& aToMarkedFrameUserSpace,
                      nsSVGPathGeometryFrame *aMarkedFrame,
                      nsSVGMark *aMark,
                      float aStrokeWidth);
@@ -146,7 +147,7 @@ class nsSVGMarkerAnonChildFrame
   NS_NewSVGMarkerAnonChildFrame(nsIPresShell* aPresShell,
                                 nsStyleContext* aContext);
 
-  nsSVGMarkerAnonChildFrame(nsStyleContext* aContext)
+  explicit nsSVGMarkerAnonChildFrame(nsStyleContext* aContext)
     : nsSVGMarkerAnonChildFrameBase(aContext)
   {}
 
