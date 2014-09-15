@@ -62,6 +62,12 @@
         <item name="android:listSelector">@drawable/action_bar_button</item>
     </style>
 
+    <style name="Widget.Home.HistoryListView">
+        <item name="android:paddingLeft">32dp</item>
+        <item name="android:paddingRight">32dp</item>
+        <item name="android:scrollbarStyle">outsideOverlay</item>
+    </style>
+
     <style name="Widget.ListItem">
         <item name="android:minHeight">?android:attr/listPreferredItemHeight</item>
         <item name="android:textAppearance">?android:attr/textAppearanceLargeInverse</item>
@@ -438,13 +444,6 @@
         <item name="android:background">@android:color/transparent</item>
     </style>
 
-    <!-- URL bar - Image Button - Unused -->
-    <style name="UrlBar.ImageButton.Unused">
-        <item name="android:layout_width">0dip</item>
-        <item name="android:layout_height">0dip</item>
-        <item name="android:visibility">gone</item>
-    </style>
-
     <!-- URL bar - Image Button - Icon -->
     <style name="UrlBar.ImageButton.Icon">
          <item name="android:layout_width">@dimen/browser_toolbar_icon_width</item>
@@ -768,8 +767,6 @@
         <item name="android:paddingTop">17dp</item>
         <item name="android:paddingBottom">17dp</item>
         <item name="android:focusableInTouchMode">false</item>
-        <item name="android:clickable">true</item>
-        <item name="android:background">@drawable/overlay_share_button_background</item>
         <item name="android:layout_margin">0dp</item>
     </style>
 
@@ -777,8 +774,7 @@
         <item name="android:drawablePadding">15dp</item>
         <item name="android:maxLines">1</item>
         <item name="android:textSize">14sp</item>
-        <item name="android:textColor">@color/text_color_overlaybtn</item>
-        <item name="android:ellipsize">marquee</item>
+        <item name="android:textColor">@color/overlay_btn_text</item>
     </style>
 
     <style name="TabInput"></style>

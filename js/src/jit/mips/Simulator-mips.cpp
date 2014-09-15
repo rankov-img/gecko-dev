@@ -778,7 +778,7 @@ MipsDebugger::printAllRegsIncludingFPU()
 
     printf("\n\n");
     // f0, f1, f2, ... f31.
-    for (uint32_t i = 0; i < FloatRegisters::TotalSingle; i ++) {
+    for (uint32_t i = 0; i < FloatRegisters::TotalSingle; i++) {
         if (i & 0x1) {
             printf("%3s: 0x%08x\tflt: %-8.4g\n",
                    FloatRegisters::GetName(i),
@@ -937,7 +937,7 @@ MipsDebugger::debug()
                             value = getRegisterValue(reg.code());
                             printf("%s: 0x%08x %d \n", arg1, value, value);
                         } else if (fCode != FloatRegisters::Invalid) {
-                            if ( fCode & 0x1 ) {
+                            if (fCode & 0x1) {
                                 printf("%3s: 0x%08x\tflt: %-8.4g\n",
                                        FloatRegisters::GetName(fCode),
                                        getFPURegisterValueInt(fCode),

@@ -252,7 +252,7 @@ private:
     NS_DECL_ISUPPORTS
     NS_DECL_NSIOBSERVER
 
-    MemoryPressureObserver(ClientLayerManager* aClientLayerManager)
+    explicit MemoryPressureObserver(ClientLayerManager* aClientLayerManager)
       : mClientLayerManager(aClientLayerManager)
     {
       RegisterMemoryPressureEvent();
@@ -284,9 +284,6 @@ private:
   bool EndTransactionInternal(DrawThebesLayerCallback aCallback,
                               void* aCallbackData,
                               EndTransactionFlags);
-
-  // The bounds of |mTarget| in device pixels.
-  nsIntRect mTargetBounds;
 
   LayerRefArray mKeepAlive;
 

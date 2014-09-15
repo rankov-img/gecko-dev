@@ -43,8 +43,6 @@ SplitCriticalEdgesForBlock(MIRGraph &graph, MBasicBlock *block)
         graph.insertBlockAfter(block, split);
         split->end(MGoto::New(graph.alloc(), target));
 
-        // The entry resume point will not be used for anything, and may have
-        // the wrong stack depth, so remove it.
         if (MResumePoint *rp = split->entryResumePoint()) {
             rp->discardUses();
             split->clearEntryResumePoint();
@@ -2740,11 +2738,8 @@ jit::AnalyzeNewScriptDefiniteProperties(JSContext *cx, JSFunction *fun,
     if (!script)
         return false;
 
-    if (!jit::IsIonEnabled(cx) || !jit::IsBaselineEnabled(cx) ||
-        !script->compileAndGo() || !script->canBaselineCompile())
-    {
+    if (!jit::IsIonEnabled(cx) || !jit::IsBaselineEnabled(cx) || !script->canBaselineCompile())
         return true;
-    }
 
     static const uint32_t MAX_SCRIPT_SIZE = 2000;
     if (script->length() > MAX_SCRIPT_SIZE)
@@ -2982,7 +2977,7 @@ jit::AnalyzeArgumentsUsage(JSContext *cx, JSScript *scriptArg)
         return true;
     }
 
-    if (!jit::IsIonEnabled(cx) || !script->compileAndGo())
+    if (!jit::IsIonEnabled(cx))
         return true;
 
     static const uint32_t MAX_SCRIPT_SIZE = 10000;

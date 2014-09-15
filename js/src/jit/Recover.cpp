@@ -115,11 +115,11 @@ MResumePoint::writeRecoverData(CompactBufferWriter &writer) const
     uint32_t formalArgs = CountArgSlots(script, fun);
     uint32_t nallocs = formalArgs + script->nfixed() + exprStack;
 
-    JitSpew(JitSpew_Snapshots, "Starting frame; implicit %u, formals %u, fixed %u, exprs %u",
+    JitSpew(JitSpew_IonSnapshots, "Starting frame; implicit %u, formals %u, fixed %u, exprs %u",
             implicit, formalArgs - implicit, script->nfixed(), exprStack);
 
     uint32_t pcoff = script->pcToOffset(pc());
-    JitSpew(JitSpew_Snapshots, "Writing pc offset %u, nslots %u", pcoff, nallocs);
+    JitSpew(JitSpew_IonSnapshots, "Writing pc offset %u, nslots %u", pcoff, nallocs);
     writer.writeUnsigned(pcoff);
     writer.writeUnsigned(nallocs);
     return true;
@@ -129,7 +129,7 @@ RResumePoint::RResumePoint(CompactBufferReader &reader)
 {
     pcOffset_ = reader.readUnsigned();
     numOperands_ = reader.readUnsigned();
-    JitSpew(JitSpew_Snapshots, "Read RResumePoint (pc offset %u, nslots %u)",
+    JitSpew(JitSpew_IonSnapshots, "Read RResumePoint (pc offset %u, nslots %u)",
             pcOffset_, numOperands_);
 }
 
@@ -874,6 +874,10 @@ RStringSplit::recover(JSContext *cx, SnapshotIterator &iter) const
 
     RootedValue result(cx);
 
+    // Use AutoEnterAnalysis to avoid invoking the object metadata callback,
+    // which could try to walk the stack while bailing out.
+    types::AutoEnterAnalysis enter(cx);
+
     JSObject *res = str_split_string(cx, typeObj, str, sep);
     if (!res)
         return false;
@@ -929,6 +933,32 @@ RRegExpTest::recover(JSContext *cx, SnapshotIterator &iter) const
 
     RootedValue result(cx);
     result.setBoolean(resultBool);
+    iter.storeInstructionResult(result);
+    return true;
+}
+
+bool
+MRegExpReplace::writeRecoverData(CompactBufferWriter &writer) const
+{
+    MOZ_ASSERT(canRecoverOnBailout());
+    writer.writeUnsigned(uint32_t(RInstruction::Recover_RegExpReplace));
+    return true;
+}
+
+RRegExpReplace::RRegExpReplace(CompactBufferReader &reader)
+{ }
+
+bool
+RRegExpReplace::recover(JSContext *cx, SnapshotIterator &iter) const
+{
+    RootedString string(cx, iter.read().toString());
+    RootedObject regexp(cx, &iter.read().toObject());
+    RootedString repl(cx, iter.read().toString());
+    RootedValue result(cx);
+
+    if (!js::str_replace_regexp_raw(cx, string, regexp, repl, &result))
+        return false;
+
     iter.storeInstructionResult(result);
     return true;
 }

@@ -20,9 +20,7 @@ function run_test() {
 
 function check_footprint(step, max) {
   var footprint = (gMgr.residentUnique - gRefMemory) / 1024;
-
   ok(footprint < max, "Footprint after " + step + " is " + footprint + " kB (should be less than " + max + " kB).");
-
   run_next_test();
 }
 
@@ -33,19 +31,19 @@ function init_server() {
 
 function add_browser_actors() {
   DebuggerServer.addBrowserActors();
-  check_footprint("DebuggerServer.addBrowserActors()", 10500);
+  check_footprint("DebuggerServer.addBrowserActors()", 12000);
 }
 
 function connect_client() {
   gClient = new DebuggerClient(DebuggerServer.connectPipe());
   gClient.connect(function onConnect() {
-    check_footprint("DebuggerClient.connect()", 11000);
+    check_footprint("DebuggerClient.connect()", 12500);
   });
 }
 
 function list_tabs() {
   gClient.listTabs(function onListTabs(aResponse) {
-    check_footprint("DebuggerClient.listTabs()", 11500);
+    check_footprint("DebuggerClient.listTabs()", 13000);
   });
 }
 

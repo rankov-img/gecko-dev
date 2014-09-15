@@ -480,6 +480,11 @@ Parser<FullParseHandler>::cloneLeftHandSide(ParseNode *opn)
             } else if (opn2->isArity(PN_NULLARY)) {
                 JS_ASSERT(opn2->isKind(PNK_ELISION));
                 pn2 = cloneParseTree(opn2);
+            } else if (opn2->isKind(PNK_SPREAD)) {
+                ParseNode *target = cloneLeftHandSide(opn2->pn_kid);
+                if (!target)
+                    return nullptr;
+                pn2 = handler.new_<UnaryNode>(PNK_SPREAD, JSOP_NOP, opn2->pn_pos, target);
             } else {
                 pn2 = cloneLeftHandSide(opn2);
             }
@@ -700,7 +705,7 @@ DumpName(const CharT *s, size_t len)
         fprintf(stderr, "#<zero-length name>");
 
     for (size_t i = 0; i < len; i++) {
-        jschar c = s[i];
+        char16_t c = s[i];
         if (c > 32 && c < 127)
             fputc(c, stderr);
         else if (c <= 255)

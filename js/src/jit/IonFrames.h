@@ -52,6 +52,11 @@ CalleeTokenIsFunction(CalleeToken token)
     CalleeTokenTag tag = GetCalleeTokenTag(token);
     return tag == CalleeToken_Function || tag == CalleeToken_FunctionConstructing;
 }
+static inline bool
+CalleeTokenIsConstructing(CalleeToken token)
+{
+    return GetCalleeTokenTag(token) == CalleeToken_FunctionConstructing;
+}
 static inline JSFunction *
 CalleeTokenToFunction(CalleeToken token)
 {
@@ -515,7 +520,7 @@ class IonExitFrameLayout : public IonCommonFrameLayout
         return footer()->jitCode() == T::Token();
     }
     template <typename T> inline T *as() {
-        MOZ_ASSERT(is<T>());
+        MOZ_ASSERT(this->is<T>());
         return reinterpret_cast<T *>(footer());
     }
 };

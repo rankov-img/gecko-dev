@@ -222,6 +222,26 @@ MDefinition::foldsTo(TempAllocator &alloc)
     return this;
 }
 
+MDefinition *
+MInstruction::foldsToStoredValue(TempAllocator &alloc, MDefinition *loaded)
+{
+    // If the type are matching then we return the value which is used as
+    // argument of the store.
+    if (loaded->type() != type()) {
+        // If we expect to read a type which is more generic than the type seen
+        // by the store, then we box the value used by the store.
+        if (type() != MIRType_Value)
+            return this;
+
+        MOZ_ASSERT(loaded->type() < MIRType_Value);
+        MBox *box = MBox::New(alloc, loaded);
+        block()->insertBefore(this, box);
+        loaded = box;
+    }
+
+    return loaded;
+}
+
 void
 MDefinition::analyzeEdgeCasesForward()
 {
@@ -2818,12 +2838,12 @@ MCompare::evaluateConstantOperands(bool *result)
           case JSOP_GE:
             *result = (lhsUint >= rhsUint);
             break;
+          case JSOP_STRICTEQ: // Fall through.
           case JSOP_EQ:
-          case JSOP_STRICTEQ:
             *result = (lhsUint == rhsUint);
             break;
+          case JSOP_STRICTNE: // Fall through.
           case JSOP_NE:
-          case JSOP_STRICTNE:
             *result = (lhsUint != rhsUint);
             break;
           default:
@@ -2849,9 +2869,11 @@ MCompare::evaluateConstantOperands(bool *result)
       case JSOP_GE:
         *result = (lhs.toNumber() >= rhs.toNumber());
         break;
+      case JSOP_STRICTEQ: // Fall through.
       case JSOP_EQ:
         *result = (lhs.toNumber() == rhs.toNumber());
         break;
+      case JSOP_STRICTNE: // Fall through.
       case JSOP_NE:
         *result = (lhs.toNumber() != rhs.toNumber());
         break;
@@ -3064,10 +3086,7 @@ MLoadFixedSlot::foldsTo(TempAllocator &alloc)
     if (store->slot() != slot())
         return this;
 
-    if (store->value()->type() != type())
-        return this;
-
-    return store->value();
+    return foldsToStoredValue(alloc, store->value());
 }
 
 bool
@@ -3206,10 +3225,7 @@ MLoadSlot::foldsTo(TempAllocator &alloc)
     if (store->slots() != slots())
         return this;
 
-    if (store->value()->type() != type())
-        return this;
-
-    return store->value();
+    return foldsToStoredValue(alloc, store->value());
 }
 
 MDefinition *
@@ -3228,10 +3244,7 @@ MLoadElement::foldsTo(TempAllocator &alloc)
     if (store->index() != index())
         return this;
 
-    if (store->value()->type() != type())
-        return this;
-
-    return store->value();
+    return foldsToStoredValue(alloc, store->value());
 }
 
 bool

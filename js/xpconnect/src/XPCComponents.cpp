@@ -19,7 +19,6 @@
 #include "mozilla/Attributes.h"
 #include "mozilla/Preferences.h"
 #include "nsJSEnvironment.h"
-#include "mozilla/StartupTimeline.h"
 #include "mozilla/TimeStamp.h"
 #include "mozilla/XPTInterfaceInfoManager.h"
 #include "mozilla/dom/DOMException.h"
@@ -3542,6 +3541,21 @@ nsXPCComponents_Utils::GetObjectPrincipal(HandleValue val, JSContext *cx,
 }
 
 NS_IMETHODIMP
+nsXPCComponents_Utils::GetCompartmentLocation(HandleValue val,
+                                              JSContext *cx,
+                                              nsACString &result)
+{
+    if (!val.isObject())
+        return NS_ERROR_INVALID_ARG;
+    RootedObject obj(cx, &val.toObject());
+    obj = js::CheckedUnwrap(obj);
+    MOZ_ASSERT(obj);
+
+    result = xpc::CompartmentPrivate::Get(obj)->GetLocation();
+    return NS_OK;
+}
+
+NS_IMETHODIMP
 nsXPCComponents_Utils::SetAddonInterposition(const nsACString &addonIdStr,
                                              nsIAddonInterposition *interposition,
                                              JSContext *cx)
@@ -3557,7 +3571,8 @@ nsXPCComponents_Utils::SetAddonInterposition(const nsACString &addonIdStr,
 NS_IMETHODIMP
 nsXPCComponents_Utils::Now(double *aRetval)
 {
-    TimeStamp start = StartupTimeline::Get(StartupTimeline::PROCESS_CREATION);
+    bool isInconsistent = false;
+    TimeStamp start = TimeStamp::ProcessCreation(isInconsistent);
     *aRetval = (TimeStamp::Now() - start).ToMilliseconds();
     return NS_OK;
 }

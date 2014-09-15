@@ -169,6 +169,8 @@ void GraphDriver::Shutdown()
     nsRefPtr<AsyncCubebTask> releaseEvent =
       new AsyncCubebTask(AsAudioCallbackDriver(), AsyncCubebTask::SHUTDOWN);
     releaseEvent->Dispatch();
+  } else {
+    Stop();
   }
 }
 
@@ -520,6 +522,7 @@ AsyncCubebTask::Run()
 
 AudioCallbackDriver::AudioCallbackDriver(MediaStreamGraphImpl* aGraphImpl, dom::AudioChannel aChannel)
   : GraphDriver(aGraphImpl)
+  , mIterationDurationMS(MEDIA_GRAPH_TARGET_PERIOD_MS)
   , mStarted(false)
   , mAudioChannel(aChannel)
   , mInCallback(false)
@@ -574,7 +577,13 @@ AudioCallbackDriver::Init()
                         DataCallback_s, StateCallback_s, this) == CUBEB_OK) {
     mAudioStream.own(stream);
   } else {
-    NS_WARNING("Could not create a cubeb stream for MediaStreamGraph.");
+    NS_WARNING("Could not create a cubeb stream for MediaStreamGraph, falling back to a SystemClockDriver");
+    // Fall back to a driver using a normal thread.
+    mNextDriver = new SystemClockDriver(GraphImpl());
+    mNextDriver->SetGraphTime(this, mIterationStart, mIterationEnd,
+                               mStateComputedTime, mNextStateComputedTime);
+    mGraphImpl->SetCurrentDriver(mNextDriver);
+    mNextDriver->Start();
     return;
   }
 

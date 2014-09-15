@@ -460,9 +460,6 @@ struct JSContext : public js::ExclusiveContext,
     /* State for object and array toSource conversion. */
     js::ObjectSet       cycleDetectorSet;
 
-    /* Per-context optional error reporter. */
-    JSErrorReporter     errorReporter;
-
     /* Client opaque pointers. */
     void                *data;
     void                *data2;
@@ -722,7 +719,7 @@ js_ReportErrorNumberVA(JSContext *cx, unsigned flags, JSErrorCallback callback,
 extern bool
 js_ReportErrorNumberUCArray(JSContext *cx, unsigned flags, JSErrorCallback callback,
                             void *userRef, const unsigned errorNumber,
-                            const jschar **args);
+                            const char16_t **args);
 #endif
 
 extern bool
