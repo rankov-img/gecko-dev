@@ -874,6 +874,18 @@ LIRGenerator::visitTest(MTest *test)
         }
     }
 
+    if (opd->isIsNoIter()) {
+        MOZ_ASSERT(opd->isEmittedAtUses());
+
+        MDefinition *input = opd->toIsNoIter()->input();
+        MOZ_ASSERT(input->type() == MIRType_Value);
+
+        LIsNoIterAndBranch *lir = new(alloc()) LIsNoIterAndBranch(ifTrue, ifFalse);
+        if (!useBox(lir, LIsNoIterAndBranch::Input, input))
+            return false;
+        return add(lir, test);
+    }
+
     if (opd->type() == MIRType_Double)
         return add(new(alloc()) LTestDAndBranch(useRegister(opd), ifTrue, ifFalse));
 
@@ -3332,17 +3344,17 @@ LIRGenerator::visitIteratorStart(MIteratorStart *ins)
 }
 
 bool
-LIRGenerator::visitIteratorNext(MIteratorNext *ins)
+LIRGenerator::visitIteratorMore(MIteratorMore *ins)
 {
-    LIteratorNext *lir = new(alloc()) LIteratorNext(useRegister(ins->iterator()), temp());
+    LIteratorMore *lir = new(alloc()) LIteratorMore(useRegister(ins->iterator()), temp());
     return defineBox(lir, ins) && assignSafepoint(lir, ins);
 }
 
 bool
-LIRGenerator::visitIteratorMore(MIteratorMore *ins)
+LIRGenerator::visitIsNoIter(MIsNoIter *ins)
 {
-    LIteratorMore *lir = new(alloc()) LIteratorMore(useRegister(ins->iterator()), temp());
-    return define(lir, ins) && assignSafepoint(lir, ins);
+    MOZ_ASSERT(ins->hasOneUse());
+    return emitAtUses(ins);
 }
 
 bool
@@ -3788,6 +3800,23 @@ LIRGenerator::visitSimdBinaryBitwise(MSimdBinaryBitwise *ins)
 
     MOZ_CRASH("Unknown SIMD kind when doing bitwise operations");
     return false;
+}
+
+bool
+LIRGenerator::visitLexicalCheck(MLexicalCheck *ins)
+{
+    MDefinition *input = ins->input();
+    MOZ_ASSERT(input->type() == MIRType_Value);
+    LLexicalCheck *lir = new(alloc()) LLexicalCheck();
+    return redefine(ins, input) && useBox(lir, LLexicalCheck::Input, input) &&
+           add(lir, ins) && assignSafepoint(lir, ins);
+}
+
+bool
+LIRGenerator::visitThrowUninitializedLexical(MThrowUninitializedLexical *ins)
+{
+    LThrowUninitializedLexical *lir = new(alloc()) LThrowUninitializedLexical();
+    return add(lir, ins) && assignSafepoint(lir, ins);
 }
 
 static void

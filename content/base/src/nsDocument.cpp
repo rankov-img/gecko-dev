@@ -153,6 +153,7 @@
 #include "mozAutoDocUpdate.h"
 #include "nsGlobalWindow.h"
 #include "mozilla/dom/EncodingUtils.h"
+#include "mozilla/dom/quota/QuotaManager.h"
 #include "nsDOMNavigationTiming.h"
 
 #include "nsSMILAnimationController.h"
@@ -2763,19 +2764,23 @@ nsDocument::InitCSP(nsIChannel* aChannel)
   nsIPrincipal* principal = NodePrincipal();
 
   uint16_t appStatus = principal->GetAppStatus();
-  bool applyAppDefaultCSP = appStatus == nsIPrincipal::APP_STATUS_PRIVILEGED ||
-                            appStatus == nsIPrincipal::APP_STATUS_CERTIFIED;
+  bool applyAppDefaultCSP = false;
   bool applyAppManifestCSP = false;
 
   nsAutoString appManifestCSP;
+  nsAutoString appDefaultCSP;
   if (appStatus != nsIPrincipal::APP_STATUS_NOT_INSTALLED) {
     nsCOMPtr<nsIAppsService> appsService = do_GetService(APPS_SERVICE_CONTRACTID);
     if (appsService) {
       uint32_t appId = 0;
       if (NS_SUCCEEDED(principal->GetAppId(&appId))) {
-        appsService->GetCSPByLocalId(appId, appManifestCSP);
+        appsService->GetManifestCSPByLocalId(appId, appManifestCSP);
         if (!appManifestCSP.IsEmpty()) {
           applyAppManifestCSP = true;
+        }
+        appsService->GetDefaultCSPByLocalId(appId, appDefaultCSP);
+        if (!appDefaultCSP.IsEmpty()) {
+          applyAppDefaultCSP = true;
         }
       }
     }
@@ -2848,18 +2853,7 @@ nsDocument::InitCSP(nsIChannel* aChannel)
 
   // ----- if the doc is an app and we want a default CSP, apply it.
   if (applyAppDefaultCSP) {
-    nsAdoptingString appCSP;
-    if (appStatus ==  nsIPrincipal::APP_STATUS_PRIVILEGED) {
-      appCSP = Preferences::GetString("security.apps.privileged.CSP.default");
-      NS_ASSERTION(appCSP, "App, but no default CSP in security.apps.privileged.CSP.default");
-    } else if (appStatus == nsIPrincipal::APP_STATUS_CERTIFIED) {
-      appCSP = Preferences::GetString("security.apps.certified.CSP.default");
-      NS_ASSERTION(appCSP, "App, but no default CSP in security.apps.certified.CSP.default");
-    }
-
-    if (appCSP) {
-      csp->AppendPolicy(appCSP, false);
-    }
+    csp->AppendPolicy(appDefaultCSP, false);
   }
 
   // ----- if the doc is an app and specifies a CSP in its manifest, apply it.
@@ -8514,6 +8508,13 @@ nsDocument::CanSavePresentation(nsIRequest *aNewRequest)
         return false;
       }
     }
+  }
+
+  // Check if we have running offline storage transactions
+  quota::QuotaManager* quotaManager =
+    win ? quota::QuotaManager::Get() : nullptr;
+  if (quotaManager && quotaManager->HasOpenTransactions(win)) {
+   return false;
   }
 
 #ifdef MOZ_MEDIA_NAVIGATOR

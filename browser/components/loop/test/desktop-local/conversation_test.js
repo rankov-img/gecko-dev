@@ -20,9 +20,6 @@ describe("loop.conversation", function() {
 
     navigator.mozLoop = {
       doNotDisturb: true,
-      get serverUrl() {
-        return "http://example.com";
-      },
       getStrings: function() {
         return JSON.stringify({textContent: "fakeText"});
       },
@@ -223,7 +220,8 @@ describe("loop.conversation", function() {
                     resolve();
                   });
                   return promise;
-                }
+                },
+                on: sinon.spy()
               });
             });
 
@@ -268,7 +266,8 @@ describe("loop.conversation", function() {
                     reject();
                   });
                   return promise;
-                }
+                },
+                on: sinon.spy()
               });
             });
 
@@ -282,6 +281,102 @@ describe("loop.conversation", function() {
                 sinon.assert.calledWithExactly(router._notifications.errorL10n,
                   "cannot_start_call_session_not_ready");
                 done();
+              });
+            });
+          });
+
+          describe("Events", function() {
+            describe("Call cancelled or timed out before acceptance", function() {
+              var promise;
+
+              beforeEach(function() {
+                sandbox.stub(loop.CallConnectionWebSocket.prototype, "promiseConnect", function() {
+                  promise = new Promise(function(resolve, reject) {
+                    resolve();
+                  });
+                  return promise;
+                });
+                sandbox.stub(loop.CallConnectionWebSocket.prototype, "close");
+                sandbox.stub(navigator.mozLoop, "stopAlerting");
+                sandbox.stub(window, "close");
+
+                router._setupWebSocketAndCallView();
+              });
+
+              describe("progress - terminated - cancel", function() {
+                it("should stop alerting", function(done) {
+                  promise.then(function() {
+                    router._websocket.trigger("progress", {
+                      state: "terminated",
+                      reason: "cancel"
+                    });
+
+                    sinon.assert.calledOnce(navigator.mozLoop.stopAlerting);
+                    done();
+                  });
+                });
+
+                it("should close the websocket", function(done) {
+                  promise.then(function() {
+                    router._websocket.trigger("progress", {
+                      state: "terminated",
+                      reason: "cancel"
+                    });
+
+                    sinon.assert.calledOnce(router._websocket.close);
+                    done();
+                  });
+                });
+
+                it("should close the window", function(done) {
+                  promise.then(function() {
+                    router._websocket.trigger("progress", {
+                      state: "terminated",
+                      reason: "cancel"
+                    });
+
+                    sinon.assert.calledOnce(window.close);
+                    done();
+                  });
+                });
+              });
+
+              describe("progress - terminated - timeout (previousState = alerting)", function() {
+                it("should stop alerting", function(done) {
+                  promise.then(function() {
+                    router._websocket.trigger("progress", {
+                      state: "terminated",
+                      reason: "timeout"
+                    }, "alerting");
+
+                    sinon.assert.calledOnce(navigator.mozLoop.stopAlerting);
+                    done();
+                  });
+                });
+
+                it("should close the websocket", function(done) {
+                  promise.then(function() {
+                    router._websocket.trigger("progress", {
+                      state: "terminated",
+                      reason: "timeout"
+                    }, "alerting");
+
+                    sinon.assert.calledOnce(router._websocket.close);
+                    done();
+                  });
+                });
+
+                it("should close the window", function(done) {
+                  promise.then(function() {
+                    router._websocket.trigger("progress", {
+                      state: "terminated",
+                      reason: "timeout"
+                    }, "alerting");
+
+                    sinon.assert.calledOnce(window.close);
+                    done();
+                  });
+                });
               });
             });
           });

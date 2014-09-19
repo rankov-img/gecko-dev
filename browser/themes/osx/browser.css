@@ -45,6 +45,10 @@
 
 /** Begin titlebar **/
 
+#titlebar {
+  -moz-window-dragging: drag;
+}
+
 #titlebar-buttonbox > .titlebar-button {
   display: none;
 }
@@ -2147,7 +2151,7 @@ toolbarbutton[sdk-button="true"][cui-areatype="toolbar"] > .toolbarbutton-icon {
   -moz-margin-end: 3px;
 }
 
-#urlbar-display {
+.urlbar-display {
   margin-top: 0;
   margin-bottom: 0;
   color: GrayText;
@@ -3640,15 +3644,6 @@ toolbarbutton.chevron > .toolbarbutton-menu-dropmarker {
   }
 }
 
-#plugin-install-notification-icon {
-  list-style-image: url(chrome://browser/skin/pluginInstall-16.png);
-}
-@media (min-resolution: 2dppx) {
-  #plugin-install-notification-icon {
-    list-style-image: url(chrome://browser/skin/pluginInstall-16@2x.png);
-  }
-}
-
 #notification-popup-box[hidden] {
   /* Override display:none to make the pluginBlockedNotification animation work
      when showing the notification repeatedly. */
@@ -3974,15 +3969,6 @@ menulist.translate-infobar-element > .menulist-dropmarker {
   list-style-image: url(chrome://mozapps/skin/plugins/pluginBlocked-64.png);
 }
 
-.popup-notification-icon[popupid="plugins-not-found"] {
-  list-style-image: url(chrome://browser/skin/pluginInstall-64.png);
-}
-@media (min-resolution: 2dppx) {
-  .popup-notification-icon[popupid="plugins-not-found"] {
-    list-style-image: url(chrome://browser/skin/pluginInstall-64\@2x.png);
-  }
-}
-
 .addon-progress-description {
   width: 350px;
   max-width: 350px;
@@ -4037,6 +4023,17 @@ menulist.translate-infobar-element > .menulist-dropmarker {
 @media (min-resolution: 2dppx) {
   .popup-notification-icon[popupid="bad-content"] {
     list-style-image: url(chrome://browser/skin/bad-content-blocked-64@2x.png);
+  }
+}
+
+.popup-notification-icon[popupid="bad-content"][mixedblockdisabled],
+.popup-notification-icon[popupid="bad-content"][trackingblockdisabled] {
+  list-style-image: url(chrome://browser/skin/bad-content-unblocked-64.png);
+}
+@media (min-resolution: 2dppx) {
+  .popup-notification-icon[popupid="bad-content"][mixedblockdisabled],
+  .popup-notification-icon[popupid="bad-content"][trackingblockdisabled] {
+    list-style-image: url(chrome://browser/skin/bad-content-unblocked-64@2x.png);
   }
 }
 

@@ -395,10 +395,11 @@ pref("content.ime.strict_policy", true);
 // $ adb shell start
 pref("browser.dom.window.dump.enabled", false);
 
-// Default Content Security Policy to apply to privileged and certified apps
-pref("security.apps.privileged.CSP.default", "default-src *; script-src 'self'; object-src 'none'; style-src 'self' 'unsafe-inline'");
+// Default Content Security Policy to apply to certified apps.
 // If you change this CSP, make sure to update the fast path in nsCSPService.cpp
 pref("security.apps.certified.CSP.default", "default-src *; script-src 'self'; object-src 'none'; style-src 'self' 'unsafe-inline' app://theme.gaiamobile.org");
+// Default Content Security Policy to apply to trusted apps.
+pref("security.apps.trusted.CSP.default", "default-src *; object-src 'none'; frame-src 'none'");
 
 // Temporarily force-enable GL compositing.  This is default-disabled
 // deep within the bowels of the widgetry system.  Remove me when GL
@@ -1006,8 +1007,8 @@ pref("dom.wakelock.enabled", true);
 // Enable touch caret by default
 pref("touchcaret.enabled", true);
 
-// Enable selection caret by default
-pref("selectioncaret.enabled", true);
+// Disable selection caret by default
+pref("selectioncaret.enabled", false);
 
 // Enable sync and mozId with Firefox Accounts.
 pref("services.sync.fxaccounts.enabled", true);

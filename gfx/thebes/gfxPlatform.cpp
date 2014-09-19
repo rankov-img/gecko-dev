@@ -18,6 +18,7 @@
 
 #include "gfxPlatform.h"
 #include "gfxPrefs.h"
+#include "gfxTextRun.h"
 
 #ifdef XP_WIN
 #include <process.h>
@@ -60,6 +61,9 @@
 #include "nsILocaleService.h"
 #include "nsIObserverService.h"
 #include "MainThreadUtils.h"
+#ifdef MOZ_CRASHREPORTER
+#include "nsExceptionHandler.h"
+#endif
 
 #include "nsWeakReference.h"
 
@@ -70,6 +74,7 @@
 #include "nsCRT.h"
 #include "GLContext.h"
 #include "GLContextProvider.h"
+#include "mozilla/gfx/Logging.h"
 
 #ifdef MOZ_WIDGET_ANDROID
 #include "TexturePoolOGL.h"
@@ -140,6 +145,22 @@ class SRGBOverrideObserver MOZ_FINAL : public nsIObserver,
 public:
     NS_DECL_ISUPPORTS
     NS_DECL_NSIOBSERVER
+};
+
+class CrashStatsLogForwarder: public mozilla::gfx::LogForwarder
+{
+public:
+    virtual void Log(const std::string& aString) MOZ_OVERRIDE {
+        if (!NS_IsMainThread()) {
+            return;
+        }
+#ifdef MOZ_CRASHREPORTER
+        nsCString reportString(aString.c_str());
+        CrashReporter::AppendAppNotesToCrashReport(reportString);
+#else
+        printf("GFX ERROR: %s", aString.c_str());
+#endif
+    }
 };
 
 NS_IMPL_ISUPPORTS(SRGBOverrideObserver, nsIObserver, nsISupportsWeakReference)
@@ -330,6 +351,8 @@ gfxPlatform::Init()
     }
     gEverInitialized = true;
 
+    mozilla::gfx::Factory::SetLogForwarder(new CrashStatsLogForwarder);
+
     // Initialize the preferences by creating the singleton.
     gfxPrefs::GetSingleton();
 
@@ -489,6 +512,9 @@ gfxPlatform::Shutdown()
     // WebGL on Optimus.
     mozilla::gl::GLContextProviderEGL::Shutdown();
 #endif
+
+    delete mozilla::gfx::Factory::GetLogForwarder();
+    mozilla::gfx::Factory::SetLogForwarder(nullptr);
 
     delete gGfxPlatformPrefsLock;
 
@@ -993,6 +1019,8 @@ gfxPlatform::BackendTypeForName(const nsCString& aName)
     return BackendType::SKIA;
   if (aName.EqualsLiteral("direct2d"))
     return BackendType::DIRECT2D;
+  if (aName.EqualsLiteral("direct2d1.1"))
+    return BackendType::DIRECT2D1_1;
   if (aName.EqualsLiteral("cg"))
     return BackendType::COREGRAPHICS;
   return BackendType::NONE;
@@ -1463,8 +1491,18 @@ gfxPlatform::InitBackendPrefs(uint32_t aCanvasBitmask, BackendType aCanvasDefaul
     if (mPreferredCanvasBackend == BackendType::NONE) {
         mPreferredCanvasBackend = aCanvasDefault;
     }
-    mFallbackCanvasBackend =
-        GetCanvasBackendPref(aCanvasBitmask & ~BackendTypeBit(mPreferredCanvasBackend));
+
+    if (mPreferredCanvasBackend == BackendType::DIRECT2D1_1) {
+      // Falling back to D2D 1.0 won't help us here. When D2D 1.1 DT creation
+      // fails it means the surface was too big or there's something wrong with
+      // the device. D2D 1.0 will encounter a similar situation.
+      mFallbackCanvasBackend =
+          GetCanvasBackendPref(aCanvasBitmask &
+                               ~(BackendTypeBit(mPreferredCanvasBackend) | BackendTypeBit(BackendType::DIRECT2D)));
+    } else {
+      mFallbackCanvasBackend =
+          GetCanvasBackendPref(aCanvasBitmask & ~BackendTypeBit(mPreferredCanvasBackend));
+    }
 
     mContentBackendBitmask = aContentBitmask;
     mContentBackend = GetContentBackendPref(mContentBackendBitmask);

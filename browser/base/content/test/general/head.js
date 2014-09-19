@@ -666,6 +666,7 @@ function assertWebRTCIndicatorStatus(expected) {
   }
 }
 
-function waitForNewTab(aTabBrowser) {
-  return promiseWaitForEvent(aTabBrowser.tabContainer, "TabOpen");
+function makeActionURI(action, params) {
+  let url = "moz-action:" + action + "," + JSON.stringify(params);
+  return NetUtil.newURI(url);
 }

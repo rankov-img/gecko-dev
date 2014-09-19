@@ -7,10 +7,6 @@ const Ci = Components.interfaces;
 const Cu = Components.utils;
 const Cr = Components.results;
 
-// We also need a valid nsIXulAppInfo
-Cu.import("resource://testing-common/AppInfo.jsm");
-updateAppInfo();
-
 const { devtools } = Cu.import("resource://gre/modules/devtools/Loader.jsm", {});
 const { worker } = Cu.import("resource://gre/modules/devtools/worker-loader.js", {})
 const {Promise: promise} = Cu.import("resource://gre/modules/Promise.jsm", {});
@@ -207,7 +203,6 @@ function attachTestTabAndResume(aClient, aTitle, aCallback) {
  */
 function initTestDebuggerServer(aServer = DebuggerServer)
 {
-  aServer.registerModule("devtools/server/actors/script");
   aServer.registerModule("xpcshell-test/testactors");
   // Allow incoming connections.
   aServer.init(function () { return true; });
@@ -215,9 +210,12 @@ function initTestDebuggerServer(aServer = DebuggerServer)
 
 function initTestTracerServer(aServer = DebuggerServer)
 {
-  aServer.registerModule("devtools/server/actors/script");
   aServer.registerModule("xpcshell-test/testactors");
-  aServer.registerModule("devtools/server/actors/tracer");
+  aServer.registerModule("devtools/server/actors/tracer", {
+    prefix: "trace",
+    constructor: "TracerActor",
+    type: { global: true, tab: true }
+  });
   // Allow incoming connections.
   aServer.init(function () { return true; });
 }

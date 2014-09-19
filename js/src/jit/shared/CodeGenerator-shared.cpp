@@ -345,12 +345,14 @@ CodeGeneratorShared::encodeAllocation(LSnapshot *snapshot, MDefinition *mir,
       }
       case MIRType_MagicOptimizedArguments:
       case MIRType_MagicOptimizedOut:
+      case MIRType_MagicUninitializedLexical:
       {
         uint32_t index;
-        JSWhyMagic why = (type == MIRType_MagicOptimizedArguments
-                          ? JS_OPTIMIZED_ARGUMENTS
-                          : JS_OPTIMIZED_OUT);
-        Value v = MagicValue(why);
+        Value v = MagicValue(type == MIRType_MagicOptimizedArguments
+                             ? JS_OPTIMIZED_ARGUMENTS
+                             : (type == MIRType_MagicOptimizedOut
+                                ? JS_OPTIMIZED_OUT
+                                : JS_UNINITIALIZED_LEXICAL));
         if (!graph.addConstantToPool(v, &index))
             return false;
         alloc = RValueAllocation::ConstantPool(index);
@@ -1157,6 +1159,43 @@ CodeGeneratorShared::omitOverRecursedCheck() const
     // arbitrary, and codegen actually uses small bounded amounts of
     // additional stack space in some cases too.
     return frameSize() < 64 && !gen->performsCall();
+}
+
+void
+CodeGeneratorShared::emitAsmJSCall(LAsmJSCall *ins)
+{
+    MAsmJSCall *mir = ins->mir();
+
+    if (mir->spIncrement())
+        masm.freeStack(mir->spIncrement());
+
+    JS_ASSERT((sizeof(AsmJSFrame) + masm.framePushed()) % AsmJSStackAlignment == 0);
+
+#ifdef DEBUG
+    static_assert(AsmJSStackAlignment >= ABIStackAlignment &&
+                  AsmJSStackAlignment % ABIStackAlignment == 0,
+                  "The asm.js stack alignment should subsume the ABI-required alignment");
+    Label ok;
+    masm.branchTestPtr(Assembler::Zero, StackPointer, Imm32(AsmJSStackAlignment - 1), &ok);
+    masm.breakpoint();
+    masm.bind(&ok);
+#endif
+
+    MAsmJSCall::Callee callee = mir->callee();
+    switch (callee.which()) {
+      case MAsmJSCall::Callee::Internal:
+        masm.call(mir->desc(), callee.internal());
+        break;
+      case MAsmJSCall::Callee::Dynamic:
+        masm.call(mir->desc(), ToRegister(ins->getOperand(mir->dynamicCalleeOperandIndex())));
+        break;
+      case MAsmJSCall::Callee::Builtin:
+        masm.call(AsmJSImmPtr(callee.builtin()));
+        break;
+    }
+
+    if (mir->spIncrement())
+        masm.reserveStack(mir->spIncrement());
 }
 
 void

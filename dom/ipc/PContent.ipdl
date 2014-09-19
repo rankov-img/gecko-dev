@@ -20,6 +20,7 @@ include protocol PFMRadio;
 include protocol PFileSystemRequest;
 include protocol PHal;
 include protocol PImageBridge;
+include protocol PIndexedDB;
 include protocol PMemoryReportRequest;
 include protocol PMobileConnection;
 include protocol PNecko;
@@ -39,8 +40,6 @@ include PTabContext;
 include URIParams;
 include ProtocolTypes;
 
-include "mozilla/dom/indexedDB/SerializationHelpers.h";
-
 using GeoPosition from "nsGeoPositionIPCSerialiser.h";
 
 using struct ChromePackage from "mozilla/chrome/RegistryMessageUtils.h";
@@ -56,7 +55,6 @@ using mozilla::dom::asmjscache::WriteParams from "mozilla/dom/asmjscache/AsmJSCa
 using mozilla::dom::AudioChannel from "mozilla/dom/AudioChannelBinding.h";
 using mozilla::dom::AudioChannelState from "AudioChannelCommon.h";
 using mozilla::dom::NativeThreadId from "mozilla/dom/TabMessageUtils.h";
-using mozilla::dom::quota::PersistenceType from "mozilla/dom/quota/PersistenceType.h";
 using mozilla::hal::ProcessPriority from "mozilla/HalTypes.h";
 using gfxIntSize from "nsSize.h";
 
@@ -292,6 +290,19 @@ struct DataStoreSetting {
   bool enabled;
 };
 
+// Note: Any changes to this structure should also be changed in
+// FileSystemUpdate below.
+struct VolumeInfo {
+  nsString name;
+  nsString mountPoint;
+  int32_t volState;
+  int32_t mountGeneration;
+  bool isMediaPresent;
+  bool isSharing;
+  bool isFormatting;
+  bool isFake;
+};
+
 intr protocol PContent
 {
     parent opens PCompositor;
@@ -311,6 +322,7 @@ intr protocol PContent
     manages PFileDescriptorSet;
     manages PFMRadio;
     manages PHal;
+    manages PIndexedDB;
     manages PMemoryReportRequest;
     manages PMobileConnection;
     manages PNecko;
@@ -428,6 +440,8 @@ child:
     FilePathUpdate(nsString storageType, nsString storageName, nsString filepath,
                    nsCString reasons);
 
+    // Note: Any changes to this structure should also be changed in
+    // VolumeInfo above.
     FileSystemUpdate(nsString fsName, nsString mountPoint, int32_t fsState,
                      int32_t mountGeneration, bool isMediaPresent,
                      bool isSharing, bool isFormatting, bool isFake);
@@ -498,6 +512,8 @@ parent:
         returns (bool isSecureURI);
 
     PHal();
+
+    PIndexedDB();
 
     PMobileConnection(uint32_t clientId);
 
@@ -620,8 +636,8 @@ parent:
                                nsString aStorageName,
                                nsString aFilepath,
                                nsCString aReason);
-    // get nsIVolumeService to broadcast volume information
-    async BroadcastVolume(nsString volumeName);
+
+    sync GetVolumes() returns (VolumeInfo[] volumes);
 
     // Notify the parent that the child has finished handling a system message.
     async SystemMessageHandled();
@@ -678,14 +694,6 @@ parent:
     BackUpXResources(FileDescriptor aXSocketFd);
 
     sync OpenAnonymousTemporaryFile() returns (FileDescriptor aFD);
-
-    // Use only for testing!
-    sync GetFileReferences(PersistenceType persistenceType,
-                           nsCString origin,
-                           nsString databaseName,
-                           int64_t fileId)
-      returns (int32_t refCnt, int32_t dBRefCnt, int32_t sliceRefCnt,
-               bool result);
 
 both:
      AsyncMessage(nsString aMessage, ClonedMessageData aData,
