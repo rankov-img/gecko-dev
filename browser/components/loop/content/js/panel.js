@@ -14,13 +14,8 @@ loop.panel = (function(_, mozL10n) {
   var sharedViews = loop.shared.views;
   var sharedModels = loop.shared.models;
   var sharedMixins = loop.shared.mixins;
+  var ContactsList = loop.contacts.ContactsList;
   var __ = mozL10n.get; // aliasing translation function as __ for concision
-
-  /**
-   * Panel router.
-   * @type {loop.desktopRouter.DesktopRouter}
-   */
-  var router;
 
   var TabView = React.createClass({displayName: 'TabView',
     getInitialState: function() {
@@ -212,11 +207,11 @@ loop.panel = (function(_, mozL10n) {
     mixins: [sharedMixins.DropdownMenuMixin],
 
     handleClickSettingsEntry: function() {
-      // XXX to be implemented
+      // XXX to be implemented at the same time as unhiding the entry
     },
 
     handleClickAccountEntry: function() {
-      // XXX to be implemented
+      navigator.mozLoop.openFxASettings();
     },
 
     handleClickAuthEntry: function() {
@@ -241,6 +236,7 @@ loop.panel = (function(_, mozL10n) {
               onMouseLeave: this.hideDropdownMenu}, 
             SettingsDropdownEntry({label: __("settings_menu_item_settings"), 
                                    onClick: this.handleClickSettingsEntry, 
+                                   displayed: false, 
                                    icon: "settings"}), 
             SettingsDropdownEntry({label: __("settings_menu_item_account"), 
                                    onClick: this.handleClickAccountEntry, 
@@ -426,7 +422,7 @@ loop.panel = (function(_, mozL10n) {
     },
 
     render: function() {
-      if (navigator.mozLoop.loggedInToFxA) { // XXX to be implemented
+      if (navigator.mozLoop.userProfile) {
         return null;
       }
       return (
@@ -498,7 +494,7 @@ loop.panel = (function(_, mozL10n) {
               ToSView(null)
             ), 
             Tab({name: "contacts"}, 
-              React.DOM.span(null, "contacts")
+              ContactsList(null)
             )
           ), 
           React.DOM.div({className: "footer"}, 

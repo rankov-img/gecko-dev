@@ -16,7 +16,7 @@
 namespace mozilla {
 
 class WebGLSampler MOZ_FINAL
-    : public WebGLBindableName
+    : public WebGLBindableName<GLenum>
     , public nsWrapperCache
     , public WebGLRefCountedObject<WebGLSampler>
     , public LinkedListElement<WebGLSampler>
@@ -26,7 +26,7 @@ class WebGLSampler MOZ_FINAL
 
 public:
 
-    WebGLSampler(WebGLContext* context);
+    explicit WebGLSampler(WebGLContext* aContext);
 
     void Delete();
     WebGLContext* GetParentObject() const;

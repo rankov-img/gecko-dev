@@ -11,10 +11,6 @@ import java.util.concurrent.ArrayBlockingQueue;
 import org.mozilla.gecko.AppConstants.Versions;
 import org.mozilla.gecko.gfx.DisplayPortMetrics;
 import org.mozilla.gecko.gfx.ImmutableViewportMetrics;
-import org.mozilla.gecko.mozglue.JNITarget;
-import org.mozilla.gecko.mozglue.RobocopTarget;
-import org.mozilla.gecko.mozglue.generatorannotations.GeneratorOptions;
-import org.mozilla.gecko.mozglue.generatorannotations.WrapEntireClassForJNI;
 
 import android.graphics.Point;
 import android.graphics.PointF;
@@ -29,6 +25,8 @@ import android.util.Log;
 import android.util.SparseArray;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
+import org.mozilla.gecko.mozglue.JNITarget;
+import org.mozilla.gecko.mozglue.RobocopTarget;
 
 /* We're not allowed to hold on to most events given to us
  * so we save the parts of the events we want to use in GeckoEvent.
@@ -122,8 +120,7 @@ public class GeckoEvent {
      * The DomKeyLocation enum encapsulates the DOM KeyboardEvent's constants.
      * @see https://developer.mozilla.org/en-US/docs/DOM/KeyboardEvent#Key_location_constants
      */
-    @GeneratorOptions(generatedClassName = "JavaDomKeyLocation")
-    @WrapEntireClassForJNI
+    @JNITarget
     public enum DomKeyLocation {
         DOM_KEY_LOCATION_STANDARD(0),
         DOM_KEY_LOCATION_LEFT(1),
@@ -195,6 +192,7 @@ public class GeckoEvent {
     private int mPointerIndex; // index of the point that has changed
     private float[] mOrientations;
     private float[] mPressures;
+    private int[] mToolTypes;
     private Point[] mPointRadii;
     private Rect mRect;
     private double mX;
@@ -452,6 +450,7 @@ public class GeckoEvent {
                 mPointIndicies = new int[mCount];
                 mOrientations = new float[mCount];
                 mPressures = new float[mCount];
+                mToolTypes = new int[mCount];
                 mPointRadii = new Point[mCount];
                 mPointerIndex = m.getActionIndex();
                 for (int i = 0; i < mCount; i++) {
@@ -466,6 +465,7 @@ public class GeckoEvent {
                 mPointIndicies = new int[mCount];
                 mOrientations = new float[mCount];
                 mPressures = new float[mCount];
+                mToolTypes = new int[mCount];
                 mPointRadii = new Point[mCount];
             }
         }
@@ -512,6 +512,9 @@ public class GeckoEvent {
                 mPointRadii[index].y /= zoom;
             }
             mPressures[index] = event.getPressure(eventIndex);
+            if (Versions.feature14Plus) {
+                mToolTypes[index] = event.getToolType(index);
+            }
         } catch (Exception ex) {
             Log.e(LOGTAG, "Error creating motion point " + index, ex);
             mPointRadii[index] = new Point(0, 0);

@@ -1842,6 +1842,9 @@ function WifiWorker() {
   // Given a connection status network, takes a network from
   // self.configuredNetworks and prepares it for the DOM.
   netToDOM = function(net) {
+    if (!net) {
+      return null;
+    }
     var ssid = dequote(net.ssid);
     var security = (net.key_mgmt === "NONE" && net.wep_key0) ? ["WEP"] :
                    (net.key_mgmt && net.key_mgmt !== "NONE") ? [net.key_mgmt.split(" ")[0]] :
@@ -2026,7 +2029,7 @@ function WifiWorker() {
         WifiManager.disableNetwork(netId, function() {});
       }
     });
-    self._fireEvent("onconnectingfailed", {network: self.currentNetwork});
+    self._fireEvent("onconnectingfailed", {network: netToDOM(self.currentNetwork)});
   }
 
   WifiManager.onstatechange = function() {
@@ -2069,7 +2072,10 @@ function WifiWorker() {
         }
 
         self.currentNetwork.netId = this.id;
-        WifiManager.getNetworkConfiguration(self.currentNetwork, function (){});
+        WifiManager.getNetworkConfiguration(self.currentNetwork, function (){
+          // Notify again because we get complete network information.
+          self._fireEvent("onconnecting", { network: netToDOM(self.currentNetwork) });
+        });
         break;
       case "COMPLETED":
         // Now that we've successfully completed the connection, re-enable the
@@ -2082,27 +2088,32 @@ function WifiWorker() {
           self._needToEnableNetworks = false;
         }
 
+        var _oncompleted = function() {
+          // Update http proxy when connected to network.
+          let netConnect = WifiManager.getHttpProxyNetwork(self.currentNetwork);
+          if (netConnect)
+            WifiManager.setHttpProxy(netConnect);
+
+          // The full authentication process is completed, reset the count.
+          WifiManager.authenticationFailuresCount = 0;
+          WifiManager.loopDetectionCount = 0;
+          self._startConnectionInfoTimer();
+          self._fireEvent("onassociate", { network: netToDOM(self.currentNetwork) });
+        };
+
         // We get the ASSOCIATED event when we've associated but not connected, so
         // wait until the handshake is complete.
         if (this.fromStatus || !self.currentNetwork) {
           // In this case, we connected to an already-connected wpa_supplicant,
           // because of that we need to gather information about the current
           // network here.
-          self.currentNetwork = { ssid: quote(WifiManager.connectionInfo.ssid),
+          self.currentNetwork = { bssid: WifiManager.connectionInfo.bssid,
+                                  ssid: quote(WifiManager.connectionInfo.ssid),
                                   netId: WifiManager.connectionInfo.id };
-          WifiManager.getNetworkConfiguration(self.currentNetwork, function(){});
+          WifiManager.getNetworkConfiguration(self.currentNetwork, _oncompleted);
+        } else {
+          _oncompleted();
         }
-
-        // Update http proxy when connected to network.
-        let netConnect = WifiManager.getHttpProxyNetwork(self.currentNetwork);
-        if (netConnect)
-          WifiManager.setHttpProxy(netConnect);
-
-        // The full authentication process is completed, reset the count.
-        WifiManager.authenticationFailuresCount = 0;
-        WifiManager.loopDetectionCount = 0;
-        self._startConnectionInfoTimer();
-        self._fireEvent("onassociate", { network: netToDOM(self.currentNetwork) });
         break;
       case "CONNECTED":
         // BSSID is read after connected, update it.
@@ -2121,7 +2132,7 @@ function WifiWorker() {
           return;
         }
 
-        self._fireEvent("ondisconnect", {});
+        self._fireEvent("ondisconnect", {network: netToDOM(self.currentNetwork)});
 
         // When disconnected, clear the http proxy setting if it exists.
         // Temporarily set http proxy to empty and restore user setting after setHttpProxy.
@@ -3631,17 +3642,16 @@ WifiWorker.prototype = {
   observe: function observe(subject, topic, data) {
     switch (topic) {
     case kMozSettingsChangedObserverTopic:
-      // The string we're interested in will be a JSON string that looks like:
-      // {"key":"wifi.enabled","value":"true"}.
-
-      let setting = JSON.parse(data);
       // To avoid WifiWorker setting the wifi again, don't need to deal with
       // the "mozsettings-changed" event fired from internal setting.
-      if (setting.isInternalChange) {
+      if ("wrappedJSObject" in subject) {
+        subject = subject.wrappedJSObject;
+      }
+      if (subject.isInternalChange) {
         return;
       }
 
-      this.handle(setting.key, setting.value);
+      this.handle(subject.key, subject.value);
       break;
 
     case "xpcom-shutdown":

@@ -14,6 +14,7 @@
 
 #include "mozilla/ArrayUtils.h"
 #include "mozilla/Attributes.h"
+#include "mozilla/ChaosMode.h"
 #include "mozilla/IOInterposer.h"
 #include "mozilla/Likely.h"
 #include "mozilla/Poison.h"
@@ -592,7 +593,7 @@ KeyboardMayHaveIME()
   HKL locales[10];
   int result = GetKeyboardLayoutList(10, locales);
   for (int i = 0; i < result; i++) {
-    int kb = (unsigned)locales[i] & 0xFFFF;
+    int kb = (uintptr_t)locales[i] & 0xFFFF;
     if (kb == 0x0411 ||  // japanese
         kb == 0x0412 ||  // korean
         kb == 0x0C04 ||  // HK Chinese
@@ -668,7 +669,9 @@ NS_IMETHODIMP
 nsXULAppInfo::GetVendor(nsACString& aResult)
 {
   if (XRE_GetProcessType() == GeckoProcessType_Content) {
-    return NS_ERROR_NOT_AVAILABLE;
+    ContentChild* cc = ContentChild::GetSingleton();
+    aResult = cc->GetAppInfo().vendor;
+    return NS_OK;
   }
   aResult.Assign(gAppData->vendor);
 
@@ -692,7 +695,9 @@ NS_IMETHODIMP
 nsXULAppInfo::GetID(nsACString& aResult)
 {
   if (XRE_GetProcessType() == GeckoProcessType_Content) {
-    return NS_ERROR_NOT_AVAILABLE;
+    ContentChild* cc = ContentChild::GetSingleton();
+    aResult = cc->GetAppInfo().ID;
+    return NS_OK;
   }
   aResult.Assign(gAppData->ID);
 
@@ -1512,6 +1517,7 @@ DumpHelp()
   printf("  -h or -help        Print this message.\n"
          "  -v or -version     Print %s version.\n"
          "  -P <profile>       Start with <profile>.\n"
+         "  -profile <path>    Start with profile at <path>.\n"
          "  -migration         Start with migration wizard.\n"
          "  -ProfileManager    Start with ProfileManager.\n"
          "  -no-remote         Do not accept or send remote commands; implies -new-instance.\n"
@@ -2986,6 +2992,10 @@ XREMain::XRE_mainInit(bool* aExitFlag)
   *aExitFlag = false;
 
   StartupTimeline::Record(StartupTimeline::MAIN);
+
+  if (ChaosMode::isActive()) {
+    printf_stderr("*** You are running in chaos test mode. See ChaosMode.h. ***\n");
+  }
 
   nsresult rv;
   ArgResult ar;
@@ -4569,6 +4579,9 @@ mozilla::BrowserTabsRemote()
 bool
 mozilla::BrowserTabsRemoteAutostart()
 {
+#if !defined(NIGHTLY_BUILD)
+  return false;
+#endif
   if (!gBrowserTabsRemoteAutostartInitialized) {
     bool hasIME = KeyboardMayHaveIME();
     bool prefEnabled = Preferences::GetBool("browser.tabs.remote.autostart", false) ||

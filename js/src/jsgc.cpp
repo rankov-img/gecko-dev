@@ -455,6 +455,13 @@ ArenaHeader::checkSynchronizedWithFreeList() const
 }
 #endif
 
+void
+ArenaHeader::unmarkAll()
+{
+    uintptr_t *word = chunk()->bitmap.arenaBits(this);
+    memset(word, 0, ArenaBitmapWords * sizeof(uintptr_t));
+}
+
 /* static */ void
 Arena::staticAsserts()
 {
@@ -1616,29 +1623,29 @@ GCRuntime::callFinalizeCallbacks(FreeOp *fop, JSFinalizeStatus status) const
 }
 
 bool
-GCRuntime::addMovingGCCallback(JSMovingGCCallback callback, void *data)
+GCRuntime::addWeakPointerCallback(JSWeakPointerCallback callback, void *data)
 {
-    return movingCallbacks.append(Callback<JSMovingGCCallback>(callback, data));
+    return updateWeakPointerCallbacks.append(Callback<JSWeakPointerCallback>(callback, data));
 }
 
 void
-GCRuntime::removeMovingGCCallback(JSMovingGCCallback callback)
+GCRuntime::removeWeakPointerCallback(JSWeakPointerCallback callback)
 {
-    for (Callback<JSMovingGCCallback> *p = movingCallbacks.begin();
-         p < movingCallbacks.end(); p++)
+    for (Callback<JSWeakPointerCallback> *p = updateWeakPointerCallbacks.begin();
+         p < updateWeakPointerCallbacks.end(); p++)
     {
         if (p->op == callback) {
-            movingCallbacks.erase(p);
+            updateWeakPointerCallbacks.erase(p);
             break;
         }
     }
 }
 
 void
-GCRuntime::callMovingGCCallbacks() const
+GCRuntime::callWeakPointerCallbacks() const
 {
-    for (const Callback<JSMovingGCCallback> *p = movingCallbacks.begin();
-         p < movingCallbacks.end(); p++)
+    for (const Callback<JSWeakPointerCallback> *p = updateWeakPointerCallbacks.begin();
+         p < updateWeakPointerCallbacks.end(); p++)
     {
         p->op(rt, p->data);
     }
@@ -2088,21 +2095,6 @@ AutoDisableCompactingGC::~AutoDisableCompactingGC()
     gc.enableCompactingGC();
 }
 
-static void
-ForwardCell(TenuredCell *dest, TenuredCell *src)
-{
-    // Mark a cell has having been relocated and astore forwarding pointer to
-    // the new cell.
-    MOZ_ASSERT(src->zone() == dest->zone());
-
-    // Putting the values this way round is a terrible hack to make
-    // ObjectImpl::zone() work on forwarded objects.
-    MOZ_ASSERT(ObjectImpl::offsetOfShape() == 0);
-    uintptr_t *ptr = reinterpret_cast<uintptr_t *>(src);
-    ptr[0] = reinterpret_cast<uintptr_t>(dest); // Forwarding address
-    ptr[1] = ForwardedCellMagicValue; // Moved!
-}
-
 static bool
 ArenaContainsGlobal(ArenaHeader *arena)
 {
@@ -2193,6 +2185,7 @@ static bool
 RelocateCell(Zone *zone, TenuredCell *src, AllocKind thingKind, size_t thingSize)
 {
     // Allocate a new cell.
+    MOZ_ASSERT(zone == src->zone());
     void *dstAlloc = zone->allocator.arenas.allocateFromFreeList(thingKind, thingSize);
     if (!dstAlloc)
         dstAlloc = js::gc::ArenaLists::refillFreeListInGC(zone, thingKind);
@@ -2223,7 +2216,8 @@ RelocateCell(Zone *zone, TenuredCell *src, AllocKind thingKind, size_t thingSize
     dst->copyMarkBitsFrom(src);
 
     // Mark source cell as forwarded and leave a pointer to the destination.
-    ForwardCell(dst, src);
+    RelocationOverlay* overlay = RelocationOverlay::fromCell(src);
+    overlay->forwardTo(dst);
 
     return true;
 }
@@ -2467,7 +2461,7 @@ GCRuntime::updatePointersToRelocatedCells()
     MovingTracer::Sweep(&trc);
 
     // Call callbacks to get the rest of the system to fixup other untraced pointers.
-    callMovingGCCallbacks();
+    callWeakPointerCallbacks();
 }
 
 void
@@ -2491,6 +2485,9 @@ GCRuntime::releaseRelocatedArenas(ArenaHeader *relocatedList)
     while (relocatedList) {
         ArenaHeader *aheader = relocatedList;
         relocatedList = relocatedList->next;
+
+        // Clear the mark bits
+        aheader->unmarkAll();
 
         // Mark arena as empty
         AllocKind thingKind = aheader->getAllocKind();
@@ -3539,6 +3536,8 @@ GCRuntime::shouldPreserveJITCode(JSCompartment *comp, int64_t currentTime,
         return false;
 
     if (alwaysPreserveCode)
+        return true;
+    if (comp->preserveJitCode())
         return true;
     if (comp->lastAnimationTime + PRMJ_USEC_PER_SEC >= currentTime)
         return true;
@@ -4637,6 +4636,7 @@ GCRuntime::beginSweepingZoneGroup()
     {
         gcstats::AutoPhase ap(stats, gcstats::PHASE_FINALIZE_START);
         callFinalizeCallbacks(&fop, JSFINALIZE_GROUP_START);
+        callWeakPointerCallbacks();
     }
 
     if (sweepingAtoms) {
@@ -5627,8 +5627,10 @@ GCRuntime::scanZonesBeforeGC()
             zone->scheduleGC();
 
         zoneStats.zoneCount++;
-        if (zone->isGCScheduled())
-            zoneStats.collectedCount++;
+        if (zone->isGCScheduled()) {
+            zoneStats.collectedZoneCount++;
+            zoneStats.collectedCompartmentCount += zone->compartments.length();
+        }
     }
 
     for (CompartmentsIter c(rt, WithAtoms); !c.done(); c.next())
@@ -5642,12 +5644,12 @@ GCRuntime::collect(bool incremental, int64_t budget, JSGCInvocationKind gckind,
                    JS::gcreason::Reason reason)
 {
     /* GC shouldn't be running in parallel execution mode */
-    MOZ_ASSERT(!InParallelSection());
+    MOZ_ALWAYS_TRUE(!InParallelSection());
 
     JS_AbortIfWrongThread(rt);
 
     /* If we attempt to invoke the GC while we are running in the GC, assert. */
-    MOZ_ASSERT(!rt->isHeapBusy());
+    MOZ_ALWAYS_TRUE(!rt->isHeapBusy());
 
     /* The engine never locks across anything that could GC. */
     MOZ_ASSERT(!rt->currentThreadHasExclusiveAccess());
@@ -6359,7 +6361,32 @@ JS::AutoAssertOnGC::VerifyIsSafeToGC(JSRuntime *rt)
     if (rt->gc.isInsideUnsafeRegion())
         MOZ_CRASH("[AutoAssertOnGC] possible GC in GC-unsafe region");
 }
+
+JS::AutoAssertNoAlloc::AutoAssertNoAlloc(JSRuntime *rt)
+  : gc(nullptr)
+{
+    disallowAlloc(rt);
+}
+
+void JS::AutoAssertNoAlloc::disallowAlloc(JSRuntime *rt)
+{
+    JS_ASSERT(!gc);
+    gc = &rt->gc;
+    gc->disallowAlloc();
+}
+
+JS::AutoAssertNoAlloc::~AutoAssertNoAlloc()
+{
+    if (gc)
+        gc->allowAlloc();
+}
 #endif
+
+JS::AutoAssertGCCallback::AutoAssertGCCallback(JSObject *obj)
+  : AutoSuppressGCAnalysis()
+{
+    MOZ_ASSERT(obj->runtimeFromMainThread()->isHeapMajorCollecting());
+}
 
 #ifdef JSGC_HASH_TABLE_CHECKS
 void

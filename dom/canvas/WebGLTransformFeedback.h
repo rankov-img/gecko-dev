@@ -16,7 +16,7 @@
 namespace mozilla {
 
 class WebGLTransformFeedback MOZ_FINAL
-    : public WebGLBindableName
+    : public WebGLBindableName<GLenum>
     , public nsWrapperCache
     , public WebGLRefCountedObject<WebGLTransformFeedback>
     , public LinkedListElement<WebGLTransformFeedback>
@@ -26,7 +26,7 @@ class WebGLTransformFeedback MOZ_FINAL
 
 public:
 
-    WebGLTransformFeedback(WebGLContext* context);
+    explicit WebGLTransformFeedback(WebGLContext* aContext);
 
     void Delete();
     WebGLContext* GetParentObject() const;

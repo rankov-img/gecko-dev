@@ -1213,6 +1213,24 @@ ClearWrapper(T* p, void*)
   ClearWrapper(p, cache);
 }
 
+template<class T>
+inline void
+UpdateWrapper(T* p, nsWrapperCache* cache, JSObject* obj, const JSObject* old)
+{
+  JS::AutoAssertGCCallback inCallback(obj);
+  cache->UpdateWrapper(obj, old);
+}
+
+template<class T>
+inline void
+UpdateWrapper(T* p, void*, JSObject* obj, const JSObject* old)
+{
+  JS::AutoAssertGCCallback inCallback(obj);
+  nsWrapperCache* cache;
+  CallQueryInterface(p, &cache);
+  UpdateWrapper(p, cache, obj, old);
+}
+
 // Attempt to preserve the wrapper, if any, for a Paris DOM bindings object.
 // Return true if we successfully preserved the wrapper, or there is no wrapper
 // to preserve. In the latter case we don't need to preserve the wrapper, because
@@ -2959,25 +2977,21 @@ CallerSubsumes(JS::Handle<JS::Value> aValue)
 
 template<class T>
 inline bool
-WrappedJSToDictionary(nsISupports* aObject, T& aDictionary)
+WrappedJSToDictionary(JSContext* aCx, nsISupports* aObject, T& aDictionary)
 {
   nsCOMPtr<nsIXPConnectWrappedJS> wrappedObj = do_QueryInterface(aObject);
   if (!wrappedObj) {
     return false;
   }
 
-  AutoJSAPI jsapi;
-  jsapi.Init();
-
-  JSContext* cx = jsapi.cx();
-  JS::Rooted<JSObject*> obj(cx, wrappedObj->GetJSObject());
+  JS::Rooted<JSObject*> obj(aCx, wrappedObj->GetJSObject());
   if (!obj) {
     return false;
   }
 
-  JSAutoCompartment ac(cx, obj);
-  JS::Rooted<JS::Value> v(cx, OBJECT_TO_JSVAL(obj));
-  return aDictionary.Init(cx, v);
+  JSAutoCompartment ac(aCx, obj);
+  JS::Rooted<JS::Value> v(aCx, JS::ObjectValue(*obj));
+  return aDictionary.Init(aCx, v);
 }
 
 

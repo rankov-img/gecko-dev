@@ -14,6 +14,7 @@
 #include "nsIPrefBranch.h"
 #include "nsIViewSourceChannel.h"
 #include "nsChannelProperties.h"
+#include "nsContentUtils.h"
 
 #include "nsIScriptSecurityManager.h"
 #include "nsIPrincipal.h"
@@ -319,7 +320,7 @@ nsJARChannel::CreateJarInput(nsIZipReaderCache *jarCache, nsJARInputThunk **resu
 }
 
 nsresult
-nsJARChannel::LookupFile()
+nsJARChannel::LookupFile(bool aAllowAsync)
 {
     LOG(("nsJARChannel::LookupFile [this=%x %s]\n", this, mSpec.get()));
 
@@ -385,6 +386,11 @@ nsJARChannel::LookupFile()
                     }
                     #endif
                 }
+            }
+
+            if (!aAllowAsync) {
+                mJarFile = nullptr;
+                return NS_OK;
             }
 
             mOpeningRemote = true;
@@ -798,7 +804,7 @@ nsJARChannel::Open(nsIInputStream **stream)
     mJarFile = nullptr;
     mIsUnsafe = true;
 
-    nsresult rv = LookupFile();
+    nsresult rv = LookupFile(false);
     if (NS_FAILED(rv))
         return rv;
 
@@ -835,7 +841,7 @@ nsJARChannel::AsyncOpen(nsIStreamListener *listener, nsISupports *ctx)
     // Initialize mProgressSink
     NS_QueryNotificationCallbacks(mCallbacks, mLoadGroup, mProgressSink);
 
-    nsresult rv = LookupFile();
+    nsresult rv = LookupFile(true);
     if (NS_FAILED(rv))
         return rv;
 
@@ -851,10 +857,31 @@ nsJARChannel::AsyncOpen(nsIStreamListener *listener, nsISupports *ctx)
         // Not a local file...
         // kick off an async download of the base URI...
         rv = NS_NewDownloader(getter_AddRefs(mDownloader), this);
-        if (NS_SUCCEEDED(rv))
-            rv = NS_OpenURI(mDownloader, nullptr, mJarBaseURI, nullptr,
-                            mLoadGroup, mCallbacks,
-                            mLoadFlags & ~(LOAD_DOCUMENT_URI | LOAD_CALL_CONTENT_SNIFFERS));
+        if (NS_SUCCEEDED(rv)) {
+            // Since we might not have a loadinfo on all channels yet
+            // we have to provide default arguments in case mLoadInfo is null;
+            if (mLoadInfo) {
+              rv = NS_OpenURIInternal(mDownloader,
+                                      nullptr,   // aContext
+                                      mJarBaseURI,
+                                      mLoadInfo,
+                                      mLoadGroup,
+                                      mCallbacks,
+                                      mLoadFlags & ~(LOAD_DOCUMENT_URI | LOAD_CALL_CONTENT_SNIFFERS));
+            }
+            else {
+              rv = NS_OpenURIInternal(mDownloader,
+                                      nullptr,   // aContext
+                                      mJarBaseURI,
+                                      nullptr, // aRequestingNode,
+                                      nsContentUtils::GetSystemPrincipal(),
+                                      nsILoadInfo::SEC_NORMAL,
+                                      nsIContentPolicy::TYPE_OTHER,
+                                      mLoadGroup,
+                                      mCallbacks,
+                                      mLoadFlags & ~(LOAD_DOCUMENT_URI | LOAD_CALL_CONTENT_SNIFFERS));
+            }
+        }
     } else if (mOpeningRemote) {
         // nothing to do: already asked parent to open file.
     } else {
@@ -910,7 +937,7 @@ nsJARChannel::GetJarFile(nsIFile **aFile)
 NS_IMETHODIMP
 nsJARChannel::GetZipEntry(nsIZipEntry **aZipEntry)
 {
-    nsresult rv = LookupFile();
+    nsresult rv = LookupFile(false);
     if (NS_FAILED(rv))
         return rv;
 

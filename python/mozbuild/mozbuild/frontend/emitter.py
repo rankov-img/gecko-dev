@@ -764,6 +764,8 @@ class TreeMetadataEmitter(LoggingMixin):
         test_manifests = dict(
             A11Y=('a11y', 'testing/mochitest', 'a11y', True),
             BROWSER_CHROME=('browser-chrome', 'testing/mochitest', 'browser', True),
+            JETPACK_PACKAGE=('jetpack-package', 'testing/mochitest', 'jetpack-package', True),
+            JETPACK_ADDON=('jetpack-addon', 'testing/mochitest', 'jetpack-addon', True),
             METRO_CHROME=('metro-chrome', 'testing/mochitest', 'metro', True),
             MOCHITEST=('mochitest', 'testing/mochitest', 'tests', True),
             MOCHITEST_CHROME=('chrome', 'testing/mochitest', 'chrome', True),
@@ -850,6 +852,9 @@ class TreeMetadataEmitter(LoggingMixin):
                 filtered = m.active_tests(exists=False, disabled=True,
                     **self.info)
 
+            # Jetpack add-on tests are expected to be generated during the
+            # build process so they won't exist here.
+            if flavor != 'jetpack-addon':
                 missing = [t['name'] for t in filtered if not os.path.exists(t['path'])]
                 if missing:
                     raise SandboxValidationError('Test manifest (%s) lists '
@@ -925,8 +930,11 @@ class TreeMetadataEmitter(LoggingMixin):
             for test in filtered:
                 obj.tests.append(test)
 
-                obj.installs[mozpath.normpath(test['path'])] = \
-                    (mozpath.join(out_dir, test['relpath']), True)
+                # Jetpack add-on tests are generated directly in the test
+                # directory
+                if flavor != 'jetpack-addon':
+                    obj.installs[mozpath.normpath(test['path'])] = \
+                        (mozpath.join(out_dir, test['relpath']), True)
 
                 process_support_files(test)
 

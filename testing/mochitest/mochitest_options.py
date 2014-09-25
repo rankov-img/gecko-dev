@@ -165,6 +165,18 @@ class MochitestOptions(optparse.OptionParser):
           "help": "subsuite of tests to run",
           "default": "",
         }],
+        [["--jetpack-package"],
+        { "action": "store_true",
+          "dest": "jetpackPackage",
+          "help": "run jetpack package tests",
+          "default": False,
+        }],
+        [["--jetpack-addon"],
+        { "action": "store_true",
+          "dest": "jetpackAddon",
+          "help": "run jetpack addon tests",
+          "default": False,
+        }],
         [["--webapprt-content"],
         { "action": "store_true",
           "dest": "webapprtContent",
@@ -743,7 +755,7 @@ class B2GOptions(MochitestOptions):
         defaults["testPath"] = ""
         defaults["extensionsToExclude"] = ["specialpowers"]
         # See dependencies of bug 1038943.
-        defaults["leakThreshold"] = 5116
+        defaults["leakThreshold"] = 5180
         self.set_defaults(**defaults)
 
     def verifyRemoteOptions(self, options):
