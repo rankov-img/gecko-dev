@@ -15,6 +15,12 @@ loop.Client = (function($) {
   // The expected properties to be returned from the GET /calls request.
   var expectedCallProperties = ["calls"];
 
+  // THe expected properties to be returned from the POST /calls request.
+  var expectedPostCallProperties = [
+    "apiKey", "callId", "progressURL",
+    "sessionId", "sessionToken", "websocketToken"
+  ];
+
   /**
    * Loop server client.
    *
@@ -72,42 +78,26 @@ loop.Client = (function($) {
     _failureHandler: function(cb, error) {
       var message = "HTTP " + error.code + " " + error.error + "; " + error.message;
       console.error(message);
-      cb(new Error(message));
+      cb(error);
     },
 
     /**
-     * Ensures the client is registered with the push server.
+     * Requests a call URL from the Loop server. It will note the
+     * expiry time for the url with the mozLoop api.  It will select the
+     * appropriate hawk session to use based on whether or not the user
+     * is currently logged into a Firefox account profile.
      *
      * Callback parameters:
-     * - err null on successful registration, non-null otherwise.
-     *
-     * @param {Function} cb Callback(err)
-     */
-    _ensureRegistered: function(cb) {
-      this.mozLoop.ensureRegistered(function(error) {
-        if (error) {
-          console.log("Error registering with Loop server, code: " + error);
-          cb(error);
-          return;
-        } else {
-          cb(null);
-        }
-      });
-    },
-
-    /**
-     * Internal handler for requesting a call url from the server.
-     *
-     * Callback parameters:
-     * - err null on successful registration, non-null otherwise.
+     * - err null on successful request, non-null otherwise.
      * - callUrlData an object of the obtained call url data if successful:
      * -- callUrl: The url of the call
      * -- expiresAt: The amount of hours until expiry of the url
      *
+     * @param  {String} simplepushUrl a registered Simple Push URL
      * @param  {string} nickname the nickname of the future caller
      * @param  {Function} cb Callback(err, callUrlData)
      */
-    _requestCallUrlInternal: function(nickname, cb) {
+    requestCallUrl: function(nickname, cb) {
       var sessionType;
       if (this.mozLoop.userProfile) {
         sessionType = this.mozLoop.LOOP_SESSION_TYPE.FXA;
@@ -145,23 +135,14 @@ loop.Client = (function($) {
      * Block call URL based on the token identifier
      *
      * @param {string} token Conversation identifier used to block the URL
+     * @param {mozLoop.LOOP_SESSION_TYPE} sessionType The type of session which
+     *                                                the url belongs to.
      * @param {function} cb Callback function used for handling an error
      *                      response. XXX The incoming call panel does not
      *                      exist after the block button is clicked therefore
      *                      it does not make sense to display an error.
      **/
-    deleteCallUrl: function(token, cb) {
-      this._ensureRegistered(function(err) {
-        if (err) {
-          cb(err);
-          return;
-        }
-
-        this._deleteCallUrlInternal(token, cb);
-      }.bind(this));
-    },
-
-    _deleteCallUrlInternal: function(token, cb) {
+    deleteCallUrl: function(token, sessionType, cb) {
       function deleteRequestCallback(error, responseText) {
         if (error) {
           this._failureHandler(cb, error);
@@ -176,37 +157,51 @@ loop.Client = (function($) {
         }
       }
 
-      // XXX hard-coding of GUEST to be removed by 1065155
-      this.mozLoop.hawkRequest(this.mozLoop.LOOP_SESSION_TYPE.GUEST,
+      this.mozLoop.hawkRequest(sessionType,
                                "/call-url/" + token, "DELETE", null,
                                deleteRequestCallback.bind(this));
     },
 
     /**
-     * Requests a call URL from the Loop server. It will note the
-     * expiry time for the url with the mozLoop api.  It will select the
-     * appropriate hawk session to use based on whether or not the user
-     * is currently logged into a Firefox account profile.
+     * Sets up an outgoing call, getting the relevant data from the server.
      *
      * Callback parameters:
      * - err null on successful registration, non-null otherwise.
-     * - callUrlData an object of the obtained call url data if successful:
-     * -- callUrl: The url of the call
-     * -- expiresAt: The amount of hours until expiry of the url
+     * - result an object of the obtained data for starting the call, if successful
      *
-     * @param  {String} simplepushUrl a registered Simple Push URL
-     * @param  {string} nickname the nickname of the future caller
-     * @param  {Function} cb Callback(err, callUrlData)
+     * @param {Array} calleeIds an array of emails and phone numbers.
+     * @param {String} callType the type of call.
+     * @param {Function} cb Callback(err, result)
      */
-    requestCallUrl: function(nickname, cb) {
-      this._ensureRegistered(function(err) {
-        if (err) {
-          cb(err);
-          return;
-        }
+    setupOutgoingCall: function(calleeIds, callType, cb) {
+      // For direct calls, we only ever use the logged-in session. Direct
+      // calls by guests aren't valid.
+      this.mozLoop.hawkRequest(this.mozLoop.LOOP_SESSION_TYPE.FXA,
+        "/calls", "POST", {
+          calleeId: calleeIds,
+          callType: callType,
+          channel: this.mozLoop.appVersionInfo ?
+                   this.mozLoop.appVersionInfo.channel : "unknown"
+        },
+        function (err, responseText) {
+          if (err) {
+            this._failureHandler(cb, err);
+            return;
+          }
 
-        this._requestCallUrlInternal(nickname, cb);
-      }.bind(this));
+          try {
+            var postData = JSON.parse(responseText);
+
+            var outgoingCallData = this._validate(postData,
+              expectedPostCallProperties);
+
+            cb(null, outgoingCallData);
+          } catch (err) {
+            console.log("Error requesting call info", err);
+            cb(err);
+          }
+        }.bind(this)
+      );
     },
 
     /**

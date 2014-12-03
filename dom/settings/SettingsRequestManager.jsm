@@ -10,7 +10,7 @@ const Cc = Components.classes;
 const Ci = Components.interfaces;
 const Cu = Components.utils;
 
-this.EXPORTED_SYMBOLS = ["SettingsRequestManager"];
+this.EXPORTED_SYMBOLS = [];
 
 Cu.import("resource://gre/modules/SettingsDB.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
@@ -18,6 +18,7 @@ Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/PermissionsTable.jsm");
 
 const kXpcomShutdownObserverTopic      = "xpcom-shutdown";
+const kInnerWindowDestroyed            = "inner-window-destroyed";
 const kMozSettingsChangedObserverTopic = "mozsettings-changed";
 const kSettingsReadSuffix              = "-read";
 const kSettingsWriteSuffix             = "-write";
@@ -71,12 +72,14 @@ let SettingsPermissions = {
 };
 
 
-function SettingsLockInfo(aDB, aMsgMgr, aLockID, aIsServiceLock) {
+function SettingsLockInfo(aDB, aMsgMgr, aLockID, aIsServiceLock, aWindowID) {
   return {
     // ID Shared with the object on the child side
     lockID: aLockID,
     // Is this a content lock or a settings service lock?
     isServiceLock: aIsServiceLock,
+    // Which inner window ID
+    windowID: aWindowID,
     // Tasks to be run once the lock is at the head of the queue
     tasks: [],
     // This is set to true once a transaction is ready to run, but is not at the
@@ -171,6 +174,7 @@ let SettingsRequestManager = {
       ppmm.addMessageListener(msgName, this);
     }).bind(this));
     Services.obs.addObserver(this, kXpcomShutdownObserverTopic, false);
+    Services.obs.addObserver(this, kInnerWindowDestroyed, false);
   },
 
   _serializePreservingBinaries: function _serializePreservingBinaries(aObject) {
@@ -392,6 +396,28 @@ let SettingsRequestManager = {
     }
 
     return this.queueTaskReturn(aTask, {task: aTask});
+  },
+
+  startRunning: function(aLockID) {
+    let lock = this.lockInfo[aLockID];
+
+    if (!lock) {
+      if (DEBUG) debug("Lock no longer alive, cannot start running");
+      return;
+    }
+
+    lock.consumable = true;
+    if (aLockID == this.settingsLockQueue[0] || this.settingsLockQueue.length == 0) {
+      // If a lock is currently at the head of the queue, run all tasks for
+      // it.
+      if (DEBUG) debug("Start running tasks for " + aLockID);
+      this.queueConsume();
+    } else {
+      // If a lock isn't at the head of the queue, but requests to be run,
+      // simply mark it as consumable, which means it will automatically run
+      // once it comes to the head of the queue.
+      if (DEBUG) debug("Queuing tasks for " + aLockID + " while waiting for " + this.settingsLockQueue[0]);
+    }
   },
 
   queueConsume: function() {
@@ -648,7 +674,7 @@ let SettingsRequestManager = {
   },
 
   observe: function(aSubject, aTopic, aData) {
-    if (DEBUG) debug("observe");
+    if (DEBUG) debug("observe: " + aTopic);
     switch (aTopic) {
       case kXpcomShutdownObserverTopic:
         this.messages.forEach((function(msgName) {
@@ -657,6 +683,12 @@ let SettingsRequestManager = {
         Services.obs.removeObserver(this, kXpcomShutdownObserverTopic);
         ppmm = null;
         break;
+
+      case kInnerWindowDestroyed:
+        let wId = aSubject.QueryInterface(Ci.nsISupportsPRUint64).data;
+        this.forceFinalizeChildLocksNonOOP(wId);
+        break;
+
       default:
         if (DEBUG) debug("Wrong observer topic: " + aTopic);
         break;
@@ -683,7 +715,11 @@ let SettingsRequestManager = {
         if (DEBUG) debug("Cannot find principal for message manager to check permissions");
       }
       else if (SettingsPermissions.hasReadPermission(principal, aContent.key)) {
-        msgMgr.sendAsyncMessage(aMsgName, aContent);
+        try {
+          msgMgr.sendAsyncMessage(aMsgName, aContent);
+        } catch (e) {
+          if (DEBUG) debug("Failed sending message: " + aMsgName);
+        }
       }
     }.bind(this));
     if (DEBUG) debug("Finished Broadcasting");
@@ -700,7 +736,9 @@ let SettingsRequestManager = {
   removeObserver: function(aMsgMgr) {
     if (DEBUG) {
       let principal = this.mmPrincipals.get(aMsgMgr);
-      debug("Remove observer for " + principal.origin);
+      if (principal) {
+        debug("Remove observer for " + principal.origin);
+      }
     }
     let index = this.children.indexOf(aMsgMgr);
     if (index != -1) {
@@ -739,24 +777,60 @@ let SettingsRequestManager = {
     }
   },
 
-  removeMessageManager: function(aMsgMgr){
-    if (DEBUG) debug("Removing message manager");
-    this.removeObserver(aMsgMgr);
-    let closedLockIDs = [];
-    let lockIDs = Object.keys(this.lockInfo);
-    for (let i in lockIDs) {
-      if (this.lockInfo[lockIDs[i]]._mm == aMsgMgr) {
-      	if (DEBUG) debug("Removing lock " + lockIDs[i] + " due to process close/crash");
-        closedLockIDs.push(lockIDs[i]);
+  hasLockFinalizeTask: function(lock) {
+    // Go in reverse order because finalize should be the last one
+    for (let task_index = lock.tasks.length; task_index >= 0; task_index--) {
+      if (lock.tasks[task_index]
+          && lock.tasks[task_index].operation === "finalize") {
+        return true;
       }
     }
-    for (let i in closedLockIDs) {
-      this.removeLock(closedLockIDs[i]);
+    return false;
+  },
+
+  enqueueForceFinalize: function(lock, principal) {
+    if (!this.hasLockFinalizeTask(lock)) {
+      if (DEBUG) debug("Alive lock has pending tasks: " + lock.lockID);
+      this.queueTask("finalize", {lockID: lock.lockID}, principal).then(
+        function() {
+          if (DEBUG) debug("Alive lock " + lock.lockID + " succeeded to force-finalize");
+        },
+        function(error) {
+          if (DEBUG) debug("Alive lock " + lock.lockID + " failed to force-finalize due to error: " + error);
+        }
+      );
+      // Finalize is considered a task running situation, but it also needs to
+      // queue a task.
+      this.startRunning(lock.lockID);
+    }
+  },
+
+  forceFinalizeChildLocksNonOOP: function(windowId) {
+    if (DEBUG) debug("Forcing finalize on child locks, non OOP");
+
+    for (let lockId of Object.keys(this.lockInfo)) {
+      let lock = this.lockInfo[lockId];
+      if (lock.windowID === windowId) {
+        let principal = this.mmPrincipals.get(lock._mm);
+        this.enqueueForceFinalize(lock, principal);
+      }
+    }
+  },
+
+  forceFinalizeChildLocksOOP: function(aMsgMgr) {
+    if (DEBUG) debug("Forcing finalize on child locks, OOP");
+
+    for (let lockId of Object.keys(this.lockInfo)) {
+      let lock = this.lockInfo[lockId];
+      if (lock._mm === aMsgMgr) {
+        let principal = this.mmPrincipals.get(lock._mm);
+        this.enqueueForceFinalize(lock, principal);
+      }
     }
   },
 
   receiveMessage: function(aMessage) {
-    if (DEBUG) debug("receiveMessage " + aMessage.name);
+    if (DEBUG) debug("receiveMessage " + aMessage.name + ": " + JSON.stringify(aMessage.data));
 
     let msg = aMessage.data;
     let mm = aMessage.target;
@@ -808,7 +882,8 @@ let SettingsRequestManager = {
     switch (aMessage.name) {
       case "child-process-shutdown":
         if (DEBUG) debug("Child process shutdown received.");
-        this.removeMessageManager(mm);
+        this.forceFinalizeChildLocksOOP(mm);
+        this.removeObserver(mm);
         break;
       case "Settings:RegisterForMessages":
         if (!SettingsPermissions.hasSomeReadPermission(aMessage.principal)) {
@@ -823,7 +898,7 @@ let SettingsRequestManager = {
         this.removeObserver(mm);
         break;
       case "Settings:CreateLock":
-        if (DEBUG) debug("Received CreateLock for " + msg.lockID + " from " + aMessage.principal.origin);
+        if (DEBUG) debug("Received CreateLock for " + msg.lockID + " from " + aMessage.principal.origin + " window: " + msg.windowID);
         // If we try to create a lock ID that collides with one
         // already in the system, consider it a security violation and
         // kill.
@@ -833,7 +908,11 @@ let SettingsRequestManager = {
           return;
         }
         this.settingsLockQueue.push(msg.lockID);
-        this.lockInfo[msg.lockID] = SettingsLockInfo(this.settingsDB, mm, msg.lockID, msg.isServiceLock);
+        this.lockInfo[msg.lockID] = SettingsLockInfo(this.settingsDB,
+                                                     mm,
+                                                     msg.lockID,
+                                                     msg.isServiceLock,
+                                                     msg.windowID);
         break;
       case "Settings:Get":
         if (DEBUG) debug("Received getRequest from " + msg.lockID);
@@ -898,18 +977,7 @@ let SettingsRequestManager = {
       // running situation, but it also needs to queue a task.
       case "Settings:Run":
         if (DEBUG) debug("Received Run");
-        this.lockInfo[msg.lockID].consumable = true;
-        if (msg.lockID == this.settingsLockQueue[0] || this.settingsLockQueue.length == 0) {
-          // If a lock is currently at the head of the queue, run all tasks for
-          // it.
-          if (DEBUG) debug("Running tasks for " + msg.lockID);
-          this.queueConsume();
-        } else {
-          // If a lock isn't at the head of the queue, but requests to be run,
-          // simply mark it as consumable, which means it will automatically run
-          // once it comes to the head of the queue.
-          if (DEBUG) debug("Queuing tasks for " + msg.lockID + " while waiting for " + this.settingsLockQueue[0]);
-        }
+        this.startRunning(msg.lockID);
         break;
       default:
         if (DEBUG) debug("Wrong message: " + aMessage.name);

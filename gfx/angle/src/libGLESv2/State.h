@@ -24,6 +24,7 @@ namespace gl
 class Query;
 class VertexArray;
 class Context;
+struct Caps;
 
 class State
 {
@@ -31,7 +32,8 @@ class State
     State();
     ~State();
 
-    void setContext(Context *context) { mContext = context; }
+    void initialize(const Caps& caps, GLuint clientVersion);
+    void reset();
 
     // State chunk getters
     const RasterizerState &getRasterizerState() const;
@@ -126,9 +128,9 @@ class State
     // Texture binding & active texture unit manipulation
     void setActiveSampler(unsigned int active);
     unsigned int getActiveSampler() const;
-    void setSamplerTexture(TextureType type, Texture *texture);
-    Texture *getSamplerTexture(unsigned int sampler, TextureType type) const;
-    GLuint getSamplerTextureId(unsigned int sampler, TextureType type) const;
+    void setSamplerTexture(GLenum type, Texture *texture);
+    Texture *getSamplerTexture(unsigned int sampler, GLenum type) const;
+    GLuint getSamplerTextureId(unsigned int sampler, GLenum type) const;
     void detachTexture(GLuint texture);
 
     // Sampler object binding manipulation
@@ -195,6 +197,7 @@ class State
     GLuint getIndexedTransformFeedbackBufferId(GLuint index) const;
     Buffer *getIndexedTransformFeedbackBuffer(GLuint index) const;
     GLuint getIndexedTransformFeedbackBufferOffset(GLuint index) const;
+    size_t getTransformFeedbackBufferIndexRange() const;
 
     // GL_COPY_[READ/WRITE]_BUFFER
     void setCopyReadBufferBinding(Buffer *buffer);
@@ -216,7 +219,6 @@ class State
                               bool normalized, bool pureInteger, GLsizei stride, const void *pointer);
     const VertexAttribute &getVertexAttribState(unsigned int attribNum) const;
     const VertexAttribCurrentValueData &getVertexAttribCurrentValue(unsigned int attribNum) const;
-    const VertexAttribCurrentValueData *getVertexAttribCurrentValues() const;
     const void *getVertexAttribPointer(unsigned int attribNum) const;
 
     // Pixel pack state manipulation
@@ -243,7 +245,9 @@ class State
   private:
     DISALLOW_COPY_AND_ASSIGN(State);
 
-    Context *mContext;
+    // Cached values from Context's caps
+    GLuint mMaxDrawBuffers;
+    GLuint mMaxCombinedTextureImageUnits;
 
     ColorF mColorClearValue;
     GLclampf mDepthClearValue;
@@ -272,7 +276,6 @@ class State
     float mNearZ;
     float mFarZ;
 
-    unsigned int mActiveSampler;   // Active texture unit selector - GL_TEXTURE0
     BindingPointer<Buffer> mArrayBuffer;
     Framebuffer *mReadFramebuffer;
     Framebuffer *mDrawFramebuffer;
@@ -280,21 +283,30 @@ class State
     GLuint mCurrentProgramId;
     BindingPointer<ProgramBinary> mCurrentProgramBinary;
 
-    VertexAttribCurrentValueData mVertexAttribCurrentValues[MAX_VERTEX_ATTRIBS]; // From glVertexAttrib
+    typedef std::vector<VertexAttribCurrentValueData> VertexAttribVector;
+    VertexAttribVector mVertexAttribCurrentValues; // From glVertexAttrib
     VertexArray *mVertexArray;
 
-    BindingPointer<Texture> mSamplerTexture[TEXTURE_TYPE_COUNT][IMPLEMENTATION_MAX_COMBINED_TEXTURE_IMAGE_UNITS];
-    BindingPointer<Sampler> mSamplers[IMPLEMENTATION_MAX_COMBINED_TEXTURE_IMAGE_UNITS];
+    // Texture and sampler bindings
+    size_t mActiveSampler;   // Active texture unit selector - GL_TEXTURE0
+
+    typedef std::vector< BindingPointer<Texture> > TextureBindingVector;
+    typedef std::map<GLenum, TextureBindingVector> TextureBindingMap;
+    TextureBindingMap mSamplerTextures;
+
+    typedef std::vector< BindingPointer<Sampler> > SamplerBindingVector;
+    SamplerBindingVector mSamplers;
 
     typedef std::map< GLenum, BindingPointer<Query> > ActiveQueryMap;
     ActiveQueryMap mActiveQueries;
 
     BindingPointer<Buffer> mGenericUniformBuffer;
-    OffsetBindingPointer<Buffer> mUniformBuffers[IMPLEMENTATION_MAX_COMBINED_SHADER_UNIFORM_BUFFERS];
+    typedef std::vector< OffsetBindingPointer<Buffer> > BufferVector;
+    BufferVector mUniformBuffers;
 
     BindingPointer<TransformFeedback> mTransformFeedback;
     BindingPointer<Buffer> mGenericTransformFeedbackBuffer;
-    OffsetBindingPointer<Buffer> mTransformFeedbackBuffers[IMPLEMENTATION_MAX_TRANSFORM_FEEDBACK_BUFFERS];
+    BufferVector mTransformFeedbackBuffers;
 
     BindingPointer<Buffer> mCopyReadBuffer;
     BindingPointer<Buffer> mCopyWriteBuffer;

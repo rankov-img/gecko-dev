@@ -60,7 +60,7 @@ public:
                          nsTArray<nsString>& aListOfFonts);
     nsresult UpdateFontList();
 
-    virtual void GetCommonFallbackFonts(const uint32_t aCh,
+    virtual void GetCommonFallbackFonts(uint32_t aCh, uint32_t aNextCh,
                                         int32_t aRunScript,
                                         nsTArray<const char*>& aFontList);
 
@@ -71,6 +71,8 @@ public:
     bool UseAcceleratedCanvas();
 
     virtual bool UseTiling() MOZ_OVERRIDE;
+    virtual bool UseProgressivePaint() MOZ_OVERRIDE;
+    virtual void InitHardwareVsync() MOZ_OVERRIDE;
 
     // lower threshold on font anti-aliasing
     uint32_t GetAntiAliasingThreshold() { return mFontAntiAliasingThreshold; }

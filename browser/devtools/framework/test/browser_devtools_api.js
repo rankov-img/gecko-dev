@@ -1,6 +1,16 @@
 /* Any copyright is dedicated to the Public Domain.
  * http://creativecommons.org/publicdomain/zero/1.0/ */
 
+///////////////////
+//
+// Whitelisting this test.
+// As part of bug 1077403, the leaking uncaught rejections should be fixed.
+//
+thisTestLeaksUncaughtRejectionsAndShouldBeFixed("TypeError: this.docShell is null");
+
+// When running in a standalone directory, we get this error
+thisTestLeaksUncaughtRejectionsAndShouldBeFixed("TypeError: this.doc is undefined");
+
 // Tests devtools API
 
 const Cu = Components.utils;
@@ -69,7 +79,10 @@ function runTests1(aTab) {
 
     gDevTools.unregisterTool(toolId1);
 
-    runTests2();
+    // Wait for unregisterTool to select the next tool before calling runTests2,
+    // otherwise we will receive the wrong select event when waiting for
+    // unregisterTool to select the next tool in continueTests below.
+    toolbox.once("select", runTests2);
   });
 }
 

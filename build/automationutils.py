@@ -13,19 +13,13 @@ import signal
 import subprocess
 import sys
 import tempfile
-from urlparse import urlparse
 import zipfile
 import mozinfo
 
 __all__ = [
   "ZipFileReader",
-  "addCommonOptions",
   "dumpLeakLog",
-  "isURL",
   "processLeakLog",
-  "replaceBackSlashes",
-  'KeyValueParseError',
-  'parseKeyValue',
   'systemMemory',
   'environment',
   'dumpScreen',
@@ -108,11 +102,6 @@ class ZipFileReader(object):
     for name in self._zipfile.namelist():
       self._extractname(name, path)
 
-def isURL(thing):
-  """Return True if |thing| looks like a URL."""
-  # We want to download URLs like http://... but not Windows paths like c:\...
-  return len(urlparse(thing).scheme) >= 2
-
 # Python does not provide strsignal() even in the very latest 3.x.
 # This is a reasonable fake.
 def strsig(n):
@@ -150,30 +139,6 @@ def printstatus(status, name = ""):
     # This is probably a can't-happen condition on Unix, but let's be defensive
     print "TEST-INFO | %s: undecodable exit status %04x\n" % (name, status)
 
-def addCommonOptions(parser, defaults={}):
-  parser.add_option("--xre-path",
-                    action = "store", type = "string", dest = "xrePath",
-                    # individual scripts will set a sane default
-                    default = None,
-                    help = "absolute path to directory containing XRE (probably xulrunner)")
-  if 'SYMBOLS_PATH' not in defaults:
-    defaults['SYMBOLS_PATH'] = None
-  parser.add_option("--symbols-path",
-                    action = "store", type = "string", dest = "symbolsPath",
-                    default = defaults['SYMBOLS_PATH'],
-                    help = "absolute path to directory containing breakpad symbols, or the URL of a zip file containing symbols")
-  parser.add_option("--debugger",
-                    action = "store", dest = "debugger",
-                    help = "use the given debugger to launch the application")
-  parser.add_option("--debugger-args",
-                    action = "store", dest = "debuggerArgs",
-                    help = "pass the given args to the debugger _before_ "
-                           "the application on the command line")
-  parser.add_option("--debugger-interactive",
-                    action = "store_true", dest = "debuggerInteractive",
-                    help = "prevents the test harness from redirecting "
-                        "stdout and stderr for interactive debuggers")
-
 def dumpLeakLog(leakLogFile, filter = False):
   """Process the leak log, without parsing it.
 
@@ -196,7 +161,7 @@ def dumpLeakLog(leakLogFile, filter = False):
   # Simply copy the log.
   log.info(leakReport.rstrip("\n"))
 
-def processSingleLeakFile(leakLogFileName, processType, leakThreshold):
+def processSingleLeakFile(leakLogFileName, processType, leakThreshold, ignoreMissingLeaks):
   """Process a single leak log.
   """
 
@@ -207,7 +172,7 @@ def processSingleLeakFile(leakLogFileName, processType, leakThreshold):
                       r"(?P<size>-?\d+)\s+(?P<bytesLeaked>-?\d+)\s+"
                       r"-?\d+\s+(?P<numLeaked>-?\d+)")
 
-  processString = " %s process:" % processType
+  processString = "%s process:" % processType
   crashedOnPurpose = False
   totalBytesLeaked = None
   logAsWarning = False
@@ -238,7 +203,7 @@ def processSingleLeakFile(leakLogFileName, processType, leakThreshold):
         # log, particularly on B2G. Eventually, these should be split into multiple
         # logs (bug 1068869), but for now, we report the largest leak.
         if totalBytesLeaked != None:
-          leakAnalysis.append("WARNING | leakcheck |%s multiple BloatView byte totals found"
+          leakAnalysis.append("WARNING | leakcheck | %s multiple BloatView byte totals found"
                               % processString)
         else:
           totalBytesLeaked = 0
@@ -251,13 +216,13 @@ def processSingleLeakFile(leakLogFileName, processType, leakThreshold):
         else:
           recordLeakedObjects = False
       if size < 0 or bytesLeaked < 0 or numLeaked < 0:
-        leakAnalysis.append("TEST-UNEXPECTED-FAIL | leakcheck |%s negative leaks caught!"
+        leakAnalysis.append("TEST-UNEXPECTED-FAIL | leakcheck | %s negative leaks caught!"
                             % processString)
         logAsWarning = True
         continue
       if name != "TOTAL" and numLeaked != 0 and recordLeakedObjects:
         leakedObjectNames.append(name)
-        leakedObjectAnalysis.append("TEST-INFO | leakcheck |%s leaked %d %s (%s bytes)"
+        leakedObjectAnalysis.append("TEST-INFO | leakcheck | %s leaked %d %s (%s bytes)"
                                     % (processString, numLeaked, name, bytesLeaked))
 
   leakAnalysis.extend(leakedObjectAnalysis)
@@ -271,29 +236,27 @@ def processSingleLeakFile(leakLogFileName, processType, leakThreshold):
   if totalBytesLeaked is None:
     # We didn't see a line with name 'TOTAL'
     if crashedOnPurpose:
-      log.info("TEST-INFO | leakcheck |%s deliberate crash and thus no leak log"
+      log.info("TEST-INFO | leakcheck | %s deliberate crash and thus no leak log"
+               % processString)
+    elif ignoreMissingLeaks:
+      log.info("TEST-INFO | leakcheck | %s ignoring missing output line for total leaks"
                % processString)
     else:
-      # TODO: This should be a TEST-UNEXPECTED-FAIL, but was changed to a warning
-      # due to too many intermittent failures (see bug 831223).
-      log.info("WARNING | leakcheck |%s missing output line for total leaks!"
+      log.info("TEST-UNEXPECTED-FAIL | leakcheck | %s missing output line for total leaks!"
                % processString)
+      log.info("TEST-INFO | leakcheck | missing output line from log file %s"
+               % leakLogFileName)
     return
 
   if totalBytesLeaked == 0:
-    log.info("TEST-PASS | leakcheck |%s no leaks detected!" % processString)
+    log.info("TEST-PASS | leakcheck | %s no leaks detected!" % processString)
     return
 
   # totalBytesLeaked was seen and is non-zero.
   if totalBytesLeaked > leakThreshold:
-    if processType == "tab":
-      # For now, ignore tab process leaks. See bug 1051230.
-      log.info("WARNING | leakcheck | ignoring leaks in tab process")
-      prefix = "WARNING"
-    else:
-      logAsWarning = True
-      # Fail the run if we're over the threshold (which defaults to 0)
-      prefix = "TEST-UNEXPECTED-FAIL"
+    logAsWarning = True
+    # Fail the run if we're over the threshold (which defaults to 0)
+    prefix = "TEST-UNEXPECTED-FAIL"
   else:
     prefix = "WARNING"
   # Create a comma delimited string of the first N leaked objects found,
@@ -305,13 +268,13 @@ def processSingleLeakFile(leakLogFileName, processType, leakThreshold):
     leakedObjectSummary += ', ...'
 
   if logAsWarning:
-    log.warning("%s | leakcheck |%s %d bytes leaked (%s)"
+    log.warning("%s | leakcheck | %s %d bytes leaked (%s)"
                 % (prefix, processString, totalBytesLeaked, leakedObjectSummary))
   else:
-    log.info("%s | leakcheck |%s %d bytes leaked (%s)"
+    log.info("%s | leakcheck | %s %d bytes leaked (%s)"
              % (prefix, processString, totalBytesLeaked, leakedObjectSummary))
 
-def processLeakLog(leakLogFile, leakThreshold = 0):
+def processLeakLog(leakLogFile, options):
   """Process the leak log, including separate leak logs created
   by child processes.
 
@@ -326,14 +289,38 @@ def processLeakLog(leakLogFile, leakThreshold = 0):
   optional.
 
   All other file names are treated as being for default processes.
+
+  The options argument is checked for two optional attributes,
+  leakThresholds and ignoreMissingLeaks.
+
+  leakThresholds should be a dict mapping process types to leak thresholds,
+  in bytes. If a process type is not present in the dict the threshold
+  will be 0.
+
+  ignoreMissingLeaks should be a list of process types. If a process
+  creates a leak log without a TOTAL, then we report an error if it isn't
+  in the list ignoreMissingLeaks.
   """
 
   if not os.path.exists(leakLogFile):
     log.info("WARNING | leakcheck | refcount logging is off, so leaks can't be detected!")
     return
 
-  if leakThreshold != 0:
-    log.info("TEST-INFO | leakcheck | threshold set at %d bytes" % leakThreshold)
+  leakThresholds = getattr(options, 'leakThresholds', {})
+  ignoreMissingLeaks = getattr(options, 'ignoreMissingLeaks', [])
+
+  # This list is based on kGeckoProcessTypeString. ipdlunittest processes likely
+  # are not going to produce leak logs we will ever see.
+  knownProcessTypes = ["default", "plugin", "tab", "geckomediaplugin"]
+
+  for processType in knownProcessTypes:
+    log.info("TEST-INFO | leakcheck | %s process: leak threshold set at %d bytes"
+             % (processType, leakThresholds.get(processType, 0)))
+
+  for processType in leakThresholds:
+    if not processType in knownProcessTypes:
+      log.info("TEST-UNEXPECTED-FAIL | leakcheck | Unknown process type %s in leakThresholds"
+               % processType)
 
   (leakLogFileDir, leakFileBase) = os.path.split(leakLogFile)
   if leakFileBase[-4:] == ".log":
@@ -350,31 +337,12 @@ def processLeakLog(leakLogFile, leakThreshold = 0):
         processType = m.group(1)
       else:
         processType = "default"
-      processSingleLeakFile(thisFile, processType, leakThreshold)
-
-def replaceBackSlashes(input):
-  return input.replace('\\', '/')
-
-class KeyValueParseError(Exception):
-  """error when parsing strings of serialized key-values"""
-  def __init__(self, msg, errors=()):
-    self.errors = errors
-    Exception.__init__(self, msg)
-
-def parseKeyValue(strings, separator='=', context='key, value: '):
-  """
-  parse string-serialized key-value pairs in the form of
-  `key = value`. Returns a list of 2-tuples.
-  Note that whitespace is not stripped.
-  """
-
-  # syntax check
-  missing = [string for string in strings if separator not in string]
-  if missing:
-    raise KeyValueParseError("Error: syntax error in %s" % (context,
-                                                            ','.join(missing)),
-                                                            errors=missing)
-  return [string.split(separator, 1) for string in strings]
+      if not processType in knownProcessTypes:
+        log.info("TEST-UNEXPECTED-FAIL | leakcheck | Leak log with unknown process type %s"
+                 % processType)
+      leakThreshold = leakThresholds.get(processType, 0)
+      processSingleLeakFile(thisFile, processType, leakThreshold,
+                            processType in ignoreMissingLeaks)
 
 def systemMemory():
   """
@@ -390,7 +358,10 @@ def environment(xrePath, env=None, crashreporter=True, debugger=False, dmdPath=N
 
   assert os.path.isabs(xrePath)
 
-  ldLibraryPath = xrePath
+  if mozinfo.isMac:
+    ldLibraryPath = os.path.join(os.path.dirname(xrePath), "MacOS")
+  else:
+    ldLibraryPath = xrePath
 
   envVar = None
   dmdLibrary = None

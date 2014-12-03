@@ -30,6 +30,10 @@ class TestHandler(object):
     def last_item(self):
         return self.items[-1]
 
+    @property
+    def empty(self):
+        return not self.items
+
 
 class BaseStructuredTest(unittest.TestCase):
     def setUp(self):
@@ -70,7 +74,12 @@ class TestStatusHandler(BaseStructuredTest):
         self.logger.test_end("test1", status='OK')
         self.logger.suite_end()
         summary = self.handler.summarize()
-        self.assertEqual(1, summary.unexpected)
+        self.assertIn('TIMEOUT', summary.unexpected_statuses)
+        self.assertEqual(1, summary.unexpected_statuses['TIMEOUT'])
+        self.assertIn('PASS', summary.expected_statuses)
+        self.assertEqual(1, summary.expected_statuses['PASS'])
+        self.assertIn('OK', summary.expected_statuses)
+        self.assertEqual(1, summary.expected_statuses['OK'])
         self.assertEqual(2, summary.action_counts['test_status'])
         self.assertEqual(1, summary.action_counts['test_end'])
 
@@ -78,13 +87,15 @@ class TestStatusHandler(BaseStructuredTest):
         self.logger.suite_start([])
         self.logger.test_start("test1")
         self.logger.error("ERRR!")
-        self.logger.test_end("test1", status='PASS')
+        self.logger.test_end("test1", status='OK')
         self.logger.test_start("test2")
-        self.logger.test_end("test2", status='PASS')
+        self.logger.test_end("test2", status='OK')
         self.logger.suite_end()
         summary = self.handler.summarize()
         self.assertIn('ERROR', summary.log_level_counts)
         self.assertEqual(1, summary.log_level_counts['ERROR'])
+        self.assertIn('OK', summary.expected_statuses)
+        self.assertEqual(2, summary.expected_statuses['OK'])
 
 
 class TestStructuredLog(BaseStructuredTest):
@@ -358,7 +369,7 @@ class TestStructuredLog(BaseStructuredTest):
                                 "message": "line 4"})
 
 
-class TestTypeconversions(BaseStructuredTest):
+class TestTypeConversions(BaseStructuredTest):
     def test_raw(self):
         self.logger.log_raw({"action":"suite_start", "tests":[1], "time": "1234"})
         self.assert_log_equals({"action": "suite_start",
@@ -425,6 +436,82 @@ class TestTypeconversions(BaseStructuredTest):
                           "PASS", "FAIL", "message", "stack", {}, "unexpected")
         self.assertRaises(TypeError, self.logger.test_status, "test1", test="test2")
         self.logger.suite_end()
+
+
+class TestComponentFilter(BaseStructuredTest):
+    def test_filter_component(self):
+        component_logger = structuredlog.StructuredLogger(self.logger.name,
+                                                          "test_component")
+        component_logger.component_filter = handlers.LogLevelFilter(lambda x:x, "info")
+
+        self.logger.debug("Test")
+        self.assertFalse(self.handler.empty)
+        self.assert_log_equals({"action": "log",
+                                "level": "DEBUG",
+                                "message": "Test"})
+        self.assertTrue(self.handler.empty)
+
+        component_logger.info("Test 1")
+        self.assertFalse(self.handler.empty)
+        self.assert_log_equals({"action": "log",
+                                "level": "INFO",
+                                "message": "Test 1",
+                                "component": "test_component"})
+
+        component_logger.debug("Test 2")
+        self.assertTrue(self.handler.empty)
+
+        component_logger.component_filter = None
+
+        component_logger.debug("Test 3")
+        self.assertFalse(self.handler.empty)
+        self.assert_log_equals({"action": "log",
+                                "level": "DEBUG",
+                                "message": "Test 3",
+                                "component": "test_component"})
+
+    def test_filter_default_component(self):
+        component_logger = structuredlog.StructuredLogger(self.logger.name,
+                                                          "test_component")
+
+        self.logger.debug("Test")
+        self.assertFalse(self.handler.empty)
+        self.assert_log_equals({"action": "log",
+                                "level": "DEBUG",
+                                "message": "Test"})
+
+        self.logger.component_filter = handlers.LogLevelFilter(lambda x:x, "info")
+
+        self.logger.debug("Test 1")
+        self.assertTrue(self.handler.empty)
+
+        component_logger.debug("Test 2")
+        self.assertFalse(self.handler.empty)
+        self.assert_log_equals({"action": "log",
+                                "level": "DEBUG",
+                                "message": "Test 2",
+                                "component": "test_component"})
+
+        self.logger.component_filter = None
+
+        self.logger.debug("Test 3")
+        self.assertFalse(self.handler.empty)
+        self.assert_log_equals({"action": "log",
+                                "level": "DEBUG",
+                                "message": "Test 3"})
+
+    def test_filter_message_mutuate(self):
+        def filter_mutate(msg):
+            if msg["action"] == "log":
+                msg["message"] = "FILTERED! %s" % msg["message"]
+            return msg
+
+        self.logger.component_filter = filter_mutate
+        self.logger.debug("Test")
+        self.assert_log_equals({"action": "log",
+                                "level": "DEBUG",
+                                "message": "FILTERED! Test"})
+        self.logger.component_filter = None
 
 
 class FormatterTest(unittest.TestCase):
@@ -582,7 +669,7 @@ class TestCommandline(unittest.TestCase):
         parser = argparse.ArgumentParser()
         commandline.add_logging_group(parser)
         args = parser.parse_args(["--log-raw=-"])
-        logger = commandline.setup_logging("test", args, {})
+        logger = commandline.setup_logging("test_setup_logging", args, {})
         self.assertEqual(len(logger.handlers), 1)
 
     def test_setup_logging_optparse(self):

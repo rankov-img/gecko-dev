@@ -539,6 +539,11 @@ GetLowIntegrityTemp(nsIFile** aLowIntegrityTemp)
     return rv;
   }
 
+  rv = localFile->Create(nsIFile::DIRECTORY_TYPE, 0700);
+  if (NS_WARN_IF(NS_FAILED(rv))) {
+    return rv;
+  }
+
   localFile.forget(aLowIntegrityTemp);
   return rv;
 }
@@ -570,7 +575,8 @@ nsDirectoryService::GetFile(const char* aProp, bool* aPersistent,
 
   // Unless otherwise set, the core pieces of the GRE exist
   // in the current process directory.
-  else if (inAtom == nsDirectoryService::sGRE_Directory) {
+  else if (inAtom == nsDirectoryService::sGRE_Directory ||
+           inAtom == nsDirectoryService::sGRE_BinDirectory) {
     rv = GetCurrentProcessDirectory(getter_AddRefs(localFile));
   } else if (inAtom == nsDirectoryService::sOS_DriveDirectory) {
     rv = GetSpecialSystemDirectory(OS_DriveDirectory, getter_AddRefs(localFile));

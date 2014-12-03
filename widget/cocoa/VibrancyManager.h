@@ -15,6 +15,7 @@
 
 #import <Foundation/NSGeometry.h>
 
+@class NSColor;
 @class NSView;
 class nsChildView;
 class nsIntRegion;
@@ -23,7 +24,8 @@ namespace mozilla {
 
 MOZ_BEGIN_ENUM_CLASS(VibrancyType)
   LIGHT,
-  DARK
+  DARK,
+  TOOLTIP
 MOZ_END_ENUM_CLASS(VibrancyType)
 
 /**
@@ -74,6 +76,20 @@ public:
    * NSGraphicsContext is already correctly set to the window drawing context.
    */
   void ClearVibrantAreas() const;
+
+  /**
+   * Return the fill color that should be drawn on top of the cleared window
+   * parts. Usually this would be drawn by -[NSVisualEffectView drawRect:].
+   * The returned color is opaque if the system-wide "Reduce transparency"
+   * preference is set.
+   */
+  NSColor* VibrancyFillColorForType(VibrancyType aType);
+
+  /**
+   * Return the font smoothing background color that should be used for text
+   * drawn on top of the vibrant window parts.
+   */
+  NSColor* VibrancyFontSmoothingBackgroundColorForType(VibrancyType aType);
 
   /**
    * Check whether the operating system supports vibrancy at all.

@@ -83,6 +83,43 @@ VibrancyManager::ClearVibrantRegion(const VibrantRegion& aVibrantRegion) const
   }
 }
 
+@interface NSView(CurrentFillColor)
+- (NSColor*)_currentFillColor;
+@end
+
+NSColor*
+VibrancyManager::VibrancyFillColorForType(VibrancyType aType)
+{
+  const nsTArray<NSView*>& views =
+    mVibrantRegions.LookupOrAdd(uint32_t(aType))->effectViews;
+
+  if (!views.IsEmpty() &&
+      [views[0] respondsToSelector:@selector(_currentFillColor)]) {
+    // -[NSVisualEffectView _currentFillColor] is the color that our view
+    // would draw during its drawRect implementation, if we hadn't
+    // disabled that.
+    return [views[0] _currentFillColor];
+  }
+  return [NSColor whiteColor];
+}
+
+@interface NSView(FontSmoothingBackgroundColor)
+- (NSColor*)fontSmoothingBackgroundColor;
+@end
+
+NSColor*
+VibrancyManager::VibrancyFontSmoothingBackgroundColorForType(VibrancyType aType)
+{
+  const nsTArray<NSView*>& views =
+    mVibrantRegions.LookupOrAdd(uint32_t(aType))->effectViews;
+
+  if (!views.IsEmpty() &&
+      [views[0] respondsToSelector:@selector(fontSmoothingBackgroundColor)]) {
+    return [views[0] fontSmoothingBackgroundColor];
+  }
+  return [NSColor clearColor];
+}
+
 static void
 DrawRectNothing(id self, SEL _cmd, NSRect aRect)
 {
@@ -124,6 +161,7 @@ AppearanceForVibrancyType(VibrancyType aType)
   Class NSAppearanceClass = NSClassFromString(@"NSAppearance");
   switch (aType) {
     case VibrancyType::LIGHT:
+    case VibrancyType::TOOLTIP:
       return [NSAppearanceClass performSelector:@selector(appearanceNamed:)
                                      withObject:@"NSAppearanceNameVibrantLight"];
     case VibrancyType::DARK:
@@ -132,6 +170,18 @@ AppearanceForVibrancyType(VibrancyType aType)
   }
 }
 
+#if !defined(MAC_OS_X_VERSION_10_10) || MAC_OS_X_VERSION_MAX_ALLOWED < MAC_OS_X_VERSION_10_10
+enum {
+  NSVisualEffectStateFollowsWindowActiveState,
+  NSVisualEffectStateActive,
+  NSVisualEffectStateInactive
+};
+#endif
+
+@interface NSView(NSVisualEffectViewSetState)
+- (void)setState:(NSUInteger)state;
+@end
+
 NSView*
 VibrancyManager::CreateEffectView(VibrancyType aType, NSRect aRect)
 {
@@ -139,14 +189,24 @@ VibrancyManager::CreateEffectView(VibrancyType aType, NSRect aRect)
   NSView* effectView = [[EffectViewClass alloc] initWithFrame:aRect];
   [effectView performSelector:@selector(setAppearance:)
                    withObject:AppearanceForVibrancyType(aType)];
+  if (aType == VibrancyType::TOOLTIP) {
+    // Tooltip windows never become active, so we need to tell the vibrancy
+    // effect to look active regardless of window state.
+    [effectView setState:NSVisualEffectStateActive];
+  }
   return effectView;
 }
 
 static bool
 ComputeSystemSupportsVibrancy()
 {
+#ifdef __x86_64__
   return NSClassFromString(@"NSAppearance") &&
       NSClassFromString(@"NSVisualEffectView");
+#else
+  // objc_allocateClassPair doesn't work in 32 bit mode, so turn off vibrancy.
+  return false;
+#endif
 }
 
 /* static */ bool

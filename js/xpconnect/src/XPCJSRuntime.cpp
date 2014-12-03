@@ -14,7 +14,6 @@
 #include "XPCWrapper.h"
 #include "XPCJSMemoryReporter.h"
 #include "WrapperFactory.h"
-#include "dom_quickstubs.h"
 #include "mozJSComponentLoader.h"
 
 #include "nsIMemoryInfoDumper.h"
@@ -35,7 +34,6 @@
 #include "jsfriendapi.h"
 #include "jsprf.h"
 #include "js/MemoryMetrics.h"
-#include "js/OldDebugAPI.h"
 #include "mozilla/dom/GeneratedAtomList.h"
 #include "mozilla/dom/BindingUtils.h"
 #include "mozilla/dom/Element.h"
@@ -823,8 +821,6 @@ XPCJSRuntime::FinalizeCallback(JSFreeOp *fop,
             self->mDetachedWrappedNativeProtoMap->
                 Enumerate(DetachedWrappedNativeProtoMarker, nullptr);
 
-            DOM_MarkInterfaces();
-
             // Mark the sets used in the call contexts. There is a small
             // chance that a wrapper's set will change *while* a call is
             // happening which uses that wrapper's old interfface set. So,
@@ -991,6 +987,7 @@ class Watchdog
       , mHibernating(false)
       , mInitialized(false)
       , mShuttingDown(false)
+      , mMinScriptRunTimeSeconds(1)
     {}
     ~Watchdog() { MOZ_ASSERT(!Initialized()); }
 
@@ -1064,6 +1061,14 @@ class Watchdog
         mInitialized = false;
     }
 
+    void SetMinScriptRunTimeSeconds(int32_t seconds)
+    {
+        // This variable is atomic, and is set from the main thread without
+        // locking.
+        MOZ_ASSERT(seconds > 0);
+        mMinScriptRunTimeSeconds = seconds;
+    }
+
     //
     // Invoked by the watchdog thread only.
     //
@@ -1086,6 +1091,11 @@ class Watchdog
         PR_NotifyCondVar(mWakeup);
     }
 
+    int32_t MinScriptRunTimeSeconds()
+    {
+        return mMinScriptRunTimeSeconds;
+    }
+
   private:
     WatchdogManager *mManager;
 
@@ -1095,11 +1105,15 @@ class Watchdog
     bool mHibernating;
     bool mInitialized;
     bool mShuttingDown;
+    mozilla::Atomic<int32_t> mMinScriptRunTimeSeconds;
 };
 
 #ifdef MOZ_NUWA_PROCESS
 #include "ipc/Nuwa.h"
 #endif
+
+#define PREF_MAX_SCRIPT_RUN_TIME_CONTENT "dom.max_script_run_time"
+#define PREF_MAX_SCRIPT_RUN_TIME_CHROME "dom.max_chrome_script_run_time"
 
 class WatchdogManager : public nsIObserver
 {
@@ -1118,6 +1132,8 @@ class WatchdogManager : public nsIObserver
 
         // Register ourselves as an observer to get updates on the pref.
         mozilla::Preferences::AddStrongObserver(this, "dom.use_watchdog");
+        mozilla::Preferences::AddStrongObserver(this, PREF_MAX_SCRIPT_RUN_TIME_CONTENT);
+        mozilla::Preferences::AddStrongObserver(this, PREF_MAX_SCRIPT_RUN_TIME_CHROME);
     }
 
   protected:
@@ -1129,6 +1145,8 @@ class WatchdogManager : public nsIObserver
         // consumers to shut it down manually before releasing it.
         MOZ_ASSERT(!mWatchdog);
         mozilla::Preferences::RemoveObserver(this, "dom.use_watchdog");
+        mozilla::Preferences::RemoveObserver(this, PREF_MAX_SCRIPT_RUN_TIME_CONTENT);
+        mozilla::Preferences::RemoveObserver(this, PREF_MAX_SCRIPT_RUN_TIME_CHROME);
     }
 
   public:
@@ -1192,12 +1210,22 @@ class WatchdogManager : public nsIObserver
     void RefreshWatchdog()
     {
         bool wantWatchdog = Preferences::GetBool("dom.use_watchdog", true);
-        if (wantWatchdog == !!mWatchdog)
-            return;
-        if (wantWatchdog)
-            StartWatchdog();
-        else
-            StopWatchdog();
+        if (wantWatchdog != !!mWatchdog) {
+            if (wantWatchdog)
+                StartWatchdog();
+            else
+                StopWatchdog();
+        }
+
+        if (mWatchdog) {
+            int32_t contentTime = Preferences::GetInt(PREF_MAX_SCRIPT_RUN_TIME_CONTENT, 10);
+            if (contentTime <= 0)
+                contentTime = INT32_MAX;
+            int32_t chromeTime = Preferences::GetInt(PREF_MAX_SCRIPT_RUN_TIME_CHROME, 20);
+            if (chromeTime <= 0)
+                chromeTime = INT32_MAX;
+            mWatchdog->SetMinScriptRunTimeSeconds(std::min(contentTime, chromeTime));
+        }
     }
 
     void StartWatchdog()
@@ -1271,11 +1299,12 @@ WatchdogMain(void *arg)
         // Rise and shine.
         manager->RecordTimestamp(TimestampWatchdogWakeup);
 
-        // Don't request an interrupt callback if activity started less than one second ago.
-        // The callback is only used for detecting long running scripts, and triggering the
-        // callback from off the main thread can be expensive.
+        // Don't request an interrupt callback unless the current script has
+        // been running long enough that we might show the slow script dialog.
+        // Triggering the callback from off the main thread can be expensive.
+        PRTime usecs = self->MinScriptRunTimeSeconds() * PR_USEC_PER_SEC;
         if (manager->IsRuntimeActive() &&
-            manager->TimeSinceLastRuntimeStateChange() >= PRTime(PR_USEC_PER_SEC))
+            manager->TimeSinceLastRuntimeStateChange() >= usecs)
         {
             bool debuggerAttached = false;
             nsCOMPtr<nsIDebug2> dbg = do_GetService("@mozilla.org/xpcom/debug;1");
@@ -1357,8 +1386,8 @@ XPCJSRuntime::InterruptCallback(JSContext *cx)
     // is.
     TimeDuration duration = TimeStamp::NowLoRes() - self->mSlowScriptCheckpoint;
     bool chrome = nsContentUtils::IsCallerChrome();
-    const char *prefName = chrome ? "dom.max_chrome_script_run_time"
-                                  : "dom.max_script_run_time";
+    const char *prefName = chrome ? PREF_MAX_SCRIPT_RUN_TIME_CHROME
+                                  : PREF_MAX_SCRIPT_RUN_TIME_CONTENT;
     int32_t limit = Preferences::GetInt(prefName, chrome ? 20 : 10);
 
     // If there's no limit, or we're within the limit, let it go.
@@ -1471,8 +1500,6 @@ void XPCJSRuntime::DestroyJSContextStack()
 
 void XPCJSRuntime::SystemIsBeingShutDown()
 {
-    DOM_ClearInterfaces();
-
     if (mDetachedWrappedNativeProtoMap)
         mDetachedWrappedNativeProtoMap->
             Enumerate(DetachedWrappedNativeProtoShutdownMarker, nullptr);
@@ -2246,6 +2273,10 @@ ReportCompartmentStats(const JS::CompartmentStats &cStats,
         cStats.innerViewsTable,
         "The table for array buffer inner views.");
 
+    ZCREPORT_BYTES(cJSPathPrefix + NS_LITERAL_CSTRING("lazy-array-buffers"),
+        cStats.lazyArrayBuffersTable,
+        "The table for typed object lazy array buffers.");
+
     ZCREPORT_BYTES(cJSPathPrefix + NS_LITERAL_CSTRING("cross-compartment-wrapper-table"),
         cStats.crossCompartmentWrappersTable,
         "The cross-compartment wrapper table.");
@@ -2981,7 +3012,7 @@ AccumulateTelemetryCallback(int id, uint32_t sample)
         Telemetry::Accumulate(Telemetry::GC_SCC_SWEEP_MAX_PAUSE_MS, sample);
         break;
       case JS_TELEMETRY_DEPRECATED_LANGUAGE_EXTENSIONS_IN_CONTENT:
-        MOZ_ASSERT(sample <= 3);
+        MOZ_ASSERT(sample <= 5);
         Telemetry::Accumulate(Telemetry::JS_DEPRECATED_LANGUAGE_EXTENSIONS_IN_CONTENT, sample);
         break;
       default:
@@ -3151,8 +3182,6 @@ XPCJSRuntime::XPCJSRuntime(nsXPConnect* aXPConnect)
    mCompilationScope(MOZ_THIS_IN_INITIALIZER_LIST()->Runtime(), nullptr),
    mAsyncSnowWhiteFreer(new AsyncFreeSnowWhite())
 {
-    DOM_InitInterfaces();
-
     // these jsids filled in later when we have a JSContext to work with.
     mStrIDs[0] = JSID_VOID;
 
@@ -3221,11 +3250,11 @@ XPCJSRuntime::XPCJSRuntime(nsXPConnect* aXPConnect)
     const size_t kStackQuota =  2 * kDefaultStackQuota;
     const size_t kTrustedScriptBuffer = 246 * 1024;
 #elif defined(XP_WIN)
-    // 1MB is the default stack size on Windows, so use 900k. And since 32-bit
-    // Windows stack frames are 3.4k each, let's use a buffer of 48k and double
-    // that for 64-bit.
+    // 1MB is the default stack size on Windows, so use 900k.
+    // Windows PGO stack frames have unfortunately gotten pretty large lately. :-(
     const size_t kStackQuota = 900 * 1024;
-    const size_t kTrustedScriptBuffer = 12 * sizeof(size_t) * 1024;
+    const size_t kTrustedScriptBuffer = (sizeof(size_t) == 8) ? 120 * 1024
+                                                              : 80 * 1024;
     // The following two configurations are linux-only. Given the numbers above,
     // we use 50k and 100k trusted buffers on 32-bit and 64-bit respectively.
 #elif defined(DEBUG)
@@ -3283,7 +3312,7 @@ XPCJSRuntime::XPCJSRuntime(nsXPConnect* aXPConnect)
     ///
     // Note we do have to retain the source code in memory for scripts compiled in
     // compileAndGo mode and compiled function bodies (from
-    // JS_CompileFunction*). In practice, this means content scripts and event
+    // JS::CompileFunction). In practice, this means content scripts and event
     // handlers.
     UniquePtr<XPCJSSourceHook> hook(new XPCJSSourceHook);
     js::SetSourceHook(runtime, Move(hook));

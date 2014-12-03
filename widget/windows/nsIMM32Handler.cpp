@@ -4,9 +4,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifdef MOZ_LOGGING
-#define FORCE_PR_LOG /* Allow logging in the release build */
-#endif // MOZ_LOGGING
 #include "prlog.h"
 
 #include "nsIMM32Handler.h"
@@ -152,7 +149,7 @@ nsIMM32Handler::GetIMEUpdatePreference()
   ((lParam) & (GCS_COMPSTR | GCS_COMPATTR | GCS_COMPCLAUSE | GCS_CURSORPOS))
 #define IS_COMMITTING_LPARAM(lParam) ((lParam) & GCS_RESULTSTR)
 // Some IMEs (e.g., the standard IME for Korean) don't have caret position,
-// then, we should not set caret position to text event.
+// then, we should not set caret position to compositionchange event.
 #define NO_IME_CARET -1
 
 nsIMM32Handler::nsIMM32Handler() :
@@ -483,21 +480,16 @@ nsIMM32Handler::OnIMEEndComposition(nsWindow* aWindow,
 
   // Otherwise, e.g., ChangJie doesn't post WM_IME_COMPOSITION before
   // WM_IME_ENDCOMPOSITION when composition string becomes empty.
-  // Then, we should dispatch a compositionupdate event, a text event and
-  // a compositionend event.
-  // XXX Shouldn't we dispatch the text event with actual or latest composition
-  //     string?
+  // Then, we should dispatch a compositionupdate event, a compositionchange
+  // event and a compositionend event.
+  // XXX Shouldn't we dispatch the compositionchange event with actual or
+  //     latest composition string?
   PR_LOG(gIMM32Log, PR_LOG_ALWAYS,
     ("IMM32: OnIMEEndComposition, mCompositionString=\"%s\"%s",
      NS_ConvertUTF16toUTF8(mCompositionString).get(),
      mCompositionString.IsEmpty() ? "" : ", but canceling it..."));
 
-  mCompositionString.Truncate();
-
-  nsIMEContext IMEContext(aWindow->GetWindowHandle());
-  DispatchTextEvent(aWindow, IMEContext, false);
-
-  HandleEndComposition(aWindow);
+  HandleEndComposition(aWindow, &EmptyString());
 
   return true;
 }
@@ -512,10 +504,10 @@ nsIMM32Handler::OnIMEChar(nsWindow* aWindow,
     ("IMM32: OnIMEChar, hWnd=%08x, char=%08x\n",
      aWindow->GetWindowHandle(), wParam));
 
-  // We don't need to fire any text events from here. This method will be
-  // called when the composition string of the current IME is not drawn by us
-  // and some characters are committed. In that case, the committed string was
-  // processed in nsWindow::OnIMEComposition already.
+  // We don't need to fire any compositionchange events from here. This method
+  // will be called when the composition string of the current IME is not drawn
+  // by us and some characters are committed. In that case, the committed
+  // string was processed in nsWindow::OnIMEComposition already.
 
   // We need to consume the message so that Windows don't send two WM_CHAR msgs
   aResult.mConsumed = true;
@@ -956,7 +948,6 @@ nsIMM32Handler::HandleStartComposition(nsWindow* aWindow,
   }
 
   mCompositionStart = selection.mReply.mOffset;
-  mLastDispatchedCompositionString.Truncate();
 
   WidgetCompositionEvent event(true, NS_COMPOSITION_START, aWindow);
   aWindow->InitEvent(event, &point);
@@ -1015,13 +1006,12 @@ nsIMM32Handler::HandleComposition(nsWindow* aWindow,
       HandleStartComposition(aWindow, aIMEContext);
     }
 
-    GetCompositionString(aIMEContext, GCS_RESULTSTR);
+    GetCompositionString(aIMEContext, GCS_RESULTSTR, mCompositionString);
 
     PR_LOG(gIMM32Log, PR_LOG_ALWAYS,
       ("IMM32: HandleComposition, GCS_RESULTSTR\n"));
 
-    DispatchTextEvent(aWindow, aIMEContext, false);
-    HandleEndComposition(aWindow);
+    HandleEndComposition(aWindow, &mCompositionString);
 
     if (!IS_COMPOSING_LPARAM(lParam)) {
       return ShouldDrawCompositionStringOurselves();
@@ -1042,32 +1032,37 @@ nsIMM32Handler::HandleComposition(nsWindow* aWindow,
   PR_LOG(gIMM32Log, PR_LOG_ALWAYS,
     ("IMM32: HandleComposition, GCS_COMPSTR\n"));
 
-  GetCompositionString(aIMEContext, GCS_COMPSTR);
+  nsAutoString previousCompositionString(mCompositionString);
+  GetCompositionString(aIMEContext, GCS_COMPSTR, mCompositionString);
 
   if (!IS_COMPOSING_LPARAM(lParam)) {
     PR_LOG(gIMM32Log, PR_LOG_ALWAYS,
       ("IMM32: HandleComposition, lParam doesn't indicate composing, "
-       "mCompositionString=\"%s\", mLastDispatchedCompositionString=\"%s\"",
+       "mCompositionString=\"%s\", previousCompositionString=\"%s\"",
        NS_ConvertUTF16toUTF8(mCompositionString).get(),
-       NS_ConvertUTF16toUTF8(mLastDispatchedCompositionString).get()));
+       NS_ConvertUTF16toUTF8(previousCompositionString).get()));
 
     // If composition string isn't changed, we can trust the lParam.
     // So, we need to do nothing.
-    if (mLastDispatchedCompositionString == mCompositionString) {
+    if (previousCompositionString == mCompositionString) {
       return ShouldDrawCompositionStringOurselves();
     }
 
     // IME may send WM_IME_COMPOSITION without composing lParam values
     // when composition string becomes empty (e.g., using Backspace key).
-    // If composition string is empty, we should dispatch a text event with
-    // empty string.
+    // If composition string is empty, we should dispatch a compositionchange
+    // event with empty string and clear the clause information.
     if (mCompositionString.IsEmpty()) {
-      DispatchTextEvent(aWindow, aIMEContext, false);
+      mClauseArray.Clear();
+      mAttributeArray.Clear();
+      mCursorPosition = 0;
+      DispatchCompositionChangeEvent(aWindow, aIMEContext);
       return ShouldDrawCompositionStringOurselves();
     }
 
     // Otherwise, we cannot trust the lParam value.  We might need to
-    // dispatch text event with the latest composition string information.
+    // dispatch compositionchange event with the latest composition string
+    // information.
   }
 
   // See https://bugzilla.mozilla.org/show_bug.cgi?id=296339
@@ -1199,15 +1194,16 @@ nsIMM32Handler::HandleComposition(nsWindow* aWindow,
      mCursorPosition));
 
   //--------------------------------------------------------
-  // 5. Send the text event
+  // 5. Send the compositionchange event
   //--------------------------------------------------------
-  DispatchTextEvent(aWindow, aIMEContext);
+  DispatchCompositionChangeEvent(aWindow, aIMEContext);
 
   return ShouldDrawCompositionStringOurselves();
 }
 
 void
-nsIMM32Handler::HandleEndComposition(nsWindow* aWindow)
+nsIMM32Handler::HandleEndComposition(nsWindow* aWindow,
+                                     const nsAString* aCommitString)
 {
   NS_PRECONDITION(mIsComposing,
     "HandleEndComposition is called but mIsComposing is FALSE");
@@ -1215,23 +1211,26 @@ nsIMM32Handler::HandleEndComposition(nsWindow* aWindow)
     "HandleComposition should not be called when a plug-in has focus");
 
   PR_LOG(gIMM32Log, PR_LOG_ALWAYS,
-    ("IMM32: HandleEndComposition\n"));
-
-  WidgetCompositionEvent event(true, NS_COMPOSITION_END, aWindow);
-  nsIntPoint point(0, 0);
+    ("IMM32: HandleEndComposition(aWindow=0x%p, aCommitString=0x%p (\"%s\"))",
+     aWindow, aCommitString,
+     aCommitString ? NS_ConvertUTF16toUTF8(*aCommitString).get() : ""));
 
   if (mNativeCaretIsCreated) {
     ::DestroyCaret();
     mNativeCaretIsCreated = false;
   }
 
-  aWindow->InitEvent(event, &point);
-  // The last dispatched composition string must be the committed string.
-  event.data = mLastDispatchedCompositionString;
-  aWindow->DispatchWindowEvent(&event);
+  uint32_t message =
+    aCommitString ? NS_COMPOSITION_COMMIT : NS_COMPOSITION_COMMIT_AS_IS;
+  WidgetCompositionEvent compositionCommitEvent(true, message, aWindow);
+  nsIntPoint point(0, 0);
+  aWindow->InitEvent(compositionCommitEvent, &point);
+  if (aCommitString) {
+    compositionCommitEvent.mData = *aCommitString;
+  }
+  aWindow->DispatchWindowEvent(&compositionCommitEvent);
   mIsComposing = false;
   mComposingWindow = nullptr;
-  mLastDispatchedCompositionString.Truncate();
 }
 
 static void
@@ -1515,7 +1514,6 @@ nsIMM32Handler::CommitCompositionOnPreviousWindow(nsWindow* aWindow)
     nsIMEContext IMEContext(mComposingWindow->GetWindowHandle());
     NS_ASSERTION(IMEContext.IsValid(), "IME context must be valid");
 
-    DispatchTextEvent(mComposingWindow, IMEContext, false);
     HandleEndComposition(mComposingWindow);
     return true;
   }
@@ -1568,19 +1566,16 @@ GetRangeTypeName(uint32_t aRangeType)
 #endif
 
 void
-nsIMM32Handler::DispatchTextEvent(nsWindow* aWindow,
-                                  const nsIMEContext &aIMEContext,
-                                  bool aCheckAttr)
+nsIMM32Handler::DispatchCompositionChangeEvent(nsWindow* aWindow,
+                                               const nsIMEContext& aIMEContext)
 {
   NS_ASSERTION(mIsComposing, "conflict state");
   PR_LOG(gIMM32Log, PR_LOG_ALWAYS,
-    ("IMM32: DispatchTextEvent, aCheckAttr=%s\n",
-     aCheckAttr ? "TRUE": "FALSE"));
+    ("IMM32: DispatchCompositionChangeEvent"));
 
-  // If we don't need to draw composition string ourselves and this is not
-  // commit event (i.e., under composing), we don't need to fire text event
-  // during composing.
-  if (aCheckAttr && !ShouldDrawCompositionStringOurselves()) {
+  // If we don't need to draw composition string ourselves, we don't need to
+  // fire compositionchange event during composing.
+  if (!ShouldDrawCompositionStringOurselves()) {
     // But we need to adjust composition window pos and native caret pos, here.
     SetIMERelatedWindowsPos(aWindow, aIMEContext);
     return;
@@ -1590,35 +1585,17 @@ nsIMM32Handler::DispatchTextEvent(nsWindow* aWindow,
 
   nsIntPoint point(0, 0);
 
-  if (mCompositionString != mLastDispatchedCompositionString) {
-    WidgetCompositionEvent compositionUpdate(true, NS_COMPOSITION_UPDATE,
-                                             aWindow);
-    aWindow->InitEvent(compositionUpdate, &point);
-    compositionUpdate.data = mCompositionString;
-    mLastDispatchedCompositionString = mCompositionString;
-
-    aWindow->DispatchWindowEvent(&compositionUpdate);
-
-    if (!mIsComposing || aWindow->Destroyed()) {
-      return;
-    }
-    SetIMERelatedWindowsPos(aWindow, aIMEContext);
-  }
-
-  WidgetTextEvent event(true, NS_TEXT_TEXT, aWindow);
+  WidgetCompositionEvent event(true, NS_COMPOSITION_CHANGE, aWindow);
 
   aWindow->InitEvent(event, &point);
 
-  if (aCheckAttr) {
-    event.mRanges = CreateTextRangeArray();
-  }
-
-  event.theText = mCompositionString.get();
+  event.mRanges = CreateTextRangeArray();
+  event.mData = mCompositionString;
 
   aWindow->DispatchWindowEvent(&event);
 
   // Calling SetIMERelatedWindowsPos will be failure on e10s at this point.
-  // text event will notify NOTIFY_IME_OF_COMPOSITION_UPDATE, then
+  // compositionchange event will notify NOTIFY_IME_OF_COMPOSITION_UPDATE, then
   // it will call SetIMERelatedWindowsPos.
 }
 
@@ -1630,12 +1607,15 @@ nsIMM32Handler::CreateTextRangeArray()
   // string and attributes) are empty. So, if you want to remove following
   // assertion, be careful.
   NS_ASSERTION(ShouldDrawCompositionStringOurselves(),
-    "CreateTextRangeArray is called when we don't need to fire text event");
+    "CreateTextRangeArray is called when we don't need to fire "
+    "compositionchange event");
 
   nsRefPtr<TextRangeArray> textRangeArray = new TextRangeArray();
 
   TextRange range;
-  if (mClauseArray.Length() == 0) {
+  if (mCompositionString.IsEmpty()) {
+    // Don't append clause information if composition string is empty.
+  } else if (mClauseArray.Length() == 0) {
     // Some IMEs don't return clause array information, then, we assume that
     // all characters in the composition string are in one clause.
     range.mStartOffset = 0;
@@ -1700,12 +1680,16 @@ nsIMM32Handler::CreateTextRangeArray()
 
 void
 nsIMM32Handler::GetCompositionString(const nsIMEContext &aIMEContext,
-                                     DWORD aIndex)
+                                     DWORD aIndex,
+                                     nsAString& aCompositionString) const
 {
+  aCompositionString.Truncate();
+
   // Retrieve the size of the required output buffer.
   long lRtn = ::ImmGetCompositionStringW(aIMEContext.get(), aIndex, nullptr, 0);
   if (lRtn < 0 ||
-      !mCompositionString.SetLength((lRtn / sizeof(WCHAR)) + 1, mozilla::fallible_t())) {
+      !aCompositionString.SetLength((lRtn / sizeof(WCHAR)) + 1,
+                                    mozilla::fallible_t())) {
     PR_LOG(gIMM32Log, PR_LOG_ALWAYS,
       ("IMM32: GetCompositionString, FAILED by OOM\n"));
     return; // Error or out of memory.
@@ -1713,13 +1697,13 @@ nsIMM32Handler::GetCompositionString(const nsIMEContext &aIMEContext,
 
   // Actually retrieve the composition string information.
   lRtn = ::ImmGetCompositionStringW(aIMEContext.get(), aIndex,
-                                    (LPVOID)mCompositionString.BeginWriting(),
+                                    (LPVOID)aCompositionString.BeginWriting(),
                                     lRtn + sizeof(WCHAR));
-  mCompositionString.SetLength(lRtn / sizeof(WCHAR));
+  aCompositionString.SetLength(lRtn / sizeof(WCHAR));
 
   PR_LOG(gIMM32Log, PR_LOG_ALWAYS,
-    ("IMM32: GetCompositionString, SUCCEEDED mCompositionString=\"%s\"\n",
-     NS_ConvertUTF16toUTF8(mCompositionString).get()));
+    ("IMM32: GetCompositionString, SUCCEEDED aCompositionString=\"%s\"\n",
+     NS_ConvertUTF16toUTF8(aCompositionString).get()));
 }
 
 bool

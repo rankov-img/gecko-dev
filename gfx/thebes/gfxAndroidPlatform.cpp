@@ -173,12 +173,17 @@ IsJapaneseLocale()
 }
 
 void
-gfxAndroidPlatform::GetCommonFallbackFonts(const uint32_t aCh,
+gfxAndroidPlatform::GetCommonFallbackFonts(uint32_t aCh, uint32_t aNextCh,
                                            int32_t aRunScript,
                                            nsTArray<const char*>& aFontList)
 {
     static const char kDroidSansJapanese[] = "Droid Sans Japanese";
     static const char kMotoyaLMaru[] = "MotoyaLMaru";
+
+    if (aNextCh == 0xfe0fu) {
+        // if char is followed by VS16, try for a color emoji glyph
+        aFontList.AppendElement("Noto Color Emoji");
+    }
 
     if (IS_IN_BMP(aCh)) {
         // try language-specific "Droid Sans *" and "Noto Sans *" fonts for
@@ -278,9 +283,7 @@ gfxAndroidPlatform::IsFontFormatSupported(nsIURI *aFontURI, uint32_t aFormatFlag
                  "strange font format hint set");
 
     // accept supported formats
-    if (aFormatFlags & (gfxUserFontSet::FLAG_FORMAT_OPENTYPE |
-                        gfxUserFontSet::FLAG_FORMAT_WOFF |
-                        gfxUserFontSet::FLAG_FORMAT_TRUETYPE)) {
+    if (aFormatFlags & gfxUserFontSet::FLAG_FORMATS_COMMON) {
         return true;
     }
 
@@ -404,12 +407,16 @@ gfxAndroidPlatform::GetScreenDepth() const
 bool
 gfxAndroidPlatform::UseAcceleratedSkiaCanvas()
 {
+    return HaveChoiceOfHWAndSWCanvas() && gfxPlatform::UseAcceleratedSkiaCanvas();
+}
+
+bool gfxAndroidPlatform::HaveChoiceOfHWAndSWCanvas()
+{
 #ifdef MOZ_WIDGET_ANDROID
     if (AndroidBridge::Bridge()->GetAPIVersion() < 11) {
         // It's slower than software due to not having a compositing fast path
         return false;
     }
 #endif
-
-    return gfxPlatform::UseAcceleratedSkiaCanvas();
+    return gfxPlatform::HaveChoiceOfHWAndSWCanvas();
 }

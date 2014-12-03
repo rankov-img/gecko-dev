@@ -18,13 +18,16 @@ extern bool gBluetoothDebugFlag;
 
 #if MOZ_IS_GCC && MOZ_GCC_VERSION_AT_LEAST(4, 7, 0)
 /* use designated array initializers if supported */
-#define CONVERT(in_, out_) \
+#define INIT_ARRAY_AT(in_, out_) \
   [in_] = out_
 #else
 /* otherwise init array element by position */
-#define CONVERT(in_, out_) \
+#define INIT_ARRAY_AT(in_, out_) \
   out_
 #endif
+
+#define CONVERT(in_, out_) \
+  INIT_ARRAY_AT(in_, out_)
 
 #undef BT_LOG
 #if defined(MOZ_WIDGET_GONK)
@@ -188,6 +191,12 @@ extern bool gBluetoothDebugFlag;
 // Bluetooth stack internal error, such as I/O error
 #define ERR_INTERNAL_ERROR "InternalError"
 
+/**
+ * BT specification v4.1 defines the maximum attribute length as 512 octets.
+ * Currently use 600 here to conform to bluedroid's BTGATT_MAX_ATTR_LEN.
+ */
+#define BLUETOOTH_GATT_MAX_ATTR_LEN 600
+
 BEGIN_BLUETOOTH_NAMESPACE
 
 enum BluetoothStatus {
@@ -217,6 +226,7 @@ enum BluetoothTypeOfDevice {
 };
 
 enum BluetoothPropertyType {
+  PROPERTY_UNKNOWN,
   PROPERTY_BDNAME,
   PROPERTY_BDADDR,
   PROPERTY_UUIDS,
@@ -495,6 +505,46 @@ struct BluetoothAvrcpPlayerSettings {
   uint8_t mNumAttr;
   uint8_t mIds[256];
   uint8_t mValues[256];
+};
+
+struct BluetoothGattAdvData {
+  uint8_t mAdvData[62];
+};
+
+struct BluetoothGattId {
+  BluetoothUuid mUuid;
+  uint8_t mInstanceId;
+};
+
+struct BluetoothGattServiceId {
+  BluetoothGattId mId;
+  uint8_t mIsPrimary;
+};
+
+struct BluetoothGattReadParam {
+  BluetoothGattServiceId mServiceId;
+  BluetoothGattId mCharId;
+  BluetoothGattId mDescriptorId;
+  uint8_t mValue[BLUETOOTH_GATT_MAX_ATTR_LEN];
+  uint16_t mValueLength;
+  uint16_t mValueType;
+  uint8_t mStatus;
+};
+
+struct BluetoothGattWriteParam {
+  BluetoothGattServiceId mServiceId;
+  BluetoothGattId mCharId;
+  BluetoothGattId mDescriptorId;
+  uint8_t mStatus;
+};
+
+struct BluetoothGattNotifyParam {
+  uint8_t mValue[BLUETOOTH_GATT_MAX_ATTR_LEN];
+  nsString mBdAddr;
+  BluetoothGattServiceId mServiceId;
+  BluetoothGattId mCharId;
+  uint16_t mLength;
+  uint8_t mIsNotify;
 };
 
 END_BLUETOOTH_NAMESPACE

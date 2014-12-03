@@ -20,7 +20,6 @@
 
 #include "base/message_loop.h"
 #include "DeviceStorage.h"
-#include "mozilla/FileUtils.h"
 #include "mozilla/LazyIdleThread.h"
 #include "mozilla/Scoped.h"
 #include "mozilla/Services.h"
@@ -108,8 +107,9 @@ public:
     }
 
     NS_ConvertUTF16toUTF8 eventType(aData);
-    if (!eventType.EqualsLiteral("created") && !eventType.EqualsLiteral("deleted")) {
-      // MTP doesn't have a modified notification.
+    if (!eventType.EqualsLiteral("modified") && !eventType.EqualsLiteral("deleted")) {
+      // Bug 1074604: Needn't handle "created" event, once file operation
+      // finished, it would trigger "modified" event.
       return NS_OK;
     }
 
@@ -196,6 +196,9 @@ public:
     server->run();
     MTP_LOG("MozMtpServer finished");
 
+    // server->run will have closed the file descriptor.
+    mMtpUsbFd.forget();
+
     rv = NS_DispatchToMainThread(new FreeFileWatcherUpdateRunnable(mMozMtpServer));
     MOZ_ASSERT(NS_SUCCEEDED(rv));
 
@@ -221,33 +224,38 @@ MozMtpServer::GetMozMtpDatabase()
   return db.forget();
 }
 
-void
-MozMtpServer::Run()
+bool
+MozMtpServer::Init()
 {
   MOZ_ASSERT(MessageLoop::current() == XRE_GetIOMessageLoop());
 
   const char *mtpUsbFilename = "/dev/mtp_usb";
-  ScopedClose mtpUsbFd(open(mtpUsbFilename, O_RDWR));
-  if (mtpUsbFd.get() < 0) {
+  mMtpUsbFd = open(mtpUsbFilename, O_RDWR);
+  if (mMtpUsbFd.get() < 0) {
     MTP_ERR("open of '%s' failed", mtpUsbFilename);
-    return;
+    return false;
   }
-  MTP_LOG("Opened '%s' fd %d", mtpUsbFilename, mtpUsbFd.get());
+  MTP_LOG("Opened '%s' fd %d", mtpUsbFilename, mMtpUsbFd.get());
 
   mMozMtpDatabase = new MozMtpDatabase();
-  mMtpServer = new RefCountedMtpServer(mtpUsbFd.get(),        // fd
+  mMtpServer = new RefCountedMtpServer(mMtpUsbFd.get(),        // fd
                                        mMozMtpDatabase.get(), // MtpDatabase
                                        false,                 // ptp?
                                        AID_MEDIA_RW,          // file group
                                        0664,                  // file permissions
                                        0775);                 // dir permissions
+  return true;
+}
 
+void
+MozMtpServer::Run()
+{
   nsresult rv = NS_NewNamedThread("MtpServer", getter_AddRefs(mServerThread));
   if (NS_WARN_IF(NS_FAILED(rv))) {
     return;
   }
   MOZ_ASSERT(mServerThread);
-  mServerThread->Dispatch(new MtpServerRunnable(mtpUsbFd.forget(), this), NS_DISPATCH_NORMAL);
+  mServerThread->Dispatch(new MtpServerRunnable(mMtpUsbFd.forget(), this), NS_DISPATCH_NORMAL);
 }
 
 END_MTP_NAMESPACE

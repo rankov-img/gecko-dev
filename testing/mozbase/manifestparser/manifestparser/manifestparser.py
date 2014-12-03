@@ -386,6 +386,13 @@ def read_ini(fp, variables=None, default='DEFAULT',
             local_dict['skip-if'] = "(%s) || (%s)" % (variables['skip-if'].split('#')[0], local_dict['skip-if'].split('#')[0])
         variables.update(local_dict)
 
+        # server-root is an os path declared relative to the manifest file.
+        # inheritance demands we expand it as absolute
+        if 'server-root' in variables:
+            root = os.path.join(os.path.dirname(fp.name),
+                                variables['server-root'])
+            variables['server-root'] = os.path.abspath(root)
+
         return variables
 
     sections = [(i, interpret_variables(variables, j)) for i, j in sections]
@@ -399,6 +406,7 @@ class ManifestParser(object):
 
     def __init__(self, manifests=(), defaults=None, strict=True):
         self._defaults = defaults or {}
+        self._ancestor_defaults = {}
         self.tests = []
         self.manifest_defaults = {}
         self.strict = strict
@@ -412,7 +420,30 @@ class ManifestParser(object):
 
     ### methods for reading manifests
 
-    def _read(self, root, filename, defaults):
+    def _read(self, root, filename, defaults, defaults_only=False, parentmanifest=None):
+        """
+        Internal recursive method for reading and parsing manifests.
+        Stores all found tests in self.tests
+        :param root: The base path
+        :param filename: File object or string path for the base manifest file
+        :param defaults: Options that apply to all items
+        :param defaults_only: If True will only gather options, not include
+                              tests. Used for upstream parent includes
+                              (default False)
+        """
+        def read_file(type):
+            include_file = section.split(type, 1)[-1]
+            include_file = normalize_path(include_file)
+            if not os.path.isabs(include_file):
+                include_file = os.path.join(self.getRelativeRoot(here), include_file)
+            if not os.path.exists(include_file):
+                message = "Included file '%s' does not exist" % include_file
+                if self.strict:
+                    raise IOError(message)
+                else:
+                    sys.stderr.write("%s\n" % message)
+                    return
+            return include_file
 
         # get directory of this file if not file-like object
         if isinstance(filename, string):
@@ -442,26 +473,32 @@ class ManifestParser(object):
             if 'subsuite' in data:
                 subsuite = data['subsuite']
 
+            # read the parent manifest if specified
+            if section.startswith('parent:'):
+                include_file = read_file('parent:')
+                if include_file:
+                    self._read(root, include_file, {}, True)
+                continue
+
+            # If this is a parent include we only load the defaults into ancestor
+            if defaults_only:
+                self._ancestor_defaults = dict(data.items() + self._ancestor_defaults.items())
+                break
+
             # a file to include
             # TODO: keep track of included file structure:
             # self.manifests = {'manifest.ini': 'relative/path.ini'}
             if section.startswith('include:'):
-                include_file = section.split('include:', 1)[-1]
-                include_file = normalize_path(include_file)
-                if not os.path.isabs(include_file):
-                    include_file = os.path.join(self.getRelativeRoot(here), include_file)
-                if not os.path.exists(include_file):
-                    message = "Included file '%s' does not exist" % include_file
-                    if self.strict:
-                        raise IOError(message)
-                    else:
-                        sys.stderr.write("%s\n" % message)
-                        continue
-                include_defaults = data.copy()
-                self._read(root, include_file, include_defaults)
+                include_file = read_file('include:')
+                if include_file:
+                    include_defaults = data.copy()
+                    self._read(root, include_file, include_defaults, parentmanifest=filename)
                 continue
 
             # otherwise an item
+            # apply ancestor defaults, while maintaining current file priority
+            data = dict(self._ancestor_defaults.items() + data.items())
+
             test = data
             test['name'] = section
 
@@ -496,6 +533,13 @@ class ManifestParser(object):
             test['subsuite'] = subsuite
             test['path'] = path
             test['relpath'] = _relpath
+
+            if parentmanifest is not None:
+                # If a test was included by a parent manifest we may need to
+                # indicate that in the test object for the sake of identifying
+                # a test, particularly in the case a test file is included by
+                # multiple manifests.
+                test['ancestor-manifest'] = parentmanifest
 
             # append the item
             self.tests.append(test)
@@ -728,7 +772,7 @@ class ManifestParser(object):
             print >> fp, '[%s]' % path
 
             # reserved keywords:
-            reserved = ['path', 'name', 'here', 'manifest', 'relpath']
+            reserved = ['path', 'name', 'here', 'manifest', 'relpath', 'ancestor-manifest']
             for key in sorted(test.keys()):
                 if key in reserved:
                     continue
@@ -1119,7 +1163,7 @@ class TestManifest(ManifestParser):
         # Look for conditional subsuites, and replace them with the subsuite itself
         # (if the condition is true), or nothing.
         for test in tests:
-            subsuite = test.get('subsuite')
+            subsuite = test.get('subsuite', '')
             if ',' in subsuite:
                 try:
                     subsuite, condition = subsuite.split(',')
@@ -1135,7 +1179,7 @@ class TestManifest(ManifestParser):
 
         # Filter on current subsuite
         if options:
-            if  options.subsuite:
+            if hasattr(options, 'subsuite') and options.subsuite:
                 tests = [test for test in tests if options.subsuite == test['subsuite']]
             else:
                 tests = [test for test in tests if not test['subsuite']]

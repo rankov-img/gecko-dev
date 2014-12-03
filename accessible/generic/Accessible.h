@@ -11,12 +11,6 @@
 #include "mozilla/a11y/Role.h"
 #include "mozilla/a11y/States.h"
 
-#include "xpcAccessible.h"
-#include "xpcAccessibleHyperLink.h"
-#include "nsIAccessibleStates.h"
-#include "xpcAccessibleSelectable.h"
-#include "xpcAccessibleValue.h"
-
 #include "nsIContent.h"
 #include "nsString.h"
 #include "nsTArray.h"
@@ -28,6 +22,7 @@ struct nsRect;
 class nsIFrame;
 class nsIAtom;
 struct nsIntRect;
+class nsIPersistentProperties;
 class nsView;
 
 namespace mozilla {
@@ -36,6 +31,7 @@ namespace a11y {
 class Accessible;
 class AccEvent;
 class AccGroupInfo;
+class ApplicationAccessible;
 class DocAccessible;
 class EmbeddedObjCollector;
 class HTMLImageMapAccessible;
@@ -123,21 +119,15 @@ typedef nsRefPtrHashtable<nsPtrHashKey<const void>, Accessible>
   { 0xbd, 0x50, 0x42, 0x6b, 0xd1, 0xd6, 0xe1, 0xad }    \
 }
 
-class Accessible : public xpcAccessible,
-                   public xpcAccessibleHyperLink,
-                   public xpcAccessibleSelectable,
-                   public xpcAccessibleValue
+class Accessible : public nsISupports
 {
 public:
   Accessible(nsIContent* aContent, DocAccessible* aDoc);
 
   NS_DECL_CYCLE_COLLECTING_ISUPPORTS
-  NS_DECL_CYCLE_COLLECTION_CLASS_AMBIGUOUS(Accessible, nsIAccessible)
+  NS_DECL_CYCLE_COLLECTION_CLASS(Accessible)
 
   NS_DECLARE_STATIC_IID_ACCESSOR(NS_ACCESSIBLE_IMPL_IID)
-
-  // nsIAccessible
-  NS_IMETHOD GetNativeInterface(void** aOutAccessible);
 
   //////////////////////////////////////////////////////////////////////////////
   // Public methods
@@ -193,6 +183,11 @@ public:
    * Get the value of this accessible.
    */
   virtual void Value(nsString& aValue);
+
+  /**
+   * Get help string for the accessible.
+   */
+  void Help(nsString& aHelp) const { aHelp.Truncate(); }
 
   /**
    * Get the name of this accessible.
@@ -373,11 +368,7 @@ public:
   /**
    * Update the children cache.
    */
-  inline bool UpdateChildren()
-  {
-    InvalidateChildren();
-    return EnsureChildren();
-  }
+  bool UpdateChildren();
 
   /**
    * Cache children if necessary. Return true if the accessible is defunct.
@@ -538,6 +529,11 @@ public:
   virtual void SetSelected(bool aSelect);
 
   /**
+   * Extend selection to this accessible.
+   */
+  void ExtendSelection() { };
+
+  /**
    * Select the accessible within its container.
    */
   void TakeSelection();
@@ -557,6 +553,12 @@ public:
    */
   void ScrollToPoint(uint32_t aCoordinateType, int32_t aX, int32_t aY);
 
+  /**
+   * Get a pointer to accessibility interface for this node, which is specific
+   * to the OS/accessibility toolkit we're running on.
+   */
+  virtual void GetNativeInterface(void** aNativeAccessible);
+
   //////////////////////////////////////////////////////////////////////////////
   // Downcasting and types
 
@@ -567,6 +569,7 @@ public:
   }
 
   bool IsApplication() const { return mType == eApplicationType; }
+  ApplicationAccessible* AsApplication();
 
   bool IsAutoComplete() const { return HasGenericType(eAutoComplete); }
 
@@ -738,7 +741,7 @@ public:
   /**
    * Return an array of selected items.
    */
-  virtual already_AddRefed<nsIArray> SelectedItems();
+  virtual void SelectedItems(nsTArray<Accessible*>* aItems);
 
   /**
    * Return the number of selected items.
@@ -948,7 +951,8 @@ protected:
     eNotNodeMapEntry = 1 << 3, // accessible shouldn't be in document node map
     eHasNumericValue = 1 << 4, // accessible has a numeric value
     eGroupInfoDirty = 1 << 5, // accessible needs to update group info
-    eIgnoreDOMUIEvent = 1 << 6, // don't process DOM UI events for a11y events
+    eSubtreeMutating = 1 << 6, // subtree is being mutated
+    eIgnoreDOMUIEvent = 1 << 7, // don't process DOM UI events for a11y events
 
     eLastStateFlag = eIgnoreDOMUIEvent
   };
@@ -1064,7 +1068,7 @@ protected:
   int32_t mIndexInParent;
 
   static const uint8_t kChildrenFlagsBits = 2;
-  static const uint8_t kStateFlagsBits = 7;
+  static const uint8_t kStateFlagsBits = 8;
   static const uint8_t kContextFlagsBits = 1;
   static const uint8_t kTypeBits = 6;
   static const uint8_t kGenericTypesBits = 13;
@@ -1079,9 +1083,11 @@ protected:
   uint32_t mGenericTypes : kGenericTypesBits;
 
   void StaticAsserts() const;
+  void AssertInMutatingSubtree() const;
 
   friend class DocAccessible;
   friend class xpcAccessible;
+  friend class AutoTreeMutation;
 
   nsAutoPtr<mozilla::a11y::EmbeddedObjCollector> mEmbeddedObjCollector;
   int32_t mIndexOfEmbeddedChild;
@@ -1163,6 +1169,35 @@ private:
 
   uint32_t mKey;
   uint32_t mModifierMask;
+};
+
+/**
+ * This class makes sure required tasks are done before and after tree
+ * mutations. Currently this only includes group info invalidation. You must
+ * have an object of this class on the stack when calling methods that mutate
+ * the accessible tree.
+ */
+class AutoTreeMutation
+{
+public:
+  explicit AutoTreeMutation(Accessible* aRoot, bool aInvalidationRequired = true) :
+    mInvalidationRequired(aInvalidationRequired), mRoot(aRoot)
+  {
+    MOZ_ASSERT(!(mRoot->mStateFlags & Accessible::eSubtreeMutating));
+    mRoot->mStateFlags |= Accessible::eSubtreeMutating;
+  }
+  ~AutoTreeMutation()
+  {
+    if (mInvalidationRequired)
+      mRoot->InvalidateChildrenGroupInfo();
+
+    MOZ_ASSERT(mRoot->mStateFlags & Accessible::eSubtreeMutating);
+    mRoot->mStateFlags &= ~Accessible::eSubtreeMutating;
+  }
+
+  bool mInvalidationRequired;
+private:
+  Accessible* mRoot;
 };
 
 } // namespace a11y

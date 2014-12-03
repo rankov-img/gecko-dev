@@ -132,9 +132,7 @@
       -->
       <method name="onBeforeValueGet">
         <body><![CDATA[
-          if (this.hasAttribute("actiontype"))
-            return {value: this._value};
-          return null;
+          return {value: this._value};
         ]]></body>
       </method>
 
@@ -151,11 +149,13 @@
 
           if (action) {
             switch (action.type) {
-              case "switchtab": {
+              case "switchtab": // Fall through.
+              case "visiturl": {
                 returnValue = action.params.url;
                 break;
               }
-              case "keyword": {
+              case "keyword": // Fall through.
+              case "searchengine": {
                 returnValue = action.params.input;
                 break;
               }
@@ -183,22 +183,10 @@
       </method>
 
       <field name="_formattingEnabled">true</field>
-      <field name="_searchServiceInitialized">false</field>
       <method name="formatValue">
         <body><![CDATA[
           if (!this._formattingEnabled || this.focused)
             return;
-
-          // Initialize the search service asynchronously if that hasn't
-          // happened yet. We will need it to highlight search terms later.
-          if (!this._searchServiceInitialized) {
-            Services.search.init(() => {
-              this._searchServiceInitialized = true;
-              this.formatValue();
-            });
-
-            return;
-          }
 
           let controller = this.editor.selectionController;
           let selection = controller.getSelection(controller.SELECTION_URLSECONDARY);
@@ -234,29 +222,20 @@
             subDomain = domain.slice(0, -baseDomain.length);
           }
 
-          function addSelectionRange(start, end) {
+          let rangeLength = preDomain.length + subDomain.length;
+          if (rangeLength) {
             let range = document.createRange();
-            range.setStart(textNode, start);
-            range.setEnd(textNode, end);
+            range.setStart(textNode, 0);
+            range.setEnd(textNode, rangeLength);
             selection.addRange(range);
           }
 
-          let rangeLength = preDomain.length + subDomain.length;
-          if (rangeLength) {
-            addSelectionRange(0, rangeLength);
-          }
-
-          let result = Services.search.parseSubmissionURL(value);
           let startRest = preDomain.length + domain.length;
-
-          // Format search terms in the URL, if any.
-          if (result.termsOffset > -1 && result.termsLength) {
-            addSelectionRange(startRest, result.termsOffset);
-            startRest = result.termsOffset + result.termsLength;
-          }
-
           if (startRest < value.length) {
-            addSelectionRange(startRest, value.length);
+            let range = document.createRange();
+            range.setStart(textNode, startRest);
+            range.setEnd(textNode, value.length);
+            selection.addRange(range);
           }
         ]]></body>
       </method>
@@ -304,23 +283,31 @@
           var mayInheritPrincipal = false;
           var postData = null;
 
-          var action = this._parseActionUrl(url);
+          let action = this._parseActionUrl(this._value);
           let lastLocationChange = gBrowser.selectedBrowser.lastLocationChange;
 
           let matchLastLocationChange = true;
           if (action) {
-            if (this.hasAttribute("actiontype")) {
-              if (action.type == "switchtab") {
-                url = action.params.url;
+            if (action.type == "switchtab") {
+              url = action.params.url;
+              if (this.hasAttribute("actiontype")) {
                 this.handleRevert();
                 let prevTab = gBrowser.selectedTab;
                 if (switchToTabHavingURI(url) &&
                     isTabEmpty(prevTab))
                   gBrowser.removeTab(prevTab);
                 return;
-              } else if (action.type == "keyword") {
-                url = action.params.url;
               }
+            } else if (action.type == "keyword") {
+              url = action.params.url;
+            } else if (action.type == "searchengine") {
+              let engine = Services.search.getEngineByName(action.params.engineName);
+              let submission = engine.getSubmission(action.params.searchQuery);
+
+              url = submission.uri.spec;
+              postData = submission.postData;
+            } else if (action.type == "visiturl") {
+              url = action.params.url;
             }
             continueOperation.call(this);
           }
@@ -595,7 +582,11 @@
               urlbar.inputField.value = urlbar.inputField.value.substring(0, start) +
                                         urlbar.inputField.value.substring(end);
               urlbar.selectionStart = urlbar.selectionEnd = start;
-              urlbar.removeAttribute("actiontype");
+
+              let event = document.createEvent("UIEvents");
+              event.initUIEvent("input", true, false, window, 0);
+              urlbar.dispatchEvent(event);
+
               SetPageProxyState("invalid");
             }
 
@@ -638,7 +629,6 @@
                 this.timeout = this._prefs.getIntPref(aData);
                 break;
               case "formatting.enabled":
-                this._clearFormatting();
                 this._formattingEnabled = this._prefs.getBoolPref(aData);
                 break;
               case "trimURLs":
@@ -716,8 +706,10 @@
         ]]></body>
       </method>
 
-      <property name="textValue"
-                onget="return this.value;">
+      <property name="textValue">
+        <getter><![CDATA[
+          return this.inputField.value;
+        ]]></getter>
         <setter>
           <![CDATA[
           try {
@@ -726,8 +718,10 @@
 
           // Trim popup selected values, but never trim results coming from
           // autofill.
-          if (this.popup.selectedIndex == -1)
+          if (this.popup.selectedIndex == -1 ||
+              this.mController.getStyleAt(this.popup.selectedIndex) == "autofill") {
             this._disableTrim = true;
+          }
           this.value = val;
           this._disableTrim = false;
 
@@ -752,7 +746,6 @@
 
           // URL is in the format moz-action:ACTION,PARAMS
           // Where PARAMS is a JSON encoded object.
-          aUrl = decodeURI(aUrl);
           let [, type, params] = aUrl.match(/^moz-action:([^,]+),(.*)$/);
 
           let action = {
@@ -798,6 +791,19 @@
           this.inputField.setSelectionRange(aStartIndex, aEndIndex);
         ]]></body>
       </method>
+
+      <method name="onInput">
+        <parameter name="aEvent"/>
+        <body><![CDATA[
+          if (!this.mIgnoreInput && this.mController.input == this) {
+            this._value = this.inputField.value;
+            gBrowser.userTypedValue = this.value;
+            this.valueIsTyped = true;
+            this.mController.handleText();
+          }
+          this.resetActionType();
+        ]]></body>
+      </method>
     </implementation>
 
     <handlers>
@@ -831,7 +837,7 @@
 
       <handler event="dragstart" phase="capturing"><![CDATA[
         // Drag only if the gesture starts from the input field.
-        if (this.inputField != event.originalTarget && 
+        if (this.inputField != event.originalTarget &&
             !(this.inputField.compareDocumentPosition(event.originalTarget) &
               Node.DOCUMENT_POSITION_CONTAINED_BY))
           return;
@@ -955,6 +961,35 @@
           createBundle("chrome://browser/locale/places/places.properties");
       </field>
 
+      <!-- Override this so that navigating between items results in an item
+           always being selected. This is contrary to the normal behaviour where
+           if you navigate beyond either end of the list, no item will be
+           selected. -->
+      <method name="getNextIndex">
+        <parameter name="reverse"/>
+        <parameter name="amount"/>
+        <parameter name="index"/>
+        <parameter name="maxRow"/>
+        <body><![CDATA[
+          if (maxRow < 0)
+            return -1;
+
+          let newIndex = index + (reverse ? -1 : 1) * amount;
+
+          // We don't want to wrap if navigation in any direction by one item.
+          // Otherwise we clamp to one end of the list.
+          // ie, hitting page-down will only cause is to wrap if we're already
+          // at one end of the list.
+          if (newIndex < 0) {
+            newIndex = index > 0 ? 0 : maxRow;
+          } else if (newIndex > maxRow) {
+            newIndex = index < maxRow ? maxRow : 0;
+          }
+
+          return newIndex;
+        ]]></body>
+      </method>
+
       <property name="maxResults" readonly="true">
         <getter>
           <![CDATA[
@@ -1003,6 +1038,7 @@
           // Check for middle-click or modified clicks on the URL bar
           if (gURLBar && this.mInput == gURLBar) {
             var url = controller.getValueAt(this.selectedIndex);
+            var options = {};
 
             // close the autocomplete popup and revert the entered address
             this.closePopup();
@@ -1014,9 +1050,17 @@
               // TODO (bug 1054816): Centralise the implementation of actions
               // into a JS module.
               switch (action.type) {
-                case "switchtab": //Fall through.
-                case "keyword": {
+                case "switchtab": // Fall through.
+                case "keyword": // Fall through.
+                case "visiturl": {
                   url = action.params.url;
+                  break;
+                }
+                case "searchengine": {
+                  let engine = Services.search.getEngineByName(action.params.engineName);
+                  let submission = engine.getSubmission(action.params.searchQuery);
+                  url = submission.uri.spec;
+                  options.postData = submission.postData;
                   break;
                 }
                 default: {
@@ -1026,7 +1070,7 @@
             }
 
             // respect the usual clicking subtleties
-            openUILink(url, aEvent);
+            openUILink(url, aEvent, options);
           }
         ]]>
         </body>
@@ -1049,6 +1093,18 @@
             }
 
             return label;
+          ]]>
+        </body>
+      </method>
+
+      <method name="onResultsAdded">
+        <body>
+          <![CDATA[
+            if (!Services.prefs.getBoolPref("browser.urlbar.unifiedcomplete"))
+              return;
+
+            if (this._matchCount > 0 && this.selectedIndex == -1)
+              this.selectedIndex = 0;
           ]]>
         </body>
       </method>
@@ -1183,7 +1239,6 @@
           // Cache these as cancelling the installs will remove this
           // notification which will drop these references
           let browser = this.notification.browser;
-          let contentWindow = this.notification.options.contentWindow;
           let sourceURI = this.notification.options.sourceURI;
 
           let installs = this.notification.options.installs;
@@ -1209,7 +1264,7 @@
             callback: function() {
               let weblistener = Cc["@mozilla.org/addons/web-install-listener;1"].
                                 getService(Ci.amIWebInstallListener);
-              if (weblistener.onWebInstallRequested(contentWindow, sourceURI,
+              if (weblistener.onWebInstallRequested(browser, sourceURI,
                                                     installs, installs.length)) {
                 installs.forEach(function(aInstall) {
                   aInstall.install();
@@ -1856,8 +1911,8 @@
       </method>
       <method name="enableMixedContentProtection">
         <body><![CDATA[
-          let docShell = gBrowser.webNavigation.QueryInterface(Ci.nsIDocShell);
-          docShell.mixedContentChannel = null;
+          gBrowser.selectedBrowser.messageManager.sendAsyncMessage(
+            "MixedContent:ReenableProtection", {});
           BrowserReload();
         ]]></body>
       </method>
@@ -2584,20 +2639,4 @@
       </method>
     </implementation>
   </binding>
-
-  <binding id="toolbarbutton-badged" display="xul:button"
-           extends="chrome://global/content/bindings/toolbarbutton.xml#toolbarbutton">
-    <content>
-      <children includes="observes|template|menupopup|panel|tooltip"/>
-      <xul:hbox class="toolbarbutton-badge-container" align="start" pack="end">
-        <xul:hbox class="toolbarbutton-badge" xbl:inherits="badge"/>
-        <xul:image class="toolbarbutton-icon" xbl:inherits="validate,src=image,label"/>
-      </xul:hbox>
-      <xul:label class="toolbarbutton-text" crop="right" flex="1"
-                 xbl:inherits="value=label,accesskey,crop,wrap"/>
-      <xul:label class="toolbarbutton-multiline-text" flex="1"
-                 xbl:inherits="xbl:text=label,accesskey,wrap"/>
-    </content>
-  </binding>
-
 </bindings>

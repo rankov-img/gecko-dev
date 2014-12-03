@@ -304,8 +304,8 @@ bool ValidateRenderbufferStorageParameters(gl::Context *context, GLenum target, 
         return false;
     }
 
-    const gl::InternalFormat &formatInfo = gl::GetInternalFormatInfo(internalformat);
-    if (!formatInfo.textureSupport(context->getClientVersion(), context->getExtensions()))
+    const TextureCaps &formatCaps = context->getTextureCaps().get(internalformat);
+    if (!formatCaps.renderable)
     {
         context->recordError(Error(GL_INVALID_ENUM));
         return false;
@@ -315,6 +315,7 @@ bool ValidateRenderbufferStorageParameters(gl::Context *context, GLenum target, 
     // sized but it does state that the format must be in the ES2.0 spec table 4.5 which contains
     // only sized internal formats. The ES3 spec (section 4.4.2) does, however, state that the
     // internal format must be sized and not an integer format if samples is greater than zero.
+    const gl::InternalFormat &formatInfo = gl::GetInternalFormatInfo(internalformat);
     if (formatInfo.pixelBytes == 0)
     {
         context->recordError(Error(GL_INVALID_ENUM));
@@ -324,13 +325,6 @@ bool ValidateRenderbufferStorageParameters(gl::Context *context, GLenum target, 
     if ((formatInfo.componentType == GL_UNSIGNED_INT || formatInfo.componentType == GL_INT) && samples > 0)
     {
         context->recordError(Error(GL_INVALID_OPERATION));
-        return false;
-    }
-
-    const TextureCaps &formatCaps = context->getTextureCaps().get(internalformat);
-    if (!formatCaps.renderable)
-    {
-        context->recordError(Error(GL_INVALID_ENUM));
         return false;
     }
 
@@ -525,14 +519,16 @@ bool ValidateBlitFramebufferParameters(gl::Context *context, GLint srcX0, GLint 
 
         if (readColorBuffer && drawColorBuffer)
         {
-            GLenum readInternalFormat = readColorBuffer->getActualFormat();
+            GLenum readActualFormat = readColorBuffer->getActualFormat();
+            GLenum readInternalFormat = readColorBuffer->getInternalFormat();
             const InternalFormat &readFormatInfo = GetInternalFormatInfo(readInternalFormat);
 
             for (unsigned int i = 0; i < gl::IMPLEMENTATION_MAX_DRAW_BUFFERS; i++)
             {
                 if (drawFramebuffer->isEnabledColorAttachment(i))
                 {
-                    GLenum drawInternalFormat = drawFramebuffer->getColorbuffer(i)->getActualFormat();
+                    GLenum drawActualFormat = drawFramebuffer->getColorbuffer(i)->getActualFormat();
+                    GLenum drawInternalFormat = drawFramebuffer->getColorbuffer(i)->getInternalFormat();
                     const InternalFormat &drawFormatInfo = GetInternalFormatInfo(drawInternalFormat);
 
                     // The GL ES 3.0.2 spec (pg 193) states that:
@@ -594,7 +590,8 @@ bool ValidateBlitFramebufferParameters(gl::Context *context, GLint srcX0, GLint 
                             return false;
                         }
 
-                        if (attachment->getActualFormat() != readColorBuffer->getActualFormat())
+                        // Return an error if the destination formats do not match
+                        if (attachment->getInternalFormat() != readColorBuffer->getInternalFormat())
                         {
                             context->recordError(Error(GL_INVALID_OPERATION));
                             return false;
@@ -1033,12 +1030,6 @@ bool ValidateEndQuery(gl::Context *context, GLenum target)
     const Query *queryObject = context->getState().getActiveQuery(target);
 
     if (queryObject == NULL)
-    {
-        context->recordError(Error(GL_INVALID_OPERATION));
-        return false;
-    }
-
-    if (!queryObject->isStarted())
     {
         context->recordError(Error(GL_INVALID_OPERATION));
         return false;
@@ -1566,6 +1557,39 @@ bool ValidateDrawArraysInstanced(Context *context, GLenum mode, GLint first, GLs
     return (primcount > 0);
 }
 
+static bool ValidateDrawInstancedANGLE(Context *context)
+{
+    // Verify there is at least one active attribute with a divisor of zero
+    const gl::State& state = context->getState();
+
+    gl::ProgramBinary *programBinary = state.getCurrentProgramBinary();
+
+    const VertexArray *vao = state.getVertexArray();
+    for (int attributeIndex = 0; attributeIndex < MAX_VERTEX_ATTRIBS; attributeIndex++)
+    {
+        const VertexAttribute &attrib = vao->getVertexAttribute(attributeIndex);
+        bool active = (programBinary->getSemanticIndex(attributeIndex) != -1);
+        if (active && attrib.divisor == 0)
+        {
+            return true;
+        }
+    }
+
+    context->recordError(Error(GL_INVALID_OPERATION, "ANGLE_instanced_arrays requires that at least one active attribute"
+                                                     "has a divisor of zero."));
+    return false;
+}
+
+bool ValidateDrawArraysInstancedANGLE(Context *context, GLenum mode, GLint first, GLsizei count, GLsizei primcount)
+{
+    if (!ValidateDrawInstancedANGLE(context))
+    {
+        return false;
+    }
+
+    return ValidateDrawArraysInstanced(context, mode, first, count, primcount);
+}
+
 bool ValidateDrawElements(Context *context, GLenum mode, GLsizei count, GLenum type,
                           const GLvoid* indices, GLsizei primcount, rx::RangeUI *indexRangeOut)
 {
@@ -1646,7 +1670,7 @@ bool ValidateDrawElements(Context *context, GLenum mode, GLsizei count, GLenum t
     // TODO: also disable index checking on back-ends that are robust to out-of-range accesses.
     if (elementArrayBuffer)
     {
-        unsigned int offset = reinterpret_cast<unsigned int>(indices);
+        uintptr_t offset = reinterpret_cast<uintptr_t>(indices);
         if (!elementArrayBuffer->getIndexRangeCache()->findRange(type, offset, count, indexRangeOut, NULL))
         {
             const void *dataPointer = elementArrayBuffer->getImplementation()->getData();
@@ -1685,6 +1709,17 @@ bool ValidateDrawElementsInstanced(Context *context,
 
     // No-op zero primitive count
     return (primcount > 0);
+}
+
+bool ValidateDrawElementsInstancedANGLE(Context *context, GLenum mode, GLsizei count, GLenum type,
+                                        const GLvoid *indices, GLsizei primcount, rx::RangeUI *indexRangeOut)
+{
+    if (!ValidateDrawInstancedANGLE(context))
+    {
+        return false;
+    }
+
+    return ValidateDrawElementsInstanced(context, mode, count, type, indices, primcount, indexRangeOut);
 }
 
 bool ValidateFramebufferTextureBase(Context *context, GLenum target, GLenum attachment,

@@ -11,6 +11,11 @@ public class JavascriptTest extends BaseTest {
     private static final String LOGTAG = "JavascriptTest";
     private static final String EVENT_TYPE = JavascriptBridge.EVENT_TYPE;
 
+    // Calculate these once, at initialization. isLoggable is too expensive to
+    // have in-line in each log call.
+    private static final boolean logDebug   = Log.isLoggable(LOGTAG, Log.DEBUG);
+    private static final boolean logVerbose = Log.isLoggable(LOGTAG, Log.VERBOSE);
+
     private final String javascriptUrl;
 
     public JavascriptTest(String javascriptUrl) {
@@ -21,11 +26,14 @@ public class JavascriptTest extends BaseTest {
     public void testJavascript() throws Exception {
         blockForGeckoReady();
 
+        doTestJavascript();
+    }
+
+    protected void doTestJavascript() throws Exception {
         // We want to be waiting for Robocop messages before the page is loaded
         // because the test harness runs each test in the suite (and possibly
         // completes testing) before the page load event is fired.
-        final Actions.EventExpecter expecter =
-            mActions.expectGeckoEvent(EVENT_TYPE);
+        final Actions.EventExpecter expecter = mActions.expectGeckoEvent(EVENT_TYPE);
         mAsserter.dumpLog("Registered listener for " + EVENT_TYPE);
 
         final String url = getAbsoluteUrl(StringHelper.getHarnessUrlForJavascript(javascriptUrl));
@@ -36,11 +44,11 @@ public class JavascriptTest extends BaseTest {
                 new JavascriptMessageParser(mAsserter, false);
         try {
             while (!testMessageParser.isTestFinished()) {
-                if (Log.isLoggable(LOGTAG, Log.VERBOSE)) {
+                if (logVerbose) {
                     Log.v(LOGTAG, "Waiting for " + EVENT_TYPE);
                 }
                 String data = expecter.blockForEventData();
-                if (Log.isLoggable(LOGTAG, Log.VERBOSE)) {
+                if (logVerbose) {
                     Log.v(LOGTAG, "Got event with data '" + data + "'");
                 }
 
@@ -57,7 +65,7 @@ public class JavascriptTest extends BaseTest {
                 testMessageParser.logMessage(message);
             }
 
-            if (Log.isLoggable(LOGTAG, Log.DEBUG)) {
+            if (logDebug) {
                 Log.d(LOGTAG, "Got test finished message");
             }
         } finally {

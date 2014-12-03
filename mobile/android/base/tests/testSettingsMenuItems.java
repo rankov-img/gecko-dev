@@ -60,7 +60,7 @@ public class testSettingsMenuItems extends PixelTest {
     // Privacy menu items.
     String[] PATH_PRIVACY = { StringHelper.PRIVACY_SECTION_LABEL };
     String[][] OPTIONS_PRIVACY = {
-        { StringHelper.TRACKING_LABEL, "Do not tell sites anything about my tracking preferences", "Tell sites that I do not want to be tracked", "Tell sites that I want to be tracked", "Do not tell sites anything about my tracking preferences" },
+        { StringHelper.TRACKING_LABEL },
         { StringHelper.COOKIES_LABEL, "Enabled", "Enabled, excluding 3rd party", "Disabled" },
         { StringHelper.REMEMBER_PASSWORDS_LABEL },
         { StringHelper.MASTER_PASSWORD_LABEL },
@@ -172,7 +172,7 @@ public class testSettingsMenuItems extends PixelTest {
 
             if (AppConstants.MOZ_STUMBLER_BUILD_TIME_ENABLED) {
                 // Anonymous cell tower/wifi collection
-                String[] networkReportingUi = { "Mozilla Location Service", "Receives Wi-Fi and cellular location data when running in the background and shares it with Mozilla to improve our geolocation service" };
+                String[] networkReportingUi = { "Mozilla Location Service", "Shares approximate Wi-Fi and cellular location of your device with Mozilla to improve our geolocation service" };
                 settingsMap.get(PATH_MOZILLA).add(networkReportingUi);
 
                 String[] learnMoreUi = { "Learn more" };

@@ -11,7 +11,7 @@
 
 #include <stdint.h>                     // for uint16_t, uint32_t
 #include <sys/types.h>                  // for int32_t
-#include "gfxPrefs.h"                   // for gfxPrefs::LayersTileWidth/Height
+#include "gfxPlatform.h"                // for GetTileWidth/GetTileHeight
 #include "nsDebug.h"                    // for NS_ABORT_IF_FALSE
 #include "nsPoint.h"                    // for nsIntPoint
 #include "nsRect.h"                     // for nsIntRect
@@ -94,7 +94,7 @@ public:
     : mRetainedWidth(0)
     , mRetainedHeight(0)
     , mResolution(1)
-    , mTileSize(gfxPrefs::LayersTileWidth(), gfxPrefs::LayersTileHeight())
+    , mTileSize(gfxPlatform::GetPlatform()->GetTileWidth(), gfxPlatform::GetPlatform()->GetTileHeight())
   {}
 
   ~TiledLayerBuffer() {}
@@ -222,8 +222,11 @@ public:
    * ReadLock state, so that the locks can be adopted when recreating a
    * ClientTiledLayerBuffer locally. This lock will be retained until the buffer
    * has completed uploading.
+   *
+   * Returns false if a deserialization error happened, in which case we will
+   * have to kill the child process.
    */
-  virtual void UseTiledLayerBuffer(ISurfaceAllocator* aAllocator,
+  virtual bool UseTiledLayerBuffer(ISurfaceAllocator* aAllocator,
                                    const SurfaceDescriptorTiles& aTiledDescriptor) = 0;
 
   /**

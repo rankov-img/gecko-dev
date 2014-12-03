@@ -22,7 +22,7 @@ js_IdIsIndex(jsid id, uint32_t *indexp)
 {
     if (JSID_IS_INT(id)) {
         int32_t i = JSID_TO_INT(id);
-        JS_ASSERT(i >= 0);
+        MOZ_ASSERT(i >= 0);
         *indexp = (uint32_t)i;
         return true;
     }
@@ -85,7 +85,8 @@ NewDenseArray(ExclusiveContext *cx, uint32_t length, HandleTypeObject type,
 
 /* Create a dense array with a copy of the dense array elements in src. */
 extern ArrayObject *
-NewDenseCopiedArray(JSContext *cx, uint32_t length, HandleObject src, uint32_t elementOffset, JSObject *proto = nullptr);
+NewDenseCopiedArray(JSContext *cx, uint32_t length, HandleArrayObject src,
+                    uint32_t elementOffset, JSObject *proto = nullptr);
 
 /* Create a dense array from the given array values, which must be rooted */
 extern ArrayObject *
@@ -98,7 +99,7 @@ NewDenseFullyAllocatedArrayWithTemplate(JSContext *cx, uint32_t length, JSObject
 
 /* Create a dense array with the same copy-on-write elements as another object. */
 extern JSObject *
-NewDenseCopyOnWriteArray(JSContext *cx, HandleObject templateObject, gc::InitialHeap heap);
+NewDenseCopyOnWriteArray(JSContext *cx, HandleNativeObject templateObject, gc::InitialHeap heap);
 
 /*
  * Determines whether a write to the given element on |obj| should fail because
@@ -174,10 +175,16 @@ extern JSString *
 array_join_impl(JSContext *cx, HandleValue array, HandleString sep);
 
 extern void
-ArrayShiftMoveElements(JSObject *obj);
+ArrayShiftMoveElements(ArrayObject *obj);
 
 extern bool
 array_shift(JSContext *cx, unsigned argc, js::Value *vp);
+
+extern bool
+array_unshift(JSContext *cx, unsigned argc, js::Value *vp);
+
+extern bool
+array_slice(JSContext *cx, unsigned argc, js::Value *vp);
 
 /*
  * Append the given (non-hole) value to the end of an array.  The array must be
@@ -188,6 +195,9 @@ array_shift(JSContext *cx, unsigned argc, js::Value *vp);
  */
 extern bool
 NewbornArrayPush(JSContext *cx, HandleObject obj, const Value &v);
+
+extern ArrayObject *
+ArrayConstructorOneArg(JSContext *cx, HandleTypeObject type, int32_t lengthInt);
 
 } /* namespace js */
 

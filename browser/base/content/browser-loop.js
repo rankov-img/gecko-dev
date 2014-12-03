@@ -11,11 +11,10 @@ XPCOMUtils.defineLazyModuleGetter(this, "PanelFrame", "resource:///modules/Panel
 
 
 (function() {
-
   LoopUI = {
     get toolbarButton() {
       delete this.toolbarButton;
-      return this.toolbarButton = CustomizableUI.getWidget("loop-call-button").forWindow(window);
+      return this.toolbarButton = CustomizableUI.getWidget("loop-button").forWindow(window);
     },
 
     /**
@@ -44,20 +43,8 @@ XPCOMUtils.defineLazyModuleGetter(this, "PanelFrame", "resource:///modules/Panel
      * delayedStartup.
      */
     init: function() {
-      if (!Services.prefs.getBoolPref("loop.enabled")) {
-        this.toolbarButton.node.hidden = true;
-        return;
-      }
-
       // Add observer notifications before the service is initialized
       Services.obs.addObserver(this, "loop-status-changed", false);
-
-      // If we're throttled, check to see if it's our turn to be unthrottled
-      if (Services.prefs.getBoolPref("loop.throttled")) {
-        this.toolbarButton.node.hidden = true;
-        MozLoopService.checkSoftStart(this.toolbarButton.node);
-        return;
-      }
 
       MozLoopService.initialize();
       this.updateToolbarState();
@@ -86,6 +73,9 @@ XPCOMUtils.defineLazyModuleGetter(this, "PanelFrame", "resource:///modules/Panel
      *                   temporarily shown until the next state change.
      */
     updateToolbarState: function(aReason = null) {
+      if (!this.toolbarButton.node) {
+        return;
+      }
       let state = "";
       if (MozLoopService.errors.size) {
         state = "error";
@@ -93,8 +83,28 @@ XPCOMUtils.defineLazyModuleGetter(this, "PanelFrame", "resource:///modules/Panel
         state = "active";
       } else if (MozLoopService.doNotDisturb) {
         state = "disabled";
+      } else if (MozLoopService.roomsParticipantsCount > 0) {
+        state = "active";
       }
       this.toolbarButton.node.setAttribute("state", state);
+    },
+
+    /**
+     * Play a sound in this window IF there's no sound playing yet.
+     *
+     * @param {String} name Name of the sound, like 'ringtone' or 'room-joined'
+     */
+    playSound: function(name) {
+      if (this.ActiveSound || MozLoopService.doNotDisturb) {
+        return;
+      }
+
+      this.activeSound = new window.Audio();
+      this.activeSound.src = `chrome://browser/content/loop/shared/sounds/${name}.ogg`;
+      this.activeSound.load();
+      this.activeSound.play();
+
+      this.activeSound.addEventListener("ended", () => this.activeSound = undefined, false);
     },
   };
 })();

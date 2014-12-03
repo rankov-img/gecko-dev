@@ -143,15 +143,18 @@ let ContentPolicyChild = {
     }
   },
 
-  shouldLoad: function(contentType, contentLocation, requestOrigin, node, mimeTypeGuess, extra) {
+  shouldLoad: function(contentType, contentLocation, requestOrigin,
+                       node, mimeTypeGuess, extra, requestPrincipal) {
     let cpmm = Cc["@mozilla.org/childprocessmessagemanager;1"]
                .getService(Ci.nsISyncMessageSender);
-    let rval = cpmm.sendRpcMessage("Addons:ContentPolicy:Run", {}, {
+    let rval = cpmm.sendRpcMessage("Addons:ContentPolicy:Run", {
       contentType: contentType,
+      contentLocation: contentLocation.spec,
+      requestOrigin: requestOrigin ? requestOrigin.spec : null,
       mimeTypeGuess: mimeTypeGuess,
-      contentLocation: contentLocation,
-      requestOrigin: requestOrigin,
-      node: node
+      requestPrincipal: requestPrincipal,
+    }, {
+      node: node, // Sent as a CPOW.
     });
     if (rval.length != 1) {
       return Ci.nsIContentPolicy.ACCEPT;
@@ -322,8 +325,8 @@ let AboutProtocolChild = {
       this._instances[contractID] = instance;
       registrar.registerFactory(this._classID, this._classDescription, contractID, instance);
     } else {
+      registrar.unregisterFactory(this._classID, this._instances[contractID]);
       delete this._instances[contractID];
-      registerFactory.unregisterFactory(this._classID, this);
     }
   },
 };
@@ -361,6 +364,8 @@ let ObserverChild = {
 function EventTargetChild(childGlobal)
 {
   this._childGlobal = childGlobal;
+  this.capturingHandler = (event) => this.handleEvent(true, event);
+  this.nonCapturingHandler = (event) => this.handleEvent(false, event);
   NotificationTracker.watch("event", this);
 }
 
@@ -372,7 +377,7 @@ EventTargetChild.prototype = {
   track: function(path, register) {
     let eventType = path[1];
     let useCapture = path[2];
-    let listener = (event) => this.handleEvent(useCapture, event);
+    let listener = useCapture ? this.capturingHandler : this.nonCapturingHandler;
     if (register) {
       this._childGlobal.addEventListener(eventType, listener, useCapture, true);
     } else {

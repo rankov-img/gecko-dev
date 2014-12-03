@@ -96,6 +96,7 @@ this.ContentSearch = {
       addMessageListener(INBOUND_MESSAGE, this);
     Services.obs.addObserver(this, "browser-search-engine-modified", false);
     Services.obs.addObserver(this, "shutdown-leaks-before-check", false);
+    this._stringBundle = Services.strings.createBundle("chrome://global/locale/autocomplete.properties");
   },
 
   destroy: function () {
@@ -273,12 +274,14 @@ this.ContentSearch = {
   }),
 
   _onMessageAddFormHistoryEntry: function (msg, entry) {
-    // There are some tests that use about:home and newtab that trigger a search
-    // and then immediately close the tab.  In those cases, the browser may have
-    // been destroyed by the time we receive this message, and as a result
-    // contentWindow is undefined.
-    if (!msg.target.contentWindow ||
-        PrivateBrowsingUtils.isBrowserPrivate(msg.target)) {
+    let isPrivate = true;
+    try {
+      // isBrowserPrivate assumes that the passed-in browser has all the normal
+      // properties, which won't be true if the browser has been destroyed.
+      // That may be the case here due to the asynchronous nature of messaging.
+      isPrivate = PrivateBrowsingUtils.isBrowserPrivate(msg.target);
+    } catch (err) {}
+    if (isPrivate || entry === "") {
       return Promise.resolve();
     }
     let browserData = this._suggestionDataForBrowser(msg.target, true);
@@ -386,10 +389,15 @@ this.ContentSearch = {
 
   _currentEngineObj: Task.async(function* () {
     let engine = Services.search.currentEngine;
+    let favicon = engine.getIconURLBySize(16, 16);
     let uri1x = engine.getIconURLBySize(65, 26);
     let uri2x = engine.getIconURLBySize(130, 52);
+    let placeholder = this._stringBundle.formatStringFromName(
+      "searchWithEngine", [engine.name], 1);
     let obj = {
       name: engine.name,
+      placeholder: placeholder,
+      iconBuffer: yield this._arrayBufferFromDataURI(favicon),
       logoBuffer: yield this._arrayBufferFromDataURI(uri1x),
       logo2xBuffer: yield this._arrayBufferFromDataURI(uri2x),
     };

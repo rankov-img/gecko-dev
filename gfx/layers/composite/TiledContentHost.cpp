@@ -4,7 +4,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "TiledContentHost.h"
-#include "ThebesLayerComposite.h"       // for ThebesLayerComposite
+#include "PaintedLayerComposite.h"      // for PaintedLayerComposite
 #include "mozilla/gfx/BaseSize.h"       // for BaseSize
 #include "mozilla/gfx/Matrix.h"         // for Matrix4x4
 #include "mozilla/layers/Compositor.h"  // for Compositor
@@ -30,7 +30,7 @@ class Layer;
 TiledLayerBufferComposite::TiledLayerBufferComposite()
   : mFrameResolution(1.0)
   , mHasDoubleBufferedTiles(false)
-  , mUninitialized(true)
+  , mIsValid(false)
 {}
 
 /* static */ void
@@ -43,7 +43,7 @@ TiledLayerBufferComposite::TiledLayerBufferComposite(ISurfaceAllocator* aAllocat
                                                      const SurfaceDescriptorTiles& aDescriptor,
                                                      const nsIntRegion& aOldPaintedRegion)
 {
-  mUninitialized = false;
+  mIsValid = true;
   mHasDoubleBufferedTiles = false;
   mValidRegion = aDescriptor.validRegion();
   mPaintedRegion = aDescriptor.paintedRegion();
@@ -56,6 +56,8 @@ TiledLayerBufferComposite::TiledLayerBufferComposite(ISurfaceAllocator* aAllocat
   nsIntRegion oldPaintedRegion(aOldPaintedRegion);
   oldPaintedRegion.And(oldPaintedRegion, mValidRegion);
   mPaintedRegion.Or(mPaintedRegion, oldPaintedRegion);
+
+  bool isSameProcess = aAllocator->IsSameProcess();
 
   const InfallibleTArray<TileDescriptor>& tiles = aDescriptor.tiles();
   for(size_t i = 0; i < tiles.Length(); i++) {
@@ -74,6 +76,17 @@ TiledLayerBufferComposite::TiledLayerBufferComposite(ISurfaceAllocator* aAllocat
         if (ipcLock.type() == TileLock::TShmemSection) {
           sharedLock = gfxShmSharedReadLock::Open(aAllocator, ipcLock.get_ShmemSection());
         } else {
+          if (!isSameProcess) {
+            // Trying to use a memory based lock instead of a shmem based one in
+            // the cross-process case is a bad security violation.
+            NS_ERROR("A client process may be trying to peek at the host's address space!");
+            // This tells the TiledContentHost that deserialization failed so that
+            // it can propagate the error.
+            mIsValid = false;
+
+            mRetainedTiles.Clear();
+            return;
+          }
           sharedLock = reinterpret_cast<gfxMemorySharedReadLock*>(ipcLock.get_uintptr_t());
           if (sharedLock) {
             // The corresponding AddRef is in TiledClient::GetTileDescriptor
@@ -287,7 +300,7 @@ TiledContentHost::Detach(Layer* aLayer,
   CompositableHost::Detach(aLayer,aFlags);
 }
 
-void
+bool
 TiledContentHost::UseTiledLayerBuffer(ISurfaceAllocator* aAllocator,
                                       const SurfaceDescriptorTiles& aTiledDescriptor)
 {
@@ -310,6 +323,14 @@ TiledContentHost::UseTiledLayerBuffer(ISurfaceAllocator* aAllocator,
     mLowPrecisionTiledBuffer =
       TiledLayerBufferComposite(aAllocator, aTiledDescriptor,
                                 mLowPrecisionTiledBuffer.GetPaintedRegion());
+    if (!mLowPrecisionTiledBuffer.IsValid()) {
+      // Something bad happened. Stop here, return false (kills the child process),
+      // and do as little work as possible on the received data as it appears
+      // to be corrupted.
+      mPendingLowPrecisionUpload = false;
+      mPendingUpload = false;
+      return false;
+    }
   } else {
     if (mPendingUpload) {
       mTiledBuffer.ReadUnlock();
@@ -322,7 +343,16 @@ TiledContentHost::UseTiledLayerBuffer(ISurfaceAllocator* aAllocator,
     }
     mTiledBuffer = TiledLayerBufferComposite(aAllocator, aTiledDescriptor,
                                              mTiledBuffer.GetPaintedRegion());
+    if (!mTiledBuffer.IsValid()) {
+      // Something bad happened. Stop here, return false (kills the child process),
+      // and do as little work as possible on the received data as it appears
+      // to be corrupted.
+      mPendingLowPrecisionUpload = false;
+      mPendingUpload = false;
+      return false;
+    }
   }
+  return true;
 }
 
 void
@@ -431,15 +461,6 @@ TiledContentHost::RenderTile(const TileHost& aTile,
     return;
   }
 
-  nsIntRect screenBounds = aScreenRegion.GetBounds();
-  Rect layerQuad(screenBounds.x, screenBounds.y, screenBounds.width, screenBounds.height);
-  RenderTargetRect quad = RenderTargetRect::FromUnknown(aTransform.TransformBounds(layerQuad));
-
-  if (!quad.Intersects(mCompositor->ClipRectInLayersCoordinates(mLayer,
-      RenderTargetIntRect(aClipRect.x, aClipRect.y, aClipRect.width, aClipRect.height)))) {
-    return;
-  }
-
   if (aBackgroundColor) {
     aEffectChain.mPrimaryEffect = new EffectSolidColor(ToColor(*aBackgroundColor));
     nsIntRegionRectIterator it(aScreenRegion);
@@ -456,8 +477,8 @@ TiledContentHost::RenderTile(const TileHost& aTile,
     NS_WARNING("Failed to lock tile");
     return;
   }
-  RefPtr<NewTextureSource> source = aTile.mTextureHost->GetTextureSources();
-  RefPtr<NewTextureSource> sourceOnWhite =
+  RefPtr<TextureSource> source = aTile.mTextureHost->GetTextureSources();
+  RefPtr<TextureSource> sourceOnWhite =
     aTile.mTextureHostOnWhite ? aTile.mTextureHostOnWhite->GetTextureSources() : nullptr;
   if (!source || (aTile.mTextureHostOnWhite && !sourceOnWhite)) {
     return;
@@ -526,8 +547,8 @@ TiledContentHost::RenderLayerBuffer(TiledLayerBufferComposite& aLayerBuffer,
 
   // Make sure the resolution and difference in frame resolution are accounted
   // for in the layer transform.
-  aTransform.Scale(1/(resolution * layerScale.width),
-                   1/(resolution * layerScale.height), 1);
+  aTransform.PreScale(1/(resolution * layerScale.width),
+                      1/(resolution * layerScale.height), 1);
 
   uint32_t rowCount = 0;
   uint32_t tileX = 0;

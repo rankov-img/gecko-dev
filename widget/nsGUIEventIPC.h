@@ -363,6 +363,37 @@ struct ParamTraits<mozilla::WidgetKeyboardEvent>
 };
 
 template<>
+struct ParamTraits<mozilla::InternalBeforeAfterKeyboardEvent>
+{
+  typedef mozilla::InternalBeforeAfterKeyboardEvent paramType;
+
+  static void Write(Message* aMsg, const paramType& aParam)
+  {
+    WriteParam(aMsg, static_cast<mozilla::WidgetKeyboardEvent>(aParam));
+    WriteParam(aMsg, aParam.mEmbeddedCancelled.IsNull());
+    WriteParam(aMsg, aParam.mEmbeddedCancelled.Value());
+  }
+
+  static bool Read(const Message* aMsg, void** aIter, paramType* aResult)
+  {
+    bool isNull;
+    bool value;
+    bool rv =
+      ReadParam(aMsg, aIter,
+                static_cast<mozilla::WidgetKeyboardEvent*>(aResult)) &&
+      ReadParam(aMsg, aIter, &isNull) &&
+      ReadParam(aMsg, aIter, &value);
+
+    aResult->mEmbeddedCancelled = Nullable<bool>();
+    if (rv && !isNull) {
+      aResult->mEmbeddedCancelled.SetValue(value);
+    }
+
+    return rv;
+  }
+};
+
+template<>
 struct ParamTraits<mozilla::TextRangeStyle>
 {
   typedef mozilla::TextRangeStyle paramType;
@@ -442,16 +473,15 @@ struct ParamTraits<mozilla::TextRangeArray>
 };
 
 template<>
-struct ParamTraits<mozilla::WidgetTextEvent>
+struct ParamTraits<mozilla::WidgetCompositionEvent>
 {
-  typedef mozilla::WidgetTextEvent paramType;
+  typedef mozilla::WidgetCompositionEvent paramType;
 
   static void Write(Message* aMsg, const paramType& aParam)
   {
     WriteParam(aMsg, static_cast<mozilla::WidgetGUIEvent>(aParam));
     WriteParam(aMsg, aParam.mSeqno);
-    WriteParam(aMsg, aParam.theText);
-    WriteParam(aMsg, aParam.isChar);
+    WriteParam(aMsg, aParam.mData);
     bool hasRanges = !!aParam.mRanges;
     WriteParam(aMsg, hasRanges);
     if (hasRanges) {
@@ -465,8 +495,7 @@ struct ParamTraits<mozilla::WidgetTextEvent>
     if (!ReadParam(aMsg, aIter,
                    static_cast<mozilla::WidgetGUIEvent*>(aResult)) ||
         !ReadParam(aMsg, aIter, &aResult->mSeqno) ||
-        !ReadParam(aMsg, aIter, &aResult->theText) ||
-        !ReadParam(aMsg, aIter, &aResult->isChar) ||
+        !ReadParam(aMsg, aIter, &aResult->mData) ||
         !ReadParam(aMsg, aIter, &hasRanges)) {
       return false;
     }
@@ -475,35 +504,11 @@ struct ParamTraits<mozilla::WidgetTextEvent>
       aResult->mRanges = nullptr;
     } else {
       aResult->mRanges = new mozilla::TextRangeArray();
-      if (!aResult->mRanges) {
-        return false;
-      }
       if (!ReadParam(aMsg, aIter, aResult->mRanges.get())) {
         return false;
       }
     }
     return true;
-  }
-};
-
-template<>
-struct ParamTraits<mozilla::WidgetCompositionEvent>
-{
-  typedef mozilla::WidgetCompositionEvent paramType;
-
-  static void Write(Message* aMsg, const paramType& aParam)
-  {
-    WriteParam(aMsg, static_cast<mozilla::WidgetGUIEvent>(aParam));
-    WriteParam(aMsg, aParam.mSeqno);
-    WriteParam(aMsg, aParam.data);
-  }
-
-  static bool Read(const Message* aMsg, void** aIter, paramType* aResult)
-  {
-    return ReadParam(aMsg, aIter,
-                     static_cast<mozilla::WidgetGUIEvent*>(aResult)) &&
-           ReadParam(aMsg, aIter, &aResult->mSeqno) &&
-           ReadParam(aMsg, aIter, &aResult->data);
   }
 };
 

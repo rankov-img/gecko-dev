@@ -10,15 +10,15 @@
 
 #include "jit/CompactBuffer.h"
 #include "jit/IonCaches.h"
-#include "jit/IonMacroAssembler.h"
 #include "jit/JitcodeMap.h"
 #include "jit/JitSpewer.h"
+#include "jit/MacroAssembler.h"
 #include "jit/MIR.h"
 #include "jit/MIRGenerator.h"
 #include "jit/ParallelFunctions.h"
 #include "vm/TraceLogging.h"
 
-#include "jit/IonFrames-inl.h"
+#include "jit/JitFrames-inl.h"
 
 using namespace js;
 using namespace js::jit;
@@ -57,7 +57,7 @@ CodeGeneratorShared::CodeGeneratorShared(MIRGenerator *gen, LIRGraph *graph, Mac
     nativeToBytecodeNumRegions_(0),
     nativeToBytecodeScriptList_(nullptr),
     nativeToBytecodeScriptListLength_(0),
-    sps_(&GetIonContext()->runtime->spsProfiler(), &lastNotInlinedPC_),
+    sps_(&GetJitContext()->runtime->spsProfiler(), &lastNotInlinedPC_),
     osrEntryOffset_(0),
     skipArgCheckEntryOffset_(0),
 #ifdef CHECK_OSIPOINT_REGISTERS
@@ -73,21 +73,26 @@ CodeGeneratorShared::CodeGeneratorShared(MIRGenerator *gen, LIRGraph *graph, Mac
         // Since asm.js uses the system ABI which does not necessarily use a
         // regular array where all slots are sizeof(Value), it maintains the max
         // argument stack depth separately.
-        JS_ASSERT(graph->argumentSlotCount() == 0);
+        MOZ_ASSERT(graph->argumentSlotCount() == 0);
         frameDepth_ += gen->maxAsmJSStackArgBytes();
 
-        // If the function uses any SIMD, we may need to insert padding so that
-        // local slots are aligned for SIMD.
         if (gen->usesSimd()) {
-            frameInitialAdjustment_ = ComputeByteAlignment(sizeof(AsmJSFrame), AsmJSStackAlignment);
+            // If the function uses any SIMD then we may need to insert padding
+            // so that local slots are aligned for SIMD.
+            frameInitialAdjustment_ = ComputeByteAlignment(sizeof(AsmJSFrame),
+                                                           AsmJSStackAlignment);
             frameDepth_ += frameInitialAdjustment_;
+            // Keep the stack aligned. Some SIMD sequences build values on the
+            // stack and need the stack aligned.
+            frameDepth_ += ComputeByteAlignment(sizeof(AsmJSFrame) + frameDepth_,
+                                                AsmJSStackAlignment);
+        } else if (gen->performsCall()) {
+            // An MAsmJSCall does not align the stack pointer at calls sites but
+            // instead relies on the a priori stack adjustment. This must be the
+            // last adjustment of frameDepth_.
+            frameDepth_ += ComputeByteAlignment(sizeof(AsmJSFrame) + frameDepth_,
+                                                AsmJSStackAlignment);
         }
-
-        // An MAsmJSCall does not align the stack pointer at calls sites but instead
-        // relies on the a priori stack adjustment. This must be the last
-        // adjustment of frameDepth_.
-        if (gen->performsCall())
-            frameDepth_ += ComputeByteAlignment(sizeof(AsmJSFrame) + frameDepth_, AsmJSStackAlignment);
 
         // FrameSizeClass is only used for bailing, which cannot happen in
         // asm.js code.
@@ -135,40 +140,41 @@ CodeGeneratorShared::generateOutOfLineCode()
 bool
 CodeGeneratorShared::addOutOfLineCode(OutOfLineCode *code, const MInstruction *mir)
 {
-    JS_ASSERT(mir);
+    MOZ_ASSERT(mir);
     return addOutOfLineCode(code, mir->trackedSite());
 }
 
 bool
-CodeGeneratorShared::addOutOfLineCode(OutOfLineCode *code, const BytecodeSite &site)
+CodeGeneratorShared::addOutOfLineCode(OutOfLineCode *code, const BytecodeSite *site)
 {
     code->setFramePushed(masm.framePushed());
     code->setBytecodeSite(site);
-    JS_ASSERT_IF(!gen->compilingAsmJS(), code->script()->containsPC(code->pc()));
+    MOZ_ASSERT_IF(!gen->compilingAsmJS(), code->script()->containsPC(code->pc()));
     return outOfLineCode_.append(code);
 }
 
 bool
-CodeGeneratorShared::addNativeToBytecodeEntry(const BytecodeSite &site)
+CodeGeneratorShared::addNativeToBytecodeEntry(const BytecodeSite *site)
 {
     // Skip the table entirely if profiling is not enabled.
     if (!isNativeToBytecodeMapEnabled())
         return true;
 
-    JS_ASSERT(site.tree());
-    JS_ASSERT(site.pc());
+    MOZ_ASSERT(site);
+    MOZ_ASSERT(site->tree());
+    MOZ_ASSERT(site->pc());
 
-    InlineScriptTree *tree = site.tree();
-    jsbytecode *pc = site.pc();
+    InlineScriptTree *tree = site->tree();
+    jsbytecode *pc = site->pc();
     uint32_t nativeOffset = masm.currentOffset();
 
-    JS_ASSERT_IF(nativeToBytecodeList_.empty(), nativeOffset == 0);
+    MOZ_ASSERT_IF(nativeToBytecodeList_.empty(), nativeOffset == 0);
 
     if (!nativeToBytecodeList_.empty()) {
         size_t lastIdx = nativeToBytecodeList_.length() - 1;
         NativeToBytecode &lastEntry = nativeToBytecodeList_[lastIdx];
 
-        JS_ASSERT(nativeOffset >= lastEntry.nativeOffset.offset());
+        MOZ_ASSERT(nativeOffset >= lastEntry.nativeOffset.offset());
 
         // If the new entry is for the same inlineScriptTree and same
         // bytecodeOffset, but the nativeOffset has changed, do nothing.
@@ -266,11 +272,11 @@ static inline int32_t
 ToStackIndex(LAllocation *a)
 {
     if (a->isStackSlot()) {
-        JS_ASSERT(a->toStackSlot()->slot() >= 1);
+        MOZ_ASSERT(a->toStackSlot()->slot() >= 1);
         return a->toStackSlot()->slot();
     }
-    JS_ASSERT(-int32_t(sizeof(IonJSFrameLayout)) <= a->toArgument()->index());
-    return -int32_t(sizeof(IonJSFrameLayout) + a->toArgument()->index());
+    MOZ_ASSERT(-int32_t(sizeof(JitFrameLayout)) <= a->toArgument()->index());
+    return -int32_t(sizeof(JitFrameLayout) + a->toArgument()->index());
 }
 
 bool
@@ -360,7 +366,7 @@ CodeGeneratorShared::encodeAllocation(LSnapshot *snapshot, MDefinition *mir,
       }
       default:
       {
-        JS_ASSERT(mir->type() == MIRType_Value);
+        MOZ_ASSERT(mir->type() == MIRType_Value);
         LAllocation *payload = snapshot->payloadOfSlot(*allocIndex);
 #ifdef JS_NUNBOX32
         LAllocation *type = snapshot->typeOfSlot(*allocIndex);
@@ -401,7 +407,7 @@ CodeGeneratorShared::encode(LRecoverInfo *recover)
             (void *)recover, recover->mir()->frameCount(), numInstructions);
 
     MResumePoint::Mode mode = recover->mir()->mode();
-    JS_ASSERT(mode != MResumePoint::Outer);
+    MOZ_ASSERT(mode != MResumePoint::Outer);
     bool resumeAfter = (mode == MResumePoint::ResumeAfter);
 
     RecoverOffset offset = recovers_.startRecover(numInstructions, resumeAfter);
@@ -441,7 +447,7 @@ CodeGeneratorShared::encode(LSnapshot *snapshot)
     uint32_t mirOpcode = 0;
     uint32_t mirId = 0;
 
-    if (LInstruction *ins = instruction()) {
+    if (LNode *ins = instruction()) {
         lirOpcode = ins->op();
         lirId = ins->id();
         if (ins->mirRaw()) {
@@ -471,7 +477,7 @@ CodeGeneratorShared::encode(LSnapshot *snapshot)
 bool
 CodeGeneratorShared::assignBailoutId(LSnapshot *snapshot)
 {
-    JS_ASSERT(snapshot->snapshotOffset() != INVALID_SNAPSHOT_OFFSET);
+    MOZ_ASSERT(snapshot->snapshotOffset() != INVALID_SNAPSHOT_OFFSET);
 
     // Can we not use bailout tables at all?
     if (!deoptTable_)
@@ -484,7 +490,7 @@ CodeGeneratorShared::assignBailoutId(LSnapshot *snapshot)
       default: MOZ_CRASH("No such execution mode");
     }
 
-    JS_ASSERT(frameClass_ != FrameSizeClass::None());
+    MOZ_ASSERT(frameClass_ != FrameSizeClass::None());
 
     if (snapshot->bailoutId() != INVALID_BAILOUT_ID)
         return true;
@@ -556,7 +562,7 @@ CodeGeneratorShared::createNativeToBytecodeScriptList(JSContext *cx)
         }
 
         // Otherwise, we must have reached the top without finding any siblings.
-        JS_ASSERT(tree->isOutermostCaller());
+        MOZ_ASSERT(tree->isOutermostCaller());
         break;
     }
 
@@ -577,12 +583,12 @@ CodeGeneratorShared::createNativeToBytecodeScriptList(JSContext *cx)
 bool
 CodeGeneratorShared::generateCompactNativeToBytecodeMap(JSContext *cx, JitCode *code)
 {
-    JS_ASSERT(nativeToBytecodeScriptListLength_ == 0);
-    JS_ASSERT(nativeToBytecodeScriptList_ == nullptr);
-    JS_ASSERT(nativeToBytecodeMap_ == nullptr);
-    JS_ASSERT(nativeToBytecodeMapSize_ == 0);
-    JS_ASSERT(nativeToBytecodeTableOffset_ == 0);
-    JS_ASSERT(nativeToBytecodeNumRegions_ == 0);
+    MOZ_ASSERT(nativeToBytecodeScriptListLength_ == 0);
+    MOZ_ASSERT(nativeToBytecodeScriptList_ == nullptr);
+    MOZ_ASSERT(nativeToBytecodeMap_ == nullptr);
+    MOZ_ASSERT(nativeToBytecodeMapSize_ == 0);
+    MOZ_ASSERT(nativeToBytecodeTableOffset_ == 0);
+    MOZ_ASSERT(nativeToBytecodeNumRegions_ == 0);
 
     // Iterate through all nativeToBytecode entries, fix up their masm offsets.
     for (unsigned i = 0; i < nativeToBytecodeList_.length(); i++) {
@@ -595,8 +601,8 @@ CodeGeneratorShared::generateCompactNativeToBytecodeMap(JSContext *cx, JitCode *
     if (!createNativeToBytecodeScriptList(cx))
         return false;
 
-    JS_ASSERT(nativeToBytecodeScriptListLength_ > 0);
-    JS_ASSERT(nativeToBytecodeScriptList_ != nullptr);
+    MOZ_ASSERT(nativeToBytecodeScriptListLength_ > 0);
+    MOZ_ASSERT(nativeToBytecodeScriptList_ != nullptr);
 
     CompactBufferWriter writer;
     uint32_t tableOffset = 0;
@@ -608,16 +614,19 @@ CodeGeneratorShared::generateCompactNativeToBytecodeMap(JSContext *cx, JitCode *
             &nativeToBytecodeList_[0] + nativeToBytecodeList_.length(),
             &tableOffset, &numRegions))
     {
+        js_free(nativeToBytecodeScriptList_);
         return false;
     }
 
-    JS_ASSERT(tableOffset > 0);
-    JS_ASSERT(numRegions > 0);
+    MOZ_ASSERT(tableOffset > 0);
+    MOZ_ASSERT(numRegions > 0);
 
     // Writer is done, copy it to sized buffer.
     uint8_t *data = cx->runtime()->pod_malloc<uint8_t>(writer.length());
-    if (!data)
+    if (!data) {
+        js_free(nativeToBytecodeScriptList_);
         return false;
+    }
 
     memcpy(data, writer.buffer(), writer.length());
     nativeToBytecodeMap_ = data;
@@ -637,40 +646,40 @@ void
 CodeGeneratorShared::verifyCompactNativeToBytecodeMap(JitCode *code)
 {
 #ifdef DEBUG
-    JS_ASSERT(nativeToBytecodeScriptListLength_ > 0);
-    JS_ASSERT(nativeToBytecodeScriptList_ != nullptr);
-    JS_ASSERT(nativeToBytecodeMap_ != nullptr);
-    JS_ASSERT(nativeToBytecodeMapSize_ > 0);
-    JS_ASSERT(nativeToBytecodeTableOffset_ > 0);
-    JS_ASSERT(nativeToBytecodeNumRegions_ > 0);
+    MOZ_ASSERT(nativeToBytecodeScriptListLength_ > 0);
+    MOZ_ASSERT(nativeToBytecodeScriptList_ != nullptr);
+    MOZ_ASSERT(nativeToBytecodeMap_ != nullptr);
+    MOZ_ASSERT(nativeToBytecodeMapSize_ > 0);
+    MOZ_ASSERT(nativeToBytecodeTableOffset_ > 0);
+    MOZ_ASSERT(nativeToBytecodeNumRegions_ > 0);
 
     // The pointer to the table must be 4-byte aligned
     const uint8_t *tablePtr = nativeToBytecodeMap_ + nativeToBytecodeTableOffset_;
-    JS_ASSERT(uintptr_t(tablePtr) % sizeof(uint32_t) == 0);
+    MOZ_ASSERT(uintptr_t(tablePtr) % sizeof(uint32_t) == 0);
 
     // Verify that numRegions was encoded correctly.
     const JitcodeIonTable *ionTable = reinterpret_cast<const JitcodeIonTable *>(tablePtr);
-    JS_ASSERT(ionTable->numRegions() == nativeToBytecodeNumRegions_);
+    MOZ_ASSERT(ionTable->numRegions() == nativeToBytecodeNumRegions_);
 
     // Region offset for first region should be at the start of the payload region.
     // Since the offsets are backward from the start of the table, the first entry
     // backoffset should be equal to the forward table offset from the start of the
     // allocated data.
-    JS_ASSERT(ionTable->regionOffset(0) == nativeToBytecodeTableOffset_);
+    MOZ_ASSERT(ionTable->regionOffset(0) == nativeToBytecodeTableOffset_);
 
     // Verify each region.
     for (uint32_t i = 0; i < ionTable->numRegions(); i++) {
         // Back-offset must point into the payload region preceding the table, not before it.
-        JS_ASSERT(ionTable->regionOffset(i) <= nativeToBytecodeTableOffset_);
+        MOZ_ASSERT(ionTable->regionOffset(i) <= nativeToBytecodeTableOffset_);
 
         // Back-offset must point to a later area in the payload region than previous
         // back-offset.  This means that back-offsets decrease monotonically.
-        JS_ASSERT_IF(i > 0, ionTable->regionOffset(i) < ionTable->regionOffset(i - 1));
+        MOZ_ASSERT_IF(i > 0, ionTable->regionOffset(i) < ionTable->regionOffset(i - 1));
 
         JitcodeRegionEntry entry = ionTable->regionEntry(i);
 
         // Ensure native code offset for region falls within jitcode.
-        JS_ASSERT(entry.nativeOffset() <= code->instructionsSize());
+        MOZ_ASSERT(entry.nativeOffset() <= code->instructionsSize());
 
         // Read out script/pc stack and verify.
         JitcodeRegionEntry::ScriptPcIterator scriptPcIter = entry.scriptPcIterator();
@@ -679,11 +688,11 @@ CodeGeneratorShared::verifyCompactNativeToBytecodeMap(JitCode *code)
             scriptPcIter.readNext(&scriptIdx, &pcOffset);
 
             // Ensure scriptIdx refers to a valid script in the list.
-            JS_ASSERT(scriptIdx < nativeToBytecodeScriptListLength_);
+            MOZ_ASSERT(scriptIdx < nativeToBytecodeScriptListLength_);
             JSScript *script = nativeToBytecodeScriptList_[scriptIdx];
 
             // Ensure pcOffset falls within the script.
-            JS_ASSERT(pcOffset < script->length());
+            MOZ_ASSERT(pcOffset < script->length());
         }
 
         // Obtain the original nativeOffset and pcOffset and script.
@@ -708,10 +717,10 @@ CodeGeneratorShared::verifyCompactNativeToBytecodeMap(JitCode *code)
             curPcOffset = uint32_t(int32_t(curPcOffset) + pcDelta);
 
             // Ensure that nativeOffset still falls within jitcode after delta.
-            JS_ASSERT(curNativeOffset <= code->instructionsSize());
+            MOZ_ASSERT(curNativeOffset <= code->instructionsSize());
 
             // Ensure that pcOffset still falls within bytecode after delta.
-            JS_ASSERT(curPcOffset < script->length());
+            MOZ_ASSERT(curPcOffset < script->length());
         }
     }
 #endif // DEBUG
@@ -726,8 +735,8 @@ CodeGeneratorShared::markSafepoint(LInstruction *ins)
 bool
 CodeGeneratorShared::markSafepointAt(uint32_t offset, LInstruction *ins)
 {
-    JS_ASSERT_IF(!safepointIndices_.empty(),
-                 offset - safepointIndices_.back().displacement() >= sizeof(uint32_t));
+    MOZ_ASSERT_IF(!safepointIndices_.empty(),
+                  offset - safepointIndices_.back().displacement() >= sizeof(uint32_t));
     return safepointIndices_.append(SafepointIndex(offset, ins->safepoint()));
 }
 
@@ -755,7 +764,7 @@ CodeGeneratorShared::ensureOsiSpace()
         for (int32_t i = 0; i < paddingSize; ++i)
             masm.nop();
     }
-    JS_ASSERT(masm.currentOffset() - lastOsiPointOffset_ >= Assembler::PatchWrite_NearCallSize());
+    MOZ_ASSERT(masm.currentOffset() - lastOsiPointOffset_ >= Assembler::PatchWrite_NearCallSize());
     lastOsiPointOffset_ = masm.currentOffset();
 }
 
@@ -987,17 +996,17 @@ bool
 CodeGeneratorShared::callVM(const VMFunction &fun, LInstruction *ins, const Register *dynStack)
 {
     // Different execution modes have different sets of VM functions.
-    JS_ASSERT(fun.executionMode == gen->info().executionMode());
+    MOZ_ASSERT(fun.executionMode == gen->info().executionMode());
 
     // If we're calling a function with an out parameter type of double, make
     // sure we have an FPU.
-    JS_ASSERT_IF(fun.outParam == Type_Double, GetIonContext()->runtime->jitSupportsFloatingPoint());
+    MOZ_ASSERT_IF(fun.outParam == Type_Double, GetJitContext()->runtime->jitSupportsFloatingPoint());
 
 #ifdef DEBUG
     if (ins->mirRaw()) {
-        JS_ASSERT(ins->mirRaw()->isInstruction());
+        MOZ_ASSERT(ins->mirRaw()->isInstruction());
         MInstruction *mir = ins->mirRaw()->toInstruction();
-        JS_ASSERT_IF(mir->needsResumePoint(), mir->resumePoint());
+        MOZ_ASSERT_IF(mir->needsResumePoint(), mir->resumePoint());
     }
 #endif
 
@@ -1010,7 +1019,7 @@ CodeGeneratorShared::callVM(const VMFunction &fun, LInstruction *ins, const Regi
     //    ... frame ...
     //    [args]
 #ifdef DEBUG
-    JS_ASSERT(pushedArgs_ == fun.explicitArgs);
+    MOZ_ASSERT(pushedArgs_ == fun.explicitArgs);
     pushedArgs_ = 0;
 #endif
 
@@ -1039,7 +1048,7 @@ CodeGeneratorShared::callVM(const VMFunction &fun, LInstruction *ins, const Regi
 
     // Remove rest of the frame left on the stack. We remove the return address
     // which is implicitly poped when returning.
-    int framePop = sizeof(IonExitFrameLayout) - sizeof(void*);
+    int framePop = sizeof(ExitFrameLayout) - sizeof(void*);
 
     // Pop arguments from framePushed.
     masm.implicitPop(fun.explicitStackSlots() * sizeof(void *) + framePop);
@@ -1169,7 +1178,7 @@ CodeGeneratorShared::emitAsmJSCall(LAsmJSCall *ins)
     if (mir->spIncrement())
         masm.freeStack(mir->spIncrement());
 
-    JS_ASSERT((sizeof(AsmJSFrame) + masm.framePushed()) % AsmJSStackAlignment == 0);
+    MOZ_ASSERT((sizeof(AsmJSFrame) + masm.framePushed()) % AsmJSStackAlignment == 0);
 
 #ifdef DEBUG
     static_assert(AsmJSStackAlignment >= ABIStackAlignment &&
@@ -1249,7 +1258,7 @@ CodeGeneratorShared::labelForBackedgeWithImplicitCheck(MBasicBlock *mir)
             } else {
                 // The interrupt check should be the first instruction in the
                 // loop header other than the initial label and move groups.
-                JS_ASSERT(iter->isInterruptCheck() || iter->isInterruptCheckPar());
+                MOZ_ASSERT(iter->isInterruptCheck() || iter->isInterruptCheckPar());
                 return nullptr;
             }
         }
@@ -1315,7 +1324,7 @@ CodeGeneratorShared::addCacheLocations(const CacheLocationList &locs, size_t *nu
         new (&runtimeData_[curIndex]) CacheLocation(iter->pc, iter->script);
         numLocations++;
     }
-    JS_ASSERT(numLocations != 0);
+    MOZ_ASSERT(numLocations != 0);
     *numLocs = numLocations;
     return firstIndex;
 }
@@ -1323,7 +1332,7 @@ CodeGeneratorShared::addCacheLocations(const CacheLocationList &locs, size_t *nu
 ReciprocalMulConstants
 CodeGeneratorShared::computeDivisionConstants(int d) {
     // In what follows, d is positive and is not a power of 2.
-    JS_ASSERT(d > 0 && (d & (d - 1)) != 0);
+    MOZ_ASSERT(d > 0 && (d & (d - 1)) != 0);
 
     // Speeding up division by non power-of-2 constants is possible by
     // calculating, during compilation, a value M such that high-order

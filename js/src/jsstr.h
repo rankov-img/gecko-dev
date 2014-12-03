@@ -39,7 +39,7 @@ template <typename CharT>
 static inline const CharT *
 SkipSpace(const CharT *s, const CharT *end)
 {
-    JS_ASSERT(s <= end);
+    MOZ_ASSERT(s <= end);
 
     while (s < end && unicode::IsSpace(*s))
         s++;
@@ -250,6 +250,14 @@ EqualChars(const Char1 *s1, const Char2 *s2, size_t len)
 }
 
 /*
+ * Computes |str|'s substring for the range [beginInt, beginInt + lengthInt).
+ * Negative, overlarge, swapped, etc. |beginInt| and |lengthInt| are forbidden
+ * and constitute API misuse.
+ */
+JSString *
+SubstringKernel(JSContext *cx, HandleString str, int32_t beginInt, int32_t lengthInt);
+
+/*
  * Inflate bytes in ASCII encoding to char16_t code units. Return null on error,
  * otherwise return the char16_t buffer that was malloc'ed. length is updated to
  * the length of the new string (in char16_t code units). A null char is
@@ -300,6 +308,23 @@ str_fromCharCode(JSContext *cx, unsigned argc, Value *vp);
 extern bool
 str_fromCharCode_one_arg(JSContext *cx, HandleValue code, MutableHandleValue rval);
 
+/* String methods exposed so they can be installed in the self-hosting global. */
+
+extern bool
+str_indexOf(JSContext *cx, unsigned argc, Value *vp);
+
+extern bool
+str_lastIndexOf(JSContext *cx, unsigned argc, Value *vp);
+
+extern bool
+str_startsWith(JSContext *cx, unsigned argc, Value *vp);
+
+extern bool
+str_toLowerCase(JSContext *cx, unsigned argc, Value *vp);
+
+extern bool
+str_toUpperCase(JSContext *cx, unsigned argc, Value *vp);
+
 } /* namespace js */
 
 extern bool
@@ -349,7 +374,7 @@ PutEscapedString(char *buffer, size_t size, JSLinearString *str, uint32_t quote)
     size_t n = PutEscapedStringImpl(buffer, size, nullptr, str, quote);
 
     /* PutEscapedStringImpl can only fail with a file. */
-    JS_ASSERT(n != size_t(-1));
+    MOZ_ASSERT(n != size_t(-1));
     return n;
 }
 
@@ -360,7 +385,7 @@ PutEscapedString(char *buffer, size_t bufferSize, const CharT *chars, size_t len
     size_t n = PutEscapedStringImpl(buffer, bufferSize, nullptr, chars, length, quote);
 
     /* PutEscapedStringImpl can only fail with a file. */
-    JS_ASSERT(n != size_t(-1));
+    MOZ_ASSERT(n != size_t(-1));
     return n;
 }
 
@@ -388,7 +413,7 @@ JSObject *
 str_split_string(JSContext *cx, HandleTypeObject type, HandleString str, HandleString sep);
 
 bool
-str_resolve(JSContext *cx, HandleObject obj, HandleId id, MutableHandleObject objp);
+str_resolve(JSContext *cx, HandleObject obj, HandleId id, bool *resolvedp);
 
 bool
 str_replace_regexp_raw(JSContext *cx, HandleString string, HandleObject regexp,

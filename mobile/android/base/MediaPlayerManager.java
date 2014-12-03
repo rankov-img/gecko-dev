@@ -127,7 +127,7 @@ class MediaPlayerManager implements NativeEventListener,
                     }
                 } catch(Exception ex) {
                     // This may happen if the device isn't a real Chromecast,
-                    // for example Firefly casting devices.
+                    // for example Matchstick casting devices.
                     Log.e(LOGTAG, "Couldn't create JSON for display", ex);
                 }
             }
@@ -240,7 +240,7 @@ class MediaPlayerManager implements NativeEventListener,
         MediaRouteSelector selectorBuilder = new MediaRouteSelector.Builder()
             .addControlCategory(MediaControlIntent.CATEGORY_LIVE_VIDEO)
             .addControlCategory(MediaControlIntent.CATEGORY_REMOTE_PLAYBACK)
-            .addControlCategory(CastMediaControlIntent.categoryForCast(ChromeCast.MIRROR_RECIEVER_APP_ID))
+            .addControlCategory(CastMediaControlIntent.categoryForCast(ChromeCast.MIRROR_RECEIVER_APP_ID))
             .build();
         mediaRouter.addCallback(selectorBuilder, callback, MediaRouter.CALLBACK_FLAG_REQUEST_DISCOVERY);
     }

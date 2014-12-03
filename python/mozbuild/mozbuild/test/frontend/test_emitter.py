@@ -56,6 +56,7 @@ class TestEmitterBasic(unittest.TestCase):
         config = MockConfig(mozpath.join(data_path, name), extra_substs=dict(
             ENABLE_TESTS='1',
             BIN_SUFFIX='.prog',
+            OS_TARGET='WINNT',
         ))
 
         return BuildReader(config)
@@ -91,15 +92,22 @@ class TestEmitterBasic(unittest.TestCase):
         for o in objs:
             self.assertIsInstance(o, DirectoryTraversal)
             self.assertEqual(o.test_dirs, [])
-            self.assertEqual(len(o.tier_dirs), 0)
             self.assertTrue(os.path.isabs(o.context_main_path))
             self.assertEqual(len(o.context_all_paths), 1)
 
         reldirs = [o.relativedir for o in objs]
         self.assertEqual(reldirs, ['', 'foo', 'foo/biz', 'bar'])
 
+        self.assertEqual(objs[3].affected_tiers, {'misc'})
+
         dirs = [o.dirs for o in objs]
-        self.assertEqual(dirs, [['foo', 'bar'], ['biz'], [], []])
+        self.assertEqual(dirs, [
+            [
+                mozpath.join(reader.config.topsrcdir, 'foo'),
+                mozpath.join(reader.config.topsrcdir, 'bar')
+            ], [
+                mozpath.join(reader.config.topsrcdir, 'foo', 'biz')
+            ], [], []])
 
     def test_traversal_all_vars(self):
         reader = self.reader('traversal-all-vars')
@@ -116,17 +124,10 @@ class TestEmitterBasic(unittest.TestCase):
             reldir = o.relativedir
 
             if reldir == '':
-                self.assertEqual(o.dirs, ['regular'])
-                self.assertEqual(o.test_dirs, ['test'])
-
-    def test_tier_simple(self):
-        reader = self.reader('traversal-tier-simple')
-        objs = self.read_topsrcdir(reader, filter_common=False)
-        self.assertEqual(len(objs), 6)
-
-        reldirs = [o.relativedir for o in objs]
-        self.assertEqual(reldirs, ['', 'foo', 'foo/biz', 'foo_static', 'bar',
-            'baz'])
+                self.assertEqual(o.dirs, [
+                    mozpath.join(reader.config.topsrcdir, 'regular')])
+                self.assertEqual(o.test_dirs, [
+                    mozpath.join(reader.config.topsrcdir, 'test')])
 
     def test_config_file_substitution(self):
         reader = self.reader('config-file-substitution')
@@ -150,32 +151,31 @@ class TestEmitterBasic(unittest.TestCase):
         self.assertEqual(len(objs), 1)
         self.assertIsInstance(objs[0], VariablePassthru)
 
-        wanted = dict(
-            ASFILES=['fans.asm', 'tans.s'],
-            CMMSRCS=['fans.mm', 'tans.mm'],
-            CSRCS=['fans.c', 'tans.c'],
-            DISABLE_STL_WRAPPING=True,
-            EXTRA_COMPONENTS=['fans.js', 'tans.js'],
-            EXTRA_PP_COMPONENTS=['fans.pp.js', 'tans.pp.js'],
-            FAIL_ON_WARNINGS=True,
-            HOST_CPPSRCS=['fans.cpp', 'tans.cpp'],
-            HOST_CSRCS=['fans.c', 'tans.c'],
-            MSVC_ENABLE_PGO=True,
-            NO_DIST_INSTALL=True,
-            SSRCS=['bans.S', 'fans.S'],
-            VISIBILITY_FLAGS='',
-            DELAYLOAD_LDFLAGS=['-DELAYLOAD:foo.dll', '-DELAYLOAD:bar.dll'],
-            USE_DELAYIMP=True,
-            RCFILE='foo.rc',
-            RESFILE='bar.res',
-            RCINCLUDE='bar.rc',
-            DEFFILE='baz.def',
-            USE_STATIC_LIBS=True,
-            MOZBUILD_CFLAGS=['-fno-exceptions', '-w'],
-            MOZBUILD_CXXFLAGS=['-fcxx-exceptions', '-include foo.h'],
-            MOZBUILD_LDFLAGS=['-framework Foo', '-x'],
-            WIN32_EXE_LDFLAGS=['-subsystem:console'],
-        )
+        wanted = {
+            'ASFILES': ['fans.asm', 'tans.s'],
+            'CMMSRCS': ['fans.mm', 'tans.mm'],
+            'CSRCS': ['fans.c', 'tans.c'],
+            'DISABLE_STL_WRAPPING': True,
+            'EXTRA_COMPONENTS': ['fans.js', 'tans.js'],
+            'EXTRA_PP_COMPONENTS': ['fans.pp.js', 'tans.pp.js'],
+            'FAIL_ON_WARNINGS': True,
+            'HOST_CPPSRCS': ['fans.cpp', 'tans.cpp'],
+            'HOST_CSRCS': ['fans.c', 'tans.c'],
+            'MSVC_ENABLE_PGO': True,
+            'NO_DIST_INSTALL': True,
+            'SSRCS': ['bans.S', 'fans.S'],
+            'VISIBILITY_FLAGS': '',
+            'RCFILE': 'foo.rc',
+            'RESFILE': 'bar.res',
+            'RCINCLUDE': 'bar.rc',
+            'DEFFILE': 'baz.def',
+            'USE_STATIC_LIBS': True,
+            'MOZBUILD_CFLAGS': ['-fno-exceptions', '-w'],
+            'MOZBUILD_CXXFLAGS': ['-fcxx-exceptions', '-include foo.h'],
+            'MOZBUILD_LDFLAGS': ['-framework Foo', '-x', '-DELAYLOAD:foo.dll',
+                                 '-DELAYLOAD:bar.dll'],
+            'WIN32_EXE_LDFLAGS': ['-subsystem:console'],
+        }
 
         variables = objs[0].variables
         maxDiff = self.maxDiff

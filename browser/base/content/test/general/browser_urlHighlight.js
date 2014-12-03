@@ -16,14 +16,10 @@ function testVal(aExpected) {
     value = value.substring(pos + range.length);
   }
   result += value;
-  is(result, aExpected);
+  is(result, aExpected, "Correct part of the urlbar contents is highlighted");
 }
 
-add_task(function* () {
-  return new Promise(resolve => Services.search.init(resolve));
-});
-
-add_task(function* () {
+function test() {
   const prefname = "browser.urlbar.formatting.enabled";
 
   registerCleanupFunction(function () {
@@ -113,4 +109,4 @@ add_task(function* () {
   Services.prefs.setBoolPref(prefname, false);
 
   testVal("https://mozilla.org");
-});
+}

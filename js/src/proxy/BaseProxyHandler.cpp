@@ -34,9 +34,7 @@ BaseProxyHandler::has(JSContext *cx, HandleObject proxy, HandleId id, bool *bp) 
 bool
 BaseProxyHandler::hasOwn(JSContext *cx, HandleObject proxy, HandleId id, bool *bp) const
 {
-    // Note: Proxy::set needs to invoke hasOwn to determine where the setter
-    // lives, so we allow SET operations to invoke us.
-    assertEnteredPolicy(cx, proxy, id, GET | SET);
+    assertEnteredPolicy(cx, proxy, id, GET);
     Rooted<PropertyDescriptor> desc(cx);
     if (!getOwnPropertyDescriptor(cx, proxy, id, &desc))
         return false;
@@ -104,7 +102,7 @@ js::SetPropertyIgnoringNamedGetter(JSContext *cx, const BaseProxyHandler *handle
 {
     /* The control-flow here differs from ::get() because of the fall-through case below. */
     if (descIsOwn) {
-        JS_ASSERT(desc.object());
+        MOZ_ASSERT(desc.object());
 
         // Check for read-only properties.
         if (desc.isReadonly())
@@ -153,31 +151,33 @@ js::SetPropertyIgnoringNamedGetter(JSContext *cx, const BaseProxyHandler *handle
                 desc.setGetter(JS_PropertyStub);
         }
         desc.value().set(vp.get());
-        return handler->defineProperty(cx, receiver, id, desc);
+        return JSObject::defineGeneric(cx, receiver, id, desc.value(),
+                                       desc.getter(), desc.setter(), desc.attributes());
     }
-
     desc.object().set(receiver);
     desc.value().set(vp.get());
     desc.setAttributes(JSPROP_ENUMERATE);
     desc.setGetter(nullptr);
     desc.setSetter(nullptr); // Pick up the class getter/setter.
-    return handler->defineProperty(cx, receiver, id, desc);
+    return JSObject::defineGeneric(cx, receiver, id, desc.value(), nullptr, nullptr,
+                                   JSPROP_ENUMERATE);
 }
 
 bool
-BaseProxyHandler::keys(JSContext *cx, HandleObject proxy, AutoIdVector &props) const
+BaseProxyHandler::getOwnEnumerablePropertyKeys(JSContext *cx, HandleObject proxy,
+                                               AutoIdVector &props) const
 {
     assertEnteredPolicy(cx, proxy, JSID_VOID, ENUMERATE);
-    JS_ASSERT(props.length() == 0);
+    MOZ_ASSERT(props.length() == 0);
 
-    if (!getOwnPropertyNames(cx, proxy, props))
+    if (!ownPropertyKeys(cx, proxy, props))
         return false;
 
     /* Select only the enumerable properties through in-place iteration. */
     RootedId id(cx);
     size_t i = 0;
     for (size_t j = 0, len = props.length(); j < len; j++) {
-        JS_ASSERT(i <= j);
+        MOZ_ASSERT(i <= j);
         id = props[j];
         if (JSID_IS_SYMBOL(id))
             continue;
@@ -190,7 +190,7 @@ BaseProxyHandler::keys(JSContext *cx, HandleObject proxy, AutoIdVector &props) c
             props[i++].set(id);
     }
 
-    JS_ASSERT(i <= props.length());
+    MOZ_ASSERT(i <= props.length());
     props.resize(i);
 
     return true;
@@ -198,18 +198,18 @@ BaseProxyHandler::keys(JSContext *cx, HandleObject proxy, AutoIdVector &props) c
 
 bool
 BaseProxyHandler::iterate(JSContext *cx, HandleObject proxy, unsigned flags,
-                          MutableHandleValue vp) const
+                          MutableHandleObject objp) const
 {
     assertEnteredPolicy(cx, proxy, JSID_VOID, ENUMERATE);
 
     AutoIdVector props(cx);
     if ((flags & JSITER_OWNONLY)
-        ? !keys(cx, proxy, props)
-        : !enumerate(cx, proxy, props)) {
+        ? !getOwnEnumerablePropertyKeys(cx, proxy, props)
+        : !getEnumerablePropertyKeys(cx, proxy, props)) {
         return false;
     }
 
-    return EnumeratedIdVectorToIterator(cx, proxy, flags, props, vp);
+    return EnumeratedIdVectorToIterator(cx, proxy, flags, props, objp);
 }
 
 bool
@@ -320,6 +320,13 @@ BaseProxyHandler::setPrototypeOf(JSContext *cx, HandleObject, HandleObject, bool
 }
 
 bool
+BaseProxyHandler::setImmutablePrototype(JSContext *cx, HandleObject proxy, bool *succeeded) const
+{
+    *succeeded = false;
+    return true;
+}
+
+bool
 BaseProxyHandler::watch(JSContext *cx, HandleObject proxy, HandleId id, HandleObject callable) const
 {
     JS_ReportErrorNumber(cx, js_GetErrorMessage, nullptr, JSMSG_CANT_WATCH,
@@ -334,12 +341,12 @@ BaseProxyHandler::unwatch(JSContext *cx, HandleObject proxy, HandleId id) const
 }
 
 bool
-BaseProxyHandler::slice(JSContext *cx, HandleObject proxy, uint32_t begin, uint32_t end,
-                        HandleObject result) const
+BaseProxyHandler::getElements(JSContext *cx, HandleObject proxy, uint32_t begin, uint32_t end,
+                              ElementAdder *adder) const
 {
     assertEnteredPolicy(cx, proxy, JSID_VOID, GET);
 
-    return js::SliceSlowly(cx, proxy, proxy, begin, end, result);
+    return js::GetElementsWithAdder(cx, proxy, proxy, begin, end, adder);
 }
 
 bool

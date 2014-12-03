@@ -72,6 +72,7 @@
  *     Logical Operators
  *     Special Operators
  *     Stack Operations
+ *     Debugger
  *   [Literals]
  *     Constants
  *     Object
@@ -416,7 +417,15 @@
      */ \
     macro(JSOP_DUPAT,     44, "dupat",      NULL,         4,  0,  1,  JOF_UINT24) \
     \
-    macro(JSOP_UNUSED45,  45, "unused45",   NULL,         1,  0,  0,  JOF_BYTE) \
+    /*
+     * Push a well-known symbol onto the operand stack.
+     *   Category: Literals
+     *   Type: Constants
+     *   Operands: uint8_t n, the JS::SymbolCode of the symbol to use
+     *   Stack: => symbol
+     */ \
+    macro(JSOP_SYMBOL,    45, "symbol",     NULL,         2,  0,  1,  JOF_UINT8) \
+    \
     macro(JSOP_UNUSED46,  46, "unused46",   NULL,         1,  0,  0,  JOF_BYTE) \
     macro(JSOP_UNUSED47,  47, "unused47",   NULL,         1,  0,  0,  JOF_BYTE) \
     macro(JSOP_UNUSED48,  48, "unused48",   NULL,         1,  0,  0,  JOF_BYTE) \
@@ -770,17 +779,9 @@
      *   Stack: => obj
      */ \
     macro(JSOP_NEWOBJECT, 91, "newobject",  NULL,         5,  0,  1, JOF_OBJECT) \
-    /*
-     * A no-operation bytecode.
-     *
-     * Indicates the end of object/array initialization, and used for
-     * Type-Inference, decompile, etc.
-     *   Category: Literals
-     *   Type: Object
-     *   Operands:
-     *   Stack: =>
-     */ \
-    macro(JSOP_ENDINIT,   92, "endinit",    NULL,         1,  0,  0, JOF_BYTE) \
+    \
+    macro(JSOP_UNUSED92,  92, "unused92",   NULL,         1,  0,  0, JOF_BYTE) \
+    \
     /*
      * Initialize a named property in an object literal, like '{a: x}'.
      *
@@ -1551,27 +1552,52 @@
      */ \
     macro(JSOP_DEBUGLEAVEBLOCK, 200,"debugleaveblock", NULL, 1,  0,  0,  JOF_BYTE) \
     \
-    macro(JSOP_UNUSED201,     201,"unused201",  NULL,     1,  0,  0,  JOF_BYTE) \
-    \
     /*
-     * Initializes generator frame, creates a generator, sets 'YIELDING' flag,
-     * stops interpretation and returns the generator.
+     * Initializes generator frame, creates a generator and pushes it on the
+     * stack.
      *   Category: Statements
      *   Type: Generator
      *   Operands:
-     *   Stack: =>
+     *   Stack: => generator
      */ \
-    macro(JSOP_GENERATOR,     202,"generator",   NULL,    1,  0,  0,  JOF_BYTE) \
+    macro(JSOP_GENERATOR,     201,"generator",   NULL,    1,  0,  1,  JOF_BYTE) \
     /*
-     * Pops the top of stack value as 'rval1', sets 'YIELDING' flag,
-     * stops interpretation and returns 'rval1', pushes sent value from
-     * 'send()' onto the stack.
+     * Pops the generator from the top of the stack, suspends it and stops
+     * interpretation.
+     *   Category: Statements
+     *   Type: Generator
+     *   Operands: uint24_t yieldIndex
+     *   Stack: generator =>
+     */ \
+    macro(JSOP_INITIALYIELD,  202,"initialyield", NULL,   4,  1,  1,  JOF_UINT24) \
+    /*
+     * Pops the generator and the return value 'rval1', stops interpretation and
+     * returns 'rval1'. Pushes sent value from 'send()' onto the stack.
+     *   Category: Statements
+     *   Type: Generator
+     *   Operands: uint24_t yieldIndex
+     *   Stack: rval1, gen => rval2
+     */ \
+    macro(JSOP_YIELD,         203,"yield",       NULL,    4,  2,  1,  JOF_UINT24) \
+    /*
+     * Pops the generator and suspends and closes it. Yields the value in the
+     * frame's return value slot.
      *   Category: Statements
      *   Type: Generator
      *   Operands:
-     *   Stack: rval1 => rval2
+     *   Stack: gen =>
      */ \
-    macro(JSOP_YIELD,         203,"yield",       NULL,    1,  1,  1,  JOF_BYTE) \
+    macro(JSOP_FINALYIELDRVAL,204,"finalyieldrval",NULL,  1,  1,  0,  JOF_BYTE) \
+    /*
+     * Pops the generator and argument from the stack, pushes a new generator
+     * frame and resumes execution of it. Pushes the return value after the
+     * generator yields.
+     *   Category: Statements
+     *   Type: Generator
+     *   Operands: resume kind (GeneratorObject::ResumeKind)
+     *   Stack: gen, val => rval
+     */ \
+    macro(JSOP_RESUME,        205,"resume",      NULL,    3,  2,  1,  JOF_UINT8|JOF_INVOKE) \
     /*
      * Pops the top two values on the stack as 'obj' and 'v', pushes 'v' to
      * 'obj'.
@@ -1582,13 +1608,28 @@
      *   Operands:
      *   Stack: v, obj =>
      */ \
-    macro(JSOP_ARRAYPUSH,     204,"arraypush",   NULL,    1,  2,  0,  JOF_BYTE) \
+    macro(JSOP_ARRAYPUSH,     206,"arraypush",   NULL,    1,  2,  0,  JOF_BYTE) \
     \
-    macro(JSOP_UNUSED205,     205, "unused205",    NULL,  1,  0,  0,  JOF_BYTE) \
-    macro(JSOP_UNUSED206,     206, "unused206",    NULL,  1,  0,  0,  JOF_BYTE) \
+    /*
+     * No-op bytecode only emitted in some self-hosted functions. Not handled by
+     * the JITs so the script always runs in the interpreter.
+     *
+     *   Category: Other
+     *   Operands:
+     *   Stack: =>
+     */ \
+    macro(JSOP_FORCEINTERPRETER, 207, "forceinterpreter", NULL,  1,  0,  0,  JOF_BYTE) \
     \
-    macro(JSOP_UNUSED207,     207, "unused207",    NULL,  1,  0,  0,  JOF_BYTE) \
-    macro(JSOP_UNUSED208,     208, "unused208",    NULL,  1,  0,  0,  JOF_BYTE) \
+    /*
+     * Bytecode emitted after 'yield' expressions to help the Debugger
+     * fix up the frame in the JITs. No-op in the interpreter.
+     *
+     *   Category: Operator
+     *   Type: Debugger
+     *   Operands:
+     *   Stack: =>
+     */ \
+    macro(JSOP_DEBUGAFTERYIELD,  208, "debugafteryield",  NULL,  1,  0,  0,  JOF_BYTE) \
     macro(JSOP_UNUSED209,     209, "unused209",    NULL,  1,  0,  0,  JOF_BYTE) \
     macro(JSOP_UNUSED210,     210, "unused210",    NULL,  1,  0,  0,  JOF_BYTE) \
     macro(JSOP_UNUSED211,     211, "unused211",    NULL,  1,  0,  0,  JOF_BYTE) \

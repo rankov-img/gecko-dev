@@ -4,9 +4,16 @@
 
 package org.mozilla.search;
 
+import java.net.URISyntaxException;
+
+import org.mozilla.gecko.AppConstants;
+import org.mozilla.gecko.R;
+import org.mozilla.gecko.Telemetry;
+import org.mozilla.gecko.TelemetryContract;
+import org.mozilla.search.providers.SearchEngine;
+
 import android.content.Intent;
 import android.graphics.Bitmap;
-import android.net.Uri;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.support.v4.app.Fragment;
@@ -22,11 +29,6 @@ import android.webkit.WebViewClient;
 import android.widget.ImageView;
 import android.widget.ProgressBar;
 import android.widget.TextView;
-
-import org.mozilla.gecko.AppConstants;
-import org.mozilla.gecko.Telemetry;
-import org.mozilla.gecko.TelemetryContract;
-import org.mozilla.search.providers.SearchEngine;
 
 public class PostSearchFragment extends Fragment {
 
@@ -89,25 +91,48 @@ public class PostSearchFragment extends Fragment {
         public void onPageStarted(WebView view, final String url, Bitmap favicon) {
             // Reset the error state.
             networkError = false;
+        }
 
-            // We keep URLs in the webview that are either about:blank or a search engine result page.
-            if (TextUtils.equals(url, Constants.ABOUT_BLANK) || engine.isSearchResultsPage(url)) {
-                // Keeping the URL in the webview is a noop.
-                return;
+        @Override
+        public boolean shouldOverrideUrlLoading(WebView view, String url) {
+            // Ignore about:blank URL loads.
+            if (TextUtils.equals(url, Constants.ABOUT_BLANK)) {
+                return false;
             }
 
-            webview.stopLoading();
+            // If the URL is a results page, don't override the URL load, but
+            // do update the query in the search bar if possible.
+            if (engine.isSearchResultsPage(url)) {
+                final String query = engine.queryForResultsUrl(url);
+                if (!TextUtils.isEmpty(query)) {
+                    ((AcceptsSearchQuery) getActivity()).onQueryChange(query);
+                }
+                return false;
+            }
 
-            Telemetry.sendUIEvent(TelemetryContract.Event.LOAD_URL,
-                    TelemetryContract.Method.CONTENT, "search-result");
+            try {
+                // If the url URI does not have an intent scheme, the intent data will be the entire
+                // URI and its action will be ACTION_VIEW.
+                final Intent i = Intent.parseUri(url, Intent.URI_INTENT_SCHEME);
 
-            final Intent i = new Intent(Intent.ACTION_VIEW);
+                // If the intent URI didn't specify a package, open this in Fennec.
+                if (i.getPackage() == null) {
+                    i.setClassName(AppConstants.ANDROID_PACKAGE_NAME, AppConstants.BROWSER_INTENT_CLASS_NAME);
+                    Telemetry.sendUIEvent(TelemetryContract.Event.LOAD_URL,
+                            TelemetryContract.Method.CONTENT, "search-result");
+                } else {
+                    Telemetry.sendUIEvent(TelemetryContract.Event.LAUNCH,
+                            TelemetryContract.Method.INTENT, "search-result");
+                }
 
-            // This sends the URL directly to fennec, rather than to Android.
-            i.setClassName(AppConstants.ANDROID_PACKAGE_NAME, AppConstants.BROWSER_INTENT_CLASS_NAME);
-            i.setData(Uri.parse(url));
-            startActivity(i);
-        }
+                startActivity(i);
+                return true;
+            } catch (URISyntaxException e) {
+                Log.e(LOG_TAG, "Error parsing intent URI", e);
+            }
+
+            return false;
+}
 
         @Override
         public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {

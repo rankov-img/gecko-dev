@@ -7,6 +7,7 @@
 #define MOZILLA_GFX_TOOLS_H_
 
 #include "mozilla/CheckedInt.h"
+#include "mozilla/Move.h"
 #include "mozilla/TypeTraits.h"
 #include "Types.h"
 #include "Point.h"
@@ -133,14 +134,14 @@ struct AlignedArray
     }
 #endif
 
-    delete [] mStorage;
+    moz_free(mStorage);
     mStorage = nullptr;
     mPtr = nullptr;
   }
 
   MOZ_ALWAYS_INLINE void Realloc(size_t aCount, bool aZero = false)
   {
-    delete [] mStorage;
+    moz_free(mStorage);
     CheckedInt32 storageByteCount =
       CheckedInt32(sizeof(T)) * aCount + (alignment - 1);
     if (!storageByteCount.isValid()) {
@@ -152,9 +153,11 @@ struct AlignedArray
     // We don't create an array of T here, since we don't want ctors to be
     // invoked at the wrong places if we realign below.
     if (aZero) {
-      mStorage = static_cast<uint8_t *>(calloc(1, storageByteCount.value()));
+      // calloc can be more efficient than new[] for large chunks,
+      // so we use calloc/malloc/free for everything.
+      mStorage = static_cast<uint8_t *>(moz_calloc(1, storageByteCount.value()));
     } else {
-      mStorage = new (std::nothrow) uint8_t[storageByteCount.value()];
+      mStorage = static_cast<uint8_t *>(moz_malloc(storageByteCount.value()));
     }
     if (!mStorage) {
       mStorage = nullptr;
@@ -174,6 +177,13 @@ struct AlignedArray
     // elimination step should optimize this away.
     mPtr = new (mPtr) T[aCount];
     mCount = aCount;
+  }
+
+  void Swap(AlignedArray<T, alignment>& aOther)
+  {
+    mozilla::Swap(mPtr, aOther.mPtr);
+    mozilla::Swap(mStorage, aOther.mStorage);
+    mozilla::Swap(mCount, aOther.mCount);
   }
 
   MOZ_ALWAYS_INLINE operator T*()

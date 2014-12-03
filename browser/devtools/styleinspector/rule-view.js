@@ -153,7 +153,9 @@ ElementStyle.prototype = {
     // engine, we will set properties on a dummy element and observe
     // how their .style attribute reflects them as computed values.
     return this.dummyElementPromise = createDummyDocument().then(document => {
-      this.dummyElement = document.createElementNS(this.element.namespaceURI,
+      // ::before and ::after do not have a namespaceURI
+      let namespaceURI = this.element.namespaceURI || document.documentElement.namespaceURI;
+      this.dummyElement = document.createElementNS(namespaceURI,
                                                    this.element.tagName);
       document.documentElement.appendChild(this.dummyElement);
       return this.dummyElement;
@@ -163,9 +165,7 @@ ElementStyle.prototype = {
   destroy: function() {
     this.dummyElement = null;
     this.dummyElementPromise.then(dummyElement => {
-      if (dummyElement.parentNode) {
-        dummyElement.parentNode.removeChild(dummyElement);
-      }
+      dummyElement.remove();
       this.dummyElementPromise = null;
     }, console.error);
   },
@@ -1184,7 +1184,8 @@ CssRuleView.prototype = {
     this.menuitemSources = createMenuItem(this._contextmenu, {
       label: "ruleView.contextmenu.showOrigSources",
       accesskey: "ruleView.contextmenu.showOrigSources.accessKey",
-      command: this._onToggleOrigSources
+      command: this._onToggleOrigSources,
+      type: "checkbox"
     });
 
     let popupset = doc.documentElement.querySelector("popupset");
@@ -1226,16 +1227,10 @@ CssRuleView.prototype = {
     this.menuitemCopyColor.hidden = !this._isColorPopup();
     this.menuitemCopy.disabled = !copy;
 
-    let label = "ruleView.contextmenu.showOrigSources";
-    if (Services.prefs.getBoolPref(PREF_ORIG_SOURCES)) {
-      label = "ruleView.contextmenu.showCSSSources";
-    }
-    this.menuitemSources.setAttribute("label",
-                                      _strings.GetStringFromName(label));
+    var showOrig = Services.prefs.getBoolPref(PREF_ORIG_SOURCES);
+    this.menuitemSources.setAttribute("checked", showOrig);
 
-    let accessKey = label + ".accessKey";
-    this.menuitemSources.setAttribute("accesskey",
-                                      _strings.GetStringFromName(accessKey));
+    this.menuitemAddRule.disabled = this.inspector.selection.isAnonymousNode();
   },
 
   /**
@@ -1455,7 +1450,7 @@ CssRuleView.prototype = {
     if (refreshOnPrefs.indexOf(pref) > -1) {
       let element = this._viewedElement;
       this._viewedElement = null;
-      this.highlight(element);
+      this.selectElement(element);
     }
   },
 
@@ -1534,12 +1529,12 @@ CssRuleView.prototype = {
   },
 
   /**
-   * Update the highlighted element.
+   * Update the view with a new selected element.
    *
    * @param {NodeActor} aElement
    *        The node whose style rules we'll inspect.
    */
-  highlight: function(aElement) {
+  selectElement: function(aElement) {
     if (this._viewedElement === aElement) {
       return promise.resolve(undefined);
     }
@@ -1831,10 +1826,14 @@ function RuleEditor(aRuleView, aRule) {
 RuleEditor.prototype = {
   get isSelectorEditable() {
     let toolbox = this.ruleView.inspector.toolbox;
-    return this.isEditable &&
+    let trait = this.isEditable &&
       toolbox.target.client.traits.selectorEditable &&
       this.rule.domRule.type !== ELEMENT_STYLE &&
-      this.rule.domRule.type !== Ci.nsIDOMCSSRule.KEYFRAME_RULE
+      this.rule.domRule.type !== Ci.nsIDOMCSSRule.KEYFRAME_RULE;
+
+    // Do not allow editing anonymousselectors until we can
+    // detect mutations on  pseudo elements in Bug 1034110.
+    return trait && !this.rule.elementStyle.element.isAnonymous;
   },
 
   _create: function() {
@@ -1955,7 +1954,9 @@ RuleEditor.prototype = {
     let sourceLabel = this.element.querySelector(".source-link-label");
     let sourceHref = (this.rule.sheet && this.rule.sheet.href) ?
       this.rule.sheet.href : this.rule.title;
-    sourceLabel.setAttribute("tooltiptext", sourceHref);
+    let sourceLine = this.rule.ruleLine > 0 ? ":" + this.rule.ruleLine : "";
+
+    sourceLabel.setAttribute("tooltiptext", sourceHref + sourceLine);
 
     if (this.rule.isSystem) {
       let uaLabel = _strings.GetStringFromName("rule.userAgentStyles");

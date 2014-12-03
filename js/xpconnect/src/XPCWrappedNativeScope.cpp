@@ -346,6 +346,16 @@ XPCWrappedNativeScope::EnsureAddonScope(JSContext *cx, JSAddonId *addonId)
     MOZ_ASSERT(addonId);
     MOZ_ASSERT(nsContentUtils::IsSystemPrincipal(GetPrincipal()));
 
+    // In bug 1092156, we found that add-on scopes don't work correctly when the
+    // window navigates. The add-on global's prototype is an outer window, so,
+    // after the navigation, looking up window properties in the add-on scope
+    // will fail. However, in most cases where the window can be navigated, the
+    // entire window is part of the add-on. To solve the problem, we avoid
+    // returning an add-on scope for a window that is already tagged with the
+    // add-on ID.
+    if (AddonIdOfObject(global) == addonId)
+        return global;
+
     // If we already have an addon scope object, we know what to use.
     for (size_t i = 0; i < mAddonScopes.Length(); i++) {
         if (JS::AddonIdOfObject(js::UncheckedUnwrap(mAddonScopes[i])) == addonId)
@@ -379,6 +389,12 @@ xpc::GetAddonScope(JSContext *cx, JS::HandleObject contentScope, JSAddonId *addo
 
     JSAutoCompartment ac(cx, contentScope);
     XPCWrappedNativeScope *nativeScope = CompartmentPrivate::Get(contentScope)->scope;
+    if (nativeScope->GetPrincipal() != nsXPConnect::SystemPrincipal()) {
+        // This can happen if, for example, Jetpack loads an unprivileged HTML
+        // page from the add-on. It's not clear what to do there, so we just use
+        // the normal global.
+        return js::GetGlobalForObjectCrossCompartment(contentScope);
+    }
     JSObject *scope = nativeScope->EnsureAddonScope(cx, addonId);
     NS_ENSURE_TRUE(scope, nullptr);
 
@@ -505,9 +521,13 @@ XPCWrappedNativeScope::UpdateWeakPointersAfterGC(XPCJSRuntime* rt)
 
         XPCWrappedNativeScope* next = cur->mNext;
 
-        // Check for finalization of the global object.  Note that global
-        // objects are never moved, so we don't need to handle updating the
-        // object pointer here.
+        if (cur->mContentXBLScope)
+            cur->mContentXBLScope.updateWeakPointerAfterGC();
+        for (size_t i = 0; i < cur->mAddonScopes.Length(); i++)
+            cur->mAddonScopes[i].updateWeakPointerAfterGC();
+
+        // Check for finalization of the global object or update our pointer if
+        // it was moved.
         if (cur->mGlobalJSObject) {
             cur->mGlobalJSObject.updateWeakPointerAfterGC();
             if (!cur->mGlobalJSObject) {

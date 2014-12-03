@@ -10,6 +10,7 @@
 #include "jsfun.h"
 
 #include "jit/JitFrameIterator.h"
+#include "jit/JitFrames.h"
 
 #include "vm/Stack.h"
 
@@ -24,6 +25,9 @@ class RematerializedFrame
 {
     // See DebugScopes::updateLiveScopes.
     bool prevUpToDate_;
+
+    // Propagated to the Baseline frame once this is popped.
+    bool isDebuggee_;
 
     // The fp of the top frame associated with this possibly inlined frame.
     uint8_t *top_;
@@ -69,8 +73,23 @@ class RematerializedFrame
         prevUpToDate_ = true;
     }
 
+    bool isDebuggee() const {
+        return isDebuggee_;
+    }
+    void setIsDebuggee() {
+        isDebuggee_ = true;
+    }
+    void unsetIsDebuggee() {
+        MOZ_ASSERT(!script()->isDebuggee());
+        isDebuggee_ = false;
+    }
+
     uint8_t *top() const {
         return top_;
+    }
+    JSScript *outerScript() const {
+        JitFrameLayout *jsFrame = (JitFrameLayout *)top_;
+        return ScriptFromCalleeToken(jsFrame->calleeToken());
     }
     jsbytecode *pc() const {
         return pc_;
@@ -144,28 +163,20 @@ class RematerializedFrame
         return slots_ + numActualArgs_;
     }
 
-    Value &unaliasedVar(unsigned i, MaybeCheckAliasing checkAliasing = CHECK_ALIASING) {
-        JS_ASSERT_IF(checkAliasing, !script()->varIsAliased(i));
-        JS_ASSERT(i < script()->nfixed());
-        return locals()[i];
-    }
-    Value &unaliasedLocal(unsigned i, MaybeCheckAliasing checkAliasing = CHECK_ALIASING) {
-        JS_ASSERT(i < script()->nfixed());
-#ifdef DEBUG
-        CheckLocalUnaliased(checkAliasing, script(), i);
-#endif
+    Value &unaliasedLocal(unsigned i) {
+        MOZ_ASSERT(i < script()->nfixed());
         return locals()[i];
     }
     Value &unaliasedFormal(unsigned i, MaybeCheckAliasing checkAliasing = CHECK_ALIASING) {
-        JS_ASSERT(i < numFormalArgs());
-        JS_ASSERT_IF(checkAliasing, !script()->argsObjAliasesFormals() &&
-                                    !script()->formalIsAliased(i));
+        MOZ_ASSERT(i < numFormalArgs());
+        MOZ_ASSERT_IF(checkAliasing, !script()->argsObjAliasesFormals() &&
+                                     !script()->formalIsAliased(i));
         return argv()[i];
     }
     Value &unaliasedActual(unsigned i, MaybeCheckAliasing checkAliasing = CHECK_ALIASING) {
-        JS_ASSERT(i < numActualArgs());
-        JS_ASSERT_IF(checkAliasing, !script()->argsObjAliasesFormals());
-        JS_ASSERT_IF(checkAliasing && i < numFormalArgs(), !script()->formalIsAliased(i));
+        MOZ_ASSERT(i < numActualArgs());
+        MOZ_ASSERT_IF(checkAliasing, !script()->argsObjAliasesFormals());
+        MOZ_ASSERT_IF(checkAliasing && i < numFormalArgs(), !script()->formalIsAliased(i));
         return argv()[i];
     }
 

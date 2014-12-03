@@ -4,6 +4,7 @@
 
 Components.utils.import("resource://gre/modules/Services.jsm");
 Components.utils.import("resource://gre/modules/KeyValueParser.jsm");
+Components.utils.importGlobalProperties(['File']);
 
 this.EXPORTED_SYMBOLS = [
   "CrashSubmit"
@@ -45,9 +46,11 @@ function getL10nStrings() {
   if (!path.exists()) {
     // see if we're on a mac
     path = path.parent;
+    path = path.parent;
+    path.append("MacOS");
     path.append("crashreporter.app");
     path.append("Contents");
-    path.append("MacOS");
+    path.append("Resources");
     path.append("crashreporter.ini");
     if (!path.exists()) {
       // very bad, but I don't know how to recover
@@ -279,16 +282,16 @@ Submitter.prototype = {
       formData.append("Throttleable", "0");
     }
     // add the minidumps
-    formData.append("upload_file_minidump", File(this.dump.path));
+    formData.append("upload_file_minidump", new File(this.dump.path));
     if (this.memory) {
-      formData.append("memory_report", File(this.memory.path));
+      formData.append("memory_report", new File(this.memory.path));
     }
     if (this.additionalDumps.length > 0) {
       let names = [];
       for (let i of this.additionalDumps) {
         names.push(i.name);
         formData.append("upload_file_minidump_"+i.name,
-                        File(i.dump.path));
+                        new File(i.dump.path));
       }
     }
 

@@ -9,7 +9,6 @@
 
 #include "BluetoothCommon.h"
 #include "BluetoothProfileManagerBase.h"
-#include "mozilla/dom/ipc/Blob.h"
 #include "nsAutoPtr.h"
 #include "nsClassHashtable.h"
 #include "nsIDOMFile.h"
@@ -17,7 +16,13 @@
 #include "nsTObserverArray.h"
 #include "nsThreadUtils.h"
 
+class nsIDOMBlob;
+
 namespace mozilla {
+namespace dom {
+class BlobChild;
+class BlobParent;
+}
 namespace ipc {
 class UnixSocketConsumer;
 }
@@ -308,6 +313,8 @@ public:
   bool
   IsToggling() const;
 
+  static void AcknowledgeToggleBt(bool aEnabled);
+
   /**
    * Below 2 function/variable are used for ensuring event 'AdapterAdded' will
    * be fired after event 'Enabled'.
@@ -387,6 +394,8 @@ protected:
   // Called by Get().
   static BluetoothService*
   Create();
+
+  void CompleteToggleBt(bool aEnabled);
 
   typedef nsClassHashtable<nsStringHashKey, BluetoothSignalObserverList >
   BluetoothSignalObserverTable;

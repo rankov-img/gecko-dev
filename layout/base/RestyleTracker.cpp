@@ -9,10 +9,12 @@
  */
 
 #include "RestyleTracker.h"
+
+#include "GeckoProfiler.h"
+#include "nsFrameManager.h"
+#include "nsIDocument.h"
 #include "nsStyleChangeList.h"
 #include "RestyleManager.h"
-#include "GeckoProfiler.h"
-#include "nsIDocument.h"
 #include "RestyleTrackerInlines.h"
 
 namespace mozilla {
@@ -114,8 +116,10 @@ CollectRestyles(nsISupports* aElement,
   NS_ASSERTION(!element->HasFlag(collector->tracker->RootBit()) ||
                // Maybe we're just not reachable via the frame tree?
                (element->GetFlattenedTreeParent() &&
-                (!element->GetFlattenedTreeParent()->GetPrimaryFrame()||
-                 element->GetFlattenedTreeParent()->GetPrimaryFrame()->IsLeaf())) ||
+                (!element->GetFlattenedTreeParent()->GetPrimaryFrame() ||
+                 element->GetFlattenedTreeParent()->GetPrimaryFrame()->IsLeaf() ||
+                 element->GetCurrentDoc()->GetShell()->FrameManager()
+                   ->GetDisplayContentsStyleFor(element))) ||
                // Or not reachable due to an async reinsert we have
                // pending?  If so, we'll have a reframe hint around.
                // That incidentally makes it safe that we still have
@@ -162,7 +166,17 @@ RestyleTracker::ProcessOneRestyle(Element* aElement,
               RestyleManager::ChangeHintToString(aChangeHint).get());
 
   nsIFrame* primaryFrame = aElement->GetPrimaryFrame();
+
   if (aRestyleHint & ~eRestyle_LaterSiblings) {
+#ifdef RESTYLE_LOGGING
+    if (ShouldLogRestyle() && primaryFrame &&
+        RestyleManager::StructsToLog() != 0) {
+      LOG_RESTYLE("style context tree before restyle:");
+      LOG_RESTYLE_INDENT();
+      primaryFrame->StyleContext()->LogStyleContextTree(
+          LoggingDepth(), RestyleManager::StructsToLog());
+    }
+#endif
     mRestyleManager->RestyleElement(aElement, primaryFrame, aChangeHint,
                                     *this, aRestyleHint);
   } else if (aChangeHint &&
@@ -185,7 +199,7 @@ RestyleTracker::DoProcessRestyles()
 
   LOG_RESTYLE("Processing %d pending %srestyles with %d restyle roots for %s",
               mPendingRestyles.Count(),
-              mRestyleManager->PresContext()->IsProcessingAnimationStyleChange()
+              mRestyleManager->IsProcessingAnimationStyleChange()
                 ? (const char*) "animation " : (const char*) "",
               static_cast<int>(mRestyleRoots.Length()),
               GetDocumentURI(Document()).get());

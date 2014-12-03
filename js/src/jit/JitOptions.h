@@ -32,13 +32,13 @@ struct JitOptions
     bool checkOsiPointRegisters;
 #endif
     bool checkRangeAnalysis;
-    bool compileTryCatch;
     bool disableScalarReplacement;
     bool disableGvn;
     bool disableLicm;
     bool disableInlining;
     bool disableEdgeCaseAnalysis;
     bool disableRangeAnalysis;
+    bool disableSink;
     bool disableLoopUnrolling;
     bool disableEaa;
     bool eagerCompilation;

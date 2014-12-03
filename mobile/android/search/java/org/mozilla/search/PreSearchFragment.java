@@ -26,6 +26,7 @@ import android.widget.ImageView;
 import android.widget.ListView;
 import android.widget.TextView;
 
+import org.mozilla.gecko.R;
 import org.mozilla.gecko.Telemetry;
 import org.mozilla.gecko.TelemetryContract;
 import org.mozilla.gecko.db.BrowserContract;
@@ -181,7 +182,7 @@ public class PreSearchFragment extends Fragment {
             final ViewStub emptyViewStub = (ViewStub) getView().findViewById(R.id.empty_view_stub);
             emptyView = emptyViewStub.inflate();
 
-            ((ImageView) emptyView.findViewById(R.id.empty_image)).setImageResource(R.drawable.search_fox);
+            ((ImageView) emptyView.findViewById(R.id.empty_image)).setImageResource(R.drawable.icon_search_empty_firefox);
             ((TextView) emptyView.findViewById(R.id.empty_title)).setText(R.string.search_empty_title);
             ((TextView) emptyView.findViewById(R.id.empty_message)).setText(R.string.search_empty_message);
 

@@ -270,15 +270,15 @@ IDirect3DSurface9 *Image9::getSurface()
     return mSurface;
 }
 
-void Image9::setManagedSurface(TextureStorageInterface2D *storage, int level)
+void Image9::setManagedSurface2D(TextureStorage *storage, int level)
 {
-    TextureStorage9_2D *storage9 = TextureStorage9_2D::makeTextureStorage9_2D(storage->getStorageInstance());
+    TextureStorage9_2D *storage9 = TextureStorage9_2D::makeTextureStorage9_2D(storage);
     setManagedSurface(storage9->getSurfaceLevel(level, false));
 }
 
-void Image9::setManagedSurface(TextureStorageInterfaceCube *storage, int face, int level)
+void Image9::setManagedSurfaceCube(TextureStorage *storage, int face, int level)
 {
-    TextureStorage9_Cube *storage9 = TextureStorage9_Cube::makeTextureStorage9_Cube(storage->getStorageInstance());
+    TextureStorage9_Cube *storage9 = TextureStorage9_Cube::makeTextureStorage9_Cube(storage);
     setManagedSurface(storage9->getCubeMapSurface(GL_TEXTURE_CUBE_MAP_POSITIVE_X + face, level, false));
 }
 
@@ -301,88 +301,99 @@ void Image9::setManagedSurface(IDirect3DSurface9 *surface)
     }
 }
 
-bool Image9::copyToStorage(TextureStorageInterface2D *storage, int level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height)
+gl::Error Image9::copyToStorage2D(TextureStorage *storage, const gl::ImageIndex &index, const gl::Box &region)
 {
     ASSERT(getSurface() != NULL);
-    TextureStorage9_2D *storage9 = TextureStorage9_2D::makeTextureStorage9_2D(storage->getStorageInstance());
-    return copyToSurface(storage9->getSurfaceLevel(level, true), xoffset, yoffset, width, height);
+    TextureStorage9_2D *storage9 = TextureStorage9_2D::makeTextureStorage9_2D(storage);
+    IDirect3DSurface9 *destSurface = storage9->getSurfaceLevel(index.mipIndex, true);
+
+    gl::Error error = copyToSurface(destSurface, region.x, region.y, region.width, region.height);
+    SafeRelease(destSurface);
+    return error;
 }
 
-bool Image9::copyToStorage(TextureStorageInterfaceCube *storage, int face, int level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height)
+gl::Error Image9::copyToStorageCube(TextureStorage *storage, const gl::ImageIndex &index, const gl::Box &region)
 {
     ASSERT(getSurface() != NULL);
-    TextureStorage9_Cube *storage9 = TextureStorage9_Cube::makeTextureStorage9_Cube(storage->getStorageInstance());
-    return copyToSurface(storage9->getCubeMapSurface(GL_TEXTURE_CUBE_MAP_POSITIVE_X + face, level, true), xoffset, yoffset, width, height);
+    TextureStorage9_Cube *storage9 = TextureStorage9_Cube::makeTextureStorage9_Cube(storage);
+    IDirect3DSurface9 *destSurface = storage9->getCubeMapSurface(index.type, index.mipIndex, true);
+
+    gl::Error error = copyToSurface(destSurface, region.x, region.y, region.width, region.height);
+    SafeRelease(destSurface);
+    return error;
 }
 
-bool Image9::copyToStorage(TextureStorageInterface3D *storage, int level, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width, GLsizei height, GLsizei depth)
+gl::Error Image9::copyToStorage3D(TextureStorage *storage, const gl::ImageIndex &index, const gl::Box &region)
 {
     // 3D textures are not supported by the D3D9 backend.
     UNREACHABLE();
-    return false;
+    return gl::Error(GL_INVALID_OPERATION);
 }
 
-bool Image9::copyToStorage(TextureStorageInterface2DArray *storage, int level, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width, GLsizei height)
+gl::Error Image9::copyToStorage2DArray(TextureStorage *storage, const gl::ImageIndex &index, const gl::Box &region)
 {
     // 2D array textures are not supported by the D3D9 backend.
     UNREACHABLE();
-    return false;
+    return gl::Error(GL_INVALID_OPERATION);
 }
 
-bool Image9::copyToSurface(IDirect3DSurface9 *destSurface, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height)
+gl::Error Image9::copyToSurface(IDirect3DSurface9 *destSurface, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height)
 {
     ASSERT(width > 0 && height > 0);
-
-    if (!destSurface)
-        return false;
+    ASSERT(destSurface);
 
     IDirect3DSurface9 *sourceSurface = getSurface();
+    ASSERT(sourceSurface && sourceSurface != destSurface);
 
-    if (sourceSurface && sourceSurface != destSurface)
+    RECT rect;
+    rect.left = xoffset;
+    rect.top = yoffset;
+    rect.right = xoffset + width;
+    rect.bottom = yoffset + height;
+
+    POINT point = {rect.left, rect.top};
+
+    IDirect3DDevice9 *device = mRenderer->getDevice();
+
+    if (mD3DPool == D3DPOOL_MANAGED)
     {
-        RECT rect;
-        rect.left = xoffset;
-        rect.top = yoffset;
-        rect.right = xoffset + width;
-        rect.bottom = yoffset + height;
+        D3DSURFACE_DESC desc;
+        sourceSurface->GetDesc(&desc);
 
-        POINT point = {rect.left, rect.top};
-
-        IDirect3DDevice9 *device = mRenderer->getDevice();
-
-        if (mD3DPool == D3DPOOL_MANAGED)
+        IDirect3DSurface9 *surf = 0;
+        HRESULT result = device->CreateOffscreenPlainSurface(desc.Width, desc.Height, desc.Format, D3DPOOL_SYSTEMMEM, &surf, NULL);
+        if (FAILED(result))
         {
-            D3DSURFACE_DESC desc;
-            sourceSurface->GetDesc(&desc);
-
-            IDirect3DSurface9 *surf = 0;
-            HRESULT result = device->CreateOffscreenPlainSurface(desc.Width, desc.Height, desc.Format, D3DPOOL_SYSTEMMEM, &surf, NULL);
-
-            if (SUCCEEDED(result))
-            {
-                copyLockableSurfaces(surf, sourceSurface);
-                result = device->UpdateSurface(surf, &rect, destSurface, &point);
-                ASSERT(SUCCEEDED(result));
-                SafeRelease(surf);
-            }
+            return gl::Error(GL_OUT_OF_MEMORY, "Internal CreateOffscreenPlainSurface call failed, result: 0x%X.", result);
         }
-        else
+
+        copyLockableSurfaces(surf, sourceSurface);
+        result = device->UpdateSurface(surf, &rect, destSurface, &point);
+        SafeRelease(surf);
+        ASSERT(SUCCEEDED(result));
+        if (FAILED(result))
         {
-            // UpdateSurface: source must be SYSTEMMEM, dest must be DEFAULT pools 
-            HRESULT result = device->UpdateSurface(sourceSurface, &rect, destSurface, &point);
-            UNUSED_ASSERTION_VARIABLE(result);
-            ASSERT(SUCCEEDED(result));
+            return gl::Error(GL_OUT_OF_MEMORY, "Internal UpdateSurface call failed, result: 0x%X.", result);
+        }
+    }
+    else
+    {
+        // UpdateSurface: source must be SYSTEMMEM, dest must be DEFAULT pools
+        HRESULT result = device->UpdateSurface(sourceSurface, &rect, destSurface, &point);
+        ASSERT(SUCCEEDED(result));
+        if (FAILED(result))
+        {
+            return gl::Error(GL_OUT_OF_MEMORY, "Internal UpdateSurface call failed, result: 0x%X.", result);
         }
     }
 
-    SafeRelease(destSurface);
-    return true;
+    return gl::Error(GL_NO_ERROR);
 }
 
 // Store the pixel rectangle designated by xoffset,yoffset,width,height with pixels stored as format/type at input
 // into the target pixel rectangle.
-void Image9::loadData(GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width, GLsizei height, GLsizei depth,
-                      GLint unpackAlignment, GLenum type, const void *input)
+gl::Error Image9::loadData(GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width, GLsizei height, GLsizei depth,
+                           GLint unpackAlignment, GLenum type, const void *input)
 {
     // 3D textures are not supported by the D3D9 backend.
     ASSERT(zoffset == 0 && depth == 1);
@@ -403,7 +414,7 @@ void Image9::loadData(GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width
     HRESULT result = lock(&locked, &lockRect);
     if (FAILED(result))
     {
-        return;
+        return gl::Error(GL_OUT_OF_MEMORY, "Failed to lock internal texture for loading data, result: 0x%X.", result);
     }
 
     d3dFormatInfo.loadFunction(width, height, depth,
@@ -411,10 +422,12 @@ void Image9::loadData(GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width
                                reinterpret_cast<uint8_t*>(locked.pBits), locked.Pitch, 0);
 
     unlock();
+
+    return gl::Error(GL_NO_ERROR);
 }
 
-void Image9::loadCompressedData(GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width, GLsizei height, GLsizei depth,
-                                const void *input)
+gl::Error Image9::loadCompressedData(GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width, GLsizei height, GLsizei depth,
+                                     const void *input)
 {
     // 3D textures are not supported by the D3D9 backend.
     ASSERT(zoffset == 0 && depth == 1);
@@ -440,7 +453,7 @@ void Image9::loadCompressedData(GLint xoffset, GLint yoffset, GLint zoffset, GLs
     HRESULT result = lock(&locked, &lockRect);
     if (FAILED(result))
     {
-        return;
+        return gl::Error(GL_OUT_OF_MEMORY, "Failed to lock internal texture for loading data, result: 0x%X.", result);
     }
 
     d3d9FormatInfo.loadFunction(width, height, depth,
@@ -448,23 +461,21 @@ void Image9::loadCompressedData(GLint xoffset, GLint yoffset, GLint zoffset, GLs
                                 reinterpret_cast<uint8_t*>(locked.pBits), locked.Pitch, 0);
 
     unlock();
+
+    return gl::Error(GL_NO_ERROR);
 }
 
 // This implements glCopyTex[Sub]Image2D for non-renderable internal texture formats and incomplete textures
-void Image9::copy(GLint xoffset, GLint yoffset, GLint zoffset, GLint x, GLint y, GLsizei width, GLsizei height, gl::Framebuffer *source)
+void Image9::copy(GLint xoffset, GLint yoffset, GLint zoffset, const gl::Rectangle &sourceArea, RenderTarget *source)
 {
+    ASSERT(source);
+
     // ES3.0 only behaviour to copy into a 3d texture
     ASSERT(zoffset == 0);
 
-    RenderTarget9 *renderTarget = NULL;
+    RenderTarget9 *renderTarget = RenderTarget9::makeRenderTarget9(source);
     IDirect3DSurface9 *surface = NULL;
-    gl::FramebufferAttachment *colorbuffer = source->getColorbuffer(0);
 
-    if (colorbuffer)
-    {
-        renderTarget = RenderTarget9::makeRenderTarget9(colorbuffer->getRenderTarget());
-    }
-    
     if (renderTarget)
     {
         surface = renderTarget->getSurface();
@@ -481,7 +492,7 @@ void Image9::copy(GLint xoffset, GLint yoffset, GLint zoffset, GLint x, GLint y,
     IDirect3DSurface9 *renderTargetData = NULL;
     D3DSURFACE_DESC description;
     surface->GetDesc(&description);
-    
+
     HRESULT result = device->CreateOffscreenPlainSurface(description.Width, description.Height, description.Format, D3DPOOL_SYSTEMMEM, &renderTargetData, NULL);
 
     if (FAILED(result))
@@ -501,8 +512,11 @@ void Image9::copy(GLint xoffset, GLint yoffset, GLint zoffset, GLint x, GLint y,
         return gl::error(GL_OUT_OF_MEMORY);
     }
 
-    RECT sourceRect = {x, y, x + width, y + height};
-    RECT destRect = {xoffset, yoffset, xoffset + width, yoffset + height};
+    int width = sourceArea.width;
+    int height = sourceArea.height;
+
+    RECT sourceRect = { sourceArea.x, sourceArea.y, sourceArea.x + width, sourceArea.y + height };
+    RECT destRect = { xoffset, yoffset, xoffset + width, yoffset + height };
 
     D3DLOCKED_RECT sourceLock = {0};
     result = renderTargetData->LockRect(&sourceLock, &sourceRect, 0);
@@ -517,7 +531,7 @@ void Image9::copy(GLint xoffset, GLint yoffset, GLint zoffset, GLint x, GLint y,
 
     D3DLOCKED_RECT destLock = {0};
     result = lock(&destLock, &destRect);
-    
+
     if (FAILED(result))
     {
         ERR("Failed to lock the destination surface (rectangle might be invalid).");
@@ -540,7 +554,7 @@ void Image9::copy(GLint xoffset, GLint yoffset, GLint zoffset, GLint x, GLint y,
             {
               case D3DFMT_X8R8G8B8:
               case D3DFMT_A8R8G8B8:
-                for(int y = 0; y < height; y++)
+                for (int y = 0; y < height; y++)
                 {
                     memcpy(dest, source, 4 * width);
 
@@ -549,9 +563,9 @@ void Image9::copy(GLint xoffset, GLint yoffset, GLint zoffset, GLint x, GLint y,
                 }
                 break;
               case D3DFMT_L8:
-                for(int y = 0; y < height; y++)
+                for (int y = 0; y < height; y++)
                 {
-                    for(int x = 0; x < width; x++)
+                    for (int x = 0; x < width; x++)
                     {
                         dest[x] = source[x * 4 + 2];
                     }
@@ -561,9 +575,9 @@ void Image9::copy(GLint xoffset, GLint yoffset, GLint zoffset, GLint x, GLint y,
                 }
                 break;
               case D3DFMT_A8L8:
-                for(int y = 0; y < height; y++)
+                for (int y = 0; y < height; y++)
                 {
-                    for(int x = 0; x < width; x++)
+                    for (int x = 0; x < width; x++)
                     {
                         dest[x * 2 + 0] = source[x * 4 + 2];
                         dest[x * 2 + 1] = source[x * 4 + 3];
@@ -581,9 +595,9 @@ void Image9::copy(GLint xoffset, GLint yoffset, GLint zoffset, GLint x, GLint y,
             switch(getD3DFormat())
             {
               case D3DFMT_X8R8G8B8:
-                for(int y = 0; y < height; y++)
+                for (int y = 0; y < height; y++)
                 {
-                    for(int x = 0; x < width; x++)
+                    for (int x = 0; x < width; x++)
                     {
                         unsigned short rgb = ((unsigned short*)source)[x];
                         unsigned char red = (rgb & 0xF800) >> 8;
@@ -600,9 +614,9 @@ void Image9::copy(GLint xoffset, GLint yoffset, GLint zoffset, GLint x, GLint y,
                 }
                 break;
               case D3DFMT_L8:
-                for(int y = 0; y < height; y++)
+                for (int y = 0; y < height; y++)
                 {
-                    for(int x = 0; x < width; x++)
+                    for (int x = 0; x < width; x++)
                     {
                         unsigned char red = source[x * 2 + 1] & 0xF8;
                         dest[x] = red | (red >> 5);
@@ -617,12 +631,12 @@ void Image9::copy(GLint xoffset, GLint yoffset, GLint zoffset, GLint x, GLint y,
             }
             break;
           case D3DFMT_A1R5G5B5:
-            switch(getD3DFormat())
+            switch (getD3DFormat())
             {
               case D3DFMT_X8R8G8B8:
-                for(int y = 0; y < height; y++)
+                for (int y = 0; y < height; y++)
                 {
-                    for(int x = 0; x < width; x++)
+                    for (int x = 0; x < width; x++)
                     {
                         unsigned short argb = ((unsigned short*)source)[x];
                         unsigned char red = (argb & 0x7C00) >> 7;
@@ -639,9 +653,9 @@ void Image9::copy(GLint xoffset, GLint yoffset, GLint zoffset, GLint x, GLint y,
                 }
                 break;
               case D3DFMT_A8R8G8B8:
-                for(int y = 0; y < height; y++)
+                for (int y = 0; y < height; y++)
                 {
-                    for(int x = 0; x < width; x++)
+                    for (int x = 0; x < width; x++)
                     {
                         unsigned short argb = ((unsigned short*)source)[x];
                         unsigned char red = (argb & 0x7C00) >> 7;
@@ -659,9 +673,9 @@ void Image9::copy(GLint xoffset, GLint yoffset, GLint zoffset, GLint x, GLint y,
                 }
                 break;
               case D3DFMT_L8:
-                for(int y = 0; y < height; y++)
+                for (int y = 0; y < height; y++)
                 {
-                    for(int x = 0; x < width; x++)
+                    for (int x = 0; x < width; x++)
                     {
                         unsigned char red = source[x * 2 + 1] & 0x7C;
                         dest[x] = (red << 1) | (red >> 4);
@@ -672,9 +686,9 @@ void Image9::copy(GLint xoffset, GLint yoffset, GLint zoffset, GLint x, GLint y,
                 }
                 break;
               case D3DFMT_A8L8:
-                for(int y = 0; y < height; y++)
+                for (int y = 0; y < height; y++)
                 {
-                    for(int x = 0; x < width; x++)
+                    for (int x = 0; x < width; x++)
                     {
                         unsigned char red = source[x * 2 + 1] & 0x7C;
                         dest[x * 2 + 0] = (red << 1) | (red >> 4);
@@ -701,6 +715,12 @@ void Image9::copy(GLint xoffset, GLint yoffset, GLint zoffset, GLint x, GLint y,
     SafeRelease(surface);
 
     mDirty = true;
+}
+
+void Image9::copy(GLint xoffset, GLint yoffset, GLint zoffset, const gl::Rectangle &area, const gl::ImageIndex &srcIndex, TextureStorage *srcStorage)
+{
+    // Currently unreachable, due to only being used in a D3D11-only workaround
+    UNIMPLEMENTED();
 }
 
 }

@@ -8,9 +8,6 @@ function* promise_first_result(inputText) {
   gURLBar.value = inputText.slice(0, -1);
   EventUtils.synthesizeKey(inputText.slice(-1) , {});
   yield promiseSearchComplete();
-  // On Linux, the popup may or may not be open at this stage. So we need
-  // additional checks to ensure we wait long enough.
-  yield promisePopupShown(gURLBar.popup);
 
   let firstResult = gURLBar.popup.richlistbox.firstChild;
   return firstResult;
@@ -19,8 +16,10 @@ function* promise_first_result(inputText) {
 
 add_task(function*() {
   // This test is only relevant if UnifiedComplete is enabled.
-  if (!Services.prefs.getBoolPref("browser.urlbar.unifiedcomplete"))
+  if (!Services.prefs.getBoolPref("browser.urlbar.unifiedcomplete")) {
+    todo(false, "Stop supporting old autocomplete components.");
     return;
+  }
 
   let tab = gBrowser.selectedTab = gBrowser.addTab("about:mozilla");
   let tabs = [tab];

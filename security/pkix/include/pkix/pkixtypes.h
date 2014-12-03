@@ -74,6 +74,9 @@ MOZILLA_PKIX_ENUM_CLASS SignatureAlgorithm
 
   // id-dsa-with-sha1 (OID 1.2.840.10040.4.3, RFC 3279 Section 2.2.2)
   dsa_with_sha1 = 18,
+
+  // Used to indicate any unsupported algorithm.
+  unsupported_algorithm = 19,
 };
 
 struct SignedDataWithSignature
@@ -282,7 +285,7 @@ public:
   // very wrong to assume that the certificate chain is valid.
   //
   // certChain.GetDER(0) is the trust anchor.
-  virtual Result IsChainValid(const DERArray& certChain) = 0;
+  virtual Result IsChainValid(const DERArray& certChain, Time time) = 0;
 
   // issuerCertToDup is only non-const so CERT_DupCertificate can be called on
   // it.

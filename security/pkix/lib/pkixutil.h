@@ -94,6 +94,10 @@ public:
   {
     return MaybeInput(nameConstraints);
   }
+  const Input* GetSubjectAltName() const
+  {
+    return MaybeInput(subjectAltName);
+  }
 
 private:
   const Input der;
@@ -191,6 +195,20 @@ DaysBeforeYear(unsigned int year)
        + ((year - 1u) / 4u)    // leap years are every 4 years,
        - ((year - 1u) / 100u)  // except years divisible by 100,
        + ((year - 1u) / 400u); // except years divisible by 400.
+}
+
+// Ensures that we do not call the TrustDomain's VerifySignedData function if
+// the algorithm is unsupported.
+inline Result
+WrappedVerifySignedData(TrustDomain& trustDomain,
+                        const SignedDataWithSignature& signedData,
+                        Input subjectPublicKeyInfo)
+{
+  if (signedData.algorithm == SignatureAlgorithm::unsupported_algorithm) {
+    return Result::ERROR_CERT_SIGNATURE_ALGORITHM_DISABLED;
+  }
+
+  return trustDomain.VerifySignedData(signedData, subjectPublicKeyInfo);
 }
 
 } } // namespace mozilla::pkix

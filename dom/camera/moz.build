@@ -17,7 +17,6 @@ UNIFIED_SOURCES += [
     'CameraControlImpl.cpp',
     'CameraPreferences.cpp',
     'CameraPreviewMediaStream.cpp',
-    'CameraRecorderProfiles.cpp',
     'DOMCameraCapabilities.cpp',
     'DOMCameraControl.cpp',
     'DOMCameraControlListener.cpp',
@@ -26,7 +25,7 @@ UNIFIED_SOURCES += [
 ]
 
 if CONFIG['MOZ_B2G_CAMERA']:
-    SOURCES += [
+    UNIFIED_SOURCES += [
         'GonkCameraControl.cpp',
         'GonkCameraHwMgr.cpp',
         'GonkCameraManager.cpp',

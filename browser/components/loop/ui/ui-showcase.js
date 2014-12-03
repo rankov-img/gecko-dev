@@ -10,25 +10,39 @@
 (function() {
   "use strict";
 
+  // Stop the default init functions running to avoid conflicts.
+  document.removeEventListener('DOMContentLoaded', loop.panel.init);
+  document.removeEventListener('DOMContentLoaded', loop.conversation.init);
+
   // 1. Desktop components
   // 1.1 Panel
   var PanelView = loop.panel.PanelView;
   // 1.2. Conversation Window
   var IncomingCallView = loop.conversation.IncomingCallView;
+  var DesktopPendingConversationView = loop.conversationViews.PendingConversationView;
+  var CallFailedView = loop.conversationViews.CallFailedView;
+  var DesktopRoomConversationView = loop.roomViews.DesktopRoomConversationView;
 
   // 2. Standalone webapp
   var HomeView = loop.webapp.HomeView;
-  var UnsupportedBrowserView = loop.webapp.UnsupportedBrowserView;
-  var UnsupportedDeviceView = loop.webapp.UnsupportedDeviceView;
-  var CallUrlExpiredView    = loop.webapp.CallUrlExpiredView;
-  var PendingConversationView = loop.webapp.PendingConversationView;
-  var StartConversationView = loop.webapp.StartConversationView;
-  var EndedConversationView = loop.webapp.EndedConversationView;
+  var UnsupportedBrowserView  = loop.webapp.UnsupportedBrowserView;
+  var UnsupportedDeviceView   = loop.webapp.UnsupportedDeviceView;
+  var CallUrlExpiredView      = loop.webapp.CallUrlExpiredView;
+  var GumPromptConversationView = loop.webapp.GumPromptConversationView;
+  var WaitingConversationView = loop.webapp.WaitingConversationView;
+  var StartConversationView   = loop.webapp.StartConversationView;
+  var FailedConversationView  = loop.webapp.FailedConversationView;
+  var EndedConversationView   = loop.webapp.EndedConversationView;
+  var StandaloneRoomView      = loop.standaloneRoomViews.StandaloneRoomView;
 
   // 3. Shared components
   var ConversationToolbar = loop.shared.views.ConversationToolbar;
   var ConversationView = loop.shared.views.ConversationView;
   var FeedbackView = loop.shared.views.FeedbackView;
+
+  // Store constants
+  var ROOM_STATES = loop.store.ROOM_STATES;
+  var FEEDBACK_STATES = loop.store.FEEDBACK_STATES;
 
   // Local helpers
   function returnTrue() {
@@ -49,7 +63,26 @@
     }
   );
 
+  var dispatcher = new loop.Dispatcher();
+  var activeRoomStore = new loop.store.ActiveRoomStore(dispatcher, {
+    mozLoop: navigator.mozLoop,
+    sdkDriver: {}
+  });
+  var roomStore = new loop.store.RoomStore(dispatcher, {
+    mozLoop: navigator.mozLoop
+  });
+  var feedbackStore = new loop.store.FeedbackStore(dispatcher, {
+    feedbackClient: stageFeedbackApiClient
+  });
+
   // Local mocks
+
+  var mockContact = {
+    name: ["Mr Smith"],
+    email: [{
+      value: "smith@invalid.com"
+    }]
+  };
 
   var mockClient = {
     requestCallUrl: noop,
@@ -58,21 +91,77 @@
 
   var mockSDK = {};
 
-  var mockConversationModel = new loop.shared.models.ConversationModel({}, {
+  var mockConversationModel = new loop.shared.models.ConversationModel({
+    callerId: "Mrs Jones",
+    urlCreationDate: (new Date() / 1000).toString()
+  }, {
     sdk: mockSDK
   });
   mockConversationModel.startSession = noop;
 
+  var mockWebSocket = new loop.CallConnectionWebSocket({
+    url: "fake",
+    callId: "fakeId",
+    websocketToken: "fakeToken"
+  });
+
   var notifications = new loop.shared.models.NotificationCollection();
   var errNotifications = new loop.shared.models.NotificationCollection();
-  errNotifications.error("Error!");
+  errNotifications.add({
+    level: "error",
+    message: "Could Not Authenticate",
+    details: "Did you change your password?",
+    detailsButtonLabel: "Retry",
+  });
+
+  var SVGIcon = React.createClass({displayName: 'SVGIcon',
+    render: function() {
+      return (
+        React.DOM.span({className: "svg-icon", style: {
+          "background-image": "url(/content/shared/img/icons-16x16.svg#" + this.props.shapeId + ")"
+        }})
+      );
+    }
+  });
+
+  var SVGIcons = React.createClass({displayName: 'SVGIcons',
+    shapes: [
+      "audio", "audio-hover", "audio-active", "block",
+      "block-red", "block-hover", "block-active", "contacts", "contacts-hover",
+      "contacts-active", "copy", "checkmark", "google", "google-hover",
+      "google-active", "history", "history-hover", "history-active", "leave",
+      "precall", "precall-hover", "precall-active", "settings", "settings-hover",
+      "settings-active", "tag", "tag-hover", "tag-active", "trash", "unblock",
+      "unblock-hover", "unblock-active", "video", "video-hover", "video-active"
+    ],
+
+    render: function() {
+      return (
+        React.DOM.div({className: "svg-icon-list"}, 
+          this.shapes.map(function(shapeId, i) {
+            return React.DOM.div({key: i, className: "svg-icon-entry"}, 
+              React.DOM.p(null, SVGIcon({shapeId: shapeId})), 
+              React.DOM.p(null, shapeId)
+            );
+          }, this)
+        )
+      );
+    }
+  });
 
   var Example = React.createClass({displayName: 'Example',
+    makeId: function(prefix) {
+      return (prefix || "") + this.props.summary.toLowerCase().replace(/\s/g, "-");
+    },
+
     render: function() {
       var cx = React.addons.classSet;
       return (
         React.DOM.div({className: "example"}, 
-          React.DOM.h3(null, this.props.summary), 
+          React.DOM.h3({id: this.makeId()}, 
+            this.props.summary, 
+            React.DOM.a({href: this.makeId("#")}, " ¶")
+          ), 
           React.DOM.div({className: cx({comp: true, dashed: this.props.dashed}), 
                style: this.props.style || {}}, 
             this.props.children
@@ -125,38 +214,57 @@
             ), 
             Example({summary: "Call URL retrieved", dashed: "true", style: {width: "332px"}}, 
               PanelView({client: mockClient, notifications: notifications, 
-                         callUrl: "http://invalid.example.url/"})
+                         callUrl: "http://invalid.example.url/", 
+                         dispatcher: dispatcher, 
+                         roomStore: roomStore})
             ), 
             Example({summary: "Call URL retrieved - authenticated", dashed: "true", style: {width: "332px"}}, 
               PanelView({client: mockClient, notifications: notifications, 
                          callUrl: "http://invalid.example.url/", 
-                         userProfile: {email: "test@example.com"}})
+                         userProfile: {email: "test@example.com"}, 
+                         dispatcher: dispatcher, 
+                         roomStore: roomStore})
             ), 
             Example({summary: "Pending call url retrieval", dashed: "true", style: {width: "332px"}}, 
-              PanelView({client: mockClient, notifications: notifications})
+              PanelView({client: mockClient, notifications: notifications, 
+                         dispatcher: dispatcher, 
+                         roomStore: roomStore})
             ), 
             Example({summary: "Pending call url retrieval - authenticated", dashed: "true", style: {width: "332px"}}, 
               PanelView({client: mockClient, notifications: notifications, 
-                         userProfile: {email: "test@example.com"}})
+                         userProfile: {email: "test@example.com"}, 
+                         dispatcher: dispatcher, 
+                         roomStore: roomStore})
             ), 
             Example({summary: "Error Notification", dashed: "true", style: {width: "332px"}}, 
-              PanelView({client: mockClient, notifications: errNotifications})
+              PanelView({client: mockClient, notifications: errNotifications, 
+                         dispatcher: dispatcher, 
+                         roomStore: roomStore})
             ), 
             Example({summary: "Error Notification - authenticated", dashed: "true", style: {width: "332px"}}, 
               PanelView({client: mockClient, notifications: errNotifications, 
-                         userProfile: {email: "test@example.com"}})
+                         userProfile: {email: "test@example.com"}, 
+                         dispatcher: dispatcher, 
+                         roomStore: roomStore})
+            ), 
+            Example({summary: "Room list tab", dashed: "true", style: {width: "332px"}}, 
+              PanelView({client: mockClient, notifications: notifications, 
+                         userProfile: {email: "test@example.com"}, 
+                         dispatcher: dispatcher, 
+                         roomStore: roomStore, 
+                         selectedTab: "rooms"})
             )
           ), 
 
           Section({name: "IncomingCallView"}, 
-            Example({summary: "Default / incoming video call", dashed: "true", style: {width: "280px"}}, 
+            Example({summary: "Default / incoming video call", dashed: "true", style: {width: "260px", height: "254px"}}, 
               React.DOM.div({className: "fx-embedded"}, 
                 IncomingCallView({model: mockConversationModel, 
                                   video: true})
               )
             ), 
 
-            Example({summary: "Default / incoming audio only call", dashed: "true", style: {width: "280px"}}, 
+            Example({summary: "Default / incoming audio only call", dashed: "true", style: {width: "260px", height: "254px"}}, 
               React.DOM.div({className: "fx-embedded"}, 
                 IncomingCallView({model: mockConversationModel, 
                                   video: false})
@@ -165,11 +273,10 @@
           ), 
 
           Section({name: "IncomingCallView-ActiveState"}, 
-            Example({summary: "Default", dashed: "true", style: {width: "280px"}}, 
+            Example({summary: "Default", dashed: "true", style: {width: "260px", height: "254px"}}, 
               React.DOM.div({className: "fx-embedded"}, 
                 IncomingCallView({model: mockConversationModel, 
-                                   showDeclineMenu: true, 
-                                   video: true})
+                                   showMenu: true})
               )
             )
           ), 
@@ -220,15 +327,52 @@
             )
           ), 
 
-          Section({name: "PendingConversationView"}, 
-            Example({summary: "Pending conversation view (connecting)", dashed: "true"}, 
+          Section({name: "GumPromptConversationView"}, 
+            Example({summary: "Gum Prompt conversation view", dashed: "true"}, 
               React.DOM.div({className: "standalone"}, 
-                PendingConversationView(null)
+                GumPromptConversationView(null)
+              )
+            )
+          ), 
+
+          Section({name: "WaitingConversationView"}, 
+            Example({summary: "Waiting conversation view (connecting)", dashed: "true"}, 
+              React.DOM.div({className: "standalone"}, 
+                WaitingConversationView({websocket: mockWebSocket, 
+                                         dispatcher: dispatcher})
               )
             ), 
-            Example({summary: "Pending conversation view (ringing)", dashed: "true"}, 
+            Example({summary: "Waiting conversation view (ringing)", dashed: "true"}, 
               React.DOM.div({className: "standalone"}, 
-                PendingConversationView({callState: "ringing"})
+                WaitingConversationView({websocket: mockWebSocket, 
+                                         dispatcher: dispatcher, 
+                                         callState: "ringing"})
+              )
+            )
+          ), 
+
+          Section({name: "PendingConversationView (Desktop)"}, 
+            Example({summary: "Connecting", dashed: "true", 
+                     style: {width: "260px", height: "265px"}}, 
+              React.DOM.div({className: "fx-embedded"}, 
+                DesktopPendingConversationView({callState: "gather", 
+                                                contact: mockContact, 
+                                                dispatcher: dispatcher})
+              )
+            )
+          ), 
+
+          Section({name: "CallFailedView"}, 
+            Example({summary: "Call Failed", dashed: "true", 
+                     style: {width: "260px", height: "265px"}}, 
+              React.DOM.div({className: "fx-embedded"}, 
+                CallFailedView({dispatcher: dispatcher})
+              )
+            ), 
+            Example({summary: "Call Failed — with call URL error", dashed: "true", 
+                     style: {width: "260px", height: "265px"}}, 
+              React.DOM.div({className: "fx-embedded"}, 
+                CallFailedView({dispatcher: dispatcher, emailLinkError: true})
               )
             )
           ), 
@@ -236,10 +380,19 @@
           Section({name: "StartConversationView"}, 
             Example({summary: "Start conversation view", dashed: "true"}, 
               React.DOM.div({className: "standalone"}, 
-                StartConversationView({model: mockConversationModel, 
+                StartConversationView({conversation: mockConversationModel, 
                                        client: mockClient, 
-                                       notifications: notifications, 
-                                       showCallOptionsMenu: true})
+                                       notifications: notifications})
+              )
+            )
+          ), 
+
+          Section({name: "FailedConversationView"}, 
+            Example({summary: "Failed conversation view", dashed: "true"}, 
+              React.DOM.div({className: "standalone"}, 
+                FailedConversationView({conversation: mockConversationModel, 
+                                        client: mockClient, 
+                                        notifications: notifications})
               )
             )
           ), 
@@ -319,14 +472,14 @@
               React.DOM.strong(null, "Note:"), " For the useable demo, you can access submitted data at ", 
               React.DOM.a({href: "https://input.allizom.org/"}, "input.allizom.org"), "."
             ), 
-            Example({summary: "Default (useable demo)", dashed: "true", style: {width: "280px"}}, 
-              FeedbackView({feedbackApiClient: stageFeedbackApiClient})
+            Example({summary: "Default (useable demo)", dashed: "true", style: {width: "260px"}}, 
+              FeedbackView({feedbackStore: feedbackStore})
             ), 
-            Example({summary: "Detailed form", dashed: "true", style: {width: "280px"}}, 
-              FeedbackView({feedbackApiClient: stageFeedbackApiClient, step: "form"})
+            Example({summary: "Detailed form", dashed: "true", style: {width: "260px"}}, 
+              FeedbackView({feedbackStore: feedbackStore, feedbackState: FEEDBACK_STATES.DETAILS})
             ), 
-            Example({summary: "Thank you!", dashed: "true", style: {width: "280px"}}, 
-              FeedbackView({feedbackApiClient: stageFeedbackApiClient, step: "finished"})
+            Example({summary: "Thank you!", dashed: "true", style: {width: "260px"}}, 
+              FeedbackView({feedbackStore: feedbackStore, feedbackState: FEEDBACK_STATES.SENT})
             )
           ), 
 
@@ -346,7 +499,7 @@
                                        video: {enabled: true}, 
                                        audio: {enabled: true}, 
                                        conversation: mockConversationModel, 
-                                       feedbackApiClient: stageFeedbackApiClient, 
+                                       feedbackStore: feedbackStore, 
                                        onAfterFeedbackReceived: noop})
               )
             )
@@ -392,6 +545,96 @@
               React.DOM.div({className: "standalone"}, 
                 UnsupportedDeviceView(null)
               )
+            )
+          ), 
+
+          Section({name: "DesktopRoomConversationView"}, 
+            Example({summary: "Desktop room conversation (invitation)", dashed: "true", 
+                     style: {width: "260px", height: "265px"}}, 
+              React.DOM.div({className: "fx-embedded"}, 
+                DesktopRoomConversationView({
+                  roomStore: roomStore, 
+                  dispatcher: dispatcher, 
+                  roomState: ROOM_STATES.INIT})
+              )
+            ), 
+
+            Example({summary: "Desktop room conversation", dashed: "true", 
+                     style: {width: "260px", height: "265px"}}, 
+              React.DOM.div({className: "fx-embedded"}, 
+                DesktopRoomConversationView({
+                  roomStore: roomStore, 
+                  dispatcher: dispatcher, 
+                  roomState: ROOM_STATES.HAS_PARTICIPANTS})
+              )
+            )
+          ), 
+
+          Section({name: "StandaloneRoomView"}, 
+            Example({summary: "Standalone room conversation (ready)"}, 
+              React.DOM.div({className: "standalone"}, 
+                StandaloneRoomView({
+                  dispatcher: dispatcher, 
+                  activeRoomStore: activeRoomStore, 
+                  roomState: ROOM_STATES.READY, 
+                  helper: {isFirefox: returnTrue}})
+              )
+            ), 
+
+            Example({summary: "Standalone room conversation (joined)"}, 
+              React.DOM.div({className: "standalone"}, 
+                StandaloneRoomView({
+                  dispatcher: dispatcher, 
+                  activeRoomStore: activeRoomStore, 
+                  roomState: ROOM_STATES.JOINED, 
+                  helper: {isFirefox: returnTrue}})
+              )
+            ), 
+
+            Example({summary: "Standalone room conversation (has-participants)"}, 
+              React.DOM.div({className: "standalone"}, 
+                StandaloneRoomView({
+                  dispatcher: dispatcher, 
+                  activeRoomStore: activeRoomStore, 
+                  roomState: ROOM_STATES.HAS_PARTICIPANTS, 
+                  helper: {isFirefox: returnTrue}})
+              )
+            ), 
+
+            Example({summary: "Standalone room conversation (full - FFx user)"}, 
+              React.DOM.div({className: "standalone"}, 
+                StandaloneRoomView({
+                  dispatcher: dispatcher, 
+                  activeRoomStore: activeRoomStore, 
+                  roomState: ROOM_STATES.FULL, 
+                  helper: {isFirefox: returnTrue}})
+              )
+            ), 
+
+            Example({summary: "Standalone room conversation (full - non FFx user)"}, 
+              React.DOM.div({className: "standalone"}, 
+                StandaloneRoomView({
+                  dispatcher: dispatcher, 
+                  activeRoomStore: activeRoomStore, 
+                  roomState: ROOM_STATES.FULL, 
+                  helper: {isFirefox: returnFalse}})
+              )
+            ), 
+
+            Example({summary: "Standalone room conversation (failed)"}, 
+              React.DOM.div({className: "standalone"}, 
+                StandaloneRoomView({
+                  dispatcher: dispatcher, 
+                  activeRoomStore: activeRoomStore, 
+                  roomState: ROOM_STATES.FAILED, 
+                  helper: {isFirefox: returnFalse}})
+              )
+            )
+          ), 
+
+          Section({name: "SVG icons preview"}, 
+            Example({summary: "16x16"}, 
+              SVGIcons(null)
             )
           )
 
@@ -440,12 +683,12 @@
   }
 
   window.addEventListener("DOMContentLoaded", function() {
-    var body = document.body;
-    body.className = loop.shared.utils.getTargetPlatform();
-
-    React.renderComponent(App(null), body);
+    React.renderComponent(App(null), document.body);
 
     _renderComponentsInIframes();
+
+    // Put the title back, in case views changed it.
+    document.title = "Loop UI Components Showcase";
   });
 
 })();

@@ -53,7 +53,7 @@ private:
     return Result::FATAL_ERROR_LIBRARY_FAILURE;
   }
 
-  virtual Result IsChainValid(const DERArray&)
+  virtual Result IsChainValid(const DERArray&, Time)
   {
     ADD_FAILURE();
     return Result::FATAL_ERROR_LIBRARY_FAILURE;
@@ -87,7 +87,7 @@ protected:
                                   /*out*/ ByteString& issuerSPKI)
   {
     issuerDER = CNToDERName(issuerASCII);
-    ASSERT_NE(ENCODING_FAILED, issuerDER);
+    ASSERT_FALSE(ENCODING_FAILED(issuerDER));
 
     ScopedTestKeyPair keyPair(GenerateKeyPair());
     ASSERT_TRUE(keyPair);

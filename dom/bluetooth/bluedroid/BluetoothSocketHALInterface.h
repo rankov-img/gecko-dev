@@ -20,6 +20,9 @@ class BluetoothSocketHALInterface MOZ_FINAL
   : public BluetoothSocketInterface
 {
 public:
+  class ConnectWatcher;
+  class AcceptWatcher;
+
   friend class BluetoothHALInterface;
 
   void Listen(BluetoothSocketType aType,
@@ -35,6 +38,8 @@ public:
                BluetoothSocketResultHandler* aRes);
 
   void Accept(int aFd, BluetoothSocketResultHandler* aRes);
+
+  void Close(BluetoothSocketResultHandler* aRes);
 
 protected:
   BluetoothSocketHALInterface(const btsock_interface_t* aInterface);

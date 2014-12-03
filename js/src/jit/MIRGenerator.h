@@ -18,7 +18,7 @@
 #include "jscompartment.h"
 
 #include "jit/CompileInfo.h"
-#include "jit/IonAllocPolicy.h"
+#include "jit/JitAllocPolicy.h"
 #include "jit/JitCompartment.h"
 #ifdef JS_ION_PERF
 # include "jit/PerfSpewer.h"
@@ -50,7 +50,7 @@ class MIRGenerator
         return alloc().ensureBallast();
     }
     const JitRuntime *jitRuntime() const {
-        return GetIonContext()->runtime->jitRuntime();
+        return GetJitContext()->runtime->jitRuntime();
     }
     CompileInfo &info() {
         return *info_;
@@ -77,7 +77,7 @@ class MIRGenerator
 
     bool instrumentedProfiling() {
         if (!instrumentedProfilingIsCached_) {
-            instrumentedProfiling_ = GetIonContext()->runtime->spsProfiler().enabled();
+            instrumentedProfiling_ = GetJitContext()->runtime->spsProfiler().enabled();
             instrumentedProfilingIsCached_ = true;
         }
         return instrumentedProfiling_;
@@ -122,17 +122,17 @@ class MIRGenerator
     }
 
     uint32_t maxAsmJSStackArgBytes() const {
-        JS_ASSERT(compilingAsmJS());
+        MOZ_ASSERT(compilingAsmJS());
         return maxAsmJSStackArgBytes_;
     }
     uint32_t resetAsmJSMaxStackArgBytes() {
-        JS_ASSERT(compilingAsmJS());
+        MOZ_ASSERT(compilingAsmJS());
         uint32_t old = maxAsmJSStackArgBytes_;
         maxAsmJSStackArgBytes_ = 0;
         return old;
     }
     void setAsmJSMaxStackArgBytes(uint32_t n) {
-        JS_ASSERT(compilingAsmJS());
+        MOZ_ASSERT(compilingAsmJS());
         maxAsmJSStackArgBytes_ = n;
     }
     void setPerformsCall() {
@@ -145,7 +145,7 @@ class MIRGenerator
     // the value is cached, so don't worry about calling it several times.
     bool usesSimd();
     void initMinAsmJSHeapLength(uint32_t len) {
-        JS_ASSERT(minAsmJSHeapLength_ == 0);
+        MOZ_ASSERT(minAsmJSHeapLength_ == 0);
         minAsmJSHeapLength_ = len;
     }
     uint32_t minAsmJSHeapLength() const {
@@ -156,7 +156,7 @@ class MIRGenerator
         return modifiesFrameArguments_;
     }
 
-    typedef Vector<types::TypeObject *, 0, IonAllocPolicy> TypeObjectVector;
+    typedef Vector<types::TypeObject *, 0, JitAllocPolicy> TypeObjectVector;
 
     // When abortReason() == AbortReason_NewScriptProperties, all types which
     // the new script properties analysis hasn't been performed on yet.
@@ -175,6 +175,7 @@ class MIRGenerator
     uint32_t nslots_;
     MIRGraph *graph_;
     AbortReason abortReason_;
+    bool shouldForceAbort_; // Force AbortReason_Disable
     TypeObjectVector abortedNewScriptPropertiesTypes_;
     bool error_;
     mozilla::Atomic<bool, mozilla::Relaxed> *pauseBuild_;
@@ -195,6 +196,12 @@ class MIRGenerator
     bool instrumentedProfilingIsCached_;
 
     void addAbortedNewScriptPropertiesType(types::TypeObject *type);
+    void setForceAbort() {
+        shouldForceAbort_ = true;
+    }
+    bool shouldForceAbort() {
+        return shouldForceAbort_;
+    }
 
 #if defined(JS_ION_PERF)
     AsmJSPerfSpewer asmJSPerfSpewer_;

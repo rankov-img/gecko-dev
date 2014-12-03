@@ -14,6 +14,7 @@ this.EXPORTED_SYMBOLS = [ "PluginContent" ];
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/Timer.jsm");
+Cu.import("resource://gre/modules/BrowserUtils.jsm");
 
 XPCOMUtils.defineLazyGetter(this, "gNavigatorBundle", function() {
   const url = "chrome://browser/locale/browser.properties";
@@ -38,12 +39,11 @@ PluginContent.prototype = {
     global.addEventListener("PluginOutdated",        this, true);
     global.addEventListener("PluginInstantiated",    this, true);
     global.addEventListener("PluginRemoved",         this, true);
+    global.addEventListener("pagehide",              this, true);
+    global.addEventListener("pageshow",              this, true);
     global.addEventListener("unload",                this);
 
-    global.addEventListener("pageshow", (event) => this.onPageShow(event), true);
-
     global.addMessageListener("BrowserPlugins:ActivatePlugins", this);
-    global.addMessageListener("BrowserPlugins:NotificationRemoved", this);
     global.addMessageListener("BrowserPlugins:NotificationShown", this);
     global.addMessageListener("BrowserPlugins:ContextMenuCommand", this);
   },
@@ -57,9 +57,6 @@ PluginContent.prototype = {
     switch (msg.name) {
       case "BrowserPlugins:ActivatePlugins":
         this.activatePlugins(msg.data.pluginInfo, msg.data.newState);
-        break;
-      case "BrowserPlugins:NotificationRemoved":
-        this.clearPluginDataCache();
         break;
       case "BrowserPlugins:NotificationShown":
         setTimeout(() => this.updateNotificationUI(), 0);
@@ -79,7 +76,7 @@ PluginContent.prototype = {
 
   onPageShow: function (event) {
     // Ignore events that aren't from the main document.
-    if (this.global.content && event.target != this.global.content.document) {
+    if (!this.content || event.target != this.content.document) {
       return;
     }
 
@@ -89,6 +86,18 @@ PluginContent.prototype = {
     if (event.persisted) {
       this.reshowClickToPlayNotification();
     }
+  },
+
+  onPageHide: function (event) {
+    // Ignore events that aren't from the main document.
+    if (!this.content || event.target != this.content.document) {
+      return;
+    }
+
+    if (Services.telemetry.canSend) {
+      this._finishRecordingFlashPluginTelemetry();
+    }
+    this.clearPluginDataCache();
   },
 
   getPluginUI: function (plugin, anonid) {
@@ -114,7 +123,15 @@ PluginContent.prototype = {
 
     if (this.isKnownPlugin(pluginElement)) {
       pluginTag = pluginHost.getPluginTagForType(pluginElement.actualType);
-      pluginName = this.makeNicePluginName(pluginTag.name);
+      pluginName = BrowserUtils.makeNicePluginName(pluginTag.name);
+
+      // Convert this from nsIPluginTag so it can be serialized.
+      let properties = ["name", "description", "filename", "version", "enabledState"];
+      let pluginTagCopy = {};
+      for (let prop of properties) {
+        pluginTagCopy[prop] = pluginTag[prop];
+      }
+      pluginTag = pluginTagCopy;
 
       permissionString = pluginHost.getPermissionStringForType(pluginElement.actualType);
       fallbackType = pluginElement.defaultFallbackType;
@@ -135,23 +152,6 @@ PluginContent.prototype = {
              fallbackType: fallbackType,
              blocklistState: blocklistState,
            };
-  },
-
-  // Map the plugin's name to a filtered version more suitable for user UI.
-  makeNicePluginName : function (aName) {
-    if (aName == "Shockwave Flash")
-      return "Adobe Flash";
-
-    // Clean up the plugin name by stripping off parenthetical clauses,
-    // trailing version numbers or "plugin".
-    // EG, "Foo Bar (Linux) Plugin 1.23_02" --> "Foo Bar"
-    // Do this by first stripping the numbers, etc. off the end, and then
-    // removing "Plugin" (and then trimming to get rid of any whitespace).
-    // (Otherwise, something like "Java(TM) Plug-in 1.7.0_07" gets mangled)
-    let newName = aName.replace(/\(.*?\)/g, "").
-                        replace(/[\s\d\.\-\_\(\)]+$/, "").
-                        replace(/\bplug-?in\b/i, "").trim();
-    return newName;
   },
 
   /**
@@ -284,6 +284,16 @@ PluginContent.prototype = {
       return;
     }
 
+    if (eventType == "pagehide") {
+      this.onPageHide(event);
+      return;
+    }
+
+    if (eventType == "pageshow") {
+      this.onPageShow(event);
+      return;
+    }
+
     if (eventType == "PluginRemoved") {
       this.updateNotificationUI(event.target);
       return;
@@ -379,6 +389,11 @@ PluginContent.prototype = {
         break;
     }
 
+    if (Services.telemetry.canSend && this._getPluginInfo(plugin).mimetype ===
+                                      "application/x-shockwave-flash") {
+      this._recordFlashPluginTelemetry(eventType, plugin);
+    }
+
     // Show the in-content UI if it's not too big. The crashed plugin handler already did this.
     if (eventType != "PluginCrashed") {
       let overlay = this.getPluginUI(plugin, "main");
@@ -405,6 +420,42 @@ PluginContent.prototype = {
 
     if (shouldShowNotification) {
       this._showClickToPlayNotification(plugin, false);
+    }
+  },
+
+  _recordFlashPluginTelemetry: function (eventType, plugin) {
+    if (!this.flashPluginStats) {
+      this.flashPluginStats = {
+        instancesCount: 0,
+        plugins: new WeakSet()
+      };
+    }
+
+    if (!this.flashPluginStats.plugins.has(plugin)) {
+      // Reporting plugin instance and its dimensions only once.
+      this.flashPluginStats.plugins.add(plugin);
+
+      this.flashPluginStats.instancesCount++;
+
+      let pluginRect = plugin.getBoundingClientRect();
+      Services.telemetry.getHistogramById('FLASH_PLUGIN_WIDTH')
+                       .add(pluginRect.width);
+      Services.telemetry.getHistogramById('FLASH_PLUGIN_HEIGHT')
+                       .add(pluginRect.height);
+      Services.telemetry.getHistogramById('FLASH_PLUGIN_AREA')
+                       .add(pluginRect.width * pluginRect.height);
+
+      let state = this._getPluginInfo(plugin).fallbackType;
+      Services.telemetry.getHistogramById('FLASH_PLUGIN_STATES')
+                       .add(state);
+    }
+  },
+
+  _finishRecordingFlashPluginTelemetry: function () {
+    if (this.flashPluginStats) {
+      Services.telemetry.getHistogramById('FLASH_PLUGIN_INSTANCES_ON_PAGE')
+                        .add(this.flashPluginStats.instancesCount);
+    delete this.flashPluginStats;
     }
   },
 
@@ -647,7 +698,7 @@ PluginContent.prototype = {
     // If plugin is null, that means the user has navigated back to a page with
     // plugins, and we need to collect all the plugins.
     if (plugin === null) {
-      let contentWindow = this.global.content;
+      let contentWindow = this.content;
       let cwu = contentWindow.QueryInterface(Ci.nsIInterfaceRequestor)
                              .getInterface(Ci.nsIDOMWindowUtils);
       // cwu.plugins may contain non-plugin <object>s, filter them out
@@ -664,8 +715,9 @@ PluginContent.prototype = {
 
     let pluginData = this.pluginData;
 
-    let principal = this.global.content.document.nodePrincipal;
+    let principal = this.content.document.nodePrincipal;
     let principalHost = this._getHostFromPrincipal(principal);
+    let location = this.content.document.location.href;
 
     for (let p of plugins) {
       let pluginInfo = this._getPluginInfo(p);
@@ -695,6 +747,7 @@ PluginContent.prototype = {
       plugins: [... this.pluginData.values()],
       showNow: showNow,
       host: principalHost,
+      location: location,
     }, null, principal);
   },
 
@@ -710,16 +763,13 @@ PluginContent.prototype = {
    *        to the current top-level document.
    */
   updateNotificationUI: function (document) {
-    let principal;
+    document = document || this.content.document;
 
-    if (document) {
-      // We're only interested in the top-level document, since that's
-      // the one that provides the Principal that we send back to the
-      // parent.
-      principal = document.defaultView.top.document.nodePrincipal;
-    } else {
-      principal = this.content.document.nodePrincipal;
-    }
+    // We're only interested in the top-level document, since that's
+    // the one that provides the Principal that we send back to the
+    // parent.
+    let principal = document.defaultView.top.document.nodePrincipal;
+    let location = document.location.href;
 
     // Make a copy of the actions from the last popup notification.
     let haveInsecure = false;
@@ -780,6 +830,7 @@ PluginContent.prototype = {
       haveInsecure: haveInsecure,
       actions: [... actions.values()],
       host: this._getHostFromPrincipal(principal),
+      location: location,
     }, null, principal);
   },
 
@@ -798,34 +849,20 @@ PluginContent.prototype = {
   // Crashed-plugin event listener. Called for every instance of a
   // plugin in content.
   pluginInstanceCrashed: function (target, aEvent) {
-    // Ensure the plugin and event are of the right type.
-    if (!(aEvent instanceof Ci.nsIDOMCustomEvent))
+    if (!(aEvent instanceof this.content.PluginCrashedEvent))
       return;
 
-    let propBag = aEvent.detail.QueryInterface(Ci.nsIPropertyBag2);
-    let submittedReport = propBag.getPropertyAsBool("submittedCrashReport");
-    let doPrompt        = true; // XXX followup for .getPropertyAsBool("doPrompt");
-    let submitReports   = true; // XXX followup for .getPropertyAsBool("submitReports");
-    let pluginName      = propBag.getPropertyAsAString("pluginName");
-    let pluginDumpID    = propBag.getPropertyAsAString("pluginDumpID");
-    let browserDumpID   = null;
-    let gmpPlugin       = false;
-
-    try {
-      browserDumpID = propBag.getPropertyAsAString("browserDumpID");
-    } catch (e) {
-      // For GMP crashes we don't get a browser dump.
-    }
-
-    try {
-      gmpPlugin = propBag.getPropertyAsBool("gmpPlugin");
-    } catch (e) {
-      // This property is only set for GMP plugins.
-    }
+    let submittedReport = aEvent.submittedCrashReport;
+    let doPrompt        = true; // XXX followup for aEvent.doPrompt;
+    let submitReports   = true; // XXX followup for aEvent.submitReports;
+    let pluginName      = aEvent.pluginName;
+    let pluginDumpID    = aEvent.pluginDumpID;
+    let browserDumpID   = aEvent.browserDumpID;
+    let gmpPlugin       = aEvent.gmpPlugin;
 
     // For non-GMP plugins, remap the plugin name to a more user-presentable form.
     if (!gmpPlugin) {
-      pluginName = this.makeNicePluginName(pluginName);
+      pluginName = BrowserUtils.makeNicePluginName(pluginName);
     }
 
     let messageString = gNavigatorBundle.formatStringFromName("crashedpluginsMessage.title", [pluginName], 1);

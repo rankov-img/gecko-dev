@@ -582,8 +582,8 @@ function ArrayFill(value, start = 0, end = undefined) {
 }
 
 // Proposed for ES7:
-// https://github.com/domenic/Array.prototype.contains/blob/master/spec.md
-function ArrayContains(searchElement, fromIndex = 0) {
+// https://github.com/domenic/Array.prototype.includes/blob/master/spec.md
+function ArrayIncludes(searchElement, fromIndex = 0) {
     // Steps 1-2.
     var O = ToObject(this);
 
@@ -598,15 +598,11 @@ function ArrayContains(searchElement, fromIndex = 0) {
     var n = ToInteger(fromIndex);
 
     // Step 8.
-    if (n >= len)
-        return false;
-
-    // Step 9.
     var k;
     if (n >= 0) {
         k = n;
     }
-    // Step 10.
+    // Step 9.
     else {
         // Step a.
         k = len + n;
@@ -615,7 +611,7 @@ function ArrayContains(searchElement, fromIndex = 0) {
             k = 0;
     }
 
-    // Step 11.
+    // Step 10.
     while (k < len) {
         // Steps a-c.
         if (SameValueZero(searchElement, O[k]))
@@ -625,7 +621,7 @@ function ArrayContains(searchElement, fromIndex = 0) {
         k++;
     }
 
-    // Step 12.
+    // Step 11.
     return false;
 }
 
@@ -726,7 +722,7 @@ function ArrayFrom(arrayLike, mapfn=undefined, thisArg=undefined) {
     var attrs = ATTR_CONFIGURABLE | ATTR_ENUMERABLE | ATTR_WRITABLE;
 
     // Steps 6-8.
-    var usingIterator = items["@@iterator"];
+    var usingIterator = items[std_iterator];
     if (usingIterator !== undefined) {
         // Steps 8.a-c.
         var A = IsConstructor(C) ? new C() : [];

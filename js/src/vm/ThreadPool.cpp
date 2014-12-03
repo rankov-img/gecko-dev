@@ -162,7 +162,7 @@ ThreadPoolWorker::HelperThreadMain(void *arg)
 
 #ifdef MOZ_NUWA_PROCESS
     if (IsNuwaProcess()) {
-        JS_ASSERT(NuwaMarkCurrentThread != nullptr);
+        MOZ_ASSERT(NuwaMarkCurrentThread != nullptr);
         NuwaMarkCurrentThread(nullptr, nullptr);
     }
 #endif
@@ -259,8 +259,8 @@ ThreadPool::ThreadPool(JSRuntime *rt)
   : activeWorkers_(0),
     joinBarrier_(nullptr),
     job_(nullptr),
-    runtime_(rt),
 #ifdef DEBUG
+    runtime_(rt),
     stolenSlices_(0),
 #endif
     pendingSlices_(0),

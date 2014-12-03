@@ -6,6 +6,10 @@ const TEST_MSG = "ContentSearchTest";
 const CONTENT_SEARCH_MSG = "ContentSearch";
 const TEST_CONTENT_SCRIPT_BASENAME = "contentSearch.js";
 
+// This timeout is absurdly high to avoid random failures like bug 1087120.
+// That bug was reported when the timeout was 5 seconds, so let's try 10.
+const SUGGESTIONS_TIMEOUT = 10000;
+
 var gMsgMan;
 
 add_task(function* GetState() {
@@ -201,7 +205,7 @@ add_task(function* GetSuggestions_AddFormHistoryEntry_RemoveFormHistoryEntry() {
     data: {
       engineName: engine.name,
       searchString: searchStr,
-      remoteTimeout: 5000,
+      remoteTimeout: SUGGESTIONS_TIMEOUT,
     },
   });
 
@@ -237,7 +241,7 @@ add_task(function* GetSuggestions_AddFormHistoryEntry_RemoveFormHistoryEntry() {
     data: {
       engineName: engine.name,
       searchString: searchStr,
-      remoteTimeout: 5000,
+      remoteTimeout: SUGGESTIONS_TIMEOUT,
     },
   });
 
@@ -258,9 +262,43 @@ add_task(function* GetSuggestions_AddFormHistoryEntry_RemoveFormHistoryEntry() {
   yield waitForTestMsg("CurrentState");
 });
 
+function buffersEqual(actualArrayBuffer, expectedArrayBuffer) {
+  let expectedView = new Int8Array(expectedArrayBuffer);
+  let actualView = new Int8Array(actualArrayBuffer);
+  for (let i = 0; i < expectedView.length; i++) {
+    if (actualView[i] != expectedView[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function arrayBufferEqual(actualArrayBuffer, expectedArrayBuffer) {
+  ok(actualArrayBuffer instanceof ArrayBuffer, "Actual value is ArrayBuffer.");
+  ok(expectedArrayBuffer instanceof ArrayBuffer, "Expected value is ArrayBuffer.");
+  Assert.equal(actualArrayBuffer.byteLength, expectedArrayBuffer.byteLength,
+      "Array buffers have the same length.");
+  ok(buffersEqual(actualArrayBuffer, expectedArrayBuffer), "Buffers are equal.");
+}
+
+function checkArrayBuffers(actual, expected) {
+  if (actual instanceof ArrayBuffer) {
+    arrayBufferEqual(actual, expected);
+  }
+  if (typeof actual == "object") {
+    for (let i in actual) {
+      checkArrayBuffers(actual[i], expected[i]);
+    }
+  }
+}
 
 function checkMsg(actualMsg, expectedMsgData) {
+  let actualMsgData = actualMsg.data;
   SimpleTest.isDeeply(actualMsg.data, expectedMsgData, "Checking message");
+
+  // Engines contain ArrayBuffers which we have to compare byte by byte and
+  // not as Objects (like SimpleTest.isDeeply does).
+  checkArrayBuffers(actualMsgData, expectedMsgData);
 }
 
 function waitForMsg(name, type) {
@@ -330,35 +368,35 @@ function addTab() {
   return deferred.promise;
 }
 
-function currentStateObj() {
-  return Task.spawn(function* () {
-    let state = {
-      engines: [],
-      currentEngine: yield currentEngineObj(),
-    };
-    for (let engine of Services.search.getVisibleEngines()) {
-      let uri = engine.getIconURLBySize(16, 16);
-      state.engines.push({
-        name: engine.name,
-        iconBuffer: yield arrayBufferFromDataURI(uri),
-      });
-    }
-    return state;
-  }.bind(this));
-}
-
-function currentEngineObj() {
-  return Task.spawn(function* () {
-    let engine = Services.search.currentEngine;
-    let uri1x = engine.getIconURLBySize(65, 26);
-    let uri2x = engine.getIconURLBySize(130, 52);
-    return {
+let currentStateObj = Task.async(function* () {
+  let state = {
+    engines: [],
+    currentEngine: yield currentEngineObj(),
+  };
+  for (let engine of Services.search.getVisibleEngines()) {
+    let uri = engine.getIconURLBySize(16, 16);
+    state.engines.push({
       name: engine.name,
-      logoBuffer: yield arrayBufferFromDataURI(uri1x),
-      logo2xBuffer: yield arrayBufferFromDataURI(uri2x),
-    };
-  }.bind(this));
-}
+      iconBuffer: yield arrayBufferFromDataURI(uri),
+    });
+  }
+  return state;
+});
+
+let currentEngineObj = Task.async(function* () {
+  let engine = Services.search.currentEngine;
+  let uri1x = engine.getIconURLBySize(65, 26);
+  let uri2x = engine.getIconURLBySize(130, 52);
+  let uriFavicon = engine.getIconURLBySize(16, 16);
+  let bundle = Services.strings.createBundle("chrome://global/locale/autocomplete.properties");
+  return {
+    name: engine.name,
+    placeholder: bundle.formatStringFromName("searchWithEngine", [engine.name], 1),
+    logoBuffer: yield arrayBufferFromDataURI(uri1x),
+    logo2xBuffer: yield arrayBufferFromDataURI(uri2x),
+    iconBuffer: yield arrayBufferFromDataURI(uriFavicon),
+  };
+});
 
 function arrayBufferFromDataURI(uri) {
   if (!uri) {

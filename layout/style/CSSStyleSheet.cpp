@@ -490,7 +490,6 @@ NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE_0(nsMediaList)
 nsMediaList::nsMediaList()
   : mStyleSheet(nullptr)
 {
-  SetIsDOMBinding();
 }
 
 nsMediaList::~nsMediaList()
@@ -721,12 +720,14 @@ namespace mozilla {
 
 
 CSSStyleSheetInner::CSSStyleSheetInner(CSSStyleSheet* aPrimarySheet,
-                                       CORSMode aCORSMode)
-  : mSheets(),
-    mCORSMode(aCORSMode),
-    mComplete(false)
+                                       CORSMode aCORSMode,
+                                       ReferrerPolicy aReferrerPolicy)
+  : mSheets()
+  , mCORSMode(aCORSMode)
+  , mReferrerPolicy (aReferrerPolicy)
+  , mComplete(false)
 #ifdef DEBUG
-    , mPrincipalSet(false)
+  , mPrincipalSet(false)
 #endif
 {
   MOZ_COUNT_CTOR(CSSStyleSheetInner);
@@ -844,6 +845,7 @@ CSSStyleSheetInner::CSSStyleSheetInner(CSSStyleSheetInner& aCopy,
     mBaseURI(aCopy.mBaseURI),
     mPrincipal(aCopy.mPrincipal),
     mCORSMode(aCopy.mCORSMode),
+    mReferrerPolicy(aCopy.mReferrerPolicy),
     mComplete(aCopy.mComplete)
 #ifdef DEBUG
     , mPrincipalSet(aCopy.mPrincipalSet)
@@ -972,7 +974,7 @@ CSSStyleSheetInner::SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) const
 // CSS Style Sheet
 //
 
-CSSStyleSheet::CSSStyleSheet(CORSMode aCORSMode)
+CSSStyleSheet::CSSStyleSheet(CORSMode aCORSMode, ReferrerPolicy aReferrerPolicy)
   : mTitle(), 
     mParent(nullptr),
     mOwnerRule(nullptr),
@@ -983,9 +985,7 @@ CSSStyleSheet::CSSStyleSheet(CORSMode aCORSMode)
     mScopeElement(nullptr),
     mRuleProcessors(nullptr)
 {
-  mInner = new CSSStyleSheetInner(this, aCORSMode);
-
-  SetIsDOMBinding();
+  mInner = new CSSStyleSheetInner(this, aCORSMode, aReferrerPolicy);
 }
 
 CSSStyleSheet::CSSStyleSheet(const CSSStyleSheet& aCopy,
@@ -1018,8 +1018,6 @@ CSSStyleSheet::CSSStyleSheet(const CSSStyleSheet& aCopy,
     // sheets in sync!
     mMedia = aCopy.mMedia->Clone();
   }
-
-  SetIsDOMBinding();
 }
 
 CSSStyleSheet::~CSSStyleSheet()

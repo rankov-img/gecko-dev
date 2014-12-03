@@ -82,28 +82,28 @@ jit::EnableIonDebugLogging()
 void
 jit::IonSpewNewFunction(MIRGraph *graph, HandleScript func)
 {
-    if (GetIonContext()->runtime->onMainThread())
+    if (GetJitContext()->runtime->onMainThread())
         ionspewer.beginFunction(graph, func);
 }
 
 void
 jit::IonSpewPass(const char *pass)
 {
-    if (GetIonContext()->runtime->onMainThread())
+    if (GetJitContext()->runtime->onMainThread())
         ionspewer.spewPass(pass);
 }
 
 void
 jit::IonSpewPass(const char *pass, LinearScanAllocator *ra)
 {
-    if (GetIonContext()->runtime->onMainThread())
+    if (GetJitContext()->runtime->onMainThread())
         ionspewer.spewPass(pass, ra);
 }
 
 void
 jit::IonSpewEndFunction()
 {
-    if (GetIonContext()->runtime->onMainThread())
+    if (GetJitContext()->runtime->onMainThread())
         ionspewer.endFunction();
 }
 
@@ -145,7 +145,7 @@ IonSpewer::beginFunction(MIRGraph *graph, HandleScript function)
         return;
 
     if (!FilterContainsLocation(function)) {
-        JS_ASSERT(!this->graph);
+        MOZ_ASSERT(!this->graph);
         // filter out logs during the compilation.
         filteredOutCompilations++;
         return;
@@ -190,7 +190,7 @@ IonSpewer::endFunction()
 {
     if (!isSpewingFunction()) {
         if (inited_) {
-            JS_ASSERT(filteredOutCompilations != 0);
+            MOZ_ASSERT(filteredOutCompilations != 0);
             filteredOutCompilations--;
         }
         return;
@@ -240,6 +240,7 @@ jit::CheckLogging()
             "  alias      Alias analysis\n"
             "  gvn        Global Value Numbering\n"
             "  licm       Loop invariant code motion\n"
+            "  sink       Sink transformation\n"
             "  regalloc   Register allocation\n"
             "  inline     Inlining\n"
             "  snapshots  Snapshot information\n"
@@ -288,6 +289,8 @@ jit::CheckLogging()
         EnableChannel(JitSpew_Unrolling);
     if (ContainsFlag(env, "licm"))
         EnableChannel(JitSpew_LICM);
+    if (ContainsFlag(env, "sink"))
+        EnableChannel(JitSpew_Sink);
     if (ContainsFlag(env, "regalloc"))
         EnableChannel(JitSpew_RegAlloc);
     if (ContainsFlag(env, "inline"))
@@ -430,21 +433,21 @@ jit::JitSpewHeader(JitSpewChannel channel)
 bool
 jit::JitSpewEnabled(JitSpewChannel channel)
 {
-    JS_ASSERT(LoggingChecked);
+    MOZ_ASSERT(LoggingChecked);
     return (LoggingBits & (1 << uint32_t(channel))) && !filteredOutCompilations;
 }
 
 void
 jit::EnableChannel(JitSpewChannel channel)
 {
-    JS_ASSERT(LoggingChecked);
+    MOZ_ASSERT(LoggingChecked);
     LoggingBits |= (1 << uint32_t(channel));
 }
 
 void
 jit::DisableChannel(JitSpewChannel channel)
 {
-    JS_ASSERT(LoggingChecked);
+    MOZ_ASSERT(LoggingChecked);
     LoggingBits &= ~(1 << uint32_t(channel));
 }
 

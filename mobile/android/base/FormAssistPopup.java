@@ -34,6 +34,7 @@ import android.widget.ArrayAdapter;
 import android.widget.ImageView;
 import android.widget.ListView;
 import android.widget.RelativeLayout;
+import android.widget.RelativeLayout.LayoutParams;
 import android.widget.TextView;
 
 import java.util.Arrays;
@@ -60,23 +61,25 @@ public class FormAssistPopup extends RelativeLayout implements GeckoEventListene
     }
     private PopupType mPopupType;
 
+    private static final int MAX_VISIBLE_ROWS = 5;
+
     private static int sAutoCompleteMinWidth;
     private static int sAutoCompleteRowHeight;
     private static int sValidationMessageHeight;
     private static int sValidationTextMarginTop;
-    private static RelativeLayout.LayoutParams sValidationTextLayoutNormal;
-    private static RelativeLayout.LayoutParams sValidationTextLayoutInverted;
+    private static LayoutParams sValidationTextLayoutNormal;
+    private static LayoutParams sValidationTextLayoutInverted;
 
     private static final String LOGTAG = "GeckoFormAssistPopup";
 
     // The blocklist is so short that ArrayList is probably cheaper than HashSet.
-    private static final Collection<String> sInputMethodBlocklist = Arrays.asList(new String[] {
+    private static final Collection<String> sInputMethodBlocklist = Arrays.asList(
                                             InputMethods.METHOD_GOOGLE_JAPANESE_INPUT, // bug 775850
                                             InputMethods.METHOD_OPENWNN_PLUS,          // bug 768108
                                             InputMethods.METHOD_SIMEJI,                // bug 768108
                                             InputMethods.METHOD_SWYPE,                 // bug 755909
-                                            InputMethods.METHOD_SWYPE_BETA,            // bug 755909
-                                            });
+                                            InputMethods.METHOD_SWYPE_BETA            // bug 755909
+                                            );
 
     public FormAssistPopup(Context context, AttributeSet attrs) {
         super(context, attrs);
@@ -214,10 +217,10 @@ public class FormAssistPopup extends RelativeLayout implements GeckoEventListene
 
             sValidationTextMarginTop = (int) (mContext.getResources().getDimension(R.dimen.validation_message_margin_top));
 
-            sValidationTextLayoutNormal = new RelativeLayout.LayoutParams(mValidationMessageText.getLayoutParams());
+            sValidationTextLayoutNormal = new LayoutParams(mValidationMessageText.getLayoutParams());
             sValidationTextLayoutNormal.setMargins(0, sValidationTextMarginTop, 0, 0);
 
-            sValidationTextLayoutInverted = new RelativeLayout.LayoutParams((ViewGroup.MarginLayoutParams) sValidationTextLayoutNormal);
+            sValidationTextLayoutInverted = new LayoutParams((ViewGroup.MarginLayoutParams) sValidationTextLayoutNormal);
             sValidationTextLayoutInverted.setMargins(0, 0, 0, 0);
 
             mValidationMessageArrow = (ImageView) mValidationMessage.findViewById(R.id.validation_message_arrow);
@@ -260,15 +263,18 @@ public class FormAssistPopup extends RelativeLayout implements GeckoEventListene
 
         // Don't show the form assist popup when using fullscreen VKB
         InputMethodManager imm =
-                (InputMethodManager) GeckoAppShell.getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
-        if (imm.isFullscreenMode())
+                (InputMethodManager) mContext.getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (imm.isFullscreenMode()) {
             return;
+        }
 
         // Hide/show the appropriate popup contents
-        if (mAutoCompleteList != null)
+        if (mAutoCompleteList != null) {
             mAutoCompleteList.setVisibility((mPopupType == PopupType.AUTOCOMPLETE) ? VISIBLE : GONE);
-        if (mValidationMessage != null)
+        }
+        if (mValidationMessage != null) {
             mValidationMessage.setVisibility((mPopupType == PopupType.AUTOCOMPLETE) ? GONE : VISIBLE);
+        }
 
         if (sAutoCompleteMinWidth == 0) {
             Resources res = mContext.getResources();
@@ -287,7 +293,7 @@ public class FormAssistPopup extends RelativeLayout implements GeckoEventListene
         int width = (int) (mW * zoom);
         int height = (int) (mH * zoom);
 
-        int popupWidth = RelativeLayout.LayoutParams.MATCH_PARENT;
+        int popupWidth = LayoutParams.MATCH_PARENT;
         int popupLeft = left < 0 ? 0 : left;
 
         FloatSize viewport = aMetrics.getSize();
@@ -302,16 +308,24 @@ public class FormAssistPopup extends RelativeLayout implements GeckoEventListene
                 popupWidth = sAutoCompleteMinWidth;
 
                 // Move the popup to the left if there isn't enough room for it.
-                if ((popupLeft + popupWidth) > viewport.width)
+                if ((popupLeft + popupWidth) > viewport.width) {
                     popupLeft = (int) (viewport.width - popupWidth);
+                }
             }
         }
 
         int popupHeight;
-        if (mPopupType == PopupType.AUTOCOMPLETE)
-            popupHeight = sAutoCompleteRowHeight * mAutoCompleteList.getAdapter().getCount();
-        else
+        if (mPopupType == PopupType.AUTOCOMPLETE) {
+            // Limit the amount of visible rows.
+            int rows = mAutoCompleteList.getAdapter().getCount();
+            if (rows > MAX_VISIBLE_ROWS) {
+                rows = MAX_VISIBLE_ROWS;
+            }
+
+            popupHeight = sAutoCompleteRowHeight * rows;
+        } else {
             popupHeight = sValidationMessageHeight;
+        }
 
         int popupTop = top + height;
 
@@ -346,8 +360,7 @@ public class FormAssistPopup extends RelativeLayout implements GeckoEventListene
            }
         }
 
-        RelativeLayout.LayoutParams layoutParams =
-                new RelativeLayout.LayoutParams(popupWidth, popupHeight);
+        LayoutParams layoutParams = new LayoutParams(popupWidth, popupHeight);
         layoutParams.setMargins(popupLeft, popupTop, 0, 0);
         setLayoutParams(layoutParams);
         requestLayout();
@@ -388,8 +401,8 @@ public class FormAssistPopup extends RelativeLayout implements GeckoEventListene
     }
 
     private class AutoCompleteListAdapter extends ArrayAdapter<Pair<String, String>> {
-        private LayoutInflater mInflater;
-        private int mTextViewResourceId;
+        private final LayoutInflater mInflater;
+        private final int mTextViewResourceId;
 
         public AutoCompleteListAdapter(Context context, int textViewResourceId) {
             super(context, textViewResourceId);

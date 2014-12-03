@@ -65,6 +65,22 @@ static inline mozilla::css::Side operator++(mozilla::css::Side& side, int) {
 #define NS_STYLE_BOX_SIZING_PADDING       1
 #define NS_STYLE_BOX_SIZING_BORDER        2
 
+// clip-path sizing
+#define NS_STYLE_CLIP_SHAPE_SIZING_NOBOX   0
+#define NS_STYLE_CLIP_SHAPE_SIZING_CONTENT 1
+#define NS_STYLE_CLIP_SHAPE_SIZING_PADDING 2
+#define NS_STYLE_CLIP_SHAPE_SIZING_BORDER  3
+#define NS_STYLE_CLIP_SHAPE_SIZING_MARGIN  4
+#define NS_STYLE_CLIP_SHAPE_SIZING_FILL    5
+#define NS_STYLE_CLIP_SHAPE_SIZING_STROKE  6
+#define NS_STYLE_CLIP_SHAPE_SIZING_VIEW    7
+
+// Basic Shapes
+#define NS_STYLE_BASIC_SHAPE_POLYGON       0
+#define NS_STYLE_BASIC_SHAPE_CIRCLE        1
+#define NS_STYLE_BASIC_SHAPE_ELLIPSE       2
+#define NS_STYLE_BASIC_SHAPE_INSET         3
+
 // box-shadow
 #define NS_STYLE_BOX_SHADOW_INSET         0
 
@@ -138,6 +154,9 @@ static inline mozilla::css::Side operator++(mozilla::css::Side& side, int) {
 #define NS_STYLE_ORIENT_HORIZONTAL 0
 #define NS_STYLE_ORIENT_VERTICAL   1
 #define NS_STYLE_ORIENT_AUTO       2
+
+#define NS_RADIUS_FARTHEST_SIDE 0
+#define NS_RADIUS_CLOSEST_SIDE  1
 
 // stack-sizing
 #define NS_STYLE_STACK_SIZING_IGNORE         0
@@ -380,7 +399,6 @@ static inline mozilla::css::Side operator++(mozilla::css::Side& side, int) {
 // See nsStyleVisibility
 #define NS_STYLE_DIRECTION_LTR                  0
 #define NS_STYLE_DIRECTION_RTL                  1
-#define NS_STYLE_DIRECTION_INHERIT              2
 
 // See nsStyleVisibility
 #define NS_STYLE_WRITING_MODE_HORIZONTAL_TB     0
@@ -425,6 +443,7 @@ static inline mozilla::css::Side operator++(mozilla::css::Side& side, int) {
 #define NS_STYLE_DISPLAY_RUBY_BASE_CONTAINER    35
 #define NS_STYLE_DISPLAY_RUBY_TEXT              36
 #define NS_STYLE_DISPLAY_RUBY_TEXT_CONTAINER    37
+#define NS_STYLE_DISPLAY_CONTENTS               38
 
 // See nsStylePosition
 #define NS_STYLE_ALIGN_CONTENT_FLEX_START       0
@@ -477,6 +496,12 @@ static inline mozilla::css::Side operator++(mozilla::css::Side& side, int) {
 #define NS_STYLE_FLOAT_NONE                     0
 #define NS_STYLE_FLOAT_LEFT                     1
 #define NS_STYLE_FLOAT_RIGHT                    2
+
+// See nsStyleClipPath
+#define NS_STYLE_CLIP_PATH_NONE                 0
+#define NS_STYLE_CLIP_PATH_URL                  1
+#define NS_STYLE_CLIP_PATH_SHAPE                2
+#define NS_STYLE_CLIP_PATH_BOX                  3
 
 // See nsStyleFilter
 #define NS_STYLE_FILTER_NONE                    0
@@ -596,12 +621,6 @@ static inline mozilla::css::Side operator++(mozilla::css::Side& side, int) {
 #define NS_STYLE_WIDTH_MIN_CONTENT              1
 #define NS_STYLE_WIDTH_FIT_CONTENT              2
 #define NS_STYLE_WIDTH_AVAILABLE                3
-// NOTE: The "main-size" keyword here is really for the "flex-basis" property,
-// not for width / min-width / max-width.  I'm listing it here with the "width"
-// keywords' enumerated values, because we need to make sure it doesn't collide
-// with any "width" enumerated values (because "flex-basis" accepts all valid
-// "width" keywords, in addition to accepting "main-size").
-#define NS_STYLE_FLEX_BASIS_MAIN_SIZE           4
 
 // See nsStyleDisplay.mPosition
 #define NS_STYLE_POSITION_STATIC                0
@@ -694,6 +713,10 @@ static inline mozilla::css::Side operator++(mozilla::css::Side& side, int) {
 // See nsStyleVisibility.mImageOrientationType
 #define NS_STYLE_IMAGE_ORIENTATION_FLIP         0
 #define NS_STYLE_IMAGE_ORIENTATION_FROM_IMAGE   1
+
+// See nsStyleDisplay
+#define NS_STYLE_ISOLATION_AUTO                 0
+#define NS_STYLE_ISOLATION_ISOLATE              1
 
 // See nsStylePosition.mObjectFit
 #define NS_STYLE_OBJECT_FIT_FILL                0
@@ -1039,6 +1062,10 @@ static inline mozilla::css::Side operator++(mozilla::css::Side& side, int) {
 #define NS_STYLE_COUNTER_SPEAKAS_WORDS      2
 #define NS_STYLE_COUNTER_SPEAKAS_SPELL_OUT  3
 #define NS_STYLE_COUNTER_SPEAKAS_OTHER      255 // refer to another style
+
+// See nsStyleDisplay::mScrollBehavior
+#define NS_STYLE_SCROLL_BEHAVIOR_AUTO       0
+#define NS_STYLE_SCROLL_BEHAVIOR_SMOOTH     1
 
 /*****************************************************************************
  * Constants for media features.                                             *

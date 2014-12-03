@@ -932,7 +932,7 @@ FilterNodeSoftware::~FilterNodeSoftware()
 void
 FilterNodeSoftware::SetInput(uint32_t aIndex, FilterNode *aFilter)
 {
-  if (aFilter->GetBackendType() != FILTER_BACKEND_SOFTWARE) {
+  if (aFilter && aFilter->GetBackendType() != FILTER_BACKEND_SOFTWARE) {
     MOZ_ASSERT(false, "can only take software filters as inputs");
     return;
   }
@@ -955,10 +955,8 @@ FilterNodeSoftware::SetInput(uint32_t aInputEnumIndex,
     MOZ_CRASH();
     return;
   }
-  if ((uint32_t)inputIndex >= mInputSurfaces.size()) {
+  if ((uint32_t)inputIndex >= NumberOfSetInputs()) {
     mInputSurfaces.resize(inputIndex + 1);
-  }
-  if ((uint32_t)inputIndex >= mInputFilters.size()) {
     mInputFilters.resize(inputIndex + 1);
   }
   mInputSurfaces[inputIndex] = aSurface;
@@ -969,6 +967,10 @@ FilterNodeSoftware::SetInput(uint32_t aInputEnumIndex,
     aFilter->AddInvalidationListener(this);
   }
   mInputFilters[inputIndex] = aFilter;
+  if (!aSurface && !aFilter && (size_t)inputIndex == NumberOfSetInputs()) {
+    mInputSurfaces.resize(inputIndex);
+    mInputFilters.resize(inputIndex);
+  }
   Invalidate();
 }
 
@@ -1154,7 +1156,7 @@ FilterNodeTransformSoftware::Render(const IntRect& aRect)
   IntRect srcRect = SourceRectForOutputRect(aRect);
 
   RefPtr<DataSourceSurface> input =
-    GetInputDataSourceSurface(IN_TRANSFORM_IN, srcRect, NEED_COLOR_CHANNELS);
+    GetInputDataSourceSurface(IN_TRANSFORM_IN, srcRect);
 
   if (!input) {
     return nullptr;
@@ -1166,8 +1168,22 @@ FilterNodeTransformSoftware::Render(const IntRect& aRect)
     return input.forget();
   }
 
+  RefPtr<DataSourceSurface> surf =
+    Factory::CreateDataSourceSurface(aRect.Size(), input->GetFormat(), true);
+
+  if (!surf) {
+    return nullptr;
+  }
+
+  DataSourceSurface::MappedSurface mapping;
+  surf->Map(DataSourceSurface::MapType::WRITE, &mapping);
+
   RefPtr<DrawTarget> dt =
-    Factory::CreateDrawTarget(BackendType::CAIRO, aRect.Size(), input->GetFormat());
+    Factory::CreateDrawTargetForData(BackendType::CAIRO,
+                                     mapping.mData,
+                                     surf->GetSize(),
+                                     mapping.mStride,
+                                     surf->GetFormat());
   if (!dt) {
     return nullptr;
   }
@@ -1176,9 +1192,9 @@ FilterNodeTransformSoftware::Render(const IntRect& aRect)
   dt->SetTransform(transform);
   dt->DrawSurface(input, r, r, DrawSurfaceOptions(mFilter));
 
-  RefPtr<SourceSurface> result = dt->Snapshot();
-  RefPtr<DataSourceSurface> resultData = result->GetDataSurface();
-  return resultData.forget();
+  dt->Flush();
+  surf->Unmap();
+  return surf.forget();
 }
 
 void

@@ -152,7 +152,7 @@ GetOCSPResponseForType(OCSPResponseType aORT, CERTCertificate *aCert,
   if (aORT == ORTExpired || aORT == ORTExpiredFreshCA ||
       aORT == ORTRevokedOld || aORT == ORTUnknownOld) {
     context.thisUpdate = oldNow;
-    context.nextUpdate = oldNow + 10;
+    context.nextUpdate = oldNow + Time::ONE_DAY_IN_SECONDS;
   }
   if (aORT == ORTLongValidityAlmostExpired) {
     context.thisUpdate = now - (320 * Time::ONE_DAY_IN_SECONDS);
@@ -171,8 +171,7 @@ GetOCSPResponseForType(OCSPResponseType aORT, CERTCertificate *aCert,
   }
   OCSPResponseExtension extension;
   if (aORT == ORTCriticalExtension || aORT == ORTNoncriticalExtension) {
-    // python DottedOIDToCode.py --tlv some-Mozilla-OID \
-    //        1.3.6.1.4.1.13769.666.666.666.1.500.9.2
+    // python DottedOIDToCode.py --tlv some-Mozilla-OID 1.3.6.1.4.1.13769.666.666.666.1.500.9.2
     static const uint8_t tlv_some_Mozilla_OID[] = {
       0x06, 0x12, 0x2b, 0x06, 0x01, 0x04, 0x01, 0xeb, 0x49, 0x85, 0x1a, 0x85,
       0x1a, 0x85, 0x1a, 0x01, 0x83, 0x74, 0x09, 0x02
@@ -199,7 +198,7 @@ GetOCSPResponseForType(OCSPResponseType aORT, CERTCertificate *aCert,
   }
 
   ByteString response(CreateEncodedOCSPResponse(context));
-  if (response == ENCODING_FAILED) {
+  if (ENCODING_FAILED(response)) {
     PrintPRError("CreateEncodedOCSPResponse failed");
     return nullptr;
   }

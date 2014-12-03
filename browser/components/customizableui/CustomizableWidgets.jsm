@@ -20,6 +20,8 @@ XPCOMUtils.defineLazyModuleGetter(this, "ShortcutUtils",
   "resource://gre/modules/ShortcutUtils.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "CharsetMenu",
   "resource://gre/modules/CharsetMenu.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "PrivateBrowsingUtils",
+  "resource://gre/modules/PrivateBrowsingUtils.jsm");
 
 XPCOMUtils.defineLazyGetter(this, "CharsetBundle", function() {
   const kCharsetBundle = "chrome://global/locale/charsetMenu.properties";
@@ -148,7 +150,8 @@ function clearSubview(aSubview) {
   parent.appendChild(aSubview);
 }
 
-const CustomizableWidgets = [{
+const CustomizableWidgets = [
+  {
     id: "history-panelmenu",
     type: "view",
     viewId: "PanelUI-history",
@@ -305,7 +308,7 @@ const CustomizableWidgets = [{
                 aEvent.target.ownerDocument &&
                 aEvent.target.ownerDocument.defaultView;
       if (win && typeof win.saveDocument == "function") {
-        win.saveDocument(win.content.document);
+        win.saveDocument(win.gBrowser.selectedBrowser.contentDocumentAsCPOW);
       }
     }
   }, {
@@ -340,7 +343,11 @@ const CustomizableWidgets = [{
     viewId: "PanelUI-developer",
     shortcutId: "key_devToolboxMenuItem",
     tooltiptext: "developer-button.tooltiptext2",
+#ifdef MOZ_DEV_EDITION
+    defaultArea: CustomizableUI.AREA_NAVBAR,
+#else
     defaultArea: CustomizableUI.AREA_PANEL,
+#endif
     onViewShowing: function(aEvent) {
       // Populate the subview with whatever menuitems are in the developer
       // menu. We skip menu elements, because the menu panel has no way
@@ -389,6 +396,22 @@ const CustomizableWidgets = [{
     onViewHiding: function(aEvent) {
       let doc = aEvent.target.ownerDocument;
       clearSubview(doc.getElementById("PanelUI-sidebarItems"));
+    }
+  }, {
+    id: "social-share-button",
+    // custom build our button so we can attach to the share command
+    type: "custom",
+    onBuild: function(aDocument) {
+      let node = aDocument.createElementNS(kNSXUL, "toolbarbutton");
+      node.setAttribute("id", this.id);
+      node.classList.add("toolbarbutton-1");
+      node.classList.add("chromeclass-toolbar-additional");
+      node.setAttribute("label", CustomizableUI.getLocalizedProperty(this, "label"));
+      node.setAttribute("tooltiptext", CustomizableUI.getLocalizedProperty(this, "tooltiptext"));
+      node.setAttribute("removable", "true");
+      node.setAttribute("observes", "Social:PageShareOrMark");
+      node.setAttribute("command", "Social:SharePage");
+      return node;
     }
   }, {
     id: "add-ons-button",
@@ -900,26 +923,43 @@ const CustomizableWidgets = [{
       win.MailIntegration.sendLinkForWindow(win.content);
     }
   }, {
-    id: "loop-call-button",
+    id: "loop-button",
     type: "custom",
-    // XXX Bug 1013989 will provide a label for the button
-    label: "loop-call-button.label",
-    tooltiptext: "loop-call-button.tooltiptext",
+    label: "loop-call-button3.label",
+    tooltiptext: "loop-call-button3.tooltiptext",
     defaultArea: CustomizableUI.AREA_NAVBAR,
-    introducedInVersion: 1,
+    introducedInVersion: 4,
     onBuild: function(aDocument) {
+      // If we're not supposed to see the button, return zip.
+      if (!Services.prefs.getBoolPref("loop.enabled")) {
+        return null;
+      }
+
       let node = aDocument.createElementNS(kNSXUL, "toolbarbutton");
       node.setAttribute("id", this.id);
       node.classList.add("toolbarbutton-1");
       node.classList.add("chromeclass-toolbar-additional");
-      node.setAttribute("type", "badged");
+      node.classList.add("badged-button");
       node.setAttribute("label", CustomizableUI.getLocalizedProperty(this, "label"));
       node.setAttribute("tooltiptext", CustomizableUI.getLocalizedProperty(this, "tooltiptext"));
       node.setAttribute("removable", "true");
       node.addEventListener("command", function(event) {
         aDocument.defaultView.LoopUI.openCallPanel(event);
       });
+
       return node;
+    }
+  }, {
+    id: "web-apps-button",
+    label: "web-apps-button.label",
+    tooltiptext: "web-apps-button.tooltiptext",
+    onCommand: function(aEvent) {
+      let win = aEvent.target &&
+                aEvent.target.ownerDocument &&
+                aEvent.target.ownerDocument.defaultView;
+      if (win && typeof win.BrowserOpenApps == "function") {
+        win.BrowserOpenApps();
+      }
     }
   }];
 
@@ -947,35 +987,96 @@ if (Services.metro && Services.metro.supported) {
 #endif
 #endif
 
-#ifdef E10S_TESTING_ONLY
-/**
- * The e10s button's purpose is to lower the barrier of entry
- * for our Nightly testers to use e10s windows. We'll be removing it
- * once remote tabs are enabled. This button should never ever make it
- * to production. If it does, that'd be bad, and we should all feel bad.
- */
-if (Services.prefs.getBoolPref("browser.tabs.remote")) {
-  let getCommandFunction = function(aOpenRemote) {
-    return function(aEvent) {
-      let win = aEvent.view;
-      if (win && typeof win.OpenBrowserWindow == "function") {
-        win.OpenBrowserWindow({remote: aOpenRemote});
-      }
-    };
-  }
-
-  let openRemote = !Services.appinfo.browserTabsRemoteAutostart;
-  // Like the XUL menuitem counterparts, we hard-code these strings in because
-  // this button should never roll into production.
-  let buttonLabel = openRemote ? "New e10s Window"
-                               : "New Non-e10s Window";
-
+if (Services.prefs.getBoolPref("privacy.panicButton.enabled")) {
   CustomizableWidgets.push({
-    id: "e10s-button",
-    label: buttonLabel,
-    tooltiptext: buttonLabel,
-    defaultArea: CustomizableUI.AREA_PANEL,
-    onCommand: getCommandFunction(openRemote),
+    id: "panic-button",
+    type: "view",
+    viewId: "PanelUI-panicView",
+    _sanitizer: null,
+    _ensureSanitizer: function() {
+      if (!this.sanitizer) {
+        let scope = {};
+        Services.scriptloader.loadSubScript("chrome://browser/content/sanitize.js",
+                                            scope);
+        this._Sanitizer = scope.Sanitizer;
+        this._sanitizer = new scope.Sanitizer();
+        this._sanitizer.ignoreTimespan = false;
+      }
+    },
+    _getSanitizeRange: function(aDocument) {
+      let group = aDocument.getElementById("PanelUI-panic-timeSpan");
+      return this._Sanitizer.getClearRange(+group.value);
+    },
+    forgetButtonCalled: function(aEvent) {
+      let doc = aEvent.target.ownerDocument;
+      this._ensureSanitizer();
+      this._sanitizer.range = this._getSanitizeRange(doc);
+      let group = doc.getElementById("PanelUI-panic-timeSpan");
+      group.selectedItem = doc.getElementById("PanelUI-panic-5min");
+      let itemsToClear = [
+        "cookies", "history", "openWindows", "formdata", "sessions", "cache", "downloads"
+      ];
+      let newWindowPrivateState = PrivateBrowsingUtils.isWindowPrivate(doc.defaultView) ?
+                                  "private" : "non-private";
+      this._sanitizer.items.openWindows.privateStateForNewWindow = newWindowPrivateState;
+      let promise = this._sanitizer.sanitize(itemsToClear);
+      promise.then(function() {
+        let otherWindow = Services.wm.getMostRecentWindow("navigator:browser");
+        if (otherWindow.closed) {
+          Cu.reportError("Got a closed window!");
+        }
+        if (otherWindow.PanicButtonNotifier) {
+          otherWindow.PanicButtonNotifier.notify();
+        } else {
+          otherWindow.PanicButtonNotifierShouldNotify = true;
+        }
+      });
+    },
+    handleEvent: function(aEvent) {
+      switch (aEvent.type) {
+        case "command":
+          this.forgetButtonCalled(aEvent);
+          break;
+      }
+    },
+    onViewShowing: function(aEvent) {
+      let forgetButton = aEvent.target.querySelector("#PanelUI-panic-view-button");
+      forgetButton.addEventListener("command", this);
+    },
+    onViewHiding: function(aEvent) {
+      let forgetButton = aEvent.target.querySelector("#PanelUI-panic-view-button");
+      forgetButton.removeEventListener("command", this);
+    },
   });
 }
+
+#ifdef E10S_TESTING_ONLY
+/**
+  * The e10s button's purpose is to lower the barrier of entry
+  * for our Nightly testers to use e10s windows. We'll be removing it
+  * once remote tabs are enabled. This button should never ever make it
+  * to production. If it does, that'd be bad, and we should all feel bad.
+  */
+let getCommandFunction = function(aOpenRemote) {
+  return function(aEvent) {
+    let win = aEvent.view;
+    if (win && typeof win.OpenBrowserWindow == "function") {
+      win.OpenBrowserWindow({remote: aOpenRemote});
+    }
+  };
+}
+
+let openRemote = !Services.appinfo.browserTabsRemoteAutostart;
+// Like the XUL menuitem counterparts, we hard-code these strings in because
+// this button should never roll into production.
+let buttonLabel = openRemote ? "New e10s Window"
+                              : "New Non-e10s Window";
+
+CustomizableWidgets.push({
+  id: "e10s-button",
+  label: buttonLabel,
+  tooltiptext: buttonLabel,
+  defaultArea: CustomizableUI.AREA_PANEL,
+  onCommand: getCommandFunction(openRemote),
+});
 #endif

@@ -47,6 +47,7 @@ class GlobalHelperThreadState
     typedef Vector<ParseTask*, 0, SystemAllocPolicy> ParseTaskVector;
     typedef Vector<SourceCompressionTask*, 0, SystemAllocPolicy> SourceCompressionTaskVector;
     typedef Vector<GCHelperState *, 0, SystemAllocPolicy> GCHelperStateVector;
+    typedef Vector<GCParallelTask *, 0, SystemAllocPolicy> GCParallelTaskVector;
     typedef mozilla::LinkedList<jit::IonBuilder> IonBuilderList;
 
     // List of available threads, or null if the thread state has not been initialized.
@@ -86,6 +87,9 @@ class GlobalHelperThreadState
 
     // Runtimes which have sweeping / allocating work to do.
     GCHelperStateVector gcHelperWorklist_;
+
+    // GC tasks needing to be done in parallel.
+    GCParallelTaskVector gcParallelWorklist_;
 
   public:
     size_t maxIonCompilationThreads() const {
@@ -134,48 +138,53 @@ class GlobalHelperThreadState
     }
 
     IonBuilderVector &ionWorklist() {
-        JS_ASSERT(isLocked());
+        MOZ_ASSERT(isLocked());
         return ionWorklist_;
     }
     IonBuilderVector &ionFinishedList() {
-        JS_ASSERT(isLocked());
+        MOZ_ASSERT(isLocked());
         return ionFinishedList_;
     }
     IonBuilderList &ionLazyLinkList() {
-        JS_ASSERT(isLocked());
+        MOZ_ASSERT(isLocked());
         return ionLazyLinkList_;
     }
 
     AsmJSParallelTaskVector &asmJSWorklist() {
-        JS_ASSERT(isLocked());
+        MOZ_ASSERT(isLocked());
         return asmJSWorklist_;
     }
     AsmJSParallelTaskVector &asmJSFinishedList() {
-        JS_ASSERT(isLocked());
+        MOZ_ASSERT(isLocked());
         return asmJSFinishedList_;
     }
 
     ParseTaskVector &parseWorklist() {
-        JS_ASSERT(isLocked());
+        MOZ_ASSERT(isLocked());
         return parseWorklist_;
     }
     ParseTaskVector &parseFinishedList() {
-        JS_ASSERT(isLocked());
+        MOZ_ASSERT(isLocked());
         return parseFinishedList_;
     }
     ParseTaskVector &parseWaitingOnGC() {
-        JS_ASSERT(isLocked());
+        MOZ_ASSERT(isLocked());
         return parseWaitingOnGC_;
     }
 
     SourceCompressionTaskVector &compressionWorklist() {
-        JS_ASSERT(isLocked());
+        MOZ_ASSERT(isLocked());
         return compressionWorklist_;
     }
 
     GCHelperStateVector &gcHelperWorklist() {
-        JS_ASSERT(isLocked());
+        MOZ_ASSERT(isLocked());
         return gcHelperWorklist_;
+    }
+
+    GCParallelTaskVector &gcParallelWorklist() {
+        MOZ_ASSERT(isLocked());
+        return gcParallelWorklist_;
     }
 
     bool canStartAsmJSCompile();
@@ -183,6 +192,7 @@ class GlobalHelperThreadState
     bool canStartParseTask();
     bool canStartCompressionTask();
     bool canStartGCHelperTask();
+    bool canStartGCParallelTask();
 
     // Unlike the methods above, the value returned by this method can change
     // over time, even if the helper thread state lock is held throughout.
@@ -193,14 +203,14 @@ class GlobalHelperThreadState
     HelperThread *highestPriorityPausedIonCompile();
 
     uint32_t harvestFailedAsmJSJobs() {
-        JS_ASSERT(isLocked());
+        MOZ_ASSERT(isLocked());
         uint32_t n = numAsmJSFailedJobs;
         numAsmJSFailedJobs = 0;
         return n;
     }
     void noteAsmJSFailure(void *func) {
         // Be mindful to signal the main thread after calling this function.
-        JS_ASSERT(isLocked());
+        MOZ_ASSERT(isLocked());
         if (!asmJSFailedFunction)
             asmJSFailedFunction = func;
         numAsmJSFailedJobs++;
@@ -299,8 +309,16 @@ struct HelperThread
     /* Any GC state for background sweeping or allocating being performed. */
     GCHelperState *gcHelperState;
 
+    /* State required to perform a GC parallel task. */
+    GCParallelTask *gcParallelTask;
+
     bool idle() const {
-        return !ionBuilder && !asmData && !parseTask && !compressionTask && !gcHelperState;
+        return !ionBuilder &&
+               !asmData &&
+               !parseTask &&
+               !compressionTask &&
+               !gcHelperState &&
+               !gcParallelTask;
     }
 
     void destroy();
@@ -310,6 +328,7 @@ struct HelperThread
     void handleParseWorkload();
     void handleCompressionWorkload();
     void handleGCHelperWorkload();
+    void handleGCParallelWorkload();
 
     static void ThreadMain(void *arg);
     void threadLoop();
@@ -437,14 +456,6 @@ struct ParseTask
 
     // Rooted pointer to the global object used by 'cx'.
     PersistentRootedObject exclusiveContextGlobal;
-
-    // Saved GC-managed CompileOptions fields that will populate slots in
-    // the ScriptSourceObject. We create the ScriptSourceObject in the
-    // compilation's temporary compartment, so storing these values there
-    // at that point would create cross-compartment references. Instead we
-    // hold them here, and install them after merging the compartments.
-    PersistentRootedObject optionsElement;
-    PersistentRootedScript optionsIntroductionScript;
 
     // Callback invoked off the main thread when the parse finishes.
     JS::OffThreadCompileCallback callback;

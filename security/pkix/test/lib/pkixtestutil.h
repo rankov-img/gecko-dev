@@ -33,10 +33,13 @@
 #include "pkix/pkixtypes.h"
 #include "pkix/ScopedPtr.h"
 
+static const unsigned int MINIMUM_TEST_KEY_BITS = 1024;
+
 namespace mozilla { namespace pkix { namespace test {
 
 typedef std::basic_string<uint8_t> ByteString;
-extern const ByteString ENCODING_FAILED;
+
+inline bool ENCODING_FAILED(const ByteString& bs) { return bs.empty(); }
 
 // XXX: Ideally, we should define this instead:
 //
@@ -63,6 +66,8 @@ public:
   }
 };
 
+bool InputEqualsByteString(Input input, const ByteString& bs);
+
 // python DottedOIDToCode.py --tlv id-kp-OCSPSigning 1.3.6.1.5.5.7.3.9
 static const uint8_t tlv_id_kp_OCSPSigning[] = {
   0x06, 0x08, 0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x03, 0x09
@@ -73,14 +78,141 @@ static const uint8_t tlv_id_kp_serverAuth[] = {
   0x06, 0x08, 0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x03, 0x01
 };
 
-extern const Input sha256WithRSAEncryption;
+// python DottedOIDToCode.py --alg sha256WithRSAEncryption 1.2.840.113549.1.1.11
+const uint8_t alg_sha256WithRSAEncryption[] = {
+  0x30, 0x0b, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x0b
+};
+
+const ByteString sha256WithRSAEncryption(alg_sha256WithRSAEncryption,
+  MOZILLA_PKIX_ARRAY_LENGTH(alg_sha256WithRSAEncryption));
+
+// python DottedOIDToCode.py --alg md5WithRSAEncryption 1.2.840.113549.1.1.4
+const uint8_t alg_md5WithRSAEncryption[] = {
+  0x30, 0x0b, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x04
+};
+
+const ByteString md5WithRSAEncryption(alg_md5WithRSAEncryption,
+  MOZILLA_PKIX_ARRAY_LENGTH(alg_md5WithRSAEncryption));
+
+// python DottedOIDToCode.py --alg md2WithRSAEncryption 1.2.840.113549.1.1.2
+const uint8_t alg_md2WithRSAEncryption[] = {
+  0x30, 0x0b, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x02
+};
+
+const ByteString md2WithRSAEncryption(alg_md2WithRSAEncryption,
+  MOZILLA_PKIX_ARRAY_LENGTH(alg_md2WithRSAEncryption));
 
 // e.g. YMDHMS(2016, 12, 31, 1, 23, 45) => 2016-12-31:01:23:45 (GMT)
 mozilla::pkix::Time YMDHMS(int16_t year, int16_t month, int16_t day,
                            int16_t hour, int16_t minutes, int16_t seconds);
 
+// e.g. YMDHMS(2016, 12, 31, 1, 23, 45) => 2016-12-31:01:23:45 (GMT)
+mozilla::pkix::Time YMDHMS(int16_t year, int16_t month, int16_t day,
+                           int16_t hour, int16_t minutes, int16_t seconds);
 
-ByteString CNToDERName(const char* cn);
+ByteString TLV(uint8_t tag, const ByteString& value);
+ByteString Boolean(bool value);
+ByteString Integer(long value);
+
+ByteString CN(const ByteString&, uint8_t encodingTag = 0x0c /*UTF8String*/);
+
+inline ByteString
+CN(const char* value, uint8_t encodingTag = 0x0c /*UTF8String*/)
+{
+  return CN(ByteString(reinterpret_cast<const uint8_t*>(value),
+                       std::strlen(value)), encodingTag);
+}
+
+ByteString OU(const ByteString&);
+
+inline ByteString
+OU(const char* value)
+{
+  return OU(ByteString(reinterpret_cast<const uint8_t*>(value),
+                       std::strlen(value)));
+}
+
+// RelativeDistinguishedName ::=
+//   SET SIZE (1..MAX) OF AttributeTypeAndValue
+//
+ByteString RDN(const ByteString& avas);
+
+// Name ::= CHOICE { -- only one possibility for now --
+//   rdnSequence  RDNSequence }
+//
+// RDNSequence ::= SEQUENCE OF RelativeDistinguishedName
+//
+ByteString Name(const ByteString& rdns);
+
+inline ByteString
+CNToDERName(const ByteString& cn)
+{
+  return Name(RDN(CN(cn)));
+}
+
+inline ByteString
+CNToDERName(const char* cn)
+{
+  return Name(RDN(CN(cn)));
+}
+
+// GeneralName ::= CHOICE {
+//      otherName                       [0]     OtherName,
+//      rfc822Name                      [1]     IA5String,
+//      dNSName                         [2]     IA5String,
+//      x400Address                     [3]     ORAddress,
+//      directoryName                   [4]     Name,
+//      ediPartyName                    [5]     EDIPartyName,
+//      uniformResourceIdentifier       [6]     IA5String,
+//      iPAddress                       [7]     OCTET STRING,
+//      registeredID                    [8]     OBJECT IDENTIFIER }
+
+inline ByteString
+RFC822Name(const ByteString& name)
+{
+  // (2 << 6) means "context-specific", 1 is the GeneralName tag.
+  return TLV((2 << 6) | 1, name);
+}
+
+template <size_t L>
+inline ByteString
+RFC822Name(const char (&bytes)[L])
+{
+  return RFC822Name(ByteString(reinterpret_cast<const uint8_t (&)[L]>(bytes),
+                               L - 1));
+}
+
+inline ByteString
+DNSName(const ByteString& name)
+{
+  // (2 << 6) means "context-specific", 2 is the GeneralName tag.
+  return TLV((2 << 6) | 2, name);
+}
+
+template <size_t L>
+inline ByteString
+DNSName(const char (&bytes)[L])
+{
+  return DNSName(ByteString(reinterpret_cast<const uint8_t (&)[L]>(bytes),
+                            L - 1));
+}
+
+template <size_t L>
+inline ByteString
+IPAddress(const uint8_t (&bytes)[L])
+{
+  // (2 << 6) means "context-specific", 7 is the GeneralName tag.
+  return TLV((2 << 6) | 7, ByteString(bytes, L));
+}
+
+// Names should be zero or more GeneralNames, like DNSName and IPAddress return,
+// concatenated together.
+//
+// CreatedEncodedSubjectAltName(ByteString()) results in a SAN with an empty
+// sequence. CreateEmptyEncodedSubjectName() results in a SAN without any
+// sequence.
+ByteString CreateEncodedSubjectAltName(const ByteString& names);
+ByteString CreateEncodedEmptySubjectAltName();
 
 class TestKeyPair
 {
@@ -96,7 +228,7 @@ public:
   const ByteString subjectPublicKey;
 
   virtual Result SignData(const ByteString& tbs,
-                          SignatureAlgorithm signatureAlgorithm,
+                          const ByteString& signatureAlgorithm,
                           /*out*/ ByteString& signature) const = 0;
 
   virtual TestKeyPair* Clone() const = 0;
@@ -111,6 +243,7 @@ protected:
   void operator=(const TestKeyPair&) /*= delete*/;
 };
 
+TestKeyPair* CloneReusedKeyPair();
 TestKeyPair* GenerateKeyPair();
 inline void DeleteTestKeyPair(TestKeyPair* keyPair) { delete keyPair; }
 typedef ScopedPtr<TestKeyPair, DeleteTestKeyPair> ScopedTestKeyPair;
@@ -139,26 +272,25 @@ Result TamperOnce(/*in/out*/ ByteString& item, const ByteString& from,
 
 enum Version { v1 = 0, v2 = 1, v3 = 2 };
 
-// signature is assumed to be the DER encoding of an AlgorithmIdentifer.
+// signature is assumed to be the DER encoding of an AlgorithmIdentifer. It is
+// put into the signature field of the TBSCertificate. In most cases, it will
+// be the same as signatureAlgorithm, which is the algorithm actually used
+// to sign the certificate.
 // serialNumber is assumed to be the DER encoding of an INTEGER.
 //
 // If extensions is null, then no extensions will be encoded. Otherwise,
 // extensions must point to an array of ByteStrings, terminated with an empty
 // ByteString. (If the first item of the array is empty then an empty
 // Extensions sequence will be encoded.)
-//
-// If issuerPrivateKey is null, then the certificate will be self-signed.
-// Parameter order is based on the order of the attributes of the certificate
-// in RFC 5280.
-ByteString CreateEncodedCertificate(long version, Input signature,
+ByteString CreateEncodedCertificate(long version, const ByteString& signature,
                                     const ByteString& serialNumber,
                                     const ByteString& issuerNameDER,
                                     time_t notBefore, time_t notAfter,
                                     const ByteString& subjectNameDER,
+                                    const TestKeyPair& subjectKeyPair,
                                     /*optional*/ const ByteString* extensions,
-                                    /*optional*/ TestKeyPair* issuerKeyPair,
-                                    SignatureAlgorithm signatureAlgorithm,
-                                    /*out*/ ScopedTestKeyPair& keyPairResult);
+                                    const TestKeyPair& issuerKeyPair,
+                                    const ByteString& signatureAlgorithm);
 
 ByteString CreateEncodedSerialNumber(long value);
 
@@ -218,6 +350,7 @@ public:
                                // regardless of if there are any actual
                                // extensions.
   ScopedTestKeyPair signerKeyPair;
+  ByteString signatureAlgorithm; // DER encoding of signature algorithm to use.
   bool badSignature; // If true, alter the signature to fail verification
   const ByteString* certs; // optional; array terminated by an empty string
 

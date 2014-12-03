@@ -25,6 +25,23 @@ let tests = [
       done();
     }, "http://mochi.test:8888/");
   },
+  function test_testing_host(done) {
+    // Add two testing origins intentionally surrounded by whitespace to be ignored.
+    Services.prefs.setCharPref("browser.uitour.testingOrigins",
+                               "https://test1.example.com, https://test2.example.com:443 ");
+
+    registerCleanupFunction(() => {
+      Services.prefs.clearUserPref("browser.uitour.testingOrigins");
+    });
+    function callback(result) {
+      ok(result, "Callback should be called on a testing origin");
+      done();
+    }
+
+    loadUITourTestPage(function() {
+      gContentAPI.getConfiguration("appinfo", callback);
+    }, "https://test2.example.com/");
+  },
   function test_unsecure_host(done) {
     loadUITourTestPage(function() {
       let bookmarksMenu = document.getElementById("bookmarks-menu-button");
@@ -64,12 +81,16 @@ let tests = [
     function test_highlight_2() {
       let highlight = document.getElementById("UITourHighlight");
       gContentAPI.hideHighlight();
+
+      waitForElementToBeHidden(highlight, test_highlight_3, "Highlight should be hidden after hideHighlight()");
+    }
+    function test_highlight_3() {
       is_element_hidden(highlight, "Highlight should be hidden after hideHighlight()");
 
       gContentAPI.showHighlight("urlbar");
-      waitForElementToBeVisible(highlight, test_highlight_3, "Highlight should be shown after showHighlight()");
+      waitForElementToBeVisible(highlight, test_highlight_4, "Highlight should be shown after showHighlight()");
     }
-    function test_highlight_3() {
+    function test_highlight_4() {
       let highlight = document.getElementById("UITourHighlight");
       gContentAPI.showHighlight("backForward");
       waitForElementToBeVisible(highlight, done, "Highlight should be shown after showHighlight()");
@@ -195,6 +216,53 @@ let tests = [
     gContentAPI.showHighlight("urlbar");
     waitForElementToBeVisible(highlight, checkDefaultEffect, "Highlight should be shown after showHighlight()");
   },
+  function test_highlight_search_engine(done) {
+    let highlight = document.getElementById("UITourHighlight");
+    gContentAPI.showHighlight("urlbar");
+    waitForElementToBeVisible(highlight, () => {
+
+      gContentAPI.showMenu("searchEngines", function() {
+        let searchbar = document.getElementById("searchbar");
+        isnot(searchbar, null, "Should have found searchbar");
+        let searchPopup = document.getAnonymousElementByAttribute(searchbar,
+                                                                   "anonid",
+                                                                   "searchbar-popup");
+        isnot(searchPopup, null, "Should have found search popup");
+
+        function getEngineNode(identifier) {
+          let engineNode = null;
+          for (let node of searchPopup.children) {
+            if (node.engine.identifier == identifier) {
+              engineNode = node;
+              break;
+            }
+          }
+          isnot(engineNode, null, "Should have found search engine node in popup");
+          return engineNode;
+        }
+        let googleEngineNode = getEngineNode("google");
+        let bingEngineNode = getEngineNode("bing");
+
+        gContentAPI.showHighlight("searchEngine-google");
+        waitForCondition(() => googleEngineNode.getAttribute("_moz-menuactive") == "true", function() {
+          is_element_hidden(highlight, "Highlight panel should be hidden by highlighting search engine");
+
+          gContentAPI.showHighlight("searchEngine-bing");
+          waitForCondition(() => bingEngineNode.getAttribute("_moz-menuactive") == "true", function() {
+            isnot(googleEngineNode.getAttribute("_moz-menuactive"), "true", "Previous engine should no longer be highlighted");
+
+            gContentAPI.hideHighlight();
+            waitForCondition(() => bingEngineNode.getAttribute("_moz-menuactive") != "true", function() {
+              gContentAPI.hideMenu("searchEngines");
+              waitForCondition(() => searchPopup.state == "closed", function() {
+                done();
+              }, "Search dropdown should close");
+            }, "Menu item should get attribute removed");
+          }, "Menu item should get attribute to make it look active");
+        });
+      });
+    });
+  },
   function test_highlight_effect_unsupported(done) {
     function checkUnsupportedEffect() {
       is(highlight.getAttribute("active"), "none", "No effect should be used when an unsupported effect is requested");
@@ -238,33 +306,27 @@ let tests = [
 
     gContentAPI.showInfo("urlbar", "test title", "test text");
   },
-  function test_info_2(done) {
+  taskify(function* test_info_2() {
     let popup = document.getElementById("UITourTooltip");
     let title = document.getElementById("UITourTooltipTitle");
     let desc = document.getElementById("UITourTooltipDescription");
     let icon = document.getElementById("UITourTooltipIcon");
     let buttons = document.getElementById("UITourTooltipButtons");
 
-    popup.addEventListener("popupshown", function onPopupShown() {
-      popup.removeEventListener("popupshown", onPopupShown);
-      is(popup.popupBoxObject.anchorNode, document.getElementById("urlbar"), "Popup should be anchored to the urlbar");
-      is(title.textContent, "urlbar title", "Popup should have correct title");
-      is(desc.textContent, "urlbar text", "Popup should have correct description text");
-      is(icon.src, "", "Popup should have no icon");
-      is(buttons.hasChildNodes(), false, "Popup should have no buttons");
+    yield showInfoPromise("urlbar", "urlbar title", "urlbar text");
 
-      gContentAPI.showInfo("search", "search title", "search text");
-      executeSoon(function() {
-        is(popup.popupBoxObject.anchorNode, document.getElementById("searchbar"), "Popup should be anchored to the searchbar");
-        is(title.textContent, "search title", "Popup should have correct title");
-        is(desc.textContent, "search text", "Popup should have correct description text");
+    is(popup.popupBoxObject.anchorNode, document.getElementById("urlbar"), "Popup should be anchored to the urlbar");
+    is(title.textContent, "urlbar title", "Popup should have correct title");
+    is(desc.textContent, "urlbar text", "Popup should have correct description text");
+    is(icon.src, "", "Popup should have no icon");
+    is(buttons.hasChildNodes(), false, "Popup should have no buttons");
 
-        done();
-      });
-    });
+    yield showInfoPromise("search", "search title", "search text");
 
-    gContentAPI.showInfo("urlbar", "urlbar title", "urlbar text");
-  },
+    is(popup.popupBoxObject.anchorNode, document.getElementById("searchbar"), "Popup should be anchored to the searchbar");
+    is(title.textContent, "search title", "Popup should have correct title");
+    is(desc.textContent, "search text", "Popup should have correct description text");
+  }),
   function test_getConfigurationVersion(done) {
     function callback(result) {
       let props = ["defaultUpdateChannel", "version"];
@@ -277,10 +339,36 @@ let tests = [
 
     gContentAPI.getConfiguration("appinfo", callback);
   },
+  function test_addToolbarButton(done) {
+    let placement = CustomizableUI.getPlacementOfWidget("panic-button");
+    is(placement, null, "default UI has panic button in the palette");
+
+    gContentAPI.getConfiguration("availableTargets", (data) => {
+      let available = (data.targets.indexOf("forget") != -1);
+      ok(!available, "Forget button should not be available by default");
+
+      gContentAPI.addNavBarWidget("forget", () => {
+        info("addNavBarWidget callback successfully called");
+
+        let placement = CustomizableUI.getPlacementOfWidget("panic-button");
+        is(placement.area, CustomizableUI.AREA_NAVBAR);
+
+        gContentAPI.getConfiguration("availableTargets", (data) => {
+          let available = (data.targets.indexOf("forget") != -1);
+          ok(available, "Forget button should now be available");
+
+          // Cleanup
+          CustomizableUI.removeWidgetFromArea("panic-button");
+          done();
+        });
+      });
+    });
+  },
 
   // Make sure this test is last in the file so the appMenu gets left open and done will confirm it got tore down.
-  function cleanupMenus(done) {
+  taskify(function* cleanupMenus() {
+    let shownPromise = promisePanelShown(window);
     gContentAPI.showMenu("appMenu");
-    done();
-  },
+    yield shownPromise;
+  }),
 ];

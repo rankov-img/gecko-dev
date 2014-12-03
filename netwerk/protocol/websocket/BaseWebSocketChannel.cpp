@@ -24,6 +24,7 @@ BaseWebSocketChannel::BaseWebSocketChannel()
   , mWasOpened(0)
   , mClientSetPingInterval(0)
   , mClientSetPingTimeout(0)
+  , mPingForced(0)
   , mPingInterval(0)
   , mPingResponseTimeout(10000)
 {
@@ -237,6 +238,15 @@ BaseWebSocketChannel::NewURI(const nsACString & aSpec, const char *aOriginCharse
     return rv;
   NS_ADDREF(*_retval = url);
   return NS_OK;
+}
+
+NS_IMETHODIMP
+BaseWebSocketChannel::NewChannel2(nsIURI* aURI,
+                                  nsILoadInfo* aLoadInfo,
+                                  nsIChannel** outChannel)
+{
+  LOG(("BaseWebSocketChannel::NewChannel2() %p\n", this));
+  return NS_ERROR_NOT_IMPLEMENTED;
 }
 
 NS_IMETHODIMP

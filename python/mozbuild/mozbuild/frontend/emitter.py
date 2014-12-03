@@ -30,6 +30,7 @@ from .data import (
     Defines,
     DirectoryTraversal,
     Exports,
+    FinalTargetFiles,
     GeneratedEventWebIDLFile,
     GeneratedInclude,
     GeneratedWebIDLFile,
@@ -413,6 +414,12 @@ class TreeMetadataEmitter(LoggingMixin):
             if v in context and context[v]:
                 passthru.variables[v] = context[v]
 
+        if context.config.substs.get('OS_TARGET') == 'WINNT' and \
+                context['DELAYLOAD_DLLS']:
+            context['LDFLAGS'].extend([('-DELAYLOAD:%s' % dll)
+                for dll in context['DELAYLOAD_DLLS']])
+            context['OS_LIBS'].append('delayimp')
+
         for v in ['CFLAGS', 'CXXFLAGS', 'CMFLAGS', 'CMMFLAGS', 'LDFLAGS']:
             if v in context and context[v]:
                 passthru.variables['MOZBUILD_' + v] = context[v]
@@ -420,11 +427,6 @@ class TreeMetadataEmitter(LoggingMixin):
         # NO_VISIBILITY_FLAGS is slightly different
         if context['NO_VISIBILITY_FLAGS']:
             passthru.variables['VISIBILITY_FLAGS'] = ''
-
-        if context['DELAYLOAD_DLLS']:
-            passthru.variables['DELAYLOAD_LDFLAGS'] = [('-DELAYLOAD:%s' % dll)
-                for dll in context['DELAYLOAD_DLLS']]
-            passthru.variables['USE_DELAYIMP'] = True
 
         varmap = dict(
             SOURCES={
@@ -599,6 +601,10 @@ class TreeMetadataEmitter(LoggingMixin):
                 context.get('DIST_SUBDIR'):
             yield InstallationTarget(context)
 
+        final_target_files = context.get('FINAL_TARGET_FILES')
+        if final_target_files:
+            yield FinalTargetFiles(context, final_target_files, context['FINAL_TARGET'])
+
         host_libname = context.get('HOST_LIBRARY_NAME')
         libname = context.get('LIBRARY_NAME')
 
@@ -668,6 +674,9 @@ class TreeMetadataEmitter(LoggingMixin):
                 shared_lib = True
                 shared_args['variant'] = SharedLibrary.FRAMEWORK
 
+            if not static_lib and not shared_lib:
+                static_lib = True
+
             if static_name:
                 if not static_lib:
                     raise SandboxValidationError(
@@ -687,9 +696,6 @@ class TreeMetadataEmitter(LoggingMixin):
                     raise SandboxValidationError(
                         'SONAME requires FORCE_SHARED_LIB', context)
                 shared_args['soname'] = soname
-
-            if not static_lib and not shared_lib:
-                static_lib = True
 
             # If both a shared and a static library are created, only the
             # shared library is meant to be a SDK library.
@@ -750,28 +756,28 @@ class TreeMetadataEmitter(LoggingMixin):
         # Keys are variable prefixes and values are tuples describing how these
         # manifests should be handled:
         #
-        #    (flavor, install_prefix, active)
+        #    (flavor, install_prefix, package_tests)
         #
         # flavor identifies the flavor of this test.
         # install_prefix is the path prefix of where to install the files in
         #     the tests directory.
-        # active indicates whether to filter out inactive tests from the
-        #     manifest.
+        # package_tests indicates whether to package test files into the test
+        #     package; suites that compile the test files should not install
+        #     them into the test package.
         #
-        # We ideally don't filter out inactive tests. However, not every test
-        # harness can yet deal with test filtering. Once all harnesses can do
-        # this, this feature can be dropped.
         test_manifests = dict(
             A11Y=('a11y', 'testing/mochitest', 'a11y', True),
             BROWSER_CHROME=('browser-chrome', 'testing/mochitest', 'browser', True),
+            ANDROID_INSTRUMENTATION=('instrumentation', 'instrumentation', '.', False),
             JETPACK_PACKAGE=('jetpack-package', 'testing/mochitest', 'jetpack-package', True),
-            JETPACK_ADDON=('jetpack-addon', 'testing/mochitest', 'jetpack-addon', True),
+            JETPACK_ADDON=('jetpack-addon', 'testing/mochitest', 'jetpack-addon', False),
             METRO_CHROME=('metro-chrome', 'testing/mochitest', 'metro', True),
             MOCHITEST=('mochitest', 'testing/mochitest', 'tests', True),
             MOCHITEST_CHROME=('chrome', 'testing/mochitest', 'chrome', True),
+            MOCHITEST_WEBAPPRT_CONTENT=('webapprt-content', 'testing/mochitest', 'webapprtContent', True),
             MOCHITEST_WEBAPPRT_CHROME=('webapprt-chrome', 'testing/mochitest', 'webapprtChrome', True),
             WEBRTC_SIGNALLING_TEST=('steeplechase', 'steeplechase', '.', True),
-            XPCSHELL_TESTS=('xpcshell', 'xpcshell', '.', False),
+            XPCSHELL_TESTS=('xpcshell', 'xpcshell', '.', True),
         )
 
         for prefix, info in test_manifests.items():
@@ -823,7 +829,7 @@ class TreeMetadataEmitter(LoggingMixin):
         return sub
 
     def _process_test_manifest(self, context, info, manifest_path):
-        flavor, install_root, install_subdir, filter_inactive = info
+        flavor, install_root, install_subdir, package_tests = info
 
         manifest_path = mozpath.normpath(manifest_path)
         path = mozpath.normpath(mozpath.join(context.srcdir, manifest_path))
@@ -845,12 +851,6 @@ class TreeMetadataEmitter(LoggingMixin):
                 dupe_manifest='dupe-manifest' in defaults)
 
             filtered = m.tests
-
-            if filter_inactive:
-                # We return tests that don't exist because we want manifests
-                # defining tests that don't exist to result in error.
-                filtered = m.active_tests(exists=False, disabled=True,
-                    **self.info)
 
             # Jetpack add-on tests are expected to be generated during the
             # build process so they won't exist here.
@@ -930,9 +930,9 @@ class TreeMetadataEmitter(LoggingMixin):
             for test in filtered:
                 obj.tests.append(test)
 
-                # Jetpack add-on tests are generated directly in the test
-                # directory
-                if flavor != 'jetpack-addon':
+                # Some test files are compiled and should not be copied into the
+                # test package. They function as identifiers rather than files.
+                if package_tests:
                     obj.installs[mozpath.normpath(test['path'])] = \
                         (mozpath.join(out_dir, test['relpath']), True)
 
@@ -1013,10 +1013,5 @@ class TreeMetadataEmitter(LoggingMixin):
         # Some paths have a subconfigure, yet also have a moz.build. Those
         # shouldn't end up in self._external_paths.
         self._external_paths -= { o.relobjdir }
-
-        if 'TIERS' in context:
-            for tier in context['TIERS']:
-                o.tier_dirs[tier] = context['TIERS'][tier]['regular'] + \
-                    context['TIERS'][tier]['external']
 
         yield o

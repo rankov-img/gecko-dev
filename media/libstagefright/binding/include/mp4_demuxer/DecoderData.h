@@ -22,6 +22,14 @@ namespace mp4_demuxer
 
 class MP4Demuxer;
 
+template <typename T>
+class nsRcTArray : public nsTArray<T> {
+  NS_INLINE_DECL_THREADSAFE_REFCOUNTING(nsRcTArray);
+
+private:
+  ~nsRcTArray() {}
+};
+
 struct PsshInfo
 {
   PsshInfo() {}
@@ -89,6 +97,7 @@ public:
     , samples_per_second(0)
     , frequency_index(0)
     , aac_profile(0)
+    , extended_profile(0)
   {
   }
 
@@ -97,6 +106,7 @@ public:
   uint32_t samples_per_second;
   int8_t frequency_index;
   int8_t aac_profile;
+  int8_t extended_profile;
   mozilla::Vector<uint8_t> extra_data;
   mozilla::Vector<uint8_t> audio_specific_config;
 
@@ -116,8 +126,11 @@ public:
   int32_t display_width;
   int32_t display_height;
 
-  mozilla::Vector<uint8_t> extra_data; // Unparsed AVCDecoderConfig payload.
-  mozilla::Vector<uint8_t> annex_b;    // Parsed version for sample prepend.
+  int32_t image_width;
+  int32_t image_height;
+
+  mozilla::Vector<uint8_t> extra_data;   // Unparsed AVCDecoderConfig payload.
+  nsRefPtr<nsRcTArray<uint8_t>> annex_b; // Parsed version for sample prepend.
 
   void Update(stagefright::sp<stagefright::MetaData>& aMetaData,
               const char* aMimeType);
@@ -146,6 +159,7 @@ public:
   size_t size;
 
   CryptoSample crypto;
+  nsRefPtr<nsRcTArray<uint8_t>> prefix_data;
 
   void Prepend(const uint8_t* aData, size_t aSize);
 

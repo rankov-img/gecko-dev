@@ -65,9 +65,9 @@ MathCache::MathCache() {
     memset(table, 0, sizeof(table));
 
     /* See comments in lookup(). */
-    JS_ASSERT(IsNegativeZero(-0.0));
-    JS_ASSERT(!IsNegativeZero(+0.0));
-    JS_ASSERT(hash(-0.0, MathCache::Sin) != hash(+0.0, MathCache::Sin));
+    MOZ_ASSERT(IsNegativeZero(-0.0));
+    MOZ_ASSERT(!IsNegativeZero(+0.0));
+    MOZ_ASSERT(hash(-0.0, MathCache::Sin) != hash(+0.0, MathCache::Sin));
 }
 
 size_t
@@ -565,8 +565,8 @@ js::math_log(JSContext *cx, unsigned argc, Value *vp)
     return true;
 }
 
-static double
-max_double(double x, double y)
+double
+js::math_max_impl(double x, double y)
 {
     // Math.max(num, NaN) => NaN, Math.max(-0, +0) => +0
     if (x > y || IsNaN(x) || (x == y && IsNegative(y)))
@@ -584,14 +584,14 @@ js::math_max(JSContext *cx, unsigned argc, Value *vp)
         double x;
         if (!ToNumber(cx, args[i], &x))
             return false;
-        maxval = max_double(x, maxval);
+        maxval = math_max_impl(x, maxval);
     }
     args.rval().setNumber(maxval);
     return true;
 }
 
-static double
-min_double(double x, double y)
+double
+js::math_min_impl(double x, double y)
 {
     // Math.min(num, NaN) => NaN, Math.min(-0, +0) => -0
     if (x < y || IsNaN(x) || (x == y && IsNegativeZero(x)))
@@ -609,7 +609,7 @@ js::math_min(JSContext *cx, unsigned argc, Value *vp)
         double x;
         if (!ToNumber(cx, args[i], &x))
             return false;
-        minval = min_double(x, minval);
+        minval = math_min_impl(x, minval);
     }
     args.rval().setNumber(minval);
     return true;
@@ -626,9 +626,9 @@ js::minmax_impl(JSContext *cx, bool max, HandleValue a, HandleValue b, MutableHa
         return false;
 
     if (max)
-        res.setNumber(max_double(x, y));
+        res.setNumber(math_max_impl(x, y));
     else
-        res.setNumber(min_double(x, y));
+        res.setNumber(math_min_impl(x, y));
 
     return true;
 }
@@ -742,9 +742,6 @@ random_generateSeed()
      * do, so just mix in the fd error code and the current time.
      */
     int fd = open("/dev/urandom", O_RDONLY);
-    if (fd < 0) {
-        perror("FITZGEN: error opening /dev/urandom: ");
-    }
     MOZ_ASSERT(fd >= 0, "Can't open /dev/urandom");
     if (fd >= 0) {
         (void)read(fd, seed.u8, mozilla::ArrayLength(seed.u8));
@@ -881,12 +878,18 @@ js::math_round(JSContext *cx, unsigned argc, Value *vp)
 double
 js::math_sin_impl(MathCache *cache, double x)
 {
-    return cache->lookup(sin, x, MathCache::Sin);
+    return cache->lookup(math_sin_uncached, x, MathCache::Sin);
 }
 
 double
 js::math_sin_uncached(double x)
 {
+#ifdef _WIN64
+    // Workaround MSVC bug where sin(-0) is +0 instead of -0 on x64 on
+    // CPUs without FMA3 (pre-Haswell). See bug 1076670.
+    if (IsNegativeZero(x))
+        return -0.0;
+#endif
     return sin(x);
 }
 
@@ -1374,7 +1377,12 @@ bool
 js::math_hypot(JSContext *cx, unsigned argc, Value *vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
+    return math_hypot_handle(cx, args, args.rval());
+}
 
+bool
+js::math_hypot_handle(JSContext *cx, HandleValueArray args, MutableHandleValue res)
+{
     // IonMonkey calls the system hypot function directly if two arguments are
     // given. Do that here as well to get the same results.
     if (args.length() == 2) {
@@ -1385,7 +1393,7 @@ js::math_hypot(JSContext *cx, unsigned argc, Value *vp)
             return false;
 
         double result = ecmaHypot(x, y);
-        args.rval().setNumber(result);
+        res.setNumber(result);
         return true;
     }
 
@@ -1416,7 +1424,7 @@ js::math_hypot(JSContext *cx, unsigned argc, Value *vp)
     double result = isInfinite ? PositiveInfinity<double>() :
                     isNaN ? GenericNaN() :
                     scale * sqrt(sumsq);
-    args.rval().setNumber(result);
+    res.setNumber(result);
     return true;
 }
 
@@ -1565,7 +1573,7 @@ js_InitMathClass(JSContext *cx, HandleObject obj)
         return nullptr;
 
     if (!JS_DefineProperty(cx, obj, js_Math_str, Math, 0,
-                           JS_PropertyStub, JS_StrictPropertyStub))
+                           JS_STUBGETTER, JS_STUBSETTER))
     {
         return nullptr;
     }

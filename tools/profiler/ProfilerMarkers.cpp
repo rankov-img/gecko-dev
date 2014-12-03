@@ -84,6 +84,34 @@ ProfilerMarkerTracing::streamPayloadImp(JSStreamWriter& b)
   b.EndObject();
 }
 
+GPUMarkerPayload::GPUMarkerPayload(
+  const mozilla::TimeStamp& aCpuTimeStart,
+  const mozilla::TimeStamp& aCpuTimeEnd,
+  uint64_t aGpuTimeStart,
+  uint64_t aGpuTimeEnd)
+
+  : ProfilerMarkerPayload(aCpuTimeStart, aCpuTimeEnd)
+  , mCpuTimeStart(aCpuTimeStart)
+  , mCpuTimeEnd(aCpuTimeEnd)
+  , mGpuTimeStart(aGpuTimeStart)
+  , mGpuTimeEnd(aGpuTimeEnd)
+{
+
+}
+
+void
+GPUMarkerPayload::streamPayloadImp(JSStreamWriter& b)
+{
+  b.BeginObject();
+    streamCommonProps("gpu_timer_query", b);
+
+    b.NameValue("cpustart", profiler_time(mCpuTimeStart));
+    b.NameValue("cpuend", profiler_time(mCpuTimeEnd));
+    b.NameValue("gpustart", (int)mGpuTimeStart);
+    b.NameValue("gpuend", (int)mGpuTimeEnd);
+  b.EndObject();
+}
+
 ProfilerMarkerImagePayload::ProfilerMarkerImagePayload(gfxASurface *aImg)
   : mImg(aImg)
 {}
@@ -167,5 +195,20 @@ TouchDataPayload::streamPayloadImpl(JSStreamWriter& b)
   b.BeginObject();
   b.NameValue("x", mPoint.x);
   b.NameValue("y", mPoint.y);
+  b.EndObject();
+}
+
+VsyncPayload::VsyncPayload(mozilla::TimeStamp aVsyncTimestamp)
+  : ProfilerMarkerPayload(aVsyncTimestamp, aVsyncTimestamp, nullptr)
+  , mVsyncTimestamp(aVsyncTimestamp)
+{
+}
+
+void
+VsyncPayload::streamPayloadImpl(JSStreamWriter& b)
+{
+  b.BeginObject();
+  b.NameValue("vsync", profiler_time(mVsyncTimestamp));
+  b.NameValue("category", "VsyncTimestamp");
   b.EndObject();
 }

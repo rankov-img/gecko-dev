@@ -26,6 +26,11 @@ const STRING_TYPE_NAME         = "type.%ID%.name";
 
 const SEC_IN_A_DAY              = 24 * 60 * 60;
 
+const EME_PREF_ENABLED         = "media.eme.enabled";
+const NS_GRE_BIN_DIR           = "GreBinD";
+const CLEARKEY_PLUGIN_ID       = "gmp-clearkey";
+const CLEARKEY_VERSION         = "0.1";
+
 const OPENH264_PLUGIN_ID       = "gmp-gmpopenh264";
 const OPENH264_PREF_BRANCH     = "media." + OPENH264_PLUGIN_ID + ".";
 const OPENH264_PREF_ENABLED    = "enabled";
@@ -245,6 +250,8 @@ let OpenH264Wrapper = {
 };
 
 let OpenH264Provider = {
+  get name() "OpenH264Provider",
+
   startup: function() {
     configureLogging();
     this._log = Log.repository.getLoggerWithMessagePrefix("Toolkit.OpenH264Provider",
@@ -268,8 +275,33 @@ let OpenH264Provider = {
 
     if (this.gmpPath && enabled) {
       this._log.info("startup() - adding gmp directory " + this.gmpPath);
-      gmpService.addPluginDirectory(this.gmpPath);
+      try {
+        gmpService.addPluginDirectory(this.gmpPath);
+      } catch (e if e.name == 'NS_ERROR_NOT_AVAILABLE') {
+        this._log.warn("startup() - adding gmp directory failed with " + e.name + " - sandboxing not available?");
+      }
     }
+
+    if (Preferences.get(EME_PREF_ENABLED, false)) {
+      try {
+        let greBinDir = Services.dirsvc.get(NS_GRE_BIN_DIR, Ci.nsILocalFile);
+        gmpService.addPluginDirectory(OS.Path.join(greBinDir.path,
+                                                   CLEARKEY_PLUGIN_ID,
+                                                   CLEARKEY_VERSION));
+      } catch (e) {
+        this._log.warn("startup() - adding clearkey CDM failed", e);
+      }
+    }
+
+    let telemetry = {};
+    if (this.isEnabled) {
+      telemetry[OPENH264_PLUGIN_ID] = {
+	userDisabled: OpenH264Wrapper.userDisabled,
+	version: OpenH264Wrapper.version,
+	applyBackgroundUpdates: OpenH264Wrapper.applyBackgroundUpdates,
+      };
+    }
+    AddonManagerPrivate.setTelemetryDetails("GMP", telemetry);
   },
 
   shutdown: function() {

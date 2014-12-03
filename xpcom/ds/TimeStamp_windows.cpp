@@ -434,7 +434,14 @@ BaseTimeDurationPlatformUtils::ToSecondsSigDigits(int64_t aTicks)
 int64_t
 BaseTimeDurationPlatformUtils::TicksFromMilliseconds(double aMilliseconds)
 {
-  return ms2mt(aMilliseconds);
+  double result = ms2mt(aMilliseconds);
+  if (result > INT64_MAX) {
+    return INT64_MAX;
+  } else if (result < INT64_MIN) {
+    return INT64_MIN;
+  }
+
+  return result;
 }
 
 int64_t
@@ -558,14 +565,14 @@ TimeStamp::ComputeProcessUptime()
     return 0;
   }
 
-  ULARGE_INTEGER startUsec = {
-    start.dwLowDateTime,
-    start.dwHighDateTime
-  };
-  ULARGE_INTEGER nowUsec = {
+  ULARGE_INTEGER startUsec = {{
+     start.dwLowDateTime,
+     start.dwHighDateTime
+  }};
+  ULARGE_INTEGER nowUsec = {{
     now.dwLowDateTime,
     now.dwHighDateTime
-  };
+  }};
 
   return (nowUsec.QuadPart - startUsec.QuadPart) / 10ULL;
 }

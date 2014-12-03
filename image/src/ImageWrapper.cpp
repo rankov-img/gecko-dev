@@ -27,10 +27,10 @@ ImageWrapper::Init(const char* aMimeType, uint32_t aFlags)
   return mInnerImage->Init(aMimeType, aFlags);
 }
 
-already_AddRefed<imgStatusTracker>
-ImageWrapper::GetStatusTracker()
+already_AddRefed<ProgressTracker>
+ImageWrapper::GetProgressTracker()
 {
-  return mInnerImage->GetStatusTracker();
+  return mInnerImage->GetProgressTracker();
 }
 
 nsIntRect
@@ -209,9 +209,9 @@ ImageWrapper::GetFrame(uint32_t aWhichFrame,
 }
 
 NS_IMETHODIMP_(bool)
-ImageWrapper::FrameIsOpaque(uint32_t aWhichFrame)
+ImageWrapper::IsOpaque()
 {
-  return mInnerImage->FrameIsOpaque(aWhichFrame);
+  return mInnerImage->IsOpaque();
 }
 
 NS_IMETHODIMP

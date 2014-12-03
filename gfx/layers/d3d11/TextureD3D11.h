@@ -176,7 +176,7 @@ public:
   DXGITextureHostD3D11(TextureFlags aFlags,
                        const SurfaceDescriptorD3D10& aDescriptor);
 
-  virtual NewTextureSource* GetTextureSources() MOZ_OVERRIDE;
+  virtual TextureSource* GetTextureSources() MOZ_OVERRIDE;
 
   virtual void DeallocateDeviceData() MOZ_OVERRIDE {}
 
@@ -217,6 +217,8 @@ public:
                                const gfx::IntPoint& aOrigin);
 
   virtual TextureSourceD3D11* AsSourceD3D11() MOZ_OVERRIDE { return this; }
+
+  void BindRenderTarget(ID3D11DeviceContext* aContext);
 
   virtual gfx::IntSize GetSize() const MOZ_OVERRIDE;
 

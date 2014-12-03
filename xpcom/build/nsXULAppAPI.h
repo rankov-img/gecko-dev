@@ -16,6 +16,7 @@
 
 #include "mozilla/ArrayUtils.h"
 #include "mozilla/Assertions.h"
+#include "mozilla/Vector.h"
 
 /**
  * A directory service key which provides the platform-correct "application
@@ -392,9 +393,16 @@ XRE_API(bool,
         XRE_SetRemoteExceptionHandler, (const char* aPipe))
 #endif
 
+namespace mozilla {
+namespace gmp {
+class GMPLoader;
+} // namespace gmp
+} // namepsace mozilla
+
 XRE_API(nsresult,
         XRE_InitChildProcess, (int aArgc,
-                               char* aArgv[]))
+                               char* aArgv[],
+                               mozilla::gmp::GMPLoader* aGMPLoader))
 
 XRE_API(GeckoProcessType,
         XRE_GetProcessType, ())
@@ -470,9 +478,11 @@ XRE_API(WindowsEnvironmentType,
 
 #ifdef MOZ_B2G_LOADER
 XRE_API(int,
-        XRE_ProcLoaderServiceRun, (pid_t, int, int argc, const char* argv[]));
+        XRE_ProcLoaderServiceRun, (pid_t, int, int argc, const char* argv[],
+                                   mozilla::Vector<int>& aReservedFds));
 XRE_API(void,
-        XRE_ProcLoaderClientInit, (pid_t, int));
+        XRE_ProcLoaderClientInit, (pid_t, int,
+                                   mozilla::Vector<int>& aReservedFds));
 XRE_API(void,
         XRE_ProcLoaderPreload, (const char* aProgramDir,
                                 const nsXREAppData* aAppData));

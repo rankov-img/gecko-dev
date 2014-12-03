@@ -11,12 +11,11 @@ function test() {
   // Debug test slaves are a bit slow at this test.
   requestLongerTimeout(2);
 
-  let gTab, gDebuggee, gPanel, gDebugger;
+  let gTab, gPanel, gDebugger;
   let gWatch, gVariables;
 
-  initDebugger(TAB_URL).then(([aTab, aDebuggee, aPanel]) => {
+  initDebugger(TAB_URL).then(([aTab,, aPanel]) => {
     gTab = aTab;
-    gDebuggee = aDebuggee;
     gPanel = aPanel;
     gDebugger = gPanel.panelWin;
     gWatch = gDebugger.DebuggerView.WatchExpressions;
@@ -105,7 +104,7 @@ function test() {
   function test1(aCallback) {
     gDebugger.once(gDebugger.EVENTS.FETCHED_WATCH_EXPRESSIONS, () => {
       checkWatchExpressions(26, {
-        a: "ReferenceError: a is not defined, did you mean 'z'?",
+        a: "ReferenceError: a is not defined",
         this: { type: "object", class: "Object" },
         prop: { type: "object", class: "String" },
         args: { type: "undefined" }
@@ -113,7 +112,7 @@ function test() {
       aCallback();
     });
 
-    gDebuggee.test();
+    callInTab(gTab, "test");
   }
 
   function test2(aCallback) {

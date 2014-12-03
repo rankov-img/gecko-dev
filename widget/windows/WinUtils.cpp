@@ -20,9 +20,6 @@
 #include "nsIContentPolicy.h"
 #include "nsContentUtils.h"
 
-#ifdef MOZ_LOGGING
-#define FORCE_PR_LOG /* Allow logging in the release build */
-#endif // MOZ_LOGGING
 #include "prlog.h"
 
 #include "nsString.h"
@@ -622,13 +619,24 @@ WinUtils::GetMessage(LPMSG aMsg, HWND aWnd, UINT aFirstMessage,
 
 /* static */
 void
-WinUtils::WaitForMessage()
+WinUtils::WaitForMessage(DWORD aTimeoutMs)
 {
+  const DWORD waitStart = ::GetTickCount();
+  DWORD elapsed = 0;
   while (true) {
-    DWORD result = ::MsgWaitForMultipleObjectsEx(0, NULL, INFINITE,
+    if (aTimeoutMs != INFINITE) {
+      elapsed = ::GetTickCount() - waitStart;
+    }
+    if (elapsed >= aTimeoutMs) {
+      break;
+    }
+    DWORD result = ::MsgWaitForMultipleObjectsEx(0, NULL, aTimeoutMs - elapsed,
                                                  MOZ_QS_ALLEVENT,
                                                  MWMO_INPUTAVAILABLE);
     NS_WARN_IF_FALSE(result != WAIT_FAILED, "Wait failed");
+    if (result == WAIT_TIMEOUT) {
+      break;
+    }
 
     // Sent messages (via SendMessage and friends) are processed differently
     // than queued messages (via PostMessage); the destination window procedure
@@ -1207,11 +1215,12 @@ NS_IMETHODIMP AsyncEncodeAndWriteIcon::Run()
 {
   NS_PRECONDITION(!NS_IsMainThread(), "Should not be called on the main thread.");
 
-  RefPtr<DrawTarget> dt =
-    gfxPlatform::GetPlatform()->ScreenReferenceDrawTarget();
-  RefPtr<SourceSurface> surface =
-    dt->CreateSourceSurfaceFromData(mBuffer, IntSize(mWidth, mHeight), mStride,
-                                    SurfaceFormat::B8G8R8A8);
+  // Note that since we're off the main thread we can't use
+  // gfxPlatform::GetPlatform()->ScreenReferenceDrawTarget()
+  RefPtr<DataSourceSurface> surface =
+    Factory::CreateWrappingDataSourceSurface(mBuffer, mStride,
+                                             IntSize(mWidth, mHeight),
+                                             SurfaceFormat::B8G8R8A8);
 
   FILE* file = fopen(NS_ConvertUTF16toUTF8(mIconPath).get(), "wb");
   if (!file) {

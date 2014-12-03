@@ -119,6 +119,9 @@ public:
     };
     static DnsPriority GetPriority(uint16_t aFlags);
 
+    bool RemoveOrRefresh(); // Mark records currently being resolved as needed
+                            // to resolve again.
+
 private:
     friend class nsHostResolver;
 
@@ -140,6 +143,10 @@ private:
     // The number of times ReportUnusable() has been called in the record's
     // lifetime.
     uint32_t mBlacklistedCount;
+
+    // when the results from this resolve is returned, it is not to be
+    // trusted, but instead a new resolve must be made!
+    bool    mResolveAgain;
 
     // a list of addresses associated with this record that have been reported
     // as unusable. the list is kept as a set of strings to make it independent
@@ -278,6 +285,11 @@ public:
 
     size_t SizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf) const;
 
+    /**
+     * Flush the DNS cache.
+     */
+    void FlushCache();
+
 private:
    explicit nsHostResolver(uint32_t maxCacheEntries,
                            uint32_t defaultCacheEntryLifetime,
@@ -287,7 +299,13 @@ private:
     nsresult Init();
     nsresult IssueLookup(nsHostRecord *);
     bool     GetHostToLookup(nsHostRecord **m);
-    void     OnLookupComplete(nsHostRecord *, nsresult, mozilla::net::AddrInfo *);
+
+    enum LookupStatus {
+      LOOKUP_OK,
+      LOOKUP_RESOLVEAGAIN,
+    };
+
+    LookupStatus OnLookupComplete(nsHostRecord *, nsresult, mozilla::net::AddrInfo *);
     void     DeQueue(PRCList &aQ, nsHostRecord **aResult);
     void     ClearPendingQueue(PRCList *aPendingQueue);
     nsresult ConditionallyCreateThread(nsHostRecord *rec);
@@ -297,22 +315,6 @@ private:
      * period with a failed connect or all cached entries are negative.
      */
     nsresult ConditionallyRefreshRecord(nsHostRecord *rec, const char *host);
-    
-#if TTL_AVAILABLE
-    // For DNS TTL Experiments.
-
-    // Internal function which initializes the TTL experiment pref to a random
-    // value corresponding to one of the TTL experiment variants. To be
-    // dispatched by DnsExperimentChanged to the main thread, since setting
-    // prefs can't be done in the context of a "pref changed" callback.
-    void DnsExperimentChangedInternal();
-
-    // Callback to be registered with Preferences::RegisterCallback.
-    static void DnsExperimentChanged(const char* aPref, void* aClosure);
-
-    // Dispatched to the main thread to ensure that rand is seeded.
-    void InitCRandom();
-#endif
 
     static void  MoveQueue(nsHostRecord *aRec, PRCList &aDestQ);
     

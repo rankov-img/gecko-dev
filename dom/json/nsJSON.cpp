@@ -6,7 +6,6 @@
 
 #include "jsapi.h"
 #include "js/CharacterEncoding.h"
-#include "js/OldDebugAPI.h"
 #include "nsJSON.h"
 #include "nsIXPConnect.h"
 #include "nsIXPCScriptable.h"
@@ -23,6 +22,7 @@
 #include "nsCRTGlue.h"
 #include "nsAutoPtr.h"
 #include "nsIScriptSecurityManager.h"
+#include "nsNullPrincipal.h"
 #include "mozilla/Maybe.h"
 #include <algorithm>
 
@@ -217,8 +217,7 @@ nsJSON::EncodeInternal(JSContext* cx, const JS::Value& aValue,
   JS::Rooted<JS::Value> val(cx, aValue);
   JS::Rooted<JS::Value> toJSON(cx);
   if (JS_GetProperty(cx, obj, "toJSON", &toJSON) &&
-      toJSON.isObject() &&
-      JS_ObjectIsCallable(cx, &toJSON.toObject())) {
+      toJSON.isObject() && JS::IsCallable(&toJSON.toObject())) {
     // If toJSON is implemented, it must not throw
     if (!JS_CallFunctionValue(cx, obj, toJSON, JS::HandleValueArray::empty(), &val)) {
       if (JS_IsExceptionPending(cx))
@@ -411,9 +410,19 @@ nsJSON::DecodeInternal(JSContext* cx,
       return NS_ERROR_OUT_OF_MEMORY;
   }
 
-  nsresult rv =
-    NS_NewInputStreamChannel(getter_AddRefs(jsonChannel), mURI, aStream,
-                             NS_LITERAL_CSTRING("application/json"));
+  nsresult rv;
+  nsCOMPtr<nsIPrincipal> nullPrincipal =
+    do_CreateInstance("@mozilla.org/nullprincipal;1", &rv);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  rv = NS_NewInputStreamChannel(getter_AddRefs(jsonChannel),
+                                mURI,
+                                aStream,
+                                nullPrincipal,
+                                nsILoadInfo::SEC_NORMAL,
+                                nsIContentPolicy::TYPE_OTHER,
+                                NS_LITERAL_CSTRING("application/json"));
+
   if (!jsonChannel || NS_FAILED(rv))
     return NS_ERROR_FAILURE;
 

@@ -10,6 +10,7 @@ EXPORTS += [
 
 SOURCES += [
     '../../../mfbt/HashFunctions.cpp',
+    '../../../mfbt/JSONWriter.cpp',
     '../../../xpcom/base/nsStackWalk.cpp',
     'DMD.cpp',
 ]
@@ -31,3 +32,6 @@ if CONFIG['OS_ARCH'] == 'WINNT':
     OS_LIBS += [
         'dbghelp',
     ]
+
+TEST_DIRS += ['test']
+

@@ -35,6 +35,9 @@ extern PRLogModuleInfo* gCertVerifierLog;
 
 static const uint64_t ServerFailureDelaySeconds = 5 * 60;
 
+static const unsigned int MINIMUM_NON_ECC_BITS_DV = 1024;
+static const unsigned int MINIMUM_NON_ECC_BITS_EV = 2048;
+
 namespace mozilla { namespace psm {
 
 const char BUILTIN_ROOTS_MODULE_DEFAULT_NAME[] = "Builtin Roots Module";
@@ -52,14 +55,18 @@ NSSCertDBTrustDomain::NSSCertDBTrustDomain(SECTrustType certDBTrustType,
                                            OCSPCache& ocspCache,
              /*optional but shouldn't be*/ void* pinArg,
                                            CertVerifier::ocsp_get_config ocspGETConfig,
-                              /*optional*/ CERTChainVerifyCallback* checkChainCallback,
+                                           CertVerifier::PinningMode pinningMode,
+                                           bool forEV,
+                              /*optional*/ const char* hostname,
                               /*optional*/ ScopedCERTCertList* builtChain)
   : mCertDBTrustType(certDBTrustType)
   , mOCSPFetching(ocspFetching)
   , mOCSPCache(ocspCache)
   , mPinArg(pinArg)
   , mOCSPGetConfig(ocspGETConfig)
-  , mCheckChainCallback(checkChainCallback)
+  , mPinningMode(pinningMode)
+  , mMinimumNonECCBits(forEV ? MINIMUM_NON_ECC_BITS_EV : MINIMUM_NON_ECC_BITS_DV)
+  , mHostname(hostname)
   , mBuiltChain(builtChain)
 {
 }
@@ -224,7 +231,7 @@ NSSCertDBTrustDomain::VerifySignedData(const SignedDataWithSignature& signedData
                                        Input subjectPublicKeyInfo)
 {
   return ::mozilla::pkix::VerifySignedData(signedData, subjectPublicKeyInfo,
-                                           mPinArg);
+                                           mMinimumNonECCBits, mPinArg);
 }
 
 Result
@@ -525,7 +532,7 @@ NSSCertDBTrustDomain::CheckRevocation(EndEntityOrCA endEntityOrCA,
     Result error = rv;
     if (attemptedRequest) {
       Time timeout(time);
-      if ( timeout.AddSeconds(ServerFailureDelaySeconds) != Success) {
+      if (timeout.AddSeconds(ServerFailureDelaySeconds) != Success) {
         return Result::FATAL_ERROR_LIBRARY_FAILURE; // integer overflow
       }
       rv = mOCSPCache.Put(certID, error, time, timeout);
@@ -633,16 +640,10 @@ NSSCertDBTrustDomain::VerifyAndMaybeCacheEncodedOCSPResponse(
 }
 
 Result
-NSSCertDBTrustDomain::IsChainValid(const DERArray& certArray)
+NSSCertDBTrustDomain::IsChainValid(const DERArray& certArray, Time time)
 {
   PR_LOG(gCertVerifierLog, PR_LOG_DEBUG,
-      ("NSSCertDBTrustDomain: Top of IsChainValid mCheckChainCallback=%p",
-       mCheckChainCallback));
-
-  if (!mBuiltChain && !mCheckChainCallback) {
-    // No need to create a CERTCertList, and nothing else to do.
-    return Success;
-  }
+         ("NSSCertDBTrustDomain: IsChainValid"));
 
   ScopedCERTCertList certList;
   SECStatus srv = ConstructCERTCertListFromReversedDERArray(certArray,
@@ -651,19 +652,10 @@ NSSCertDBTrustDomain::IsChainValid(const DERArray& certArray)
     return MapPRErrorCodeToResult(PR_GetError());
   }
 
-  if (mCheckChainCallback) {
-    if (!mCheckChainCallback->isChainValid) {
-      return Result::FATAL_ERROR_INVALID_ARGS;
-    }
-    PRBool chainOK;
-    srv = (mCheckChainCallback->isChainValid)(
-            mCheckChainCallback->isChainValidArg, certList.get(), &chainOK);
-    if (srv != SECSuccess) {
-      return MapPRErrorCodeToResult(PR_GetError());
-    }
-    if (!chainOK) {
-      return Result::ERROR_KEY_PINNING_FAILURE;
-    }
+  Result result = CertListContainsExpectedKeys(certList, mHostname, time,
+                                               mPinningMode);
+  if (result != Success) {
+    return result;
   }
 
   if (mBuiltChain) {
@@ -676,7 +668,8 @@ NSSCertDBTrustDomain::IsChainValid(const DERArray& certArray)
 Result
 NSSCertDBTrustDomain::CheckPublicKey(Input subjectPublicKeyInfo)
 {
-  return ::mozilla::pkix::CheckPublicKey(subjectPublicKeyInfo);
+  return ::mozilla::pkix::CheckPublicKey(subjectPublicKeyInfo,
+                                         mMinimumNonECCBits);
 }
 
 namespace {

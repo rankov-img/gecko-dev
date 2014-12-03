@@ -1,7 +1,7 @@
 /* Any copyright is dedicated to the Public Domain.
    http://creativecommons.org/publicdomain/zero/1.0/ */
 
-var startTimerCalled = false;
+let startTimerCalled = false;
 
 /**
  * Tests that registration doesn't happen when the expiry time is
@@ -10,8 +10,9 @@ var startTimerCalled = false;
 add_task(function test_initialize_no_expiry() {
   startTimerCalled = false;
 
-  MozLoopService.initialize();
-
+  let initializedPromise = yield MozLoopService.initialize();
+  Assert.equal(initializedPromise, "registration not needed",
+               "Promise should be fulfilled");
   Assert.equal(startTimerCalled, false,
     "should not register when no expiry time is set");
 });
@@ -22,7 +23,7 @@ add_task(function test_initialize_no_expiry() {
  */
 add_task(function test_initialize_expiry_past() {
   // Set time to be 2 seconds in the past.
-  var nowSeconds = Date.now() / 1000;
+  let nowSeconds = Date.now() / 1000;
   Services.prefs.setIntPref("loop.urlsExpiryTimeSeconds", nowSeconds - 2);
   startTimerCalled = false;
 
@@ -38,7 +39,7 @@ add_task(function test_initialize_expiry_past() {
  */
 add_task(function test_initialize_starts_timer() {
   // Set time to be 1 minute in the future
-  var nowSeconds = Date.now() / 1000;
+  let nowSeconds = Date.now() / 1000;
   Services.prefs.setIntPref("loop.urlsExpiryTimeSeconds", nowSeconds + 60);
   startTimerCalled = false;
 
@@ -48,8 +49,7 @@ add_task(function test_initialize_starts_timer() {
     "should start the timer when expiry time is in the future");
 });
 
-function run_test()
-{
+function run_test() {
   setupFakeLoopServer();
 
   // Override MozLoopService's initializeTimer, so that we can verify the timeout is called

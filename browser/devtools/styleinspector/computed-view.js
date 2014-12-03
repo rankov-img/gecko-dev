@@ -130,8 +130,8 @@ UpdateProcess.prototype = {
  */
 function CssHtmlTree(aStyleInspector, aPageStyle)
 {
-  this.styleWindow = aStyleInspector.window;
-  this.styleDocument = aStyleInspector.window.document;
+  this.styleWindow = aStyleInspector.doc.defaultView;
+  this.styleDocument = aStyleInspector.doc;
   this.styleInspector = aStyleInspector;
   this.inspector = this.styleInspector.inspector;
   this.pageStyle = aPageStyle;
@@ -284,12 +284,12 @@ CssHtmlTree.prototype = {
   },
 
   /**
-   * Update the highlighted element. The CssHtmlTree panel will show the style
-   * information for the given element.
+   * Update the view with a new selected element.
+   * The CssHtmlTree panel will show the style information for the given element.
    * @param {NodeFront} aElement The highlighted node to get styles for.
    * @returns a promise that will be resolved when highlighting is complete.
    */
-  highlight: function(aElement) {
+  selectElement: function(aElement) {
     if (!aElement) {
       this.viewedElement = null;
       this.noResults.hidden = false;
@@ -574,7 +574,10 @@ CssHtmlTree.prototype = {
     let mozProps = [];
     for (let i = 0, numStyles = styles.length; i < numStyles; i++) {
       let prop = styles.item(i);
-      if (prop.charAt(0) == "-") {
+      if (prop.startsWith("--")) {
+        // Skip any CSS variables used inside of browser CSS files
+        continue;
+      } else if (prop.startsWith("-")) {
         mozProps.push(prop);
       } else {
         CssHtmlTree.propertyNames.push(prop);
@@ -645,7 +648,8 @@ CssHtmlTree.prototype = {
     this.menuitemSources= createMenuItem(this._contextmenu, {
       label: "ruleView.contextmenu.showOrigSources",
       accesskey: "ruleView.contextmenu.showOrigSources.accessKey",
-      command: this._onToggleOrigSources
+      command: this._onToggleOrigSources,
+      type: "checkbox"
     });
 
     let popupset = doc.documentElement.querySelector("popupset");
@@ -666,16 +670,8 @@ CssHtmlTree.prototype = {
     let disable = win.getSelection().isCollapsed;
     this.menuitemCopy.disabled = disable;
 
-    let label = "ruleView.contextmenu.showOrigSources";
-    if (Services.prefs.getBoolPref(PREF_ORIG_SOURCES)) {
-      label = "ruleView.contextmenu.showCSSSources";
-    }
-    this.menuitemSources.setAttribute("label",
-                                      CssHtmlTree.l10n(label));
-
-    let accessKey = label + ".accessKey";
-    this.menuitemSources.setAttribute("accesskey",
-                                      CssHtmlTree.l10n(accessKey));
+    let showOrig = Services.prefs.getBoolPref(PREF_ORIG_SOURCES);
+    this.menuitemSources.setAttribute("checked", showOrig);
 
     this.menuitemCopyColor.hidden = !this._isColorPopup();
   },
@@ -1016,7 +1012,7 @@ PropertyView.prototype = {
   {
     if (this.visible) {
       let isDark = this.tree._darkStripe = !this.tree._darkStripe;
-      return isDark ? "property-view theme-bg-darker" : "property-view";
+      return isDark ? "property-view row-striped" : "property-view";
     }
     return "property-view-hidden";
   },
@@ -1030,7 +1026,7 @@ PropertyView.prototype = {
   {
     if (this.visible) {
       let isDark = this.tree._darkStripe;
-      return isDark ? "property-content theme-bg-darker" : "property-content";
+      return isDark ? "property-content row-striped" : "property-content";
     }
     return "property-content-hidden";
   },

@@ -98,6 +98,9 @@
  * trees are more space-efficient than alternatives.  This was removed in bug
  * 631138; see that bug for the full details.
  *
+ * For getters/setters, an AccessorShape is allocated. This is a slightly fatter
+ * type with extra fields for the getter/setter data.
+ *
  * Because many Shapes have similar data, there is actually a secondary type
  * called a BaseShape that holds some of a Shape's data.  Many shapes can share
  * a single BaseShape.
@@ -110,7 +113,6 @@ namespace js {
 class Bindings;
 class Debugger;
 class Nursery;
-class ObjectImpl;
 class StaticBlockObject;
 
 namespace gc {
@@ -252,6 +254,7 @@ struct ShapeTable {
  * an earlier property, however.
  */
 
+class AccessorShape;
 class Shape;
 class UnownedBaseShape;
 struct StackBaseShape;
@@ -260,16 +263,33 @@ namespace gc {
 void MergeCompartments(JSCompartment *source, JSCompartment *target);
 }
 
+#ifdef JSGC_GENERATIONAL
+// This class is used to add a post barrier on the AccessorShape's getter/setter
+// objects. It updates the shape's entry in the parent's KidsHash table.
+class ShapeGetterSetterRef : public gc::BufferableRef
+{
+    AccessorShape *shape;
+    JSObject **objp;
+
+  public:
+    ShapeGetterSetterRef(AccessorShape *shape, JSObject **objp)
+      : shape(shape), objp(objp)
+    {}
+
+    void mark(JSTracer *trc);
+};
+#endif
+
 static inline void
-GetterSetterWriteBarrierPost(JSRuntime *rt, JSObject **objp)
+GetterSetterWriteBarrierPost(AccessorShape *shape, JSObject **objp)
 {
 #ifdef JSGC_GENERATIONAL
-    JS_ASSERT(objp);
-    JS_ASSERT(*objp);
+    MOZ_ASSERT(shape);
+    MOZ_ASSERT(objp);
+    MOZ_ASSERT(*objp);
     gc::Cell **cellp = reinterpret_cast<gc::Cell **>(objp);
-    gc::StoreBuffer *storeBuffer = (*cellp)->storeBuffer();
-    if (storeBuffer)
-        storeBuffer->putRelocatableCellFromAnyThread(cellp);
+    if (gc::StoreBuffer *sb = (*cellp)->storeBuffer())
+        sb->putGeneric(ShapeGetterSetterRef(shape, objp));
 #endif
 }
 
@@ -294,9 +314,7 @@ class BaseShape : public gc::TenuredCell
         /* Owned by the referring shape. */
         OWNED_SHAPE        = 0x1,
 
-        /* getterObj/setterObj are active in unions below. */
-        HAS_GETTER_OBJECT  = 0x2,
-        HAS_SETTER_OBJECT  = 0x4,
+        /* (0x2 and 0x4 are unused) */
 
         /*
          * Flags set which describe the referring object. Once set these cannot
@@ -317,6 +335,7 @@ class BaseShape : public gc::TenuredCell
         ITERATED_SINGLETON  =  0x200,
         NEW_TYPE_UNKNOWN    =  0x400,
         UNCACHEABLE_PROTO   =  0x800,
+        IMMUTABLE_PROTOTYPE = 0x1000,
 
         // These two flags control which scope a new variables ends up on in the
         // scope chain. If the variable is "qualified" (i.e., if it was defined
@@ -326,10 +345,10 @@ class BaseShape : public gc::TenuredCell
         // incidentally is an error in strict mode) then it goes on the lowest
         // scope in the chain with the UNQUALIFIED_VAROBJ flag set (which is
         // typically the global).
-        QUALIFIED_VAROBJ    = 0x1000,
-        UNQUALIFIED_VAROBJ  = 0x2000,
+        QUALIFIED_VAROBJ    = 0x2000,
+        UNQUALIFIED_VAROBJ  = 0x4000,
 
-        OBJECT_FLAG_MASK    = 0x3ff8
+        OBJECT_FLAG_MASK    = 0x7ff8
     };
 
   private:
@@ -341,18 +360,6 @@ class BaseShape : public gc::TenuredCell
     uint32_t            flags;          /* Vector of above flags. */
     uint32_t            slotSpan_;      /* Object slot span for BaseShapes at
                                          * dictionary last properties. */
-
-    union {
-        PropertyOp      rawGetter;      /* getter hook for shape */
-        JSObject        *getterObj;     /* user-defined callable "get" object or
-                                           null if shape->hasGetterValue() */
-    };
-
-    union {
-        StrictPropertyOp rawSetter;     /* setter hook for shape */
-        JSObject        *setterObj;     /* user-defined callable "set" object or
-                                           null if shape->hasSetterValue() */
-    };
 
     /* For owned BaseShapes, the canonical unowned BaseShape. */
     HeapPtrUnownedBaseShape unowned_;
@@ -368,7 +375,7 @@ class BaseShape : public gc::TenuredCell
     BaseShape(JSCompartment *comp, const Class *clasp, JSObject *parent, JSObject *metadata,
               uint32_t objectFlags)
     {
-        JS_ASSERT(!(objectFlags & ~OBJECT_FLAG_MASK));
+        MOZ_ASSERT(!(objectFlags & ~OBJECT_FLAG_MASK));
         mozilla::PodZero(this);
         this->clasp_ = clasp;
         this->parent = parent;
@@ -378,25 +385,14 @@ class BaseShape : public gc::TenuredCell
     }
 
     BaseShape(JSCompartment *comp, const Class *clasp, JSObject *parent, JSObject *metadata,
-              uint32_t objectFlags, uint8_t attrs,
-              PropertyOp rawGetter, StrictPropertyOp rawSetter)
+              uint32_t objectFlags, uint8_t attrs)
     {
-        JS_ASSERT(!(objectFlags & ~OBJECT_FLAG_MASK));
+        MOZ_ASSERT(!(objectFlags & ~OBJECT_FLAG_MASK));
         mozilla::PodZero(this);
         this->clasp_ = clasp;
         this->parent = parent;
         this->metadata = metadata;
         this->flags = objectFlags;
-        this->rawGetter = rawGetter;
-        this->rawSetter = rawSetter;
-        if ((attrs & JSPROP_GETTER) && rawGetter) {
-            this->flags |= HAS_GETTER_OBJECT;
-            GetterSetterWriteBarrierPost(runtimeFromMainThread(), &this->getterObj);
-        }
-        if ((attrs & JSPROP_SETTER) && rawSetter) {
-            this->flags |= HAS_SETTER_OBJECT;
-            GetterSetterWriteBarrierPost(runtimeFromMainThread(), &this->setterObj);
-        }
         this->compartment_ = comp;
     }
 
@@ -411,22 +407,6 @@ class BaseShape : public gc::TenuredCell
         metadata = other.metadata;
         flags = other.flags;
         slotSpan_ = other.slotSpan_;
-        if (flags & HAS_GETTER_OBJECT) {
-            getterObj = other.getterObj;
-            GetterSetterWriteBarrierPost(runtimeFromMainThread(), &getterObj);
-        } else {
-            if (rawGetter)
-                GetterSetterWriteBarrierPostRemove(runtimeFromMainThread(), &getterObj);
-            rawGetter = other.rawGetter;
-        }
-        if (flags & HAS_SETTER_OBJECT) {
-            setterObj = other.setterObj;
-            GetterSetterWriteBarrierPost(runtimeFromMainThread(), &setterObj);
-        } else {
-            if (rawSetter)
-                GetterSetterWriteBarrierPostRemove(runtimeFromMainThread(), &setterObj);
-            rawSetter = other.rawSetter;
-        }
         compartment_ = other.compartment_;
         return *this;
     }
@@ -434,10 +414,6 @@ class BaseShape : public gc::TenuredCell
     const Class *clasp() const { return clasp_; }
 
     bool isOwned() const { return !!(flags & OWNED_SHAPE); }
-
-    bool matchesGetterSetter(PropertyOp rawGetter, StrictPropertyOp rawSetter) const {
-        return rawGetter == this->rawGetter && rawSetter == this->rawSetter;
-    }
 
     inline void adoptUnowned(UnownedBaseShape *other);
 
@@ -450,18 +426,12 @@ class BaseShape : public gc::TenuredCell
     JSObject *getObjectMetadata() const { return metadata; }
     uint32_t getObjectFlags() const { return flags & OBJECT_FLAG_MASK; }
 
-    bool hasGetterObject() const { return !!(flags & HAS_GETTER_OBJECT); }
-    JSObject *getterObject() const { JS_ASSERT(hasGetterObject()); return getterObj; }
+    bool hasTable() const { MOZ_ASSERT_IF(table_, isOwned()); return table_ != nullptr; }
+    ShapeTable &table() const { MOZ_ASSERT(table_ && isOwned()); return *table_; }
+    void setTable(ShapeTable *table) { MOZ_ASSERT(isOwned()); table_ = table; }
 
-    bool hasSetterObject() const { return !!(flags & HAS_SETTER_OBJECT); }
-    JSObject *setterObject() const { JS_ASSERT(hasSetterObject()); return setterObj; }
-
-    bool hasTable() const { JS_ASSERT_IF(table_, isOwned()); return table_ != nullptr; }
-    ShapeTable &table() const { JS_ASSERT(table_ && isOwned()); return *table_; }
-    void setTable(ShapeTable *table) { JS_ASSERT(isOwned()); table_ = table; }
-
-    uint32_t slotSpan() const { JS_ASSERT(isOwned()); return slotSpan_; }
-    void setSlotSpan(uint32_t slotSpan) { JS_ASSERT(isOwned()); slotSpan_ = slotSpan; }
+    uint32_t slotSpan() const { MOZ_ASSERT(isOwned()); return slotSpan_; }
+    void setSlotSpan(uint32_t slotSpan) { MOZ_ASSERT(isOwned()); slotSpan_ = slotSpan; }
 
     JSCompartment *compartment() const { return compartment_; }
 
@@ -496,12 +466,6 @@ class BaseShape : public gc::TenuredCell
     static inline ThingRootKind rootKind() { return THING_ROOT_BASE_SHAPE; }
 
     void markChildren(JSTracer *trc) {
-        if (hasGetterObject())
-            gc::MarkObjectUnbarriered(trc, &getterObj, "getter");
-
-        if (hasSetterObject())
-            gc::MarkObjectUnbarriered(trc, &setterObj, "setter");
-
         if (isOwned())
             gc::MarkBaseShape(trc, &unowned_, "base");
 
@@ -529,7 +493,7 @@ BaseShape::adoptUnowned(UnownedBaseShape *other)
 {
     // This is a base shape owned by a dictionary object, update it to reflect the
     // unowned base shape of a new last property.
-    JS_ASSERT(isOwned());
+    MOZ_ASSERT(isOwned());
 
     uint32_t span = slotSpan();
     ShapeTable *table = &this->table();
@@ -551,13 +515,13 @@ BaseShape::unowned()
 UnownedBaseShape *
 BaseShape::toUnowned()
 {
-    JS_ASSERT(!isOwned() && !unowned_); return static_cast<UnownedBaseShape *>(this);
+    MOZ_ASSERT(!isOwned() && !unowned_); return static_cast<UnownedBaseShape *>(this);
 }
 
 UnownedBaseShape*
 BaseShape::baseUnowned()
 {
-    JS_ASSERT(isOwned() && unowned_); return unowned_;
+    MOZ_ASSERT(isOwned() && unowned_); return unowned_;
 }
 
 /* Entries for the per-compartment baseShapes set of unowned base shapes. */
@@ -569,8 +533,6 @@ struct StackBaseShape : public DefaultHasher<ReadBarrieredUnownedBaseShape>
     const Class *clasp;
     JSObject *parent;
     JSObject *metadata;
-    PropertyOp rawGetter;
-    StrictPropertyOp rawSetter;
     JSCompartment *compartment;
 
     explicit StackBaseShape(BaseShape *base)
@@ -578,29 +540,12 @@ struct StackBaseShape : public DefaultHasher<ReadBarrieredUnownedBaseShape>
         clasp(base->clasp_),
         parent(base->parent),
         metadata(base->metadata),
-        rawGetter(nullptr),
-        rawSetter(nullptr),
         compartment(base->compartment())
     {}
 
     inline StackBaseShape(ThreadSafeContext *cx, const Class *clasp,
                           JSObject *parent, JSObject *metadata, uint32_t objectFlags);
     explicit inline StackBaseShape(Shape *shape);
-
-    void updateGetterSetter(uint8_t attrs, PropertyOp rawGetter, StrictPropertyOp rawSetter) {
-        flags &= ~(BaseShape::HAS_GETTER_OBJECT | BaseShape::HAS_SETTER_OBJECT);
-        if ((attrs & JSPROP_GETTER) && rawGetter) {
-            JS_ASSERT(!IsPoisonedPtr(rawGetter));
-            flags |= BaseShape::HAS_GETTER_OBJECT;
-        }
-        if ((attrs & JSPROP_SETTER) && rawSetter) {
-            JS_ASSERT(!IsPoisonedPtr(rawSetter));
-            flags |= BaseShape::HAS_SETTER_OBJECT;
-        }
-
-        this->rawGetter = rawGetter;
-        this->rawSetter = rawSetter;
-    }
 
     static inline HashNumber hash(const StackBaseShape *lookup);
     static inline bool match(UnownedBaseShape *key, const StackBaseShape *lookup);
@@ -617,12 +562,6 @@ BaseShape::BaseShape(const StackBaseShape &base)
     this->parent = base.parent;
     this->metadata = base.metadata;
     this->flags = base.flags;
-    this->rawGetter = base.rawGetter;
-    this->rawSetter = base.rawSetter;
-    if ((base.flags & HAS_GETTER_OBJECT) && base.rawGetter)
-        GetterSetterWriteBarrierPost(runtimeFromMainThread(), &this->getterObj);
-    if ((base.flags & HAS_SETTER_OBJECT) && base.rawSetter)
-        GetterSetterWriteBarrierPost(runtimeFromMainThread(), &this->setterObj);
     this->compartment_ = base.compartment;
 }
 
@@ -635,20 +574,21 @@ class Shape : public gc::TenuredCell
 {
     friend class ::JSObject;
     friend class ::JSFunction;
-    friend class js::Bindings;
-    friend class js::Nursery;
-    friend class js::gc::ForkJoinNursery;
-    friend class js::ObjectImpl;
-    friend class js::PropertyTree;
-    friend class js::StaticBlockObject;
-    friend struct js::StackShape;
-    friend struct js::StackBaseShape;
+    friend class Bindings;
+    friend class Nursery;
+    friend class gc::ForkJoinNursery;
+    friend class NativeObject;
+    friend class PropertyTree;
+    friend class StaticBlockObject;
+    friend class ShapeGetterSetterRef;
+    friend struct StackShape;
+    friend struct StackBaseShape;
 
   protected:
     HeapPtrBaseShape    base_;
     PreBarrieredId      propid_;
 
-    JS_ENUM_HEADER(SlotInfo, uint32_t)
+    enum SlotInfo : uint32_t
     {
         /* Number of fixed slots in objects with this shape. */
         // FIXED_SLOTS_MAX is the biggest count of fixed slots a Shape can store
@@ -673,7 +613,7 @@ class Shape : public gc::TenuredCell
          * other shapes.
          */
         SLOT_MASK              = JS_BIT(24) - 1
-    } JS_ENUM_FOOTER(SlotInfo);
+    };
 
     uint32_t            slotInfo;       /* mask of above info */
     uint8_t             attrs;          /* attributes, see jsapi.h JSPROP_* */
@@ -696,16 +636,10 @@ class Shape : public gc::TenuredCell
                                            Shape ***pspp, bool adding = false);
     static inline Shape *searchNoHashify(Shape *start, jsid id);
 
-    void removeFromDictionary(ObjectImpl *obj);
+    void removeFromDictionary(NativeObject *obj);
     void insertIntoDictionary(HeapPtrShape *dictp);
 
-    void initDictionaryShape(const StackShape &child, uint32_t nfixed, HeapPtrShape *dictp) {
-        new (this) Shape(child, nfixed);
-        this->flags |= IN_DICTIONARY;
-
-        this->listp = nullptr;
-        insertIntoDictionary(dictp);
-    }
+    inline void initDictionaryShape(const StackShape &child, uint32_t nfixed, HeapPtrShape *dictp);
 
     /* Replace the base shape of the last shape in a non-dictionary lineage with base. */
     static Shape *replaceLastProperty(ExclusiveContext *cx, StackBaseShape &base,
@@ -720,10 +654,10 @@ class Shape : public gc::TenuredCell
     void handoffTableTo(Shape *newShape);
 
     void setParent(Shape *p) {
-        JS_ASSERT_IF(p && !p->hasMissingSlot() && !inDictionary(),
-                     p->maybeSlot() <= maybeSlot());
-        JS_ASSERT_IF(p && !inDictionary(),
-                     hasSlot() == (p->maybeSlot() != maybeSlot()));
+        MOZ_ASSERT_IF(p && !p->hasMissingSlot() && !inDictionary(),
+                      p->maybeSlot() <= maybeSlot());
+        MOZ_ASSERT_IF(p && !inDictionary(),
+                      hasSlot() == (p->maybeSlot() != maybeSlot()));
         parent = p;
     }
 
@@ -754,8 +688,17 @@ class Shape : public gc::TenuredCell
     }
 
     bool isNative() const {
-        JS_ASSERT(!(flags & NON_NATIVE) == getObjectClass()->isNative());
+        MOZ_ASSERT(!(flags & NON_NATIVE) == getObjectClass()->isNative());
         return !(flags & NON_NATIVE);
+    }
+
+    bool isAccessorShape() const {
+        MOZ_ASSERT_IF(flags & ACCESSOR_SHAPE, getAllocKind() == gc::FINALIZE_ACCESSOR_SHAPE);
+        return flags & ACCESSOR_SHAPE;
+    }
+    AccessorShape &asAccessorShape() const {
+        MOZ_ASSERT(isAccessorShape());
+        return *(AccessorShape *)this;
     }
 
     const HeapPtrShape &previous() const { return parent; }
@@ -782,12 +725,12 @@ class Shape : public gc::TenuredCell
         }
 
         Shape &front() const {
-            JS_ASSERT(!empty());
+            MOZ_ASSERT(!empty());
             return *cursor;
         }
 
         void popFront() {
-            JS_ASSERT(!empty());
+            MOZ_ASSERT(!empty());
             cursor = cursor->parent;
         }
     };
@@ -807,7 +750,7 @@ class Shape : public gc::TenuredCell
 
     uint32_t getObjectFlags() const { return base()->getObjectFlags(); }
     bool hasObjectFlag(BaseShape::Flag flag) const {
-        JS_ASSERT(!(flag & ~BaseShape::OBJECT_FLAG_MASK));
+        MOZ_ASSERT(!(flag & ~BaseShape::OBJECT_FLAG_MASK));
         return !!(base()->flags & flag);
     }
 
@@ -830,7 +773,13 @@ class Shape : public gc::TenuredCell
          */
         OVERWRITTEN     = 0x04,
 
-        UNUSED_BITS     = 0x38
+        /*
+         * This shape is an AccessorShape, a fat Shape that can store
+         * getter/setter information.
+         */
+        ACCESSOR_SHAPE  = 0x08,
+
+        UNUSED_BITS     = 0x3C
     };
 
     /* Get a shape identical to this one, without parent/kids information. */
@@ -841,6 +790,9 @@ class Shape : public gc::TenuredCell
 
     /* Copy constructor disabled, to avoid misuse of the above form. */
     Shape(const Shape &other) MOZ_DELETE;
+
+    /* Allocate a new shape based on the given StackShape. */
+    static inline Shape *new_(ExclusiveContext *cx, StackShape &unrootedOther, uint32_t nfixed);
 
     /*
      * Whether this shape has a valid slot value. This may be true even if
@@ -855,38 +807,40 @@ class Shape : public gc::TenuredCell
         return (flags & IN_DICTIONARY) != 0;
     }
 
-    PropertyOp getter() const { return base()->rawGetter; }
-    bool hasDefaultGetter() const {return !base()->rawGetter; }
-    PropertyOp getterOp() const { JS_ASSERT(!hasGetterValue()); return base()->rawGetter; }
-    JSObject *getterObject() const { JS_ASSERT(hasGetterValue()); return base()->getterObj; }
+    inline PropertyOp getter() const;
+    bool hasDefaultGetter() const { return !getter(); }
+    PropertyOp getterOp() const { MOZ_ASSERT(!hasGetterValue()); return getter(); }
+    inline JSObject *getterObject() const;
+    bool hasGetterObject() const { return hasGetterValue() && getterObject(); }
 
     // Per ES5, decode null getterObj as the undefined value, which encodes as null.
     Value getterValue() const {
-        JS_ASSERT(hasGetterValue());
-        return base()->getterObj ? ObjectValue(*base()->getterObj) : UndefinedValue();
+        MOZ_ASSERT(hasGetterValue());
+        if (JSObject *getterObj = getterObject())
+            return ObjectValue(*getterObj);
+        return UndefinedValue();
     }
 
     Value getterOrUndefined() const {
-        return (hasGetterValue() && base()->getterObj)
-               ? ObjectValue(*base()->getterObj)
-               : UndefinedValue();
+        return hasGetterValue() ? getterValue() : UndefinedValue();
     }
 
-    StrictPropertyOp setter() const { return base()->rawSetter; }
-    bool hasDefaultSetter() const  { return !base()->rawSetter; }
-    StrictPropertyOp setterOp() const { JS_ASSERT(!hasSetterValue()); return base()->rawSetter; }
-    JSObject *setterObject() const { JS_ASSERT(hasSetterValue()); return base()->setterObj; }
+    inline StrictPropertyOp setter() const;
+    bool hasDefaultSetter() const { return !setter(); }
+    StrictPropertyOp setterOp() const { MOZ_ASSERT(!hasSetterValue()); return setter(); }
+    inline JSObject *setterObject() const;
+    bool hasSetterObject() const { return hasSetterValue() && setterObject(); }
 
     // Per ES5, decode null setterObj as the undefined value, which encodes as null.
     Value setterValue() const {
-        JS_ASSERT(hasSetterValue());
-        return base()->setterObj ? ObjectValue(*base()->setterObj) : UndefinedValue();
+        MOZ_ASSERT(hasSetterValue());
+        if (JSObject *setterObj = setterObject())
+            return ObjectValue(*setterObj);
+        return UndefinedValue();
     }
 
     Value setterOrUndefined() const {
-        return (hasSetterValue() && base()->setterObj)
-               ? ObjectValue(*base()->setterObj)
-               : UndefinedValue();
+        return hasSetterValue() ? setterValue() : UndefinedValue();
     }
 
     void setOverwritten() {
@@ -900,16 +854,20 @@ class Shape : public gc::TenuredCell
 
     bool matches(const Shape *other) const {
         return propid_.get() == other->propid_.get() &&
-               matchesParamsAfterId(other->base(), other->maybeSlot(), other->attrs, other->flags);
+               matchesParamsAfterId(other->base(), other->maybeSlot(), other->attrs, other->flags,
+                                    other->getter(), other->setter());
     }
 
     inline bool matches(const StackShape &other) const;
 
-    bool matchesParamsAfterId(BaseShape *base, uint32_t aslot, unsigned aattrs, unsigned aflags) const
+    bool matchesParamsAfterId(BaseShape *base, uint32_t aslot, unsigned aattrs, unsigned aflags,
+                              PropertyOp rawGetter, StrictPropertyOp rawSetter) const
     {
         return base->unowned() == this->base()->unowned() &&
                maybeSlot() == aslot &&
-               attrs == aattrs;
+               attrs == aattrs &&
+               getter() == rawGetter &&
+               setter() == rawSetter;
     }
 
     bool get(JSContext* cx, HandleObject receiver, JSObject *obj, JSObject *pobj, MutableHandleValue vp);
@@ -920,18 +878,18 @@ class Shape : public gc::TenuredCell
     bool hasSlot() const {
         return (attrs & JSPROP_SHARED) == 0;
     }
-    uint32_t slot() const { JS_ASSERT(hasSlot() && !hasMissingSlot()); return maybeSlot(); }
+    uint32_t slot() const { MOZ_ASSERT(hasSlot() && !hasMissingSlot()); return maybeSlot(); }
     uint32_t maybeSlot() const {
         return slotInfo & SLOT_MASK;
     }
 
     bool isEmptyShape() const {
-        JS_ASSERT_IF(JSID_IS_EMPTY(propid_), hasMissingSlot());
+        MOZ_ASSERT_IF(JSID_IS_EMPTY(propid_), hasMissingSlot());
         return JSID_IS_EMPTY(propid_);
     }
 
     uint32_t slotSpan(const Class *clasp) const {
-        JS_ASSERT(!inDictionary());
+        MOZ_ASSERT(!inDictionary());
         uint32_t free = JSSLOT_FREE(clasp);
         return hasMissingSlot() ? free : Max(free, maybeSlot() + 1);
     }
@@ -941,7 +899,7 @@ class Shape : public gc::TenuredCell
     }
 
     void setSlot(uint32_t slot) {
-        JS_ASSERT(slot <= SHAPE_INVALID_SLOT);
+        MOZ_ASSERT(slot <= SHAPE_INVALID_SLOT);
         slotInfo = slotInfo & ~Shape::SLOT_MASK;
         slotInfo = slotInfo | slot;
     }
@@ -951,7 +909,7 @@ class Shape : public gc::TenuredCell
     }
 
     void setNumFixedSlots(uint32_t nfixed) {
-        JS_ASSERT(nfixed < FIXED_SLOTS_MAX);
+        MOZ_ASSERT(nfixed < FIXED_SLOTS_MAX);
         slotInfo = slotInfo & ~FIXED_SLOTS_MASK;
         slotInfo = slotInfo | (nfixed << FIXED_SLOTS_SHIFT);
     }
@@ -962,17 +920,17 @@ class Shape : public gc::TenuredCell
 
     void incrementNumLinearSearches() {
         uint32_t count = numLinearSearches();
-        JS_ASSERT(count < LINEAR_SEARCHES_MAX);
+        MOZ_ASSERT(count < LINEAR_SEARCHES_MAX);
         slotInfo = slotInfo & ~LINEAR_SEARCHES_MASK;
         slotInfo = slotInfo | ((count + 1) << LINEAR_SEARCHES_SHIFT);
     }
 
     const PreBarrieredId &propid() const {
-        JS_ASSERT(!isEmptyShape());
-        JS_ASSERT(!JSID_IS_VOID(propid_));
+        MOZ_ASSERT(!isEmptyShape());
+        MOZ_ASSERT(!JSID_IS_VOID(propid_));
         return propid_;
     }
-    PreBarrieredId &propidRef() { JS_ASSERT(!JSID_IS_VOID(propid_)); return propid_; }
+    PreBarrieredId &propidRef() { MOZ_ASSERT(!JSID_IS_VOID(propid_)); return propid_; }
     jsid propidRaw() const {
         // Return the actual jsid, not an internal reference.
         return propid();
@@ -1011,7 +969,7 @@ class Shape : public gc::TenuredCell
      * the prototype property. See bug 552432.
      */
     bool shadowable() const {
-        JS_ASSERT_IF(isDataDescriptor(), writable());
+        MOZ_ASSERT_IF(isDataDescriptor(), writable());
         return hasSlot() || (attrs & JSPROP_SHADOWABLE);
     }
 
@@ -1025,7 +983,7 @@ class Shape : public gc::TenuredCell
     }
 
     bool isBigEnoughForAShapeTable() {
-        JS_ASSERT(!hasTable());
+        MOZ_ASSERT(!hasTable());
         Shape *shape = this;
         uint32_t count = 0;
         for (Shape::Range<NoGC> r(shape); !r.empty(); r.popFront()) {
@@ -1047,12 +1005,7 @@ class Shape : public gc::TenuredCell
 
     static inline ThingRootKind rootKind() { return THING_ROOT_SHAPE; }
 
-    void markChildren(JSTracer *trc) {
-        MarkBaseShape(trc, &base_, "base");
-        gc::MarkId(trc, &propidRef(), "propid");
-        if (parent)
-            MarkShape(trc, &parent, "parent");
-    }
+    inline void markChildren(JSTracer *trc);
 
     inline Shape *search(ExclusiveContext *cx, jsid id);
     inline Shape *searchLinear(jsid id);
@@ -1063,6 +1016,8 @@ class Shape : public gc::TenuredCell
 
     /* For JIT usage */
     static inline size_t offsetOfBase() { return offsetof(Shape, base_); }
+    static inline size_t offsetOfSlotInfo() { return offsetof(Shape, slotInfo); }
+    static inline uint32_t fixedSlotsMask() { return FIXED_SLOTS_MASK; }
 
   private:
 #ifdef JSGC_COMPACTING
@@ -1074,9 +1029,30 @@ class Shape : public gc::TenuredCell
         JS_STATIC_ASSERT(offsetof(Shape, base_) == offsetof(js::shadow::Shape, base));
         JS_STATIC_ASSERT(offsetof(Shape, slotInfo) == offsetof(js::shadow::Shape, slotInfo));
         JS_STATIC_ASSERT(FIXED_SLOTS_SHIFT == js::shadow::Shape::FIXED_SLOTS_SHIFT);
-        static_assert(js::shadow::Object::MAX_FIXED_SLOTS <= FIXED_SLOTS_MAX,
-                      "verify numFixedSlots() bitfield is big enough");
     }
+};
+
+/* Fat Shape used for accessor properties. */
+class AccessorShape : public Shape
+{
+    friend class Shape;
+    friend class ShapeGetterSetterRef;
+    friend class NativeObject;
+
+    union {
+        PropertyOp      rawGetter;      /* getter hook for shape */
+        JSObject        *getterObj;     /* user-defined callable "get" object or
+                                           null if shape->hasGetterValue() */
+    };
+    union {
+        StrictPropertyOp rawSetter;     /* setter hook for shape */
+        JSObject        *setterObj;     /* user-defined callable "set" object or
+                                           null if shape->hasSetterValue() */
+    };
+
+  public:
+    /* Get a shape identical to this one, without parent/kids information. */
+    inline AccessorShape(const StackShape &other, uint32_t nfixed);
 };
 
 inline
@@ -1086,9 +1062,7 @@ StackBaseShape::StackBaseShape(Shape *shape)
     parent(shape->getObjectParent()),
     metadata(shape->getObjectMetadata()),
     compartment(shape->compartment())
-{
-    updateGetterSetter(shape->attrs, shape->getter(), shape->setter());
-}
+{}
 
 class AutoRooterGetterSetter
 {
@@ -1110,6 +1084,9 @@ class AutoRooterGetterSetter
     inline AutoRooterGetterSetter(ThreadSafeContext *cx, uint8_t attrs,
                                   PropertyOp *pgetter, StrictPropertyOp *psetter
                                   MOZ_GUARD_OBJECT_NOTIFIER_PARAM);
+    inline AutoRooterGetterSetter(ThreadSafeContext *cx, uint8_t attrs,
+                                  JSNative *pgetter, JSNative *psetter
+                                  MOZ_GUARD_OBJECT_NOTIFIER_PARAM);
 
   private:
     mozilla::Maybe<Inner> inner;
@@ -1125,6 +1102,8 @@ struct EmptyShape : public js::Shape
         if (!getObjectClass()->isNative())
             flags |= NON_NATIVE;
     }
+
+    static Shape *new_(ExclusiveContext *cx, Handle<UnownedBaseShape *> base, uint32_t nfixed);
 
     /*
      * Lookup an initial shape matching the given parameters, creating an empty
@@ -1233,6 +1212,8 @@ struct StackShape
     /* For performance, StackShape only roots when absolutely necessary. */
     UnownedBaseShape *base;
     jsid             propid;
+    PropertyOp       rawGetter;
+    StrictPropertyOp rawSetter;
     uint32_t         slot_;
     uint8_t          attrs;
     uint8_t          flags;
@@ -1241,28 +1222,45 @@ struct StackShape
                         unsigned attrs, unsigned flags)
       : base(base),
         propid(propid),
+        rawGetter(nullptr),
+        rawSetter(nullptr),
         slot_(slot),
         attrs(uint8_t(attrs)),
         flags(uint8_t(flags))
     {
-        JS_ASSERT(base);
-        JS_ASSERT(!JSID_IS_VOID(propid));
-        JS_ASSERT(slot <= SHAPE_INVALID_SLOT);
-        JS_ASSERT_IF(attrs & (JSPROP_GETTER | JSPROP_SETTER), attrs & JSPROP_SHARED);
+        MOZ_ASSERT(base);
+        MOZ_ASSERT(!JSID_IS_VOID(propid));
+        MOZ_ASSERT(slot <= SHAPE_INVALID_SLOT);
+        MOZ_ASSERT_IF(attrs & (JSPROP_GETTER | JSPROP_SETTER), attrs & JSPROP_SHARED);
     }
 
     explicit StackShape(Shape *shape)
       : base(shape->base()->unowned()),
         propid(shape->propidRef()),
+        rawGetter(shape->getter()),
+        rawSetter(shape->setter()),
         slot_(shape->maybeSlot()),
         attrs(shape->attrs),
         flags(shape->flags)
     {}
 
+    void updateGetterSetter(PropertyOp rawGetter, StrictPropertyOp rawSetter) {
+        MOZ_ASSERT_IF((attrs & JSPROP_GETTER) && rawGetter, !IsPoisonedPtr(rawGetter));
+        MOZ_ASSERT_IF((attrs & JSPROP_SETTER) && rawSetter, !IsPoisonedPtr(rawSetter));
+
+        if (rawGetter || rawSetter || (attrs & (JSPROP_GETTER|JSPROP_SETTER)))
+            flags |= Shape::ACCESSOR_SHAPE;
+        else
+            flags &= ~Shape::ACCESSOR_SHAPE;
+
+        this->rawGetter = rawGetter;
+        this->rawSetter = rawSetter;
+    }
+
     bool hasSlot() const { return (attrs & JSPROP_SHARED) == 0; }
     bool hasMissingSlot() const { return maybeSlot() == SHAPE_INVALID_SLOT; }
 
-    uint32_t slot() const { JS_ASSERT(hasSlot() && !hasMissingSlot()); return slot_; }
+    uint32_t slot() const { MOZ_ASSERT(hasSlot() && !hasMissingSlot()); return slot_; }
     uint32_t maybeSlot() const { return slot_; }
 
     uint32_t slotSpan() const {
@@ -1271,8 +1269,12 @@ struct StackShape
     }
 
     void setSlot(uint32_t slot) {
-        JS_ASSERT(slot <= SHAPE_INVALID_SLOT);
+        MOZ_ASSERT(slot <= SHAPE_INVALID_SLOT);
         slot_ = slot;
+    }
+
+    bool isAccessorShape() const {
+        return flags & Shape::ACCESSOR_SHAPE;
     }
 
     HashNumber hash() const {
@@ -1282,6 +1284,8 @@ struct StackShape
         hash = mozilla::RotateLeft(hash, 4) ^ attrs;
         hash = mozilla::RotateLeft(hash, 4) ^ slot_;
         hash = mozilla::RotateLeft(hash, 4) ^ JSID_BITS(propid);
+        hash = mozilla::RotateLeft(hash, 4) ^ uintptr_t(rawGetter);
+        hash = mozilla::RotateLeft(hash, 4) ^ uintptr_t(rawSetter);
         return hash;
     }
 
@@ -1357,8 +1361,28 @@ Shape::Shape(const StackShape &other, uint32_t nfixed)
     flags(other.flags),
     parent(nullptr)
 {
-    JS_ASSERT_IF(attrs & (JSPROP_GETTER | JSPROP_SETTER), attrs & JSPROP_SHARED);
+#ifdef DEBUG
+    gc::AllocKind allocKind = getAllocKind();
+    MOZ_ASSERT_IF(other.isAccessorShape(), allocKind == gc::FINALIZE_ACCESSOR_SHAPE);
+    MOZ_ASSERT_IF(allocKind == gc::FINALIZE_SHAPE, !other.isAccessorShape());
+#endif
+
+    MOZ_ASSERT_IF(attrs & (JSPROP_GETTER | JSPROP_SETTER), attrs & JSPROP_SHARED);
     kids.setNull();
+}
+
+inline
+AccessorShape::AccessorShape(const StackShape &other, uint32_t nfixed)
+  : Shape(other, nfixed),
+    rawGetter(other.rawGetter),
+    rawSetter(other.rawSetter)
+{
+    MOZ_ASSERT(getAllocKind() == gc::FINALIZE_ACCESSOR_SHAPE);
+
+    if ((attrs & JSPROP_GETTER) && rawGetter)
+        GetterSetterWriteBarrierPost(this, &this->getterObj);
+    if ((attrs & JSPROP_SETTER) && rawSetter)
+        GetterSetterWriteBarrierPost(this, &this->setterObj);
 }
 
 inline
@@ -1370,8 +1394,48 @@ Shape::Shape(UnownedBaseShape *base, uint32_t nfixed)
     flags(0),
     parent(nullptr)
 {
-    JS_ASSERT(base);
+    MOZ_ASSERT(base);
     kids.setNull();
+}
+
+inline PropertyOp
+Shape::getter() const
+{
+    return isAccessorShape() ? asAccessorShape().rawGetter : nullptr;
+}
+
+inline StrictPropertyOp
+Shape::setter() const
+{
+    return isAccessorShape() ? asAccessorShape().rawSetter : nullptr;
+}
+
+inline JSObject *
+Shape::getterObject() const
+{
+    MOZ_ASSERT(hasGetterValue());
+    return asAccessorShape().getterObj;
+}
+
+inline JSObject *
+Shape::setterObject() const
+{
+    MOZ_ASSERT(hasSetterValue());
+    return asAccessorShape().setterObj;
+}
+
+inline void
+Shape::initDictionaryShape(const StackShape &child, uint32_t nfixed, HeapPtrShape *dictp)
+{
+    if (child.isAccessorShape())
+        new (this) AccessorShape(child, nfixed);
+    else
+        new (this) Shape(child, nfixed);
+    this->flags |= IN_DICTIONARY;
+
+    this->listp = nullptr;
+    if (dictp)
+        insertIntoDictionary(dictp);
 }
 
 inline Shape *
@@ -1383,7 +1447,7 @@ Shape::searchLinear(jsid id)
      * their table without racing. This function can be called from any thread
      * on any non-dictionary shape.
      */
-    JS_ASSERT(!inDictionary());
+    MOZ_ASSERT(!inDictionary());
 
     for (Shape *shape = this; shape; ) {
         if (shape->propidRef() == id)
@@ -1392,6 +1456,21 @@ Shape::searchLinear(jsid id)
     }
 
     return nullptr;
+}
+
+inline void
+Shape::markChildren(JSTracer *trc)
+{
+    MarkBaseShape(trc, &base_, "base");
+    gc::MarkId(trc, &propidRef(), "propid");
+    if (parent)
+        MarkShape(trc, &parent, "parent");
+
+    if (hasGetterObject())
+        gc::MarkObjectUnbarriered(trc, &asAccessorShape().getterObj, "getter");
+
+    if (hasSetterObject())
+        gc::MarkObjectUnbarriered(trc, &asAccessorShape().setterObj, "setter");
 }
 
 /*
@@ -1417,7 +1496,8 @@ inline bool
 Shape::matches(const StackShape &other) const
 {
     return propid_.get() == other.propid &&
-           matchesParamsAfterId(other.base, other.slot_, other.attrs, other.flags);
+           matchesParamsAfterId(other.base, other.slot_, other.attrs, other.flags,
+                                other.rawGetter, other.rawSetter);
 }
 
 template<> struct RootKind<Shape *> : SpecificRootKind<Shape *, THING_ROOT_SHAPE> {};

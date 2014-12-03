@@ -143,12 +143,22 @@ public:
   ID3D11DeviceContext* GetDC() { return mContext; }
 
 private:
+  enum Severity {
+    Recoverable,
+    DebugAssert,
+    Critical,
+  };
+
+  void HandleError(HRESULT hr, Severity aSeverity = DebugAssert);
+  bool Failed(HRESULT hr, Severity aSeverity = DebugAssert);
+  bool Succeeded(HRESULT hr, Severity aSeverity = DebugAssert);
+
   // ensure mSize is up to date with respect to mWidget
   void EnsureSize();
   void VerifyBufferSize();
   void UpdateRenderTarget();
   bool CreateShaders();
-  void UpdateConstantBuffers();
+  bool UpdateConstantBuffers();
   void SetSamplerForFilter(gfx::Filter aFilter);
   void SetPSForEffect(Effect *aEffect, MaskType aMaskType, gfx::SurfaceFormat aFormat);
   void PaintToTarget();

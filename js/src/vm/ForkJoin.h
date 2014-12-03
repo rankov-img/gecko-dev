@@ -326,7 +326,6 @@ enum ParallelBailoutCause {
 namespace jit {
 class BailoutStack;
 class JitFrameIterator;
-class IonBailoutIterator;
 class RematerializedFrame;
 }
 
@@ -373,7 +372,6 @@ struct ParallelBailoutRecord
     }
 
     void rematerializeFrames(ForkJoinContext *cx, jit::JitFrameIterator &frameIter);
-    void rematerializeFrames(ForkJoinContext *cx, jit::IonBailoutIterator &frameIter);
 };
 
 class ForkJoinShared;
@@ -547,8 +545,6 @@ class LockedJSContext
 bool InExclusiveParallelSection();
 
 bool ParallelTestsShouldPass(JSContext *cx);
-
-void RequestInterruptForForkJoin(JSRuntime *rt, JSRuntime::InterruptMode mode);
 
 bool intrinsic_SetForkJoinTargetRegion(JSContext *cx, unsigned argc, Value *vp);
 extern const JSJitInfo intrinsic_SetForkJoinTargetRegionInfo;

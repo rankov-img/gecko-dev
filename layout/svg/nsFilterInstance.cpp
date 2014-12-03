@@ -10,11 +10,13 @@
 #include "mozilla/UniquePtr.h"
 
 // Keep others in (case-insensitive) order:
+#include "gfx2DGlue.h"
+#include "gfxContext.h"
 #include "gfxPlatform.h"
 #include "gfxUtils.h"
 #include "mozilla/gfx/Helpers.h"
+#include "mozilla/gfx/PatternHelpers.h"
 #include "nsISVGChildFrame.h"
-#include "nsRenderingContext.h"
 #include "nsCSSFilterInstance.h"
 #include "nsSVGFilterInstance.h"
 #include "nsSVGFilterPaintCallback.h"
@@ -56,7 +58,7 @@ UserSpaceMetricsForFrame(nsIFrame* aFrame)
 
 nsresult
 nsFilterInstance::PaintFilteredFrame(nsIFrame *aFilteredFrame,
-                                     nsRenderingContext *aContext,
+                                     gfxContext& aContext,
                                      const gfxMatrix& aTransform,
                                      nsSVGFilterPaintCallback *aPaintCallback,
                                      const nsRegion *aDirtyArea)
@@ -69,7 +71,7 @@ nsFilterInstance::PaintFilteredFrame(nsIFrame *aFilteredFrame,
   if (!instance.IsInitialized()) {
     return NS_OK;
   }
-  return instance.Render(aContext->ThebesContext());
+  return instance.Render(&aContext);
 }
 
 nsRegion
@@ -367,16 +369,18 @@ nsFilterInstance::BuildSourcePaint(SourceInfo *aSource,
     gfx->Multiply(mPaintTransform *
                   deviceToFilterSpace *
                   gfxMatrix::Translation(-neededRect.TopLeft()));
-    gfx->Rectangle(FilterSpaceToUserSpace(neededRect));
-    if ((aSource == &mFillPaint &&
-         nsSVGUtils::SetupCairoFillPaint(mTargetFrame, gfx)) ||
-        (aSource == &mStrokePaint &&
-         nsSVGUtils::SetupCairoStrokePaint(mTargetFrame, gfx))) {
-      gfx->Fill();
+    GeneralPattern pattern;
+    if (aSource == &mFillPaint) {
+      nsSVGUtils::MakeFillPatternFor(mTargetFrame, gfx, &pattern);
+    } else if (aSource == &mStrokePaint) {
+      nsSVGUtils::MakeStrokePatternFor(mTargetFrame, gfx, &pattern);
+    }
+    if (pattern.GetPattern()) {
+      offscreenDT->FillRect(ToRect(FilterSpaceToUserSpace(neededRect)),
+                            pattern);
     }
     gfx->Restore();
   }
-
 
   aSource->mSourceSurface = offscreenDT->Snapshot();
   aSource->mSurfaceRect = ToIntRect(neededRect);
@@ -444,9 +448,7 @@ nsFilterInstance::BuildSourceImage(DrawTarget* aTargetDT)
     ctx->CurrentMatrix().Translate(-neededRect.TopLeft()).
                          PreMultiply(deviceToFilterSpace));
 
-  nsRefPtr<nsRenderingContext> tmpCtx(new nsRenderingContext());
-  tmpCtx->Init(mTargetFrame->PresContext()->DeviceContext(), ctx);
-  mPaintCallback->Paint(tmpCtx, mTargetFrame, mPaintTransform, &dirty);
+  mPaintCallback->Paint(*ctx, mTargetFrame, mPaintTransform, &dirty);
 
   mSourceGraphic.mSourceSurface = offscreenDT->Snapshot();
   mSourceGraphic.mSurfaceRect = ToIntRect(neededRect);
@@ -468,7 +470,7 @@ nsFilterInstance::Render(gfxContext* aContext)
 
   RefPtr<DrawTarget> dt = aContext->GetDrawTarget();
 
-  AutoSaveTransform autoSR(dt);
+  AutoRestoreTransform autoRestoreTransform(dt);
   Matrix newTM = ToMatrix(ctm).PreTranslate(filterRect.x, filterRect.y) * dt->GetTransform();
   dt->SetTransform(newTM);
 

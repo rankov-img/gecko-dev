@@ -58,7 +58,6 @@ const char js_break_str[]           = "break";
 const char js_case_str[]            = "case";
 const char js_catch_str[]           = "catch";
 const char js_class_str[]           = "class";
-const char js_close_str[]           = "close";
 const char js_const_str[]           = "const";
 const char js_continue_str[]        = "continue";
 const char js_debugger_str[]        = "debugger";
@@ -148,7 +147,7 @@ JSRuntime::initializeAtoms(JSContext *cx)
             return false;
         names->init(atom->asPropertyName());
     }
-    JS_ASSERT(uintptr_t(names) == uintptr_t(commonNames + 1));
+    MOZ_ASSERT(uintptr_t(names) == uintptr_t(commonNames + 1));
 
     emptyString = commonNames->empty;
 
@@ -157,7 +156,7 @@ JSRuntime::initializeAtoms(JSContext *cx)
     if (!wellKnownSymbols)
         return false;
 
-    ImmutablePropertyNamePtr *descriptions = &commonNames->Symbol_iterator;
+    ImmutablePropertyNamePtr *descriptions = commonNames->wellKnownSymbolDescriptions();
     ImmutableSymbolPtr *symbols = reinterpret_cast<ImmutableSymbolPtr *>(wellKnownSymbols);
     for (size_t i = 0; i < JS::WellKnownSymbolLimit; i++) {
         JS::Symbol *symbol = JS::Symbol::new_(cx, JS::SymbolCode(i), descriptions[i]);
@@ -254,10 +253,10 @@ JSRuntime::sweepAtoms()
     for (AtomSet::Enum e(*atoms_); !e.empty(); e.popFront()) {
         AtomStateEntry entry = e.front();
         JSAtom *atom = entry.asPtr();
-        bool isDying = IsStringAboutToBeFinalized(&atom);
+        bool isDying = IsStringAboutToBeFinalizedFromAnyThread(&atom);
 
         /* Pinned or interned key cannot be finalized. */
-        JS_ASSERT_IF(hasContexts() && entry.isTagged(), !isDying);
+        MOZ_ASSERT_IF(hasContexts() && entry.isTagged(), !isDying);
 
         if (isDying)
             e.removeFront();
@@ -267,12 +266,12 @@ JSRuntime::sweepAtoms()
 bool
 JSRuntime::transformToPermanentAtoms()
 {
-    JS_ASSERT(!parentRuntime);
+    MOZ_ASSERT(!parentRuntime);
 
     // All static strings were created as permanent atoms, now move the contents
     // of the atoms table into permanentAtoms and mark each as permanent.
 
-    JS_ASSERT(permanentAtoms && permanentAtoms->empty());
+    MOZ_ASSERT(permanentAtoms && permanentAtoms->empty());
 
     AtomSet *temp = atoms_;
     atoms_ = permanentAtoms;
@@ -385,9 +384,9 @@ js::AtomizeString(ExclusiveContext *cx, JSString *str,
         AutoLockForExclusiveAccess lock(cx);
 
         p = cx->atoms().lookup(lookup);
-        JS_ASSERT(p); /* Non-static atom must exist in atom state set. */
-        JS_ASSERT(p->asPtr() == &atom);
-        JS_ASSERT(ib == InternAtom);
+        MOZ_ASSERT(p); /* Non-static atom must exist in atom state set. */
+        MOZ_ASSERT(p->asPtr() == &atom);
+        MOZ_ASSERT(ib == InternAtom);
         p->setTagged(bool(ib));
         return &atom;
     }
@@ -435,7 +434,7 @@ js::AtomizeChars(ExclusiveContext *cx, const char16_t *chars, size_t length, Int
 bool
 js::IndexToIdSlow(ExclusiveContext *cx, uint32_t index, MutableHandleId idp)
 {
-    JS_ASSERT(index > JSID_INT_MAX);
+    MOZ_ASSERT(index > JSID_INT_MAX);
 
     char16_t buf[UINT32_CHAR_BUFFER_LENGTH];
     RangedPtr<char16_t> end(ArrayEnd(buf), buf, ArrayEnd(buf));
@@ -453,7 +452,7 @@ template <AllowGC allowGC>
 static JSAtom *
 ToAtomSlow(ExclusiveContext *cx, typename MaybeRooted<Value, allowGC>::HandleType arg)
 {
-    JS_ASSERT(!arg.isString());
+    MOZ_ASSERT(!arg.isString());
 
     Value v = arg;
     if (!v.isPrimitive()) {

@@ -37,6 +37,8 @@ const kPrefCustomizationState        = "browser.uiCustomization.state";
 const kPrefCustomizationAutoAdd      = "browser.uiCustomization.autoAdd";
 const kPrefCustomizationDebug        = "browser.uiCustomization.debug";
 const kPrefDrawInTitlebar            = "browser.tabs.drawInTitlebar";
+const kPrefDeveditionTheme           = "browser.devedition.theme.enabled";
+const kPrefWebIDEInNavbar            = "devtools.webide.widget.inNavbarByDefault";
 
 /**
  * The keys are the handlers that are fired when the event type (the value)
@@ -49,10 +51,17 @@ const kSubviewEvents = [
 ];
 
 /**
+ * The method name to use for ES6 iteration. If Symbols are enabled in
+ * this build, use Symbol.iterator; otherwise "@@iterator".
+ */
+const JS_HAS_SYMBOLS = typeof Symbol === "function";
+const kIteratorSymbol = JS_HAS_SYMBOLS ? Symbol.iterator : "@@iterator";
+
+/**
  * The current version. We can use this to auto-add new default widgets as necessary.
  * (would be const but isn't because of testing purposes)
  */
-let kVersion = 1;
+let kVersion = 4;
 
 /**
  * gPalette is a map of every widget that CustomizableUI.jsm knows about, keyed
@@ -139,6 +148,7 @@ let gListeners = new Set();
 let gUIStateBeforeReset = {
   uiCustomizationState: null,
   drawInTitlebar: null,
+  gUIStateBeforeReset: null,
 };
 
 let gModuleName = "[CustomizableUI]";
@@ -165,7 +175,9 @@ let CustomizableUIInternal = {
       "find-button",
       "preferences-button",
       "add-ons-button",
+#ifndef MOZ_DEV_EDITION
       "developer-button",
+#endif
     ];
 
     if (gPalette.has("switch-to-metro-button")) {
@@ -196,19 +208,27 @@ let CustomizableUIInternal = {
     }, true);
     PanelWideWidgetTracker.init();
 
+    let navbarPlacements = [
+      "urlbar-container",
+      "search-container",
+#ifdef MOZ_DEV_EDITION
+      "developer-button",
+#endif
+      "bookmarks-menu-button",
+      "downloads-button",
+      "home-button",
+      "loop-button",
+    ];
+
+    if (Services.prefs.getBoolPref(kPrefWebIDEInNavbar)) {
+      navbarPlacements.push("webide-button");
+    }
+
     this.registerArea(CustomizableUI.AREA_NAVBAR, {
       legacy: true,
       type: CustomizableUI.TYPE_TOOLBAR,
       overflowable: true,
-      defaultPlacements: [
-        "urlbar-container",
-        "search-container",
-        "bookmarks-menu-button",
-        "downloads-button",
-        "home-button",
-        "loop-call-button",
-        "social-share-button",
-      ],
+      defaultPlacements: navbarPlacements,
       defaultCollapsed: false,
     }, true);
 #ifndef XP_MACOSX
@@ -294,6 +314,15 @@ let CustomizableUIInternal = {
           gFuturePlacements.set(widget.defaultArea, new Set([id]));
         }
       }
+    }
+
+    if (currentVersion < 2) {
+      // Nuke the old 'loop-call-button' out of orbit.
+      CustomizableUI.removeWidgetFromArea("loop-call-button");
+    }
+
+    if (currentVersion < 4) {
+      CustomizableUI.removeWidgetFromArea("loop-button-throttled");
     }
   },
 
@@ -2027,25 +2056,23 @@ let CustomizableUIInternal = {
     // If we're restoring the widget to it's old placement, fire off the
     // onWidgetAdded event - our own handler will take care of adding it to
     // any build areas.
-    if (widget.currentArea) {
-      this.notifyListeners("onWidgetAdded", widget.id, widget.currentArea,
-                           widget.currentPosition);
-    } else if (widgetMightNeedAutoAdding) {
-      let autoAdd = true;
-      try {
-        autoAdd = Services.prefs.getBoolPref(kPrefCustomizationAutoAdd);
-      } catch (e) {}
-
-      // If the widget doesn't have an existing placement, and it hasn't been
-      // seen before, then add it to its default area so it can be used.
-      // If the widget is not removable, we *have* to add it to its default
-      // area here.
-      let canBeAutoAdded = autoAdd && !gSeenWidgets.has(widget.id);
-      if (!widget.currentArea && (!widget.removable || canBeAutoAdded)) {
-        this.beginBatchUpdate();
+    this.beginBatchUpdate();
+    try {
+      if (widget.currentArea) {
+        this.notifyListeners("onWidgetAdded", widget.id, widget.currentArea,
+                             widget.currentPosition);
+      } else if (widgetMightNeedAutoAdding) {
+        let autoAdd = true;
         try {
-          gSeenWidgets.add(widget.id);
+          autoAdd = Services.prefs.getBoolPref(kPrefCustomizationAutoAdd);
+        } catch (e) {}
 
+        // If the widget doesn't have an existing placement, and it hasn't been
+        // seen before, then add it to its default area so it can be used.
+        // If the widget is not removable, we *have* to add it to its default
+        // area here.
+        let canBeAutoAdded = autoAdd && !gSeenWidgets.has(widget.id);
+        if (!widget.currentArea && (!widget.removable || canBeAutoAdded)) {
           if (widget.defaultArea) {
             if (this.isAreaLazy(widget.defaultArea)) {
               gFuturePlacements.get(widget.defaultArea).add(widget.id);
@@ -2053,10 +2080,13 @@ let CustomizableUIInternal = {
               this.addWidgetToArea(widget.id, widget.defaultArea);
             }
           }
-        } finally {
-          this.endBatchUpdate(true);
         }
       }
+    } finally {
+      // Ensure we always have this widget in gSeenWidgets, and save
+      // state in case this needs to be done here.
+      gSeenWidgets.add(widget.id);
+      this.endBatchUpdate(true);
     }
 
     this.notifyListeners("onWidgetAfterCreation", widget.id, widget.currentArea);
@@ -2090,7 +2120,7 @@ let CustomizableUIInternal = {
   normalizeWidget: function(aData, aSource) {
     let widget = {
       implementation: aData,
-      source: aSource || "addon",
+      source: aSource || CustomizableUI.SOURCE_EXTERNAL,
       instances: new Map(),
       currentArea: null,
       removable: true,
@@ -2294,12 +2324,22 @@ let CustomizableUIInternal = {
     // was reset above.
     this._rebuildRegisteredAreas();
 
+    for (let [widgetId, widget] of gPalette) {
+      if (widget.source == CustomizableUI.SOURCE_EXTERNAL) {
+        gSeenWidgets.add(widgetId);
+      }
+    }
+    if (gSeenWidgets.size) {
+      gDirty = true;
+    }
+
     gResetting = false;
   },
 
   _resetUIState: function() {
     try {
       gUIStateBeforeReset.drawInTitlebar = Services.prefs.getBoolPref(kPrefDrawInTitlebar);
+      gUIStateBeforeReset.deveditionTheme = Services.prefs.getBoolPref(kPrefDeveditionTheme);
       gUIStateBeforeReset.uiCustomizationState = Services.prefs.getCharPref(kPrefCustomizationState);
     } catch(e) { }
 
@@ -2307,6 +2347,7 @@ let CustomizableUIInternal = {
 
     Services.prefs.clearUserPref(kPrefCustomizationState);
     Services.prefs.clearUserPref(kPrefDrawInTitlebar);
+    Services.prefs.clearUserPref(kPrefDeveditionTheme);
     LOG("State reset");
 
     // Reset placements to make restoring default placements possible.
@@ -2368,13 +2409,15 @@ let CustomizableUIInternal = {
    */
   undoReset: function() {
     if (gUIStateBeforeReset.uiCustomizationState == null ||
-        gUIStateBeforeReset.drawInTitlebar == null) {
+        gUIStateBeforeReset.drawInTitlebar == null ||
+        gUIStateBeforeReset.deveditionTheme == null) {
       return;
     }
     gUndoResetting = true;
 
     let uiCustomizationState = gUIStateBeforeReset.uiCustomizationState;
     let drawInTitlebar = gUIStateBeforeReset.drawInTitlebar;
+    let deveditionTheme = gUIStateBeforeReset.deveditionTheme;
 
     // Need to clear the previous state before setting the prefs
     // because pref observers may check if there is a previous UI state.
@@ -2382,6 +2425,7 @@ let CustomizableUIInternal = {
 
     Services.prefs.setCharPref(kPrefCustomizationState, uiCustomizationState);
     Services.prefs.setBoolPref(kPrefDrawInTitlebar, drawInTitlebar);
+    Services.prefs.setBoolPref(kPrefDeveditionTheme, deveditionTheme);
     this.loadSavedState();
     // If the user just customizes toolbar/titlebar visibility, gSavedState will be null
     // and we don't need to do anything else here:
@@ -2559,6 +2603,10 @@ let CustomizableUIInternal = {
       LOG(kPrefDrawInTitlebar + " pref is non-default");
       return false;
     }
+    if (Services.prefs.prefHasUserValue(kPrefDeveditionTheme)) {
+      LOG(kPrefDeveditionTheme + " pref is non-default");
+      return false;
+    }
 
     return true;
   },
@@ -2662,7 +2710,7 @@ this.CustomizableUI = {
    *     for (let window of CustomizableUI.windows) { ... }
    */
   windows: {
-    "@@iterator": function*() {
+    *[kIteratorSymbol]() {
       for (let [window,] of gBuildWindows)
         yield window;
     }
@@ -3259,7 +3307,8 @@ this.CustomizableUI = {
    */
   get canUndoReset() {
     return gUIStateBeforeReset.uiCustomizationState != null ||
-           gUIStateBeforeReset.drawInTitlebar != null;
+           gUIStateBeforeReset.drawInTitlebar != null ||
+           gUIStateBeforeReset.deveditionTheme != null;
   },
 
   /**

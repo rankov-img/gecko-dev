@@ -65,7 +65,7 @@ WriteFloatRegisterMask(CompactBufferWriter &stream, uint64_t bits)
     } else if (sizeof(FloatRegisters::SetType) == 4) {
         stream.writeUnsigned(bits);
     } else {
-        JS_ASSERT(sizeof(FloatRegisters::SetType) == 8);
+        MOZ_ASSERT(sizeof(FloatRegisters::SetType) == 8);
         stream.writeUnsigned(bits & 0xffffffff);
         stream.writeUnsigned(bits >> 32);
     }
@@ -78,7 +78,7 @@ ReadFloatRegisterMask(CompactBufferReader &stream)
         return stream.readByte();
     if (sizeof(FloatRegisters::SetType) <= 4)
         return stream.readUnsigned();
-    JS_ASSERT(sizeof(FloatRegisters::SetType) == 8);
+    MOZ_ASSERT(sizeof(FloatRegisters::SetType) == 8);
     uint64_t ret = stream.readUnsigned();
     ret |= uint64_t(stream.readUnsigned()) << 32;
     return ret;
@@ -105,8 +105,8 @@ SafepointWriter::writeGcRegs(LSafepoint *safepoint)
     }
 
     // GC registers are a subset of the spilled registers.
-    JS_ASSERT((valueRegs.bits() & ~spilledGpr.bits()) == 0);
-    JS_ASSERT((gc.bits() & ~spilledGpr.bits()) == 0);
+    MOZ_ASSERT((valueRegs.bits() & ~spilledGpr.bits()) == 0);
+    MOZ_ASSERT((gc.bits() & ~spilledGpr.bits()) == 0);
 
     WriteFloatRegisterMask(stream_, spilledFloat.bits());
 
@@ -138,8 +138,8 @@ MapSlotsToBitset(BitSet *set, CompactBufferWriter &stream, uint32_t nslots, uint
         // pointer size, since we only care about pointer-sized/aligned slots
         // here. Since the stack grows down, this means slots start at index 1,
         // so we subtract 1 to pack the bitset.
-        JS_ASSERT(slots[i] % sizeof(intptr_t) == 0);
-        JS_ASSERT(slots[i] / sizeof(intptr_t) > 0);
+        MOZ_ASSERT(slots[i] % sizeof(intptr_t) == 0);
+        MOZ_ASSERT(slots[i] / sizeof(intptr_t) > 0);
         set->insert(slots[i] / sizeof(intptr_t) - 1);
     }
 
@@ -251,7 +251,7 @@ AllocationToPartKind(const LAllocation &a)
         return Part_Reg;
     if (a.isStackSlot())
         return Part_Stack;
-    JS_ASSERT(a.isArgument());
+    MOZ_ASSERT(a.isArgument());
     return Part_Arg;
 }
 
@@ -299,17 +299,28 @@ SafepointWriter::writeNunboxParts(LSafepoint *safepoint)
     // Safepoints are permitted to have partially filled in entries for nunboxes,
     // provided that only the type is live and not the payload. Omit these from
     // the written safepoint.
-    uint32_t partials = safepoint->partialNunboxes();
 
-    stream_.writeUnsigned(entries.length() - partials);
+    size_t pos = stream_.length();
+    stream_.writeUnsigned(entries.length());
 
+    size_t count = 0;
     for (size_t i = 0; i < entries.length(); i++) {
         SafepointNunboxEntry &entry = entries[i];
 
-        if (entry.type.isUse() || entry.payload.isUse()) {
-            partials--;
+        if (entry.payload.isUse()) {
+            // No allocation associated with the payload.
             continue;
         }
+
+        if (entry.type.isUse()) {
+            // No allocation associated with the type. Look for another
+            // safepoint entry with an allocation for the type.
+            entry.type = safepoint->findTypeAllocation(entry.typeVreg);
+            if (entry.type.isUse())
+                continue;
+        }
+
+        count++;
 
         uint16_t header = 0;
 
@@ -337,7 +348,8 @@ SafepointWriter::writeNunboxParts(LSafepoint *safepoint)
             stream_.writeUnsigned(payloadVal);
     }
 
-    JS_ASSERT(partials == 0);
+    // Update the stream with the actual number of safepoint entries written.
+    stream_.writeUnsignedAt(pos, count, entries.length());
 }
 #endif
 
@@ -346,7 +358,7 @@ SafepointWriter::encode(LSafepoint *safepoint)
 {
     uint32_t safepointOffset = startEntry();
 
-    JS_ASSERT(safepoint->osiCallPointOffset());
+    MOZ_ASSERT(safepoint->osiCallPointOffset());
 
     writeOsiCallPointOffset(safepoint->osiCallPointOffset());
     writeGcRegs(safepoint);
@@ -489,7 +501,7 @@ PartFromStream(CompactBufferReader &stream, NunboxPartKind kind, uint32_t info)
     if (kind == Part_Stack)
         return LStackSlot(info);
 
-    JS_ASSERT(kind == Part_Arg);
+    MOZ_ASSERT(kind == Part_Arg);
     return LArgument(info);
 }
 

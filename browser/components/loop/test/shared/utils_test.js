@@ -18,6 +18,7 @@ describe("loop.shared.utils", function() {
   });
 
   afterEach(function() {
+    navigator.mozLoop = undefined;
     sandbox.restore();
   });
 
@@ -53,18 +54,70 @@ describe("loop.shared.utils", function() {
         expect(helper.isFirefox("Opera")).eql(false);
       });
     });
+
+    describe("#isFirefoxOS", function() {
+      describe("without mozActivities", function() {
+        it("shouldn't detect FirefoxOS on mobile platform", function() {
+          expect(helper.isFirefoxOS("mobi")).eql(false);
+        });
+
+        it("shouldn't detect FirefoxOS on non mobile platform", function() {
+          expect(helper.isFirefoxOS("whatever")).eql(false);
+        });
+      });
+
+      describe("with mozActivities", function() {
+        var realMozActivity;
+
+        before(function() {
+          realMozActivity = window.MozActivity;
+          window.MozActivity = {};
+        });
+
+        after(function() {
+          window.MozActivity = realMozActivity;
+        });
+
+        it("should detect FirefoxOS on mobile platform", function() {
+          expect(helper.isFirefoxOS("mobi")).eql(true);
+        });
+
+        it("shouldn't detect FirefoxOS on non mobile platform", function() {
+          expect(helper.isFirefoxOS("whatever")).eql(false);
+        });
+      });
+    });
+  });
+
+  describe("#formatDate", function() {
+    beforeEach(function() {
+      sandbox.stub(Date.prototype, "toLocaleDateString").returns("fake result");
+    });
+
+    it("should call toLocaleDateString with arguments", function() {
+      sharedUtils.formatDate(1000);
+
+      sinon.assert.calledOnce(Date.prototype.toLocaleDateString);
+      sinon.assert.calledWithExactly(Date.prototype.toLocaleDateString,
+        navigator.language,
+        {year: "numeric", month: "long", day: "numeric"}
+      );
+    });
+
+    it("should return the formatted string", function() {
+      expect(sharedUtils.formatDate(1000)).eql("fake result");
+    });
   });
 
   describe("#getBoolPreference", function() {
     afterEach(function() {
-      navigator.mozLoop = undefined;
       localStorage.removeItem("test.true");
     });
 
     describe("mozLoop set", function() {
       beforeEach(function() {
         navigator.mozLoop = {
-          getLoopBoolPref: function(prefName) {
+          getLoopPref: function(prefName) {
             return prefName === "test.true";
           }
         };
@@ -87,6 +140,33 @@ describe("loop.shared.utils", function() {
 
         expect(sharedUtils.getBoolPreference("test.true")).eql(true);
       });
+    });
+  });
+
+  describe("#composeCallUrlEmail", function() {
+    var composeEmail;
+
+    beforeEach(function() {
+      // fake mozL10n
+      sandbox.stub(navigator.mozL10n, "get", function(id) {
+        switch(id) {
+          case "share_email_subject4": return "subject";
+          case "share_email_body4":    return "body";
+        }
+      });
+      composeEmail = sandbox.spy();
+      navigator.mozLoop = {
+        getLoopPref: sandbox.spy(),
+        composeEmail: composeEmail
+      };
+    });
+
+    it("should compose a call url email", function() {
+      sharedUtils.composeCallUrlEmail("http://invalid", "fake@invalid.tld");
+
+      sinon.assert.calledOnce(composeEmail);
+      sinon.assert.calledWith(composeEmail,
+                              "subject", "body", "fake@invalid.tld");
     });
   });
 });

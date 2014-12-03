@@ -44,14 +44,14 @@ var gPluginHandler = {
     switch (msg.name) {
       case "PluginContent:ShowClickToPlayNotification":
         this.showClickToPlayNotification(msg.target, msg.data.plugins, msg.data.showNow,
-                                         msg.principal, msg.data.host);
+                                         msg.principal, msg.data.host, msg.data.location);
         break;
       case "PluginContent:RemoveNotification":
         this.removeNotification(msg.target, msg.data.name);
         break;
       case "PluginContent:UpdateHiddenPluginUI":
         this.updateHiddenPluginUI(msg.target, msg.data.haveInsecure, msg.data.actions,
-                                  msg.principal, msg.data.host);
+                                  msg.principal, msg.data.host, msg.data.location);
         break;
       case "PluginContent:HideNotificationBar":
         this.hideNotificationBar(msg.target, msg.data.name);
@@ -139,11 +139,6 @@ var gPluginHandler = {
       // list again
       this.options.primaryPlugin = null;
     }
-    else if (event == "removed") {
-      // Once the notification is removed, let the content script clear any
-      // caches it may have populated.
-      this.browser.messageManager.sendAsyncMessage("BrowserPlugins:NotificationRemoved");
-    }
   },
 
   /**
@@ -221,13 +216,23 @@ var gPluginHandler = {
     });
   },
 
-  showClickToPlayNotification: function (browser, plugins, showNow, principal, host) {
+  showClickToPlayNotification: function (browser, plugins, showNow, principal,
+                                         host, location) {
     // It is possible that we've received a message from the frame script to show
     // a click to play notification for a principal that no longer matches the one
     // that the browser's content now has assigned (ie, the browser has browsed away
     // after the message was sent, but before the message was received). In that case,
     // we should just ignore the message.
     if (!principal.equals(browser.contentPrincipal)) {
+      return;
+    }
+
+    // Data URIs, when linked to from some page, inherit the principal of that
+    // page. That means that we also need to compare the actual locations to
+    // ensure we aren't getting a message from a Data URI that we're no longer
+    // looking at.
+    let receivedURI = BrowserUtils.makeURI(location);
+    if (!browser.documentURI.equalsExceptRef(receivedURI)) {
       return;
     }
 
@@ -246,13 +251,19 @@ var gPluginHandler = {
         continue;
       }
 
-      let url;
-      // TODO: allow the blocklist to specify a better link, bug 873093
+      // If a block contains an infoURL, we should always prefer that to the default
+      // URL that we construct in-product, even for other blocklist types.
+      let url = Services.blocklist.getPluginInfoURL(pluginInfo.pluginTag);
+
       if (pluginInfo.blocklistState == Ci.nsIBlocklistService.STATE_VULNERABLE_UPDATE_AVAILABLE) {
-        url = Services.urlFormatter.formatURLPref("plugins.update.url");
+        if (!url) {
+          url = Services.urlFormatter.formatURLPref("plugins.update.url");
+        }
       }
       else if (pluginInfo.blocklistState != Ci.nsIBlocklistService.STATE_NOT_BLOCKED) {
-        url = Services.blocklist.getPluginBlocklistURL(pluginInfo.pluginTag);
+        if (!url) {
+          url = Services.blocklist.getPluginBlocklistURL(pluginInfo.pluginTag);
+        }
       }
       else {
         url = Services.urlFormatter.formatURLPref("app.support.baseURL") + "clicktoplay";
@@ -305,13 +316,23 @@ var gPluginHandler = {
       notificationBox.removeNotification(notification, true);
   },
 
-  updateHiddenPluginUI: function (browser, haveInsecure, actions, principal, host) {
+  updateHiddenPluginUI: function (browser, haveInsecure, actions, principal,
+                                  host, location) {
     // It is possible that we've received a message from the frame script to show
     // the hidden plugin notification for a principal that no longer matches the one
     // that the browser's content now has assigned (ie, the browser has browsed away
     // after the message was sent, but before the message was received). In that case,
     // we should just ignore the message.
     if (!principal.equals(browser.contentPrincipal)) {
+      return;
+    }
+
+    // Data URIs, when linked to from some page, inherit the principal of that
+    // page. That means that we also need to compare the actual locations to
+    // ensure we aren't getting a message from a Data URI that we're no longer
+    // looking at.
+    let receivedURI = BrowserUtils.makeURI(location);
+    if (!browser.documentURI.equalsExceptRef(receivedURI)) {
       return;
     }
 

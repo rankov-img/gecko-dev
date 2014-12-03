@@ -17,15 +17,17 @@ import java.util.Hashtable;
 
 import org.mozilla.gecko.GeckoProfileDirectories.NoMozillaDirectoryException;
 import org.mozilla.gecko.GeckoProfileDirectories.NoSuchProfileException;
-import org.mozilla.gecko.db.BrowserDB;
+import org.mozilla.gecko.db.LocalBrowserDB;
 import org.mozilla.gecko.distribution.Distribution;
 import org.mozilla.gecko.mozglue.RobocopTarget;
 import org.mozilla.gecko.util.INIParser;
 import org.mozilla.gecko.util.INISection;
 
+import android.app.Activity;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.support.v4.content.LocalBroadcastManager;
 import android.text.TextUtils;
 import android.util.Log;
@@ -38,7 +40,7 @@ public final class GeckoProfile {
     public static final String DEFAULT_PROFILE = "default";
     public static final String GUEST_PROFILE = "guest";
 
-    private static HashMap<String, GeckoProfile> sProfileCache = new HashMap<String, GeckoProfile>();
+    private static final HashMap<String, GeckoProfile> sProfileCache = new HashMap<String, GeckoProfile>();
     private static String sDefaultProfileName;
 
     // Caches the guest profile dir.
@@ -90,9 +92,19 @@ public final class GeckoProfile {
             }
         }
 
-        // If the guest profile should be used return it.
-        if (GuestSession.shouldUse(context, "")) {
-            return GeckoProfile.getGuestProfile(context);
+        final String args;
+        if (context instanceof Activity) {
+            args = ((Activity) context).getIntent().getStringExtra("args");
+        } else {
+            args = null;
+        }
+
+        if (GuestSession.shouldUse(context, args)) {
+            GeckoProfile p = GeckoProfile.getOrCreateGuestProfile(context);
+            if (isGeckoApp) {
+                ((GeckoApp) context).mProfile = p;
+            }
+            return p;
         }
 
         if (isGeckoApp) {
@@ -191,6 +203,8 @@ public final class GeckoProfile {
         return success;
     }
 
+    // Only public for access from tests.
+    @RobocopTarget
     public static GeckoProfile createGuestProfile(Context context) {
         try {
             // We need to force the creation of a new guest profile if we want it outside of the normal profile path,
@@ -209,7 +223,7 @@ public final class GeckoProfile {
              * Now do the things that createProfileDirectory normally does --
              * right now that's kicking off DB init.
              */
-            profile.enqueueInitialization();
+            profile.enqueueInitialization(profile.getDir());
 
             return profile;
         } catch (Exception ex) {
@@ -230,6 +244,18 @@ public final class GeckoProfile {
             sGuestDir = context.getFileStreamPath("guest");
         }
         return sGuestDir;
+    }
+
+    /**
+     * Performs IO. Be careful of using this on the main thread.
+     */
+    public static GeckoProfile getOrCreateGuestProfile(Context context) {
+        GeckoProfile p = getGuestProfile(context);
+        if (p == null) {
+            return createGuestProfile(context);
+        }
+
+        return p;
     }
 
     public static GeckoProfile getGuestProfile(Context context) {
@@ -650,7 +676,7 @@ public final class GeckoProfile {
 
         // Trigger init for non-webapp profiles.
         if (!mIsWebAppProfile) {
-            enqueueInitialization();
+            enqueueInitialization(profileDir);
         }
 
         // Write out profile creation time, mirroring the logic in nsToolkitProfileService.
@@ -667,9 +693,11 @@ public final class GeckoProfile {
             Log.w(LOGTAG, "Couldn't write times.json.", e);
         }
 
-        LocalBroadcastManager lbm = LocalBroadcastManager.getInstance(mApplicationContext);
-        final Intent intent = new Intent(BrowserApp.ACTION_NEW_PROFILE);
-        lbm.sendBroadcast(intent);
+        // Initialize pref flag for displaying the start pane for a new non-webapp profile.
+        if (!mIsWebAppProfile) {
+            final SharedPreferences prefs = GeckoSharedPrefs.forProfile(mApplicationContext);
+            prefs.edit().putBoolean(BrowserApp.PREF_STARTPANE_ENABLED, true).apply();
+        }
 
         return profileDir;
     }
@@ -684,7 +712,7 @@ public final class GeckoProfile {
      * This is public for use *from tests only*!
      */
     @RobocopTarget
-    public void enqueueInitialization() {
+    public void enqueueInitialization(final File profileDir) {
         Log.i(LOGTAG, "Enqueuing profile init.");
         final Context context = mApplicationContext;
 
@@ -697,13 +725,24 @@ public final class GeckoProfile {
 
                 final ContentResolver cr = context.getContentResolver();
 
-                // We pass the number of added bookmarks to ensure that the
-                // indices of the distribution and default bookmarks are
-                // contiguous. Because there are always at least as many
-                // bookmarks as there are favicons, we can also guarantee that
-                // the favicon IDs won't overlap.
-                final int offset = BrowserDB.addDistributionBookmarks(cr, distribution, 0);
-                BrowserDB.addDefaultBookmarks(context, cr, offset);
+                // Because we are running in the background, we want to synchronize on the
+                // GeckoProfile instance so that we don't race with main thread operations
+                // such as locking/unlocking/removing the profile.
+                synchronized (GeckoProfile.this) {
+                    // Skip initialization if the profile directory has been removed.
+                    if (!profileDir.exists()) {
+                        return;
+                    }
+
+                    // We pass the number of added bookmarks to ensure that the
+                    // indices of the distribution and default bookmarks are
+                    // contiguous. Because there are always at least as many
+                    // bookmarks as there are favicons, we can also guarantee that
+                    // the favicon IDs won't overlap.
+                    final LocalBrowserDB db = new LocalBrowserDB(getName());
+                    final int offset = db.addDistributionBookmarks(cr, distribution, 0);
+                    db.addDefaultBookmarks(context, cr, offset);
+                }
             }
         });
     }

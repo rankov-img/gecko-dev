@@ -7,6 +7,7 @@
 SOURCES += [
     'pkixbuild_tests.cpp',
     'pkixcert_extension_tests.cpp',
+    'pkixcert_signature_algorithm_tests.cpp',
     'pkixcheck_CheckKeyUsage_tests.cpp',
     'pkixcheck_CheckValidity_tests.cpp',
 
@@ -16,6 +17,7 @@ SOURCES += [
     'pkixder_pki_types_tests.cpp',
     'pkixder_universal_types_tests.cpp',
     'pkixgtest.cpp',
+    'pkixnames_tests.cpp',
     'pkixocsp_CreateEncodedOCSPRequest_tests.cpp',
     'pkixocsp_VerifyEncodedOCSPResponse.cpp',
 ]

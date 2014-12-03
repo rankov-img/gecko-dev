@@ -30,8 +30,8 @@ DynamicImage::Init(const char* aMimeType, uint32_t aFlags)
   return NS_OK;
 }
 
-already_AddRefed<imgStatusTracker>
-DynamicImage::GetStatusTracker()
+already_AddRefed<ProgressTracker>
+DynamicImage::GetProgressTracker()
 {
   return nullptr;
 }
@@ -228,7 +228,7 @@ DynamicImage::GetFrame(uint32_t aWhichFrame,
 }
 
 NS_IMETHODIMP_(bool)
-DynamicImage::FrameIsOpaque(uint32_t aWhichFrame)
+DynamicImage::IsOpaque()
 {
   // XXX(seth): For performance reasons it'd be better to return true here, but
   // I'm not sure how we can guarantee it for an arbitrary gfxDrawable.

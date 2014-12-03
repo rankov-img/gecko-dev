@@ -67,62 +67,32 @@ template<> inline Scalar::Type TypeIDOfType<double>() { return Scalar::Float64; 
 template<> inline Scalar::Type TypeIDOfType<uint8_clamped>() { return Scalar::Uint8Clamped; }
 
 inline bool
-IsAnyTypedArray(HandleObject obj)
-{
-    return obj->is<TypedArrayObject>() || obj->is<SharedTypedArrayObject>();
-}
-
-inline bool
-IsAnyTypedArray(const JSObject *obj)
+IsAnyTypedArray(JSObject *obj)
 {
     return obj->is<TypedArrayObject>() || obj->is<SharedTypedArrayObject>();
 }
 
 inline uint32_t
-AnyTypedArrayLength(HandleObject obj)
+AnyTypedArrayLength(JSObject *obj)
 {
     if (obj->is<TypedArrayObject>())
-	return obj->as<TypedArrayObject>().length();
-    return obj->as<SharedTypedArrayObject>().length();
-}
-
-inline uint32_t
-AnyTypedArrayLength(const JSObject *obj)
-{
-    if (obj->is<TypedArrayObject>())
-	return obj->as<TypedArrayObject>().length();
+        return obj->as<TypedArrayObject>().length();
     return obj->as<SharedTypedArrayObject>().length();
 }
 
 inline Scalar::Type
-AnyTypedArrayType(HandleObject obj)
+AnyTypedArrayType(JSObject *obj)
 {
     if (obj->is<TypedArrayObject>())
-	return obj->as<TypedArrayObject>().type();
-    return obj->as<SharedTypedArrayObject>().type();
-}
-
-inline Scalar::Type
-AnyTypedArrayType(const JSObject *obj)
-{
-    if (obj->is<TypedArrayObject>())
-	return obj->as<TypedArrayObject>().type();
+        return obj->as<TypedArrayObject>().type();
     return obj->as<SharedTypedArrayObject>().type();
 }
 
 inline Shape*
-AnyTypedArrayShape(HandleObject obj)
+AnyTypedArrayShape(JSObject *obj)
 {
     if (obj->is<TypedArrayObject>())
-	return obj->as<TypedArrayObject>().lastProperty();
-    return obj->as<SharedTypedArrayObject>().lastProperty();
-}
-
-inline Shape*
-AnyTypedArrayShape(const JSObject *obj)
-{
-    if (obj->is<TypedArrayObject>())
-	return obj->as<TypedArrayObject>().lastProperty();
+        return obj->as<TypedArrayObject>().lastProperty();
     return obj->as<SharedTypedArrayObject>().lastProperty();
 }
 
@@ -130,7 +100,7 @@ inline const TypedArrayLayout&
 AnyTypedArrayLayout(const JSObject *obj)
 {
     if (obj->is<TypedArrayObject>())
-	return obj->as<TypedArrayObject>().layout();
+        return obj->as<TypedArrayObject>().layout();
     return obj->as<SharedTypedArrayObject>().layout();
 }
 
@@ -138,7 +108,7 @@ inline void *
 AnyTypedArrayViewData(const JSObject *obj)
 {
     if (obj->is<TypedArrayObject>())
-	return obj->as<TypedArrayObject>().viewData();
+        return obj->as<TypedArrayObject>().viewData();
     return obj->as<SharedTypedArrayObject>().viewData();
 }
 
@@ -146,7 +116,7 @@ inline uint32_t
 AnyTypedArrayByteLength(const JSObject *obj)
 {
     if (obj->is<TypedArrayObject>())
-	return obj->as<TypedArrayObject>().byteLength();
+        return obj->as<TypedArrayObject>().byteLength();
     return obj->as<SharedTypedArrayObject>().byteLength();
 }
 
@@ -190,52 +160,67 @@ class ElementSpecific
             return true;
         }
 
+#ifdef __arm__
+#  define JS_VOLATILE_ARM volatile // Inhibit unaligned accesses on ARM.
+#else
+#  define JS_VOLATILE_ARM /* nothing */
+#endif
+
         void *data = source->viewData();
         switch (source->type()) {
           case Scalar::Int8: {
+            JS_VOLATILE_ARM
             int8_t *src = static_cast<int8_t*>(data);
+
             for (uint32_t i = 0; i < count; ++i)
                 *dest++ = T(*src++);
             break;
           }
           case Scalar::Uint8:
           case Scalar::Uint8Clamped: {
+            JS_VOLATILE_ARM
             uint8_t *src = static_cast<uint8_t*>(data);
             for (uint32_t i = 0; i < count; ++i)
                 *dest++ = T(*src++);
             break;
           }
           case Scalar::Int16: {
+            JS_VOLATILE_ARM
             int16_t *src = static_cast<int16_t*>(data);
             for (uint32_t i = 0; i < count; ++i)
                 *dest++ = T(*src++);
             break;
           }
           case Scalar::Uint16: {
+            JS_VOLATILE_ARM
             uint16_t *src = static_cast<uint16_t*>(data);
             for (uint32_t i = 0; i < count; ++i)
                 *dest++ = T(*src++);
             break;
           }
           case Scalar::Int32: {
+            JS_VOLATILE_ARM
             int32_t *src = static_cast<int32_t*>(data);
             for (uint32_t i = 0; i < count; ++i)
                 *dest++ = T(*src++);
             break;
           }
           case Scalar::Uint32: {
+            JS_VOLATILE_ARM
             uint32_t *src = static_cast<uint32_t*>(data);
             for (uint32_t i = 0; i < count; ++i)
                 *dest++ = T(*src++);
             break;
           }
           case Scalar::Float32: {
+            JS_VOLATILE_ARM
             float *src = static_cast<float*>(data);
             for (uint32_t i = 0; i < count; ++i)
                 *dest++ = T(*src++);
             break;
           }
           case Scalar::Float64: {
+            JS_VOLATILE_ARM
             double *src = static_cast<double*>(data);
             for (uint32_t i = 0; i < count; ++i)
                 *dest++ = T(*src++);
@@ -244,6 +229,8 @@ class ElementSpecific
           default:
             MOZ_CRASH("setFromTypedArray with a typed array with bogus type");
         }
+
+#undef JS_VOLATILE_ARM
 
         return true;
     }
@@ -266,14 +253,14 @@ class ElementSpecific
         if (source->isNative()) {
             // Attempt fast-path infallible conversion of dense elements up to
             // the first potentially side-effectful lookup or conversion.
-            uint32_t bound = Min(source->getDenseInitializedLength(), len);
+            uint32_t bound = Min(source->as<NativeObject>().getDenseInitializedLength(), len);
 
             T *dest = static_cast<T*>(target->viewData()) + offset;
 
             MOZ_ASSERT(!canConvertInfallibly(MagicValue(JS_ELEMENTS_HOLE)),
                        "the following loop must abort on holes");
 
-            const Value *srcValues = source->getDenseElements();
+            const Value *srcValues = source->as<NativeObject>().getDenseElements();
             for (; i < bound; i++) {
                 if (!canConvertInfallibly(srcValues[i]))
                     break;
@@ -511,7 +498,7 @@ class TypedArrayMethods
         }
 
         if (!AnyTypedArray::ensureHasBuffer(cx, tarray))
-            return nullptr;
+            return false;
 
         Rooted<BufferType*> bufobj(cx, tarray->buffer());
         MOZ_ASSERT(bufobj);

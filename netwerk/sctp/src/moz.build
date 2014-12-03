@@ -31,7 +31,6 @@ SOURCES += [
     'user_environment.c',
     'user_mbuf.c',
     'user_recv_thread.c',
-    'user_sctp_timer_iterate.c',
     'user_socket.c',
 ]
 
@@ -48,7 +47,7 @@ FINAL_LIBRARY = 'xul'
 
 LOCAL_INCLUDES += [
     '../../base/src',
-    '/content/base/src',
+    '/dom/base',
 ]
 
 for var in ('SCTP_SIMPLE_ALLOCATOR',

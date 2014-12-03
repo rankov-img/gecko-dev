@@ -25,6 +25,7 @@ SuggestAutoComplete.prototype = {
 
   _init: function() {
     this._suggestionController = new SearchSuggestionController(obj => this.onResultsReturned(obj));
+    this._suggestionController.maxLocalResults = this._historyLimit;
   },
 
   get _suggestionLabel() {
@@ -57,8 +58,7 @@ SuggestAutoComplete.prototype = {
     let finalComments = [];
 
     // If form history has results, add them to the list.
-    let maxHistoryItems = Math.min(results.local.length, this._historyLimit);
-    for (let i = 0; i < maxHistoryItems; ++i) {
+    for (let i = 0; i < results.local.length; ++i) {
       finalResults.push(results.local[i]);
       finalComments.push("");
     }
@@ -86,13 +86,17 @@ SuggestAutoComplete.prototype = {
    */
   onResultsReady: function(searchString, results, comments, formHistoryResult) {
     if (this._listener) {
+      // Create a copy of the results array to use as labels, since
+      // FormAutoCompleteResult doesn't like being passed the same array
+      // for both.
+      let labels = results.slice();
       let result = new FormAutoCompleteResult(
           searchString,
           Ci.nsIAutoCompleteResult.RESULT_SUCCESS,
           0,
           "",
           results,
-          results,
+          labels,
           comments,
           formHistoryResult);
 

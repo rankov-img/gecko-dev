@@ -168,7 +168,9 @@ public class RemoteTabsExpandableListFragment extends HomeFragment implements Re
                     info.url = tab.url;
                     info.title = tab.title;
                     return info;
-                } else if (type == ExpandableListView.PACKED_POSITION_TYPE_GROUP) {
+                }
+
+                if (type == ExpandableListView.PACKED_POSITION_TYPE_GROUP) {
                     final RemoteClient client = (RemoteClient) adapter.getGroup(groupPosition);
                     final RemoteTabsClientContextMenuInfo info = new RemoteTabsClientContextMenuInfo(view, position, id, client);
                     return info;
@@ -233,7 +235,7 @@ public class RemoteTabsExpandableListFragment extends HomeFragment implements Re
         // we can add/remove it at will.
         mList.addFooterView(mFooterView, null, true);
 
-        // Intialize adapter
+        // Initialize adapter
         mAdapter = new RemoteTabsExpandableListAdapter(R.layout.home_remote_tabs_group, R.layout.home_remote_tabs_child, null);
         mList.setAdapter(mAdapter);
 
@@ -288,11 +290,14 @@ public class RemoteTabsExpandableListFragment extends HomeFragment implements Re
             sState.setClientHidden(info.client.guid, true);
             getLoaderManager().restartLoader(LOADER_ID_REMOTE_TABS, null, mCursorLoaderCallbacks);
             return true;
-        } else if (itemId == R.id.home_remote_tabs_show_client) {
+        }
+
+        if (itemId == R.id.home_remote_tabs_show_client) {
             sState.setClientHidden(info.client.guid, false);
             getLoaderManager().restartLoader(LOADER_ID_REMOTE_TABS, null, mCursorLoaderCallbacks);
             return true;
         }
+
         return false;
     }
 
@@ -358,6 +363,7 @@ public class RemoteTabsExpandableListFragment extends HomeFragment implements Re
         }
     }
 
+    @Override
     public void onClients(List<RemoteClient> clients) {
         // The clients listed were hidden and have been checked by the user. We
         // interpret that as "show these clients now".
@@ -386,14 +392,14 @@ public class RemoteTabsExpandableListFragment extends HomeFragment implements Re
         }
     }
 
-    private class CursorLoaderCallbacks implements LoaderCallbacks<Cursor> {
+    private class CursorLoaderCallbacks extends TransitionAwareCursorLoaderCallbacks {
         @Override
         public Loader<Cursor> onCreateLoader(int id, Bundle args) {
             return new RemoteTabsCursorLoader(getActivity());
         }
 
         @Override
-        public void onLoadFinished(Loader<Cursor> loader, Cursor c) {
+        public void onLoadFinishedAfterTransitions(Loader<Cursor> loader, Cursor c) {
             final List<RemoteClient> clients = TabsAccessor.getClientsFromCursor(c);
 
             // Filter the hidden clients out of the clients list. The clients
@@ -415,6 +421,7 @@ public class RemoteTabsExpandableListFragment extends HomeFragment implements Re
 
         @Override
         public void onLoaderReset(Loader<Cursor> loader) {
+            super.onLoaderReset(loader);
             mAdapter.replaceClients(null);
         }
     }
@@ -443,9 +450,11 @@ public class RemoteTabsExpandableListFragment extends HomeFragment implements Re
             return FirefoxAccounts.getFirefoxAccount(getContext());
         }
 
+        @Override
         public void onSyncStarted() {
         }
 
+        @Override
         public void onSyncFinished() {
             mRefreshLayout.setRefreshing(false);
         }

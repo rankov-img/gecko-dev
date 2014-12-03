@@ -11,6 +11,7 @@
 #include "Point.h"
 #include <math.h>
 #include "mozilla/Attributes.h"
+#include "mozilla/DebugOnly.h"
 
 namespace mozilla {
 namespace gfx {
@@ -82,8 +83,8 @@ public:
    * is multiplied by the resulting matrix will first be translated, then be
    * transformed by the original transform.
    *
-   * Thus calling this method will result in this matrix having the same value
-   * as the result of:
+   * Calling this method will result in this matrix having the same value as
+   * the result of:
    *
    *   Matrix::Translation(x, y) * this
    *
@@ -136,7 +137,7 @@ public:
   }
   
   /**
-   * Similar to PreTranslate, but applies a scale to this matrix.
+   * Similar to PreTranslate, but applies a scale instead of a translation.
    */
   Matrix &PreScale(Float aX, Float aY)
   {
@@ -151,7 +152,7 @@ public:
   GFX2D_API static Matrix Rotation(Float aAngle);
 
   /**
-   * Similar to PreTranslate, but applies a rotation to this matrix.
+   * Similar to PreTranslate, but applies a rotation instead of a translation.
    */
   Matrix &PreRotate(Float aAngle)
   {
@@ -184,6 +185,14 @@ public:
     _32 = inv_det * F;
 
     return true;
+  }
+
+  Matrix Inverse() const
+  {
+    Matrix clone = *this;
+    DebugOnly<bool> inverted = clone.Invert();
+    MOZ_ASSERT(inverted, "Attempted to get the inverse of a non-invertible matrix");
+    return clone;
   }
 
   Float Determinant() const
@@ -308,11 +317,21 @@ public:
            FuzzyEqual(_21, 0.0f) && FuzzyEqual(_22, 1.0f);
   }
 
+  static bool FuzzyIsInteger(Float aValue)
+  {
+    return FuzzyEqual(aValue, floorf(aValue + 0.5f));
+  }
+
   bool IsIntegerTranslation() const
   {
-    return IsTranslation() &&
-           FuzzyEqual(_31, floorf(_31 + 0.5f)) &&
-           FuzzyEqual(_32, floorf(_32 + 0.5f));
+    return IsTranslation() && FuzzyIsInteger(_31) && FuzzyIsInteger(_32);
+  }
+
+  bool IsAllIntegers() const
+  {
+    return FuzzyIsInteger(_11) && FuzzyIsInteger(_12) &&
+           FuzzyIsInteger(_21) && FuzzyIsInteger(_22) &&
+           FuzzyIsInteger(_31) && FuzzyIsInteger(_32);
   }
 
   Point GetTranslation() const {
@@ -336,14 +355,6 @@ public:
   bool HasNonAxisAlignedTransform() const {
       return !FuzzyEqual(_21, 0.0) || !FuzzyEqual(_12, 0.0);
   }
-
-  /**
-   * Returns true if the matrix has non-integer scale
-   */
-  bool HasNonIntegerScale() const {
-      return !FuzzyEqual(_11, floor(_11 + 0.5)) ||
-             !FuzzyEqual(_22, floor(_22 + 0.5));
-  }
 };
 
 class Matrix4x4
@@ -355,6 +366,21 @@ public:
     , _31(0.0f), _32(0.0f), _33(1.0f), _34(0.0f)
     , _41(0.0f), _42(0.0f), _43(0.0f), _44(1.0f)
   {}
+
+  Matrix4x4(Float a11, Float a12, Float a13, Float a14,
+            Float a21, Float a22, Float a23, Float a24,
+            Float a31, Float a32, Float a33, Float a34,
+            Float a41, Float a42, Float a43, Float a44)
+    : _11(a11), _12(a12), _13(a13), _14(a14)
+    , _21(a21), _22(a22), _23(a23), _24(a24)
+    , _31(a31), _32(a32), _33(a33), _34(a34)
+    , _41(a41), _42(a42), _43(a43), _44(a44)
+  {}
+
+  Matrix4x4(const Matrix4x4& aOther)
+  {
+    memcpy(this, &aOther, sizeof(*this));
+  }
 
   Float _11, _12, _13, _14;
   Float _21, _22, _23, _24;
@@ -449,6 +475,8 @@ public:
     return *this * Point4D(aPoint.x, aPoint.y, z, 1);
   }
 
+  Rect ProjectRectBounds(const Rect& aRect) const;
+
   static Matrix4x4 From2D(const Matrix &aMatrix) {
     Matrix4x4 matrix;
     matrix._11 = aMatrix._11;
@@ -509,24 +537,40 @@ public:
 
   GFX2D_API Rect TransformBounds(const Rect& rect) const;
 
-  // Apply a scale to this matrix. This scale will be applied -before- the
-  // existing transformation of the matrix.
-  Matrix4x4 &Scale(Float aX, Float aY, Float aZ)
-  {
-    _11 *= aX;
-    _12 *= aX;
-    _13 *= aX;
-    _21 *= aY;
-    _22 *= aY;
-    _23 *= aY;
-    _31 *= aZ;
-    _32 *= aZ;
-    _33 *= aZ;
 
-    return *this;
+  static Matrix4x4 Translation(Float aX, Float aY, Float aZ)
+  {
+    return Matrix4x4(1.0f, 0.0f, 0.0f, 0.0f,
+                     0.0f, 1.0f, 0.0f, 0.0f,
+                     0.0f, 0.0f, 1.0f, 0.0f,
+                       aX,   aY,   aZ, 1.0f);
   }
 
-  Matrix4x4 &Translate(Float aX, Float aY, Float aZ)
+  static Matrix4x4 Translation(const Point3D& aP)
+  {
+    return Translation(aP.x, aP.y, aP.z);
+  }
+
+  /**
+   * Apply a translation to this matrix.
+   *
+   * The "Pre" in this method's name means that the translation is applied
+   * -before- this matrix's existing transformation. That is, any vector that
+   * is multiplied by the resulting matrix will first be translated, then be
+   * transformed by the original transform.
+   *
+   * Calling this method will result in this matrix having the same value as
+   * the result of:
+   *
+   *   Matrix4x4::Translation(x, y) * this
+   *
+   * (Note that in performance critical code multiplying by the result of a
+   * Translation()/Scaling() call is not recommended since that results in a
+   * full matrix multiply involving 64 floating-point multiplications. Calling
+   * this method would be preferred since it only involves 12 floating-point
+   * multiplications.)
+   */
+  Matrix4x4 &PreTranslate(Float aX, Float aY, Float aZ)
   {
     _41 += aX * _11 + aY * _21 + aZ * _31;
     _42 += aX * _12 + aY * _22 + aZ * _32;
@@ -536,8 +580,22 @@ public:
     return *this;
   }
 
-  Rect ProjectRectBounds(const Rect& aRect) const;
+  Matrix4x4 &PreTranslate(const Point3D& aPoint) {
+    return PreTranslate(aPoint.x, aPoint.y, aPoint.z);
+  }
 
+  /**
+   * Similar to PreTranslate, but the translation is applied -after- this
+   * matrix's existing transformation instead of before it.
+   *
+   * This method is generally less used than PreTranslate since typically code
+   * wants to adjust an existing user space to device space matrix to create a
+   * transform to device space from a -new- user space (translated from the
+   * previous user space). In that case consumers will need to use the Pre*
+   * variants of the matrix methods rather than using the Post* methods, since
+   * the Post* methods add a transform to the device space end of the
+   * transformation.
+   */
   Matrix4x4 &PostTranslate(Float aX, Float aY, Float aZ)
   {
     _11 += _14 * aX;
@@ -552,6 +610,57 @@ public:
     _23 += _24 * aZ;
     _33 += _34 * aZ;
     _43 += _44 * aZ;
+
+    return *this;
+  }
+
+  Matrix4x4 &PostTranslate(const Point3D& aPoint) {
+    return PostTranslate(aPoint.x, aPoint.y, aPoint.z);
+  }
+
+  static Matrix4x4 Scaling(Float aScaleX, Float aScaleY, float aScaleZ)
+  {
+    return Matrix4x4(aScaleX, 0.0f, 0.0f, 0.0f,
+                     0.0f, aScaleY, 0.0f, 0.0f,
+                     0.0f, 0.0f, aScaleZ, 0.0f,
+                     0.0f, 0.0f, 0.0f, 1.0f);
+  }
+
+  /**
+   * Similar to PreTranslate, but applies a scale instead of a translation.
+   */
+  Matrix4x4 &PreScale(Float aX, Float aY, Float aZ)
+  {
+    _11 *= aX;
+    _12 *= aX;
+    _13 *= aX;
+    _21 *= aY;
+    _22 *= aY;
+    _23 *= aY;
+    _31 *= aZ;
+    _32 *= aZ;
+    _33 *= aZ;
+
+    return *this;
+  }
+
+  /**
+   * Similar to PostTranslate, but applies a scale instead of a translation.
+   */
+  Matrix4x4 &PostScale(Float aScaleX, Float aScaleY, Float aScaleZ)
+  {
+    _11 *= aScaleX;
+    _21 *= aScaleX;
+    _31 *= aScaleX;
+    _41 *= aScaleX;
+    _12 *= aScaleY;
+    _22 *= aScaleY;
+    _32 *= aScaleY;
+    _42 *= aScaleY;
+    _13 *= aScaleZ;
+    _23 *= aScaleZ;
+    _33 *= aScaleZ;
+    _43 *= aScaleZ;
 
     return *this;
   }
@@ -574,10 +683,23 @@ public:
   Matrix4x4 &ChangeBasis(Float aX, Float aY, Float aZ)
   {
     // Translate to the origin before applying this matrix
-    Translate(-aX, -aY, -aZ);
+    PreTranslate(-aX, -aY, -aZ);
 
     // Translate back into position after applying this matrix
     PostTranslate(aX, aY, aZ);
+
+    return *this;
+  }
+
+  Matrix4x4& Transpose() {
+    std::swap(_12, _21);
+    std::swap(_13, _31);
+    std::swap(_14, _41);
+
+    std::swap(_23, _32);
+    std::swap(_24, _42);
+
+    std::swap(_34, _43);
 
     return *this;
   }
@@ -671,6 +793,14 @@ public:
 
   bool Invert();
 
+  Matrix4x4 Inverse() const
+  {
+    Matrix4x4 clone = *this;
+    DebugOnly<bool> inverted = clone.Invert();
+    MOZ_ASSERT(inverted, "Attempted to get the inverse of a non-invertible matrix");
+    return clone;
+  }
+
   void Normalize()
   {
       for (int i = 0; i < 4; i++) {
@@ -678,42 +808,6 @@ public:
               (*this)[i][j] /= (*this)[3][3];
          }
       }
-  }
-
-  void ScalePost(Float aX, Float aY, Float aZ)
-  {
-    _11 *= aX;
-    _21 *= aX;
-    _31 *= aX;
-    _41 *= aX;
-
-    _12 *= aY;
-    _22 *= aY;
-    _32 *= aY;
-    _42 *= aY;
-
-    _13 *= aZ;
-    _23 *= aZ;
-    _33 *= aZ;
-    _43 *= aZ;
-  }
-
-  void TranslatePost(Float aX, Float aY, Float aZ)
-  {
-      _11 += _14 * aX;
-      _21 += _24 * aX;
-      _31 += _34 * aX;
-      _41 += _44 * aX;
-
-      _12 += _14 * aY;
-      _22 += _24 * aY;
-      _32 += _34 * aY;
-      _42 += _44 * aY;
-
-      _13 += _14 * aZ;
-      _23 += _24 * aZ;
-      _33 += _34 * aZ;
-      _43 += _44 * aZ;
   }
 
   bool FuzzyEqual(const Matrix4x4& o) const
@@ -740,19 +834,19 @@ public:
 
   Matrix4x4 &NudgeToIntegersFixedEpsilon()
   {
+    NudgeToInteger(&_11);
+    NudgeToInteger(&_12);
+    NudgeToInteger(&_13);
+    NudgeToInteger(&_14);
+    NudgeToInteger(&_21);
+    NudgeToInteger(&_22);
+    NudgeToInteger(&_23);
+    NudgeToInteger(&_24);
+    NudgeToInteger(&_31);
+    NudgeToInteger(&_32);
+    NudgeToInteger(&_33);
+    NudgeToInteger(&_34);
     static const float error = 1e-5f;
-    NudgeToInteger(&_11, error);
-    NudgeToInteger(&_12, error);
-    NudgeToInteger(&_13, error);
-    NudgeToInteger(&_14, error);
-    NudgeToInteger(&_21, error);
-    NudgeToInteger(&_22, error);
-    NudgeToInteger(&_23, error);
-    NudgeToInteger(&_24, error);
-    NudgeToInteger(&_31, error);
-    NudgeToInteger(&_32, error);
-    NudgeToInteger(&_33, error);
-    NudgeToInteger(&_34, error);
     NudgeToInteger(&_41, error);
     NudgeToInteger(&_42, error);
     NudgeToInteger(&_43, error);

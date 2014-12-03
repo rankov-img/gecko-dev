@@ -203,7 +203,6 @@ class ServiceWorkerManager MOZ_FINAL : public nsIServiceWorkerManager
   friend class GetReadyPromiseRunnable;
   friend class GetRegistrationsRunnable;
   friend class GetRegistrationRunnable;
-  friend class UnregisterRunnable;
 
 public:
   NS_DECL_ISUPPORTS
@@ -317,6 +316,10 @@ public:
               uint32_t aLineNumber,
               uint32_t aColumnNumber,
               uint32_t aFlags);
+
+  void
+  GetServicedClients(const nsCString& aScope,
+                     nsTArray<uint64_t>* aControlledDocuments);
 
   static already_AddRefed<ServiceWorkerManager>
   GetInstance();

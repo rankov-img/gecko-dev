@@ -24,7 +24,7 @@ namespace js {
 // same as the representation of a TypedArrayObject, see comments in
 // TypedArrayObject.h.
 
-class SharedTypedArrayObject : public JSObject
+class SharedTypedArrayObject : public NativeObject
 {
   protected:
     static const size_t BUFFER_SLOT      = TypedArrayLayout::BUFFER_SLOT;
@@ -126,7 +126,7 @@ IsSharedTypedArrayConstructor(HandleValue v, uint32_t type);
 inline Scalar::Type
 SharedTypedArrayObject::type() const
 {
-    JS_ASSERT(IsSharedTypedArrayClass(getClass()));
+    MOZ_ASSERT(IsSharedTypedArrayClass(getClass()));
     return static_cast<Scalar::Type>(getClass() - &classes[0]);
 }
 

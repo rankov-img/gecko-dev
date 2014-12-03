@@ -14,11 +14,10 @@ const { getAttachEventType, WorkerHost } = require('./content/utils');
 const { Class } = require('./core/heritage');
 const { Disposable } = require('./core/disposable');
 const { WeakReference } = require('./core/reference');
-const { Worker } = require('./content/worker');
+const { Worker } = require('./content/worker-parent');
 const { EventTarget } = require('./event/target');
 const { on, emit, once, setListeners } = require('./event/core');
 const { on: domOn, removeListener: domOff } = require('./dom/events');
-const { pipe } = require('./event/utils');
 const { isRegExp, isUndefined } = require('./lang/type');
 const { merge } = require('./util/object');
 const { windowIterator } = require('./deprecated/window-utils');
@@ -114,7 +113,6 @@ const PageMod = Class({
     modContract.properties(modelFor),
     EventTarget,
     Disposable,
-    WeakReference
   ],
   extends: WorkerHost(workerFor),
   setup: function PageMod(options) {
@@ -142,6 +140,7 @@ const PageMod = Class({
     }
 
     pagemods.add(this);
+    model.seenDocuments = new WeakMap();
 
     // `applyOnExistingDocuments` has to be called after `pagemods.add()`
     // otherwise its calls to `onContent` method won't do anything.
@@ -212,11 +211,15 @@ function createWorker (mod, window) {
     onError: (e) => emit(mod, 'error', e)
   });
   workers.set(mod, worker);
-  pipe(worker, mod);
-  emit(mod, 'attach', worker);
-  once(worker, 'detach', function detach() {
-    worker.destroy();
-  });
+  worker.on('*', (event, ...args) => {
+    // worker's "attach" event passes a window as the argument
+    // page-mod's "attach" event needs a worker
+    if (event === 'attach')
+      emit(mod, event, worker)
+    else 
+      emit(mod, event, ...args);
+  })
+  once(worker, 'detach', () => worker.destroy());
 }
 
 function onContent (mod, window) {
@@ -231,6 +234,12 @@ function onContent (mod, window) {
   // Is a frame document and `frame` is not set, ignore
   if (!isTopDocument && !has(mod.attachTo, "frame"))
     return;
+
+  // ensure we attach only once per document
+  let seen = modelFor(mod).seenDocuments;
+  if (seen.has(window.document))
+    return;
+  seen.set(window.document, true);
 
   let style = styleFor(mod);
   if (style)

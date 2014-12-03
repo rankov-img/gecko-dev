@@ -15,6 +15,13 @@ namespace mozilla {
 namespace dom {
 namespace mobileconnection {
 
+#define CONVERT_ENUM_TO_STRING(_enumType, _enum, _string)               \
+{                                                                       \
+  uint32_t index = uint32_t(_enum);                                     \
+  _string.AssignASCII(_enumType##Values::strings[index].value,          \
+                      _enumType##Values::strings[index].length);        \
+}
+
 NS_IMPL_ISUPPORTS(MobileConnectionCallback, nsIMobileConnectionCallback)
 
 MobileConnectionCallback::MobileConnectionCallback(nsPIDOMWindow* aWindow,
@@ -28,98 +35,10 @@ MobileConnectionCallback::MobileConnectionCallback(nsPIDOMWindow* aWindow,
  * Notify Success for Send/CancelMmi.
  */
 nsresult
-MobileConnectionCallback::NotifySendCancelMmiSuccess(const nsAString& aServiceCode,
-                                                     const nsAString& aStatusMessage)
-{
-  MozMMIResult result;
-  result.mServiceCode.Assign(aServiceCode);
-  result.mStatusMessage.Assign(aStatusMessage);
-
-  return NotifySendCancelMmiSuccess(result);
-}
-
-nsresult
-MobileConnectionCallback::NotifySendCancelMmiSuccess(const nsAString& aServiceCode,
-                                                     const nsAString& aStatusMessage,
-                                                     JS::Handle<JS::Value> aAdditionalInformation)
-{
-  AutoJSAPI jsapi;
-  if (!NS_WARN_IF(jsapi.Init(mWindow))) {
-    return NS_ERROR_FAILURE;
-  }
-
-  JSContext* cx = jsapi.cx();
-  RootedDictionary<MozMMIResult> result(cx);
-
-  result.mServiceCode.Assign(aServiceCode);
-  result.mStatusMessage.Assign(aStatusMessage);
-  result.mAdditionalInformation.Construct().SetAsObject() = &aAdditionalInformation.toObject();
-
-  return NotifySendCancelMmiSuccess(result);
-}
-
-nsresult
-MobileConnectionCallback::NotifySendCancelMmiSuccess(const nsAString& aServiceCode,
-                                                     const nsAString& aStatusMessage,
-                                                     uint16_t aAdditionalInformation)
-{
-  MozMMIResult result;
-  result.mServiceCode.Assign(aServiceCode);
-  result.mStatusMessage.Assign(aStatusMessage);
-  result.mAdditionalInformation.Construct().SetAsUnsignedShort() = aAdditionalInformation;
-
-  return NotifySendCancelMmiSuccess(result);
-}
-
-nsresult
-MobileConnectionCallback::NotifySendCancelMmiSuccess(const nsAString& aServiceCode,
-                                                     const nsAString& aStatusMessage,
-                                                     const nsTArray<nsString>& aAdditionalInformation)
-{
-  AutoJSAPI jsapi;
-  if (!NS_WARN_IF(jsapi.Init(mWindow))) {
-    return NS_ERROR_FAILURE;
-  }
-
-  JSContext* cx = jsapi.cx();
-  JS::Rooted<JS::Value> additionalInformation(cx);
-
-  if (!ToJSValue(cx, aAdditionalInformation, &additionalInformation)) {
-    JS_ClearPendingException(cx);
-    return NS_ERROR_TYPE_ERR;
-  }
-
-  return NotifySendCancelMmiSuccess(aServiceCode, aStatusMessage,
-                                    additionalInformation);
-}
-
-nsresult
-MobileConnectionCallback::NotifySendCancelMmiSuccess(const nsAString& aServiceCode,
-                                                     const nsAString& aStatusMessage,
-                                                     const nsTArray<IPC::MozCallForwardingOptions>& aAdditionalInformation)
-{
-  AutoJSAPI jsapi;
-  if (!NS_WARN_IF(jsapi.Init(mWindow))) {
-    return NS_ERROR_FAILURE;
-  }
-
-  JSContext* cx = jsapi.cx();
-  JS::Rooted<JS::Value> additionalInformation(cx);
-
-  if (!ToJSValue(cx, aAdditionalInformation, &additionalInformation)) {
-    JS_ClearPendingException(cx);
-    return NS_ERROR_TYPE_ERR;
-  }
-
-  return NotifySendCancelMmiSuccess(aServiceCode, aStatusMessage,
-                                    additionalInformation);
-}
-
-nsresult
 MobileConnectionCallback::NotifySendCancelMmiSuccess(const MozMMIResult& aResult)
 {
   AutoJSAPI jsapi;
-  if (!NS_WARN_IF(jsapi.Init(mWindow))) {
+  if (NS_WARN_IF(!jsapi.Init(mWindow))) {
     return NS_ERROR_FAILURE;
   }
 
@@ -127,28 +46,6 @@ MobileConnectionCallback::NotifySendCancelMmiSuccess(const MozMMIResult& aResult
   JS::Rooted<JS::Value> jsResult(cx);
 
   if (!ToJSValue(cx, aResult, &jsResult)) {
-    JS_ClearPendingException(cx);
-    return NS_ERROR_TYPE_ERR;
-  }
-
-  return NotifySuccess(jsResult);
-}
-
-/**
- * Notify Success for GetCallForwarding.
- */
-nsresult
-MobileConnectionCallback::NotifyGetCallForwardingSuccess(const nsTArray<IPC::MozCallForwardingOptions>& aResults)
-{
-  AutoJSAPI jsapi;
-  if (!NS_WARN_IF(jsapi.Init(mWindow))) {
-    return NS_ERROR_FAILURE;
-  }
-
-  JSContext* cx = jsapi.cx();
-  JS::Rooted<JS::Value> jsResult(cx);
-
-  if (!ToJSValue(cx, aResults, &jsResult)) {
     JS_ClearPendingException(cx);
     return NS_ERROR_TYPE_ERR;
   }
@@ -168,19 +65,14 @@ MobileConnectionCallback::NotifySuccess(JS::Handle<JS::Value> aResult)
   return rs->FireSuccessAsync(mRequest, aResult);
 }
 
-// nsIMobileConnectionCallback
-
-NS_IMETHODIMP
-MobileConnectionCallback::NotifySuccess()
-{
-  return NotifySuccess(JS::UndefinedHandleValue);
-}
-
-NS_IMETHODIMP
+/**
+ * Notify Success with string.
+ */
+nsresult
 MobileConnectionCallback::NotifySuccessWithString(const nsAString& aResult)
 {
   AutoJSAPI jsapi;
-  if (!NS_WARN_IF(jsapi.Init(mWindow))) {
+  if (NS_WARN_IF(!jsapi.Init(mWindow))) {
     return NS_ERROR_FAILURE;
   }
 
@@ -193,6 +85,14 @@ MobileConnectionCallback::NotifySuccessWithString(const nsAString& aResult)
   }
 
   return NotifySuccess(jsResult);
+}
+
+// nsIMobileConnectionCallback
+
+NS_IMETHODIMP
+MobileConnectionCallback::NotifySuccess()
+{
+  return NotifySuccess(JS::UndefinedHandleValue);
 }
 
 NS_IMETHODIMP
@@ -215,7 +115,189 @@ MobileConnectionCallback::NotifyGetNetworksSuccess(uint32_t aCount,
   }
 
   AutoJSAPI jsapi;
-  if (!NS_WARN_IF(jsapi.Init(mWindow))) {
+  if (NS_WARN_IF(!jsapi.Init(mWindow))) {
+    return NS_ERROR_FAILURE;
+  }
+
+  JSContext* cx = jsapi.cx();
+  JS::Rooted<JS::Value> jsResult(cx);
+
+  if (!ToJSValue(cx, results, &jsResult)) {
+    JS_ClearPendingException(cx);
+    return NS_ERROR_TYPE_ERR;
+  }
+
+  return NotifySuccess(jsResult);
+}
+
+nsresult
+MobileConnectionCallback::NotifySendCancelMmiSuccess(const nsAString& aServiceCode,
+                                                     const nsAString& aStatusMessage)
+{
+  MozMMIResult result;
+  result.mServiceCode.Assign(aServiceCode);
+  result.mStatusMessage.Assign(aStatusMessage);
+
+  return NotifySendCancelMmiSuccess(result);
+}
+
+nsresult
+MobileConnectionCallback::NotifySendCancelMmiSuccessWithInteger(const nsAString& aServiceCode,
+                                                                const nsAString& aStatusMessage,
+                                                                uint16_t aAdditionalInformation)
+{
+  MozMMIResult result;
+  result.mServiceCode.Assign(aServiceCode);
+  result.mStatusMessage.Assign(aStatusMessage);
+  result.mAdditionalInformation.Construct().SetAsUnsignedShort() = aAdditionalInformation;
+
+  return NotifySendCancelMmiSuccess(result);
+}
+
+nsresult
+MobileConnectionCallback::NotifySendCancelMmiSuccessWithStrings(const nsAString& aServiceCode,
+                                                                const nsAString& aStatusMessage,
+                                                                uint32_t aCount,
+                                                                const char16_t** aAdditionalInformation)
+{
+  AutoJSAPI jsapi;
+  if (NS_WARN_IF(!jsapi.Init(mWindow))) {
+    return NS_ERROR_FAILURE;
+  }
+
+  JSContext* cx = jsapi.cx();
+  RootedDictionary<MozMMIResult> result(cx);
+
+  result.mServiceCode.Assign(aServiceCode);
+  result.mStatusMessage.Assign(aStatusMessage);
+
+  nsTArray<nsString> additionalInformation;
+  for (uint32_t i = 0; i < aCount; i++) {
+    additionalInformation.AppendElement(nsDependentString(aAdditionalInformation[i]));
+  }
+
+  JS::Rooted<JS::Value> jsAdditionalInformation(cx);
+  if (!ToJSValue(cx, additionalInformation, &jsAdditionalInformation)) {
+    JS_ClearPendingException(cx);
+    return NS_ERROR_TYPE_ERR;
+  }
+
+  result.mAdditionalInformation.Construct().SetAsObject() =
+    &jsAdditionalInformation.toObject();
+
+  return NotifySendCancelMmiSuccess(result);
+}
+
+nsresult
+MobileConnectionCallback::NotifySendCancelMmiSuccessWithCallForwardingOptions(
+                                                                const nsAString& aServiceCode,
+                                                                const nsAString& aStatusMessage,
+                                                                uint32_t aCount,
+                                                                nsIMobileCallForwardingOptions** aResults)
+{
+  AutoJSAPI jsapi;
+  if (NS_WARN_IF(!jsapi.Init(mWindow))) {
+    return NS_ERROR_FAILURE;
+  }
+
+  JSContext* cx = jsapi.cx();
+  RootedDictionary<MozMMIResult> result(cx);
+
+  result.mServiceCode.Assign(aServiceCode);
+  result.mStatusMessage.Assign(aStatusMessage);
+
+  nsTArray<MozCallForwardingOptions> additionalInformation;
+  for (uint32_t i = 0; i < aCount; i++)
+  {
+    MozCallForwardingOptions options;
+    int16_t pShort;
+    nsString pString;
+    bool pBool;
+
+    aResults[i]->GetActive(&pBool);
+    options.mActive.Construct(pBool);
+
+    aResults[i]->GetAction(&pShort);
+    if (pShort != nsIMobileConnection::CALL_FORWARD_ACTION_UNKNOWN) {
+      options.mAction.Construct(pShort);
+    }
+
+    aResults[i]->GetReason(&pShort);
+    if (pShort != nsIMobileConnection::CALL_FORWARD_REASON_UNKNOWN) {
+      options.mReason.Construct(pShort);
+    }
+
+    aResults[i]->GetNumber(pString);
+    options.mNumber.Construct(pString.get());
+
+    aResults[i]->GetTimeSeconds(&pShort);
+    if (pShort >= 0) {
+      options.mTimeSeconds.Construct(pShort);
+    }
+
+    aResults[i]->GetServiceClass(&pShort);
+    if (pShort != nsIMobileConnection::ICC_SERVICE_CLASS_NONE) {
+      options.mServiceClass.Construct(pShort);
+    }
+
+    additionalInformation.AppendElement(options);
+  }
+
+  JS::Rooted<JS::Value> jsAdditionalInformation(cx);
+  if (!ToJSValue(cx, additionalInformation, &jsAdditionalInformation)) {
+    JS_ClearPendingException(cx);
+    return NS_ERROR_TYPE_ERR;
+  }
+
+  result.mAdditionalInformation.Construct().SetAsObject() =
+    &jsAdditionalInformation.toObject();
+
+  return NotifySendCancelMmiSuccess(result);
+}
+
+NS_IMETHODIMP
+MobileConnectionCallback::NotifyGetCallForwardingSuccess(uint32_t aCount,
+                                                         nsIMobileCallForwardingOptions** aResults)
+{
+  nsTArray<MozCallForwardingOptions> results;
+  for (uint32_t i = 0; i < aCount; i++)
+  {
+    MozCallForwardingOptions result;
+    int16_t pShort;
+    nsString pString;
+    bool pBool;
+
+    aResults[i]->GetActive(&pBool);
+    result.mActive.Construct(pBool);
+
+    aResults[i]->GetAction(&pShort);
+    if (pShort != nsIMobileConnection::CALL_FORWARD_ACTION_UNKNOWN) {
+      result.mAction.Construct(pShort);
+    }
+
+    aResults[i]->GetReason(&pShort);
+    if (pShort != nsIMobileConnection::CALL_FORWARD_REASON_UNKNOWN) {
+      result.mReason.Construct(pShort);
+    }
+
+    aResults[i]->GetNumber(pString);
+    result.mNumber.Construct(pString.get());
+
+    aResults[i]->GetTimeSeconds(&pShort);
+    if (pShort >= 0) {
+      result.mTimeSeconds.Construct(pShort);
+    }
+
+    aResults[i]->GetServiceClass(&pShort);
+    if (pShort != nsIMobileConnection::ICC_SERVICE_CLASS_NONE) {
+      result.mServiceClass.Construct(pShort);
+    }
+
+    results.AppendElement(result);
+  }
+
+  AutoJSAPI jsapi;
+  if (NS_WARN_IF(!jsapi.Init(mWindow))) {
     return NS_ERROR_FAILURE;
   }
 
@@ -231,18 +313,6 @@ MobileConnectionCallback::NotifyGetNetworksSuccess(uint32_t aCount,
 }
 
 NS_IMETHODIMP
-MobileConnectionCallback::NotifySendCancelMmiSuccess(JS::Handle<JS::Value> aResult)
-{
-  return NotifySuccess(aResult);
-}
-
-NS_IMETHODIMP
-MobileConnectionCallback::NotifyGetCallForwardingSuccess(JS::Handle<JS::Value> aResults)
-{
-  return NotifySuccess(aResults);
-}
-
-NS_IMETHODIMP
 MobileConnectionCallback::NotifyGetCallBarringSuccess(uint16_t aProgram,
                                                       bool aEnabled,
                                                       uint16_t aServiceClass)
@@ -253,7 +323,7 @@ MobileConnectionCallback::NotifyGetCallBarringSuccess(uint16_t aProgram,
   result.mServiceClass.Construct().SetValue(aServiceClass);
 
   AutoJSAPI jsapi;
-  if (!NS_WARN_IF(jsapi.Init(mWindow))) {
+  if (NS_WARN_IF(!jsapi.Init(mWindow))) {
     return NS_ERROR_FAILURE;
   }
 
@@ -275,7 +345,7 @@ MobileConnectionCallback::NotifyGetClirStatusSuccess(uint16_t aN, uint16_t aM)
   result.mM.Construct(aM);
 
   AutoJSAPI jsapi;
-  if (!NS_WARN_IF(jsapi.Init(mWindow))) {
+  if (NS_WARN_IF(!jsapi.Init(mWindow))) {
     return NS_ERROR_FAILURE;
   }
 
@@ -287,6 +357,30 @@ MobileConnectionCallback::NotifyGetClirStatusSuccess(uint16_t aN, uint16_t aM)
   }
 
   return NotifySuccess(jsResult);
+};
+
+NS_IMETHODIMP
+MobileConnectionCallback::NotifyGetPreferredNetworkTypeSuccess(int32_t aType)
+{
+  MOZ_ASSERT(aType < static_cast<int32_t>(MobilePreferredNetworkType::EndGuard_));
+  MobilePreferredNetworkType type = static_cast<MobilePreferredNetworkType>(aType);
+
+  nsAutoString typeString;
+  CONVERT_ENUM_TO_STRING(MobilePreferredNetworkType, type, typeString);
+
+  return NotifySuccessWithString(typeString);
+};
+
+NS_IMETHODIMP
+MobileConnectionCallback::NotifyGetRoamingPreferenceSuccess(int32_t aMode)
+{
+  MOZ_ASSERT(aMode < static_cast<int32_t>(MobileRoamingMode::EndGuard_));
+  MobileRoamingMode mode = static_cast<MobileRoamingMode>(aMode);
+
+  nsAutoString modeString;
+  CONVERT_ENUM_TO_STRING(MobileRoamingMode, mode, modeString);
+
+  return NotifySuccessWithString(modeString);
 };
 
 NS_IMETHODIMP

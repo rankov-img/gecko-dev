@@ -27,6 +27,7 @@ class nsPresContext;
 class nsIContent;
 class nsRenderingContext;
 class nsIAtom;
+class nsDisplayListBuilder;
 
 namespace mozilla {
 struct ContainerLayerParameters;
@@ -294,7 +295,7 @@ public:
    * This basically means that we should allocate resources in the
    * expectation that scrolling is going to happen.
    */
-  virtual bool IsScrollingActive() = 0;
+  virtual bool IsScrollingActive(nsDisplayListBuilder* aBuilder) = 0;
   /**
    * Returns true if the scrollframe is currently processing an async
    * or smooth scroll.
@@ -385,6 +386,11 @@ public:
    * If this scroll frame is ignoring viewporting clipping
    */
   virtual bool IsIgnoringViewportClipping() const = 0;
+
+  /**
+   * Mark the scrollbar frames for reflow.
+   */
+  virtual void MarkScrollbarsDirtyForReflow() const = 0;
 };
 
 #endif

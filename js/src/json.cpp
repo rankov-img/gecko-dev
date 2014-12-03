@@ -14,17 +14,18 @@
 #include "jscntxt.h"
 #include "jsnum.h"
 #include "jsobj.h"
-#include "jsonparser.h"
 #include "jsstr.h"
 #include "jstypes.h"
 #include "jsutil.h"
 
 #include "vm/Interpreter.h"
+#include "vm/JSONParser.h"
 #include "vm/StringBuffer.h"
 
 #include "jsatominlines.h"
 #include "jsboolinlines.h"
-#include "jsobjinlines.h"
+
+#include "vm/NativeObject-inl.h"
 
 using namespace js;
 using namespace js::gc;
@@ -46,13 +47,15 @@ const Class js::JSONClass = {
     JS_ConvertStub
 };
 
-static inline bool IsQuoteSpecialCharacter(char16_t c)
+static inline bool
+IsQuoteSpecialCharacter(char16_t c)
 {
-    JS_STATIC_ASSERT('\b' < ' ');
-    JS_STATIC_ASSERT('\f' < ' ');
-    JS_STATIC_ASSERT('\n' < ' ');
-    JS_STATIC_ASSERT('\r' < ' ');
-    JS_STATIC_ASSERT('\t' < ' ');
+    static_assert('\b' < ' ', "'\\b' must be treated as special below");
+    static_assert('\f' < ' ', "'\\f' must be treated as special below");
+    static_assert('\n' < ' ', "'\\n' must be treated as special below");
+    static_assert('\r' < ' ', "'\\r' must be treated as special below");
+    static_assert('\t' < ' ', "'\\t' must be treated as special below");
+
     return c == '"' || c == '\\' || c < ' ';
 }
 
@@ -101,10 +104,10 @@ Quote(StringBuffer &sb, JSLinearString *str)
            if (!sb.append('\\') || !sb.append(abbrev))
                return false;
         } else {
-            JS_ASSERT(c < ' ');
+            MOZ_ASSERT(c < ' ');
             if (!sb.append("\\u00"))
                 return false;
-            JS_ASSERT((c >> 4) < 10);
+            MOZ_ASSERT((c >> 4) < 10);
             uint8_t x = c >> 4, y = c % 16;
             if (!sb.append(Latin1Char('0' + x)) ||
                 !sb.append(Latin1Char(y < 10 ? '0' + y : 'a' + (y - 10))))
@@ -325,12 +328,12 @@ JO(JSContext *cx, HandleObject obj, StringifyContext *scx)
     Maybe<AutoIdVector> ids;
     const AutoIdVector *props;
     if (scx->replacer && !scx->replacer->isCallable()) {
-        JS_ASSERT(JS_IsArrayObject(cx, scx->replacer));
+        MOZ_ASSERT(JS_IsArrayObject(cx, scx->replacer));
         props = &scx->propertyList;
     } else {
-        JS_ASSERT_IF(scx->replacer, scx->propertyList.length() == 0);
+        MOZ_ASSERT_IF(scx->replacer, scx->propertyList.length() == 0);
         ids.emplace(cx);
-        if (!GetPropertyNames(cx, obj, JSITER_OWNONLY, ids.ptr()))
+        if (!GetPropertyKeys(cx, obj, JSITER_OWNONLY, ids.ptr()))
             return false;
         props = ids.ptr();
     }
@@ -465,7 +468,7 @@ static bool
 Str(JSContext *cx, const Value &v, StringifyContext *scx)
 {
     /* Step 11 must be handled by the caller. */
-    JS_ASSERT(!IsFilteredValue(v));
+    MOZ_ASSERT(!IsFilteredValue(v));
 
     JS_CHECK_RECURSION(cx, return false);
 
@@ -505,7 +508,7 @@ Str(JSContext *cx, const Value &v, StringifyContext *scx)
     }
 
     /* Step 10. */
-    JS_ASSERT(v.isObject());
+    MOZ_ASSERT(v.isObject());
     RootedObject obj(cx, &v.toObject());
 
     scx->depth++;
@@ -565,7 +568,7 @@ js_Stringify(JSContext *cx, MutableHandleValue vp, JSObject *replacer_, Value sp
             uint32_t len;
             JS_ALWAYS_TRUE(GetLengthProperty(cx, replacer, &len));
             if (replacer->is<ArrayObject>() && !replacer->isIndexed())
-                len = Min(len, replacer->getDenseInitializedLength());
+                len = Min(len, replacer->as<ArrayObject>().getDenseInitializedLength());
 
             // Cap the initial size to a moderately small value.  This avoids
             // ridiculous over-allocation if an array with bogusly-huge length
@@ -658,11 +661,11 @@ js_Stringify(JSContext *cx, MutableHandleValue vp, JSObject *replacer_, Value sp
             return false;
     } else {
         /* Step 8. */
-        JS_ASSERT(gap.empty());
+        MOZ_ASSERT(gap.empty());
     }
 
     /* Step 9. */
-    RootedObject wrapper(cx, NewBuiltinClassInstance(cx, &JSObject::class_));
+    RootedNativeObject wrapper(cx, NewNativeBuiltinClassInstance(cx, &JSObject::class_));
     if (!wrapper)
         return false;
 
@@ -732,7 +735,7 @@ Walk(JSContext *cx, HandleObject holder, HandleId name, HandleValue reviver, Mut
         } else {
             /* Step 2b(i). */
             AutoIdVector keys(cx);
-            if (!GetPropertyNames(cx, obj, JSITER_OWNONLY, &keys))
+            if (!GetPropertyKeys(cx, obj, JSITER_OWNONLY, &keys))
                 return false;
 
             /* Step 2b(ii). */
@@ -913,7 +916,7 @@ js_InitJSONClass(JSContext *cx, HandleObject obj)
         return nullptr;
 
     if (!JS_DefineProperty(cx, global, js_JSON_str, JSON, 0,
-                           JS_PropertyStub, JS_StrictPropertyStub))
+                           JS_STUBGETTER, JS_STUBSETTER))
         return nullptr;
 
     if (!JS_DefineFunctions(cx, JSON, json_static_methods))

@@ -11,7 +11,6 @@ let gCustomize = {
     "classic",
     "enhanced",
     "panel",
-    "what",
   ],
 
   _nodes: {},
@@ -33,9 +32,6 @@ let gCustomize = {
       gAllPages.enabled = true;
       gAllPages.enhanced = true;
     });
-    this._nodes.what.addEventListener("click", e => {
-      gIntro.showPanel();
-    });
 
     this.updateSelected();
   },
@@ -47,10 +43,12 @@ let gCustomize = {
       return Promise.resolve(nodes);
     }
 
+    panel.hidden = false;
     panel.openPopup(button);
     button.setAttribute("active", true);
     panel.addEventListener("popuphidden", function onHidden() {
       panel.removeEventListener("popuphidden", onHidden);
+      panel.hidden = true;
       button.removeAttribute("active");
     });
 

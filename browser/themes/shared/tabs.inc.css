@@ -76,30 +76,12 @@
   list-style-image: url("chrome://mozapps/skin/places/defaultFavicon.png");
 }
 
-@keyframes throbber-loading {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@keyframes throbber-connecting {
-  from {
-    transform: rotate(360deg);
-  }
-}
-
 .tab-throbber[busy] {
   list-style-image: url("chrome://browser/skin/tabbrowser/connecting.png");
-  animation-duration: 960ms;
-  animation-iteration-count: infinite;
-  animation-name: throbber-connecting;
-  animation-timing-function: linear;
 }
 
 .tab-throbber[progress] {
   list-style-image: url("chrome://browser/skin/tabbrowser/loading.png");
-  animation-duration: 800ms;
-  animation-name: throbber-loading;
 }
 
 .tab-throbber:not([pinned]),
@@ -312,7 +294,7 @@
 }
 
 .tabbrowser-tab[pinned][titlechanged]:not([selected="true"]) > .tab-stack > .tab-content {
-  background-image: radial-gradient(farthest-corner at center bottom, rgb(255,255,255) 3%, rgba(186,221,251,0.75) 20%, rgba(127,179,255,0.25) 40%, rgba(127,179,255,0) 70%);
+  background-image: radial-gradient(farthest-corner at center bottom, rgb(255,255,255) 3%, rgba(186,221,251,0.75) 20%, rgba(127,179,255,0.25) 40%, transparent 70%);
   background-position: center bottom @tabToolbarNavbarOverlap@;
   background-repeat: no-repeat;
   background-size: 85% 100%;
@@ -337,5 +319,5 @@
 /* New tab button */
 
 .tabs-newtab-button {
-  width: 66px;
+  width: calc(36px + @tabCurveWidth@);
 }

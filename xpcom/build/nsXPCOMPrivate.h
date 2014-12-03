@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsXPComPrivate_h__
-#define nsXPComPrivate_h__
+#ifndef nsXPCOMPrivate_h__
+#define nsXPCOMPrivate_h__
 
 #include "nscore.h"
 #include "nsXPCOM.h"
@@ -300,7 +300,9 @@ void LogTerm();
 
 extern bool gXPCOMShuttingDown;
 extern bool gXPCOMThreadsShutDown;
-extern char16_t* gGREPath; // Needed by the IPC layer from off the main thread
+
+// Needed by the IPC layer from off the main thread
+extern char16_t* gGREBinPath;
 
 namespace mozilla {
 namespace services {

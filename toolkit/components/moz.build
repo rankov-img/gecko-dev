@@ -36,6 +36,7 @@ DIRS += [
     'passwordmgr',
     'perf',
     'places',
+    'processsingleton',
     'promiseworker',
     'prompts',
     'protobuf',
@@ -44,7 +45,6 @@ DIRS += [
     'startup',
     'statusfilter',
     'telemetry',
-    'terminator',
     'thumbnails',
     'typeaheadfind',
     'urlformatter',
@@ -84,6 +84,9 @@ if CONFIG['MOZ_URL_CLASSIFIER']:
 
 if CONFIG['MOZ_CAPTIVEDETECT']:
     DIRS += ['captivedetect']
+
+if CONFIG['MOZ_WIDGET_TOOLKIT'] != "gonk" and CONFIG['MOZ_WIDGET_TOOLKIT'] != 'android':
+    DIRS += ['terminator']
 
 DIRS += ['build']
 

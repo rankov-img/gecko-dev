@@ -11,6 +11,7 @@ const {classes: Cc, interfaces: Ci, utils: Cu, results: Cr} = Components;
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Promise.jsm");
+Cu.import("resource://gre/modules/Task.jsm");
 
 XPCOMUtils.defineLazyModuleGetter(this, "LightweightThemeManager",
   "resource://gre/modules/LightweightThemeManager.jsm");
@@ -24,7 +25,8 @@ XPCOMUtils.defineLazyModuleGetter(this, "BrowserUITelemetry",
   "resource:///modules/BrowserUITelemetry.jsm");
 
 
-const UITOUR_PERMISSION   = "uitour";
+// See LOG_LEVELS in Console.jsm. Common examples: "All", "Info", "Warn", & "Error".
+const PREF_LOG_LEVEL      = "browser.uitour.loglevel";
 const PREF_SEENPAGEIDS    = "browser.uitour.seenPageIDs";
 const MAX_BUTTONS         = 4;
 
@@ -39,6 +41,19 @@ const BUCKET_TIMESTEPS    = [
 // Time after which seen Page IDs expire.
 const SEENPAGEID_EXPIRY  = 8 * 7 * 24 * 60 * 60 * 1000; // 8 weeks.
 
+// Prefix for any target matching a search engine.
+const TARGET_SEARCHENGINE_PREFIX = "searchEngine-";
+
+// Create a new instance of the ConsoleAPI so we can control the maxLogLevel with a pref.
+XPCOMUtils.defineLazyGetter(this, "log", () => {
+  let ConsoleAPI = Cu.import("resource://gre/modules/devtools/Console.jsm", {}).ConsoleAPI;
+  let consoleOptions = {
+    // toLowerCase is because the loglevel values use title case to be compatible with Log.jsm.
+    maxLogLevel: Services.prefs.getCharPref(PREF_LOG_LEVEL).toLowerCase(),
+    prefix: "UITour",
+  };
+  return new ConsoleAPI(consoleOptions);
+});
 
 this.UITour = {
   url: null,
@@ -97,7 +112,13 @@ this.UITour = {
     }],
     ["help",        {query: "#PanelUI-help"}],
     ["home",        {query: "#home-button"}],
-    ["loop",        {query: "#loop-call-button"}],
+    ["loop",        {query: "#loop-button"}],
+    ["devtools",    {query: "#developer-button"}],
+    ["webide",      {query: "#webide-button"}],
+    ["forget", {
+      query: "#panic-button",
+      widgetName: "panic-button",
+      allowAdd: true }],
     ["privateWindow",  {query: "#privatebrowsing-button"}],
     ["quit",        {query: "#PanelUI-quit"}],
     ["search",      {
@@ -132,6 +153,7 @@ this.UITour = {
   ]),
 
   init: function() {
+    log.debug("Initializing UITour");
     // Lazy getter is initialized here so it can be replicated any time
     // in a test.
     delete this.seenPageIDs;
@@ -213,65 +235,76 @@ this.UITour = {
                                JSON.stringify([...this.seenPageIDs]));
   },
 
-  onPageEvent: function(aEvent) {
+  onPageEvent: function(aMessage, aEvent) {
     let contentDocument = null;
-    if (aEvent.target instanceof Ci.nsIDOMHTMLDocument)
-      contentDocument = aEvent.target;
-    else if (aEvent.target instanceof Ci.nsIDOMHTMLElement)
-      contentDocument = aEvent.target.ownerDocument;
-    else
-      return false;
+    let browser = aMessage.target;
+    let window = browser.ownerDocument.defaultView;
+    let tab = window.gBrowser.getTabForBrowser(browser);
+    let messageManager = browser.messageManager;
 
-    // Ignore events if they're not from a trusted origin.
-    if (!this.ensureTrustedOrigin(contentDocument))
-      return false;
+    log.debug("onPageEvent:", aEvent.detail);
 
-    if (typeof aEvent.detail != "object")
+    if (typeof aEvent.detail != "object") {
+      log.warn("Malformed event - detail not an object");
       return false;
+    }
 
     let action = aEvent.detail.action;
-    if (typeof action != "string" || !action)
+    if (typeof action != "string" || !action) {
+      log.warn("Action not defined");
       return false;
+    }
 
     let data = aEvent.detail.data;
-    if (typeof data != "object")
+    if (typeof data != "object") {
+      log.warn("Malformed event - data not an object");
       return false;
+    }
 
-    let window = this.getChromeWindow(contentDocument);
     // Do this before bailing if there's no tab, so later we can pick up the pieces:
     window.gBrowser.tabContainer.addEventListener("TabSelect", this);
-    let tab = window.gBrowser._getTabForContentWindow(contentDocument.defaultView);
-    if (!tab) {
-      // This should only happen while detaching a tab:
-      if (this._detachingTab) {
-        this._queuedEvents.push(aEvent);
-        this._pendingDoc = Cu.getWeakReference(contentDocument);
+
+    if (!window.gMultiProcessBrowser) { // Non-e10s. See bug 1089000.
+      contentDocument = browser.contentWindow.document;
+      if (!tab) {
+        // This should only happen while detaching a tab:
+        if (this._detachingTab) {
+          log.debug("Got event while detatching a tab");
+          this._queuedEvents.push(aEvent);
+          this._pendingDoc = Cu.getWeakReference(contentDocument);
+          return;
+        }
+        log.error("Discarding tabless UITour event (" + action + ") while not detaching a tab." +
+                       "This shouldn't happen!");
         return;
       }
-      Cu.reportError("Discarding tabless UITour event (" + action + ") while not detaching a tab." +
-                     "This shouldn't happen!");
-      return;
     }
 
     switch (action) {
       case "registerPageID": {
         // This is only relevant if Telemtry is enabled.
-        if (!UITelemetry.enabled)
+        if (!UITelemetry.enabled) {
+          log.debug("registerPageID: Telemery disabled, not doing anything");
           break;
+        }
 
         // We don't want to allow BrowserUITelemetry.BUCKET_SEPARATOR in the
         // pageID, as it could make parsing the telemetry bucket name difficult.
-        if (typeof data.pageID == "string" &&
-            !data.pageID.contains(BrowserUITelemetry.BUCKET_SEPARATOR)) {
-          this.addSeenPageID(data.pageID);
-
-          // Store tabs and windows separately so we don't need to loop over all
-          // tabs when a window is closed.
-          this.pageIDSourceTabs.set(tab, data.pageID);
-          this.pageIDSourceWindows.set(window, data.pageID);
-
-          this.setTelemetryBucket(data.pageID);
+        if (typeof data.pageID != "string" ||
+            data.pageID.contains(BrowserUITelemetry.BUCKET_SEPARATOR)) {
+          log.warn("registerPageID: Invalid page ID specified");
+          break;
         }
+
+        this.addSeenPageID(data.pageID);
+
+        // Store tabs and windows separately so we don't need to loop over all
+        // tabs when a window is closed.
+        this.pageIDSourceTabs.set(tab, data.pageID);
+        this.pageIDSourceWindows.set(window, data.pageID);
+
+        this.setTelemetryBucket(data.pageID);
+
         break;
       }
 
@@ -279,7 +312,7 @@ this.UITour = {
         let targetPromise = this.getTarget(window, data.target);
         targetPromise.then(target => {
           if (!target.node) {
-            Cu.reportError("UITour: Target could not be resolved: " + data.target);
+            log.error("UITour: Target could not be resolved: " + data.target);
             return;
           }
           let effect = undefined;
@@ -287,7 +320,7 @@ this.UITour = {
             effect = data.effect;
           }
           this.showHighlight(target, effect);
-        }).then(null, Cu.reportError);
+        }).catch(log.error);
         break;
       }
 
@@ -300,13 +333,13 @@ this.UITour = {
         let targetPromise = this.getTarget(window, data.target, true);
         targetPromise.then(target => {
           if (!target.node) {
-            Cu.reportError("UITour: Target could not be resolved: " + data.target);
+            log.error("UITour: Target could not be resolved: " + data.target);
             return;
           }
 
           let iconURL = null;
           if (typeof data.icon == "string")
-            iconURL = this.resolveURL(contentDocument, data.icon);
+            iconURL = this.resolveURL(browser, data.icon);
 
           let buttons = [];
           if (Array.isArray(data.buttons) && data.buttons.length > 0) {
@@ -320,15 +353,17 @@ this.UITour = {
                 };
 
                 if (typeof buttonData.icon == "string")
-                  button.iconURL = this.resolveURL(contentDocument, buttonData.icon);
+                  button.iconURL = this.resolveURL(browser, buttonData.icon);
 
                 if (typeof buttonData.style == "string")
                   button.style = buttonData.style;
 
                 buttons.push(button);
 
-                if (buttons.length == MAX_BUTTONS)
+                if (buttons.length == MAX_BUTTONS) {
+                  log.warn("showInfo: Reached limit of allowed number of buttons");
                   break;
+                }
               }
             }
           }
@@ -340,8 +375,8 @@ this.UITour = {
           if (typeof data.targetCallbackID == "string")
             infoOptions.targetCallbackID = data.targetCallbackID;
 
-          this.showInfo(contentDocument, target, data.title, data.text, iconURL, buttons, infoOptions);
-        }).then(null, Cu.reportError);
+          this.showInfo(messageManager, target, data.title, data.text, iconURL, buttons, infoOptions);
+        }).catch(log.error);
         break;
       }
 
@@ -371,7 +406,10 @@ this.UITour = {
       }
 
       case "showMenu": {
-        this.showMenu(window, data.name);
+        this.showMenu(window, data.name, () => {
+          if (typeof data.showCallbackID == "string")
+            this.sendPageCallback(messageManager, data.showCallbackID);
+        });
         break;
       }
 
@@ -383,6 +421,7 @@ this.UITour = {
       case "startUrlbarCapture": {
         if (typeof data.text != "string" || !data.text ||
             typeof data.url != "string" || !data.url) {
+          log.warn("startUrlbarCapture: Text or URL not specified");
           return false;
         }
 
@@ -390,6 +429,7 @@ this.UITour = {
         try {
           uri = Services.io.newURI(data.url, null, null);
         } catch (e) {
+          log.warn("startUrlbarCapture: Malformed URL specified");
           return false;
         }
 
@@ -399,6 +439,7 @@ this.UITour = {
         try {
           secman.checkLoadURIWithPrincipal(principal, uri, flags);
         } catch (e) {
+          log.warn("startUrlbarCapture: Orginating page doesn't have permission to open specified URL");
           return false;
         }
 
@@ -413,10 +454,11 @@ this.UITour = {
 
       case "getConfiguration": {
         if (typeof data.configuration != "string") {
+          log.warn("getConfiguration: No configuration option specified");
           return false;
         }
 
-        this.getConfiguration(contentDocument, data.configuration, data.callbackID);
+        this.getConfiguration(messageManager, window, data.configuration, data.callbackID);
         break;
       }
 
@@ -433,15 +475,27 @@ this.UITour = {
         ResetProfile.openConfirmationDialog(window);
         break;
       }
+
+      case "addNavBarWidget": {
+        // Add a widget to the toolbar
+        let targetPromise = this.getTarget(window, data.name);
+        targetPromise.then(target => {
+          this.addNavBarWidget(target, messageManager, data.callbackID);
+        }).catch(log.error);
+        break;
+      }
     }
 
-    if (!this.originTabs.has(window))
-      this.originTabs.set(window, new Set());
+    if (!window.gMultiProcessBrowser) { // Non-e10s. See bug 1089000.
+      if (!this.originTabs.has(window)) {
+        this.originTabs.set(window, new Set());
+      }
 
-    this.originTabs.get(window).add(tab);
-    tab.addEventListener("TabClose", this);
-    tab.addEventListener("TabBecomingWindow", this);
-    window.addEventListener("SSWindowClosing", this);
+      this.originTabs.get(window).add(tab);
+      tab.addEventListener("TabClose", this);
+      tab.addEventListener("TabBecomingWindow", this);
+      window.addEventListener("SSWindowClosing", this);
+    }
 
     return true;
   },
@@ -508,7 +562,7 @@ this.UITour = {
               try {
                 this.onPageEvent(this._queuedEvents.shift());
               } catch (ex) {
-                Cu.reportError(ex);
+                log.error(ex);
               }
             }
             break;
@@ -562,6 +616,7 @@ this.UITour = {
   },
 
   teardownTour: function(aWindow, aWindowClosing = false) {
+    log.debug("teardownTour: aWindowClosing = " + aWindowClosing);
     aWindow.gBrowser.tabContainer.removeEventListener("TabSelect", this);
     aWindow.PanelUI.panel.removeEventListener("popuphiding", this.hidePanelAnnotations);
     aWindow.PanelUI.panel.removeEventListener("ViewShowing", this.hidePanelAnnotations);
@@ -600,36 +655,23 @@ this.UITour = {
                            .wrappedJSObject;
   },
 
-  ensureTrustedOrigin: function(aDocument) {
-    if (aDocument.defaultView.top != aDocument.defaultView)
-      return false;
-
-    let uri = aDocument.documentURIObject;
-
-    if (uri.schemeIs("chrome"))
-      return true;
-
-    if (!this.isSafeScheme(uri))
-      return false;
-
-    let permission = Services.perms.testPermission(uri, UITOUR_PERMISSION);
-    return permission == Services.perms.ALLOW_ACTION;
-  },
-
+  // This function is copied to UITourListener.
   isSafeScheme: function(aURI) {
     let allowedSchemes = new Set(["https", "about"]);
     if (!Services.prefs.getBoolPref("browser.uitour.requireSecure"))
       allowedSchemes.add("http");
 
-    if (!allowedSchemes.has(aURI.scheme))
+    if (!allowedSchemes.has(aURI.scheme)) {
+      log.error("Unsafe scheme:", aURI.scheme);
       return false;
+    }
 
     return true;
   },
 
-  resolveURL: function(aDocument, aURL) {
+  resolveURL: function(aBrowser, aURL) {
     try {
-      let uri = Services.io.newURI(aURL, null, aDocument.documentURIObject);
+      let uri = Services.io.newURI(aURL, null, aBrowser.currentURI);
 
       if (!this.isSafeScheme(uri))
         return null;
@@ -640,16 +682,10 @@ this.UITour = {
     return null;
   },
 
-  sendPageCallback: function(aDocument, aCallbackID, aData = {}) {
-
+  sendPageCallback: function(aMessageManager, aCallbackID, aData = {}) {
     let detail = {data: aData, callbackID: aCallbackID};
-    detail = Cu.cloneInto(detail, aDocument.defaultView);
-    let event = new aDocument.defaultView.CustomEvent("mozUITourResponse", {
-      bubbles: true,
-      detail: detail
-    });
-
-    aDocument.dispatchEvent(event);
+    log.debug("sendPageCallback", detail);
+    aMessageManager.sendAsyncMessage("UITour:SendPageCallback", detail);
   },
 
   isElementVisible: function(aElement) {
@@ -658,8 +694,10 @@ this.UITour = {
   },
 
   getTarget: function(aWindow, aTargetName, aSticky = false) {
+    log.debug("getTarget:", aTargetName);
     let deferred = Promise.defer();
     if (typeof aTargetName != "string" || !aTargetName) {
+      log.warn("getTarget: Invalid target name specified");
       deferred.reject("Invalid target name specified");
       return deferred.promise;
     }
@@ -672,8 +710,14 @@ this.UITour = {
       return deferred.promise;
     }
 
+    if (aTargetName.startsWith(TARGET_SEARCHENGINE_PREFIX)) {
+      let engineID = aTargetName.slice(TARGET_SEARCHENGINE_PREFIX.length);
+      return this.getSearchEngineTarget(aWindow, engineID);
+    }
+
     let targetObject = this.targets.get(aTargetName);
     if (!targetObject) {
+      log.warn("getTarget: The specified target name is not in the allowed set");
       deferred.reject("The specified target name is not in the allowed set");
       return deferred.promise;
     }
@@ -685,6 +729,7 @@ this.UITour = {
         try {
           node = targetQuery(aWindow.document);
         } catch (ex) {
+          log.warn("getTarget: Error running target query:", ex);
           node = null;
         }
       } else {
@@ -697,8 +742,9 @@ this.UITour = {
         removeTargetListener: targetObject.removeTargetListener,
         targetName: aTargetName,
         widgetName: targetObject.widgetName,
+        allowAdd: targetObject.allowAdd,
       });
-    }).then(null, Cu.reportError);
+    }).catch(log.error);
     return deferred.promise;
   },
 
@@ -724,9 +770,13 @@ this.UITour = {
    * we need to open or close the appMenu to see the annotation's anchor.
    */
   _setAppMenuStateForAnnotation: function(aWindow, aAnnotationType, aShouldOpenForHighlight, aCallback = null) {
+    log.debug("_setAppMenuStateForAnnotation:", aAnnotationType);
+    log.debug("_setAppMenuStateForAnnotation: Menu is exptected to be:", aShouldOpenForHighlight ? "open" : "closed");
+
     // If the panel is in the desired state, we're done.
     let panelIsOpen = aWindow.PanelUI.panel.state != "closed";
     if (aShouldOpenForHighlight == panelIsOpen) {
+      log.debug("_setAppMenuStateForAnnotation: Panel already in expected state");
       if (aCallback)
         aCallback();
       return;
@@ -734,6 +784,7 @@ this.UITour = {
 
     // Don't close the menu if it wasn't opened by us (e.g. via showmenu instead).
     if (!aShouldOpenForHighlight && !this.appMenuOpenForAnnotation.has(aAnnotationType)) {
+      log.debug("_setAppMenuStateForAnnotation: Menu not opened by us, not closing");
       if (aCallback)
         aCallback();
       return;
@@ -747,8 +798,10 @@ this.UITour = {
 
     // Actually show or hide the menu
     if (this.appMenuOpenForAnnotation.size) {
+      log.debug("_setAppMenuStateForAnnotation: Opening the menu");
       this.showMenu(aWindow, "appMenu", aCallback);
     } else {
+      log.debug("_setAppMenuStateForAnnotation: Closing the menu");
       this.hideMenu(aWindow, "appMenu");
       if (aCallback)
         aCallback();
@@ -803,8 +856,22 @@ this.UITour = {
    * @see UITour.highlightEffects
    */
   showHighlight: function(aTarget, aEffect = "none") {
-    function showHighlightPanel(aTargetEl) {
-      let highlighter = aTargetEl.ownerDocument.getElementById("UITourHighlight");
+    let window = aTarget.node.ownerDocument.defaultView;
+
+    function showHighlightPanel() {
+      if (aTarget.targetName.startsWith(TARGET_SEARCHENGINE_PREFIX)) {
+        // This won't affect normal higlights done via the panel, so we need to
+        // manually hide those.
+        this.hideHighlight(window);
+        aTarget.node.setAttribute("_moz-menuactive", true);
+        return;
+      }
+
+      // Conversely, highlights for search engines are highlighted via CSS
+      // rather than a panel, so need to be manually removed.
+      this._hideSearchEngineHighlight(window);
+
+      let highlighter = aTarget.node.ownerDocument.getElementById("UITourHighlight");
 
       let effect = aEffect;
       if (effect == "random") {
@@ -816,12 +883,22 @@ this.UITour = {
       }
       // Toggle the effect attribute to "none" and flush layout before setting it so the effect plays.
       highlighter.setAttribute("active", "none");
-      aTargetEl.ownerDocument.defaultView.getComputedStyle(highlighter).animationName;
+      aTarget.node.ownerDocument.defaultView.getComputedStyle(highlighter).animationName;
       highlighter.setAttribute("active", effect);
       highlighter.parentElement.setAttribute("targetName", aTarget.targetName);
       highlighter.parentElement.hidden = false;
 
-      let targetRect = aTargetEl.getBoundingClientRect();
+      let highlightAnchor;
+      // If the target is in the overflow panel, just highlight the overflow button.
+      if (aTarget.node.getAttribute("overflowedItem")) {
+        let doc = aTarget.node.ownerDocument;
+        let placement = CustomizableUI.getPlacementOfWidget(aTarget.widgetName || aTarget.node.id);
+        let areaNode = doc.getElementById(placement.area);
+        highlightAnchor = areaNode.overflowable._chevron;
+      } else {
+        highlightAnchor = aTarget.node;
+      }
+      let targetRect = highlightAnchor.getBoundingClientRect();
       let highlightHeight = targetRect.height;
       let highlightWidth = targetRect.width;
       let minDimension = Math.min(highlightHeight, highlightWidth);
@@ -841,11 +918,12 @@ this.UITour = {
 
       // Close a previous highlight so we can relocate the panel.
       if (highlighter.parentElement.state == "showing" || highlighter.parentElement.state == "open") {
+        log.debug("showHighlight: Closing previous highlight first");
         highlighter.parentElement.hidePopup();
       }
       /* The "overlap" position anchors from the top-left but we want to centre highlights at their
          minimum size. */
-      let highlightWindow = aTargetEl.ownerDocument.defaultView;
+      let highlightWindow = aTarget.node.ownerDocument.defaultView;
       let containerStyle = highlightWindow.getComputedStyle(highlighter.parentElement);
       let paddingTopPx = 0 - parseFloat(containerStyle.paddingTop);
       let paddingLeftPx = 0 - parseFloat(containerStyle.paddingLeft);
@@ -856,18 +934,19 @@ this.UITour = {
                       - (Math.max(0, highlightWidthWithMin - targetRect.width) / 2);
       let offsetY = paddingLeftPx
                       - (Math.max(0, highlightHeightWithMin - targetRect.height) / 2);
-
       this._addAnnotationPanelMutationObserver(highlighter.parentElement);
-      highlighter.parentElement.openPopup(aTargetEl, "overlap", offsetX, offsetY);
+      highlighter.parentElement.openPopup(highlightAnchor, "overlap", offsetX, offsetY);
     }
 
     // Prevent showing a panel at an undefined position.
-    if (!this.isElementVisible(aTarget.node))
+    if (!this.isElementVisible(aTarget.node)) {
+      log.warn("showHighlight: Not showing a highlight since the target isn't visible", aTarget);
       return;
+    }
 
     this._setAppMenuStateForAnnotation(aTarget.node.ownerDocument.defaultView, "highlight",
                                        this.targetIsInAppMenu(aTarget),
-                                       showHighlightPanel.bind(this, aTarget.node));
+                                       showHighlightPanel.bind(this));
   },
 
   hideHighlight: function(aWindow) {
@@ -881,12 +960,30 @@ this.UITour = {
     highlighter.removeAttribute("active");
 
     this._setAppMenuStateForAnnotation(aWindow, "highlight", false);
+    this._hideSearchEngineHighlight(aWindow);
+  },
+
+  _hideSearchEngineHighlight: function(aWindow) {
+    // We special case highlighting items in the search engines dropdown,
+    // so just blindly remove any highlight there.
+    let searchMenuBtn = null;
+    try {
+      searchMenuBtn = this.targets.get("searchProvider").query(aWindow.document);
+    } catch (e) { /* This is ok to fail. */ }
+    if (searchMenuBtn) {
+      let searchPopup = aWindow.document
+                               .getAnonymousElementByAttribute(searchMenuBtn,
+                                                               "anonid",
+                                                               "searchbar-popup");
+      for (let menuItem of searchPopup.children)
+        menuItem.removeAttribute("_moz-menuactive");
+    }
   },
 
   /**
    * Show an info panel.
    *
-   * @param {Document} aContentDocument
+   * @param {nsIMessageSender} aMessageManager
    * @param {Node}     aAnchor
    * @param {String}   [aTitle=""]
    * @param {String}   [aDescription=""]
@@ -895,7 +992,7 @@ this.UITour = {
    * @param {Object}   [aOptions={}]
    * @param {String}   [aOptions.closeButtonCallbackID]
    */
-  showInfo: function(aContentDocument, aAnchor, aTitle = "", aDescription = "", aIconURL = "",
+  showInfo: function(aMessageManager, aAnchor, aTitle = "", aDescription = "", aIconURL = "",
                      aButtons = [], aOptions = {}) {
     function showInfoPanel(aAnchorEl) {
       aAnchorEl.focus();
@@ -934,7 +1031,7 @@ this.UITour = {
         let callbackID = button.callbackID;
         el.addEventListener("command", event => {
           tooltip.hidePopup();
-          this.sendPageCallback(aContentDocument, callbackID);
+          this.sendPageCallback(aMessageManager, callbackID);
         });
 
         tooltipButtons.appendChild(el);
@@ -946,7 +1043,7 @@ this.UITour = {
       let closeButtonCallback = (event) => {
         this.hideInfo(document.defaultView);
         if (aOptions && aOptions.closeButtonCallbackID)
-          this.sendPageCallback(aContentDocument, aOptions.closeButtonCallbackID);
+          this.sendPageCallback(aMessageManager, aOptions.closeButtonCallbackID);
       };
       tooltipClose.addEventListener("command", closeButtonCallback);
 
@@ -955,7 +1052,7 @@ this.UITour = {
           target: aAnchor.targetName,
           type: event.type,
         };
-        this.sendPageCallback(aContentDocument, aOptions.targetCallbackID, details);
+        this.sendPageCallback(aMessageManager, aOptions.targetCallbackID, details);
       };
       if (aOptions.targetCallbackID && aAnchor.addTargetListener) {
         aAnchor.addTargetListener(document, targetCallback);
@@ -974,10 +1071,21 @@ this.UITour = {
       let alignment = "bottomcenter topright";
       this._addAnnotationPanelMutationObserver(tooltip);
       tooltip.openPopup(aAnchorEl, alignment);
+      if (tooltip.state == "closed") {
+        document.defaultView.addEventListener("endmodalstate", function endModalStateHandler() {
+          document.defaultView.removeEventListener("endmodalstate", endModalStateHandler);
+          tooltip.openPopup(aAnchorEl, alignment);
+        }, false);
+      }
     }
 
     // Prevent showing a panel at an undefined position.
     if (!this.isElementVisible(aAnchor.node))
+      return;
+
+    // Due to a platform limitation, we can't anchor a panel to an element in a
+    // <menupopup>. So we can't support showing info panels for search engines.
+    if (aAnchor.targetName.startsWith(TARGET_SEARCHENGINE_PREFIX))
       return;
 
     this._setAppMenuStateForAnnotation(aAnchor.node.ownerDocument.defaultView, "info",
@@ -999,15 +1107,15 @@ this.UITour = {
   },
 
   showMenu: function(aWindow, aMenuName, aOpenCallback = null) {
-    function openMenuButton(aID) {
-      let menuBtn = aWindow.document.getElementById(aID);
-      if (!menuBtn || !menuBtn.boxObject) {
-        aOpenCallback();
+    function openMenuButton(aMenuBtn) {
+      if (!aMenuBtn || !aMenuBtn.boxObject || aMenuBtn.open) {
+        if (aOpenCallback)
+          aOpenCallback();
         return;
       }
       if (aOpenCallback)
-        menuBtn.addEventListener("popupshown", onPopupShown);
-      menuBtn.boxObject.QueryInterface(Ci.nsIMenuBoxObject).openMenu(true);
+        aMenuBtn.addEventListener("popupshown", onPopupShown);
+      aMenuBtn.boxObject.openMenu(true);
     }
     function onPopupShown(event) {
       this.removeEventListener("popupshown", onPopupShown);
@@ -1027,15 +1135,19 @@ this.UITour = {
       }
       aWindow.PanelUI.show();
     } else if (aMenuName == "bookmarks") {
-      openMenuButton("bookmarks-menu-button");
+      let menuBtn = aWindow.document.getElementById("bookmarks-menu-button");
+      openMenuButton(menuBtn);
+    } else if (aMenuName == "searchEngines") {
+      this.getTarget(aWindow, "searchProvider").then(target => {
+        openMenuButton(target.node);
+      }).catch(log.error);
     }
   },
 
   hideMenu: function(aWindow, aMenuName) {
-    function closeMenuButton(aID) {
-      let menuBtn = aWindow.document.getElementById(aID);
-      if (menuBtn && menuBtn.boxObject)
-        menuBtn.boxObject.QueryInterface(Ci.nsIMenuBoxObject).openMenu(false);
+    function closeMenuButton(aMenuBtn) {
+      if (aMenuBtn && aMenuBtn.boxObject)
+        aMenuBtn.boxObject.openMenu(false);
     }
 
     if (aMenuName == "appMenu") {
@@ -1043,7 +1155,11 @@ this.UITour = {
       aWindow.PanelUI.hide();
       this.recreatePopup(aWindow.PanelUI.panel);
     } else if (aMenuName == "bookmarks") {
-      closeMenuButton("bookmarks-menu-button");
+      let menuBtn = aWindow.document.getElementById("bookmarks-menu-button");
+      closeMenuButton(menuBtn);
+    } else if (aMenuName == "searchEngines") {
+      let menuBtn = this.targets.get("searchProvider").query(aWindow.document);
+      closeMenuButton(menuBtn);
     }
   },
 
@@ -1066,7 +1182,7 @@ this.UITour = {
             return;
           }
           hideMethod(win);
-        }).then(null, Cu.reportError);
+        }).catch(log.error);
       }
     });
     UITour.appMenuOpenForAnnotation.clear();
@@ -1121,13 +1237,13 @@ this.UITour = {
     aWindow.gBrowser.selectedTab = tab;
   },
 
-  getConfiguration: function(aContentDocument, aConfiguration, aCallbackID) {
+  getConfiguration: function(aMessageManager, aWindow, aConfiguration, aCallbackID) {
     switch (aConfiguration) {
       case "availableTargets":
-        this.getAvailableTargets(aContentDocument, aCallbackID);
+        this.getAvailableTargets(aMessageManager, aWindow, aCallbackID);
         break;
       case "sync":
-        this.sendPageCallback(aContentDocument, aCallbackID, {
+        this.sendPageCallback(aMessageManager, aCallbackID, {
           setup: Services.prefs.prefHasUserValue("services.sync.username"),
         });
         break;
@@ -1135,45 +1251,72 @@ this.UITour = {
         let props = ["defaultUpdateChannel", "version"];
         let appinfo = {};
         props.forEach(property => appinfo[property] = Services.appinfo[property]);
-        this.sendPageCallback(aContentDocument, aCallbackID, appinfo);
+        this.sendPageCallback(aMessageManager, aCallbackID, appinfo);
         break;
       default:
-        Cu.reportError("getConfiguration: Unknown configuration requested: " + aConfiguration);
+        log.error("getConfiguration: Unknown configuration requested: " + aConfiguration);
         break;
     }
   },
 
-  getAvailableTargets: function(aContentDocument, aCallbackID) {
-    let window = this.getChromeWindow(aContentDocument);
-    let data = this.availableTargetsCache.get(window);
-    if (data) {
-      this.sendPageCallback(aContentDocument, aCallbackID, data);
-      return;
-    }
+  getAvailableTargets: function(aMessageManager, aChromeWindow, aCallbackID) {
+    Task.spawn(function*() {
+      let window = aChromeWindow;
+      let data = this.availableTargetsCache.get(window);
+      if (data) {
+        log.debug("getAvailableTargets: Using cached targets list", data.targets.join(","));
+        this.sendPageCallback(aMessageManager, aCallbackID, data);
+        return;
+      }
 
-    let promises = [];
-    for (let targetName of this.targets.keys()) {
-      promises.push(this.getTarget(window, targetName));
-    }
-    Promise.all(promises).then((targetObjects) => {
+      let promises = [];
+      for (let targetName of this.targets.keys()) {
+        promises.push(this.getTarget(window, targetName));
+      }
+      let targetObjects = yield Promise.all(promises);
+
       let targetNames = [
         "pinnedTab",
       ];
+
       for (let targetObject of targetObjects) {
         if (targetObject.node)
           targetNames.push(targetObject.targetName);
       }
-      let data = {
+
+      targetNames = targetNames.concat(
+        yield this.getAvailableSearchEngineTargets(window)
+      );
+
+      data = {
         targets: targetNames,
       };
       this.availableTargetsCache.set(window, data);
-      this.sendPageCallback(aContentDocument, aCallbackID, data);
-    }, (err) => {
-      Cu.reportError(err);
-      this.sendPageCallback(aContentDocument, aCallbackID, {
+      this.sendPageCallback(aMessageManager, aCallbackID, data);
+    }.bind(this)).catch(err => {
+      log.error(err);
+      this.sendPageCallback(aMessageManager, aCallbackID, {
         targets: [],
       });
     });
+  },
+
+  addNavBarWidget: function (aTarget, aMessageManager, aCallbackID) {
+    if (aTarget.node) {
+      log.error("addNavBarWidget: can't add a widget already present:", aTarget);
+      return;
+    }
+    if (!aTarget.allowAdd) {
+      log.error("addNavBarWidget: not allowed to add this widget:", aTarget);
+      return;
+    }
+    if (!aTarget.widgetName) {
+      log.error("addNavBarWidget: can't add a widget without a widgetName property:", aTarget);
+      return;
+    }
+
+    CustomizableUI.addWidgetToArea(aTarget.widgetName, CustomizableUI.AREA_NAVBAR);
+    this.sendPageCallback(aMessageManager, aCallbackID);
   },
 
   _addAnnotationPanelMutationObserver: function(aPanelEl) {
@@ -1216,6 +1359,55 @@ this.UITour = {
       return;
     }
   },
+
+  getAvailableSearchEngineTargets(aWindow) {
+    return new Promise(resolve => {
+      this.getTarget(aWindow, "search").then(searchTarget => {
+        if (!searchTarget.node || this.targetIsInAppMenu(searchTarget))
+          return resolve([]);
+
+        Services.search.init(() => {
+          let engines = Services.search.getVisibleEngines();
+          resolve([TARGET_SEARCHENGINE_PREFIX + engine.identifier
+                   for (engine of engines)
+                   if (engine.identifier)]);
+        });
+      }).catch(() => resolve([]));
+    });
+  },
+
+  // We only allow matching based on a search engine's identifier - this gives
+  // us a non-changing ID and guarentees we only match against app-provided
+  // engines.
+  getSearchEngineTarget(aWindow, aIdentifier) {
+    return new Promise((resolve, reject) => {
+      Task.spawn(function*() {
+        let searchTarget = yield this.getTarget(aWindow, "search");
+        // We're not supporting having the searchbar in the app-menu, because
+        // popups within popups gets crazy. This restriction should be lifted
+        // once bug 988151 is implemented, as the page can then be responsible
+        // for opening each menu when appropriate.
+        if (!searchTarget.node || this.targetIsInAppMenu(searchTarget))
+          return reject("Search engine not available");
+
+        yield Services.search.init();
+
+        let searchPopup = searchTarget.node._popup;
+        for (let engineNode of searchPopup.children) {
+          let engine = engineNode.engine;
+          if (engine && engine.identifier == aIdentifier) {
+            return resolve({
+              targetName: TARGET_SEARCHENGINE_PREFIX + engine.identifier,
+              node: engineNode,
+            });
+          }
+        }
+        reject("Search engine not available");
+      }.bind(this)).catch(() => {
+        reject("Search engine not available");
+      });
+    });
+  }
 };
 
 this.UITour.init();

@@ -75,17 +75,18 @@ public:
 */
 
   enum frameType {
-    FRAME_TYPE_DATA = 0,
-    FRAME_TYPE_HEADERS = 1,
-    FRAME_TYPE_PRIORITY = 2,
-    FRAME_TYPE_RST_STREAM = 3,
-    FRAME_TYPE_SETTINGS = 4,
-    FRAME_TYPE_PUSH_PROMISE = 5,
-    FRAME_TYPE_PING = 6,
-    FRAME_TYPE_GOAWAY = 7,
-    FRAME_TYPE_WINDOW_UPDATE = 8,
-    FRAME_TYPE_CONTINUATION = 9,
-    FRAME_TYPE_LAST = 10
+    FRAME_TYPE_DATA          = 0x0,
+    FRAME_TYPE_HEADERS       = 0x1,
+    FRAME_TYPE_PRIORITY      = 0x2,
+    FRAME_TYPE_RST_STREAM    = 0x3,
+    FRAME_TYPE_SETTINGS      = 0x4,
+    FRAME_TYPE_PUSH_PROMISE  = 0x5,
+    FRAME_TYPE_PING          = 0x6,
+    FRAME_TYPE_GOAWAY        = 0x7,
+    FRAME_TYPE_WINDOW_UPDATE = 0x8,
+    FRAME_TYPE_CONTINUATION  = 0x9,
+    FRAME_TYPE_ALTSVC        = 0xA,
+    FRAME_TYPE_LAST          = 0xB
   };
 
   // NO_ERROR is a macro defined on windows, so we'll name the HTTP2 goaway
@@ -103,7 +104,8 @@ public:
     COMPRESSION_ERROR = 9,
     CONNECT_ERROR = 10,
     ENHANCE_YOUR_CALM = 11,
-    INADEQUATE_SECURITY = 12
+    INADEQUATE_SECURITY = 12,
+    HTTP_1_1_REQUIRED = 13
   };
 
   // These are frame flags. If they, or other undefined flags, are
@@ -168,6 +170,7 @@ public:
   static nsresult RecvGoAway(Http2Session *);
   static nsresult RecvWindowUpdate(Http2Session *);
   static nsresult RecvContinuation(Http2Session *);
+  static nsresult RecvAltSvc(Http2Session *);
 
   char       *EnsureOutputBuffer(uint32_t needed);
 
@@ -213,6 +216,8 @@ public:
   void DecrementServerSessionWindow (uint32_t bytes) { mServerSessionWindow -= bytes; }
   void GetNegotiatedToken(nsACString &s) { s.Assign(mNegotiatedToken); }
 
+  void SendPing() MOZ_OVERRIDE;
+
 private:
 
   // These internal states do not correspond to the states of the HTTP/2 specification
@@ -242,6 +247,7 @@ private:
   void        GenerateRstStream(uint32_t, uint32_t);
   void        GenerateGoAway(uint32_t);
   void        CleanupStream(Http2Stream *, nsresult, errorType);
+  void        CleanupStream(uint32_t, nsresult, errorType);
   void        CloseStream(Http2Stream *, nsresult);
   void        SendHello();
   void        RemoveStreamFromQueues(Http2Stream *);
@@ -441,6 +447,9 @@ private:
   PRIntervalTime       mLastReadEpoch;     // used for ping timeouts
   PRIntervalTime       mLastDataReadEpoch; // used for IdleTime()
   PRIntervalTime       mPingSentEpoch;
+
+  PRIntervalTime       mPreviousPingThreshold; // backup for the former value
+  bool                 mPreviousUsed;          // true when backup is used
 
   // used as a temporary buffer while enumerating the stream hash during GoAway
   nsDeque  mGoAwayStreamsToRestart;

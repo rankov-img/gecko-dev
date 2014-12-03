@@ -5,8 +5,10 @@
 
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
                 xmlns:gecko="http://schemas.android.com/apk/res-auto"
+                android:id="@+id/root_layout"
                 android:layout_width="match_parent"
-                android:layout_height="match_parent">
+                android:layout_height="match_parent"
+                android:fitsSystemWindows="true">
 
     <ViewStub android:id="@+id/tabs_panel"
               android:layout="@layout/tabs_panel_view"
@@ -86,7 +88,7 @@
                       android:layout_height="@dimen/new_tablet_tab_strip_height"
                       android:visibility="gone"/>
 
-            <org.mozilla.gecko.widget.GeckoViewFlipper
+            <org.mozilla.gecko.toolbar.ActionBarViewFlipper
                 android:id="@+id/browser_actionbar"
                 android:layout_width="match_parent"
                 android:layout_height="@dimen/browser_toolbar_height"
@@ -107,7 +109,7 @@
                                                         android:layout_width="match_parent"
                                                         style="@style/GeckoActionBar"/>
 
-            </org.mozilla.gecko.widget.GeckoViewFlipper>
+            </org.mozilla.gecko.toolbar.ActionBarViewFlipper>
 
         </LinearLayout>
 
@@ -121,6 +123,12 @@
                                                        android:visibility="gone" />
 
     </view>
+
+    <FrameLayout android:id="@+id/tab_history_panel"
+                 android:layout_width="match_parent"
+                 android:layout_height="match_parent"
+                 android:layout_alignParentBottom="true"
+                 android:visibility="gone" />
 
     <ViewStub android:id="@+id/toast_stub"
               android:layout="@layout/button_toast"

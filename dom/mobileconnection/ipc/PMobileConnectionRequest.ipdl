@@ -30,11 +30,6 @@ struct MobileConnectionReplySuccess
 {
 };
 
-struct MobileConnectionReplySuccessString
-{
-  nsString result;
-};
-
 struct MobileConnectionReplySuccessBoolean
 {
   bool result;
@@ -54,7 +49,7 @@ struct MobileConnectionReplySuccessMmi
 
 struct MobileConnectionReplySuccessCallForwarding
 {
-  MozCallForwardingOptions[] results;
+  nsMobileCallForwardingOptions[] results;
 };
 
 struct MobileConnectionReplySuccessCallBarring
@@ -68,6 +63,16 @@ struct MobileConnectionReplySuccessClirStatus
 {
   uint16_t n;
   uint16_t m;
+};
+
+struct MobileConnectionReplySuccessPreferredNetworkType
+{
+  int32_t type;
+};
+
+struct MobileConnectionReplySuccessRoamingPreference
+{
+  int32_t mode;
 };
 
 // Error
@@ -88,13 +93,14 @@ union MobileConnectionReply
 {
   // Success
   MobileConnectionReplySuccess;
-  MobileConnectionReplySuccessString;
   MobileConnectionReplySuccessBoolean;
   MobileConnectionReplySuccessNetworks;
   MobileConnectionReplySuccessMmi;
   MobileConnectionReplySuccessCallForwarding;
   MobileConnectionReplySuccessCallBarring;
   MobileConnectionReplySuccessClirStatus;
+  MobileConnectionReplySuccessPreferredNetworkType;
+  MobileConnectionReplySuccessRoamingPreference;
   // Error
   MobileConnectionReplyError;
   MobileConnectionReplyErrorMmi;

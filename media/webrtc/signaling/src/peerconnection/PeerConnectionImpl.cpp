@@ -78,6 +78,7 @@
 #include "mozilla/dom/RTCPeerConnectionBinding.h"
 #include "mozilla/dom/PeerConnectionImplBinding.h"
 #include "mozilla/dom/DataChannelBinding.h"
+#include "mozilla/dom/PluginCrashedEvent.h"
 #include "MediaStreamList.h"
 #include "MediaStreamTrack.h"
 #include "AudioStreamTrack.h"
@@ -260,6 +261,7 @@ PeerConnectionImpl::PeerConnectionImpl(const GlobalObject* aGlobal)
   , mIdentity(nullptr)
   , mPrivacyRequested(false)
   , mSTSThread(nullptr)
+  , mAllowIceLoopback(false)
   , mMedia(nullptr)
   , mNumAudioStreams(0)
   , mNumVideoStreams(0)
@@ -609,6 +611,7 @@ PeerConnectionImpl::Initialize(PeerConnectionObserver& aObserver,
   }
 
   mMedia = new PeerConnectionMedia(this);
+  mMedia->SetAllowIceLoopback(mAllowIceLoopback);
 
   // Connect ICE slots.
   mMedia->SignalIceGatheringStateChange.connect(
@@ -618,7 +621,7 @@ PeerConnectionImpl::Initialize(PeerConnectionObserver& aObserver,
       this,
       &PeerConnectionImpl::IceConnectionStateChange);
 
-  mMedia->SignalCandidate.connect(this, &PeerConnectionImpl::CandidateReady_s);
+  mMedia->SignalCandidate.connect(this, &PeerConnectionImpl::CandidateReady);
 
   // Initialize the media object.
   res = mMedia->Init(aConfiguration->getStunServers(),
@@ -703,7 +706,7 @@ PeerConnectionImpl::GetFingerprintHexValue() const
 
 
 nsresult
-PeerConnectionImpl::CreateFakeMediaStream(uint32_t aHint, nsIDOMMediaStream** aRetval)
+PeerConnectionImpl::CreateFakeMediaStream(uint32_t aHint, DOMMediaStream** aRetval)
 {
   MOZ_ASSERT(aRetval);
   PC_AUTO_ENTER_API_CALL(false);
@@ -1787,52 +1790,19 @@ PeerConnectionImpl::PluginCrash(uint64_t aPluginID,
     return true;
   }
 
-  ErrorResult rv;
-  nsRefPtr<Event> event =
-    doc->CreateEvent(NS_LITERAL_STRING("customevent"), rv);
-  nsCOMPtr<nsIDOMCustomEvent> customEvent(do_QueryObject(event));
-  if (!customEvent) {
-    NS_WARNING("Couldn't QI event for PluginCrashed event!");
-    return true;
-  }
+  PluginCrashedEventInit init;
+  init.mPluginDumpID = aPluginDumpID;
+  init.mPluginName = aPluginName;
+  init.mSubmittedCrashReport = false;
+  init.mGmpPlugin = true;
+  init.mBubbles = true;
+  init.mCancelable = true;
 
-  nsCOMPtr<nsIWritableVariant> variant;
-  variant = do_CreateInstance("@mozilla.org/variant;1");
-  if (!variant) {
-    NS_WARNING("Couldn't create detail variant for PluginCrashed event!");
-    return true;
-  }
+  nsRefPtr<PluginCrashedEvent> event =
+    PluginCrashedEvent::Constructor(doc, NS_LITERAL_STRING("PluginCrashed"), init);
 
-  customEvent->InitCustomEvent(NS_LITERAL_STRING("PluginCrashed"),
-                               true, true, variant);
   event->SetTrusted(true);
   event->GetInternalNSEvent()->mFlags.mOnlyChromeDispatch = true;
-
-  nsCOMPtr<nsIWritablePropertyBag2> propBag;
-  propBag = do_CreateInstance("@mozilla.org/hash-property-bag;1");
-  if (!propBag) {
-    NS_WARNING("Couldn't create a property bag for PluginCrashed event!");
-    return true;
-  }
-
-  // add a "pluginDumpID" property to this event
-  propBag->SetPropertyAsAString(NS_LITERAL_STRING("pluginDumpID"),
-                                aPluginDumpID);
-
-
-  // add a "pluginName" property to this event
-  propBag->SetPropertyAsAString(NS_LITERAL_STRING("pluginName"),
-                                aPluginName);
-
-  // add a "pluginName" property to this event
-  propBag->SetPropertyAsBool(NS_LITERAL_STRING("gmpPlugin"),
-                             true);
-
-  // add a "submittedCrashReport" property to this event
-  propBag->SetPropertyAsBool(NS_LITERAL_STRING("submittedCrashReport"),
-                             false);
-
-  variant->SetAsISupports(propBag);
 
   EventDispatcher::DispatchDOMEvent(mWindow, nullptr, event, nullptr, nullptr);
 #endif
@@ -2040,54 +2010,10 @@ toDomIceGatheringState(NrIceCtx::GatheringState state) {
   MOZ_CRASH();
 }
 
-// This is called from the STS thread and so we need to thunk
-// to the main thread.
-void PeerConnectionImpl::IceConnectionStateChange(
-    NrIceCtx* ctx,
-    NrIceCtx::ConnectionState state) {
-  (void)ctx;
-  // Do an async call here to unwind the stack. refptr keeps the PC alive.
-  nsRefPtr<PeerConnectionImpl> pc(this);
-  RUN_ON_THREAD(mThread,
-                WrapRunnable(pc,
-                             &PeerConnectionImpl::IceConnectionStateChange_m,
-                             toDomIceConnectionState(state)),
-                NS_DISPATCH_NORMAL);
-}
-
 void
-PeerConnectionImpl::IceGatheringStateChange(
-    NrIceCtx* ctx,
-    NrIceCtx::GatheringState state)
-{
-  (void)ctx;
-  // Do an async call here to unwind the stack. refptr keeps the PC alive.
-  nsRefPtr<PeerConnectionImpl> pc(this);
-  RUN_ON_THREAD(mThread,
-                WrapRunnable(pc,
-                             &PeerConnectionImpl::IceGatheringStateChange_m,
-                             toDomIceGatheringState(state)),
-                NS_DISPATCH_NORMAL);
-}
-
-void
-PeerConnectionImpl::CandidateReady_s(const std::string& candidate,
-                                     uint16_t level)
-{
-  ASSERT_ON_THREAD(mSTSThread);
-  nsRefPtr<PeerConnectionImpl> pc(this);
-  RUN_ON_THREAD(mThread,
-                WrapRunnable(pc,
-                             &PeerConnectionImpl::CandidateReady_m,
-                             candidate,
-                             level),
-                NS_DISPATCH_NORMAL);
-}
-
-nsresult
-PeerConnectionImpl::CandidateReady_m(const std::string& candidate,
-                                     uint16_t level) {
-  PC_AUTO_ENTER_API_CALL(false);
+PeerConnectionImpl::CandidateReady(const std::string& candidate,
+                                   uint16_t level) {
+  PC_AUTO_ENTER_API_CALL_VOID_RETURN(false);
 
   if (mLocalSDP.empty()) {
     // It is not appropriate to trickle yet; buffer.
@@ -2097,8 +2023,6 @@ PeerConnectionImpl::CandidateReady_m(const std::string& candidate,
       FoundIceCandidate(candidate, level);
     }
   }
-
-  return NS_OK;
 }
 
 void
@@ -2110,7 +2034,7 @@ PeerConnectionImpl::StartTrickle() {
   }
 
   // If the buffer was empty to begin with, we have already sent the
-  // end-of-candidates event in IceGatheringStateChange_m.
+  // end-of-candidates event in IceGatheringStateChange.
   if (mIceGatheringState == PCImplIceGatheringState::Complete &&
       !mCandidateBuffer.empty()) {
     SendLocalIceCandidateToContent(0, "", "");
@@ -2199,33 +2123,35 @@ static bool isFailed(PCImplIceConnectionState state) {
 }
 #endif
 
-nsresult
-PeerConnectionImpl::IceConnectionStateChange_m(PCImplIceConnectionState aState)
-{
-  PC_AUTO_ENTER_API_CALL(false);
+void PeerConnectionImpl::IceConnectionStateChange(
+    NrIceCtx* ctx,
+    NrIceCtx::ConnectionState state) {
+  PC_AUTO_ENTER_API_CALL_VOID_RETURN(false);
 
   CSFLogDebug(logTag, "%s", __FUNCTION__);
 
+  auto domState = toDomIceConnectionState(state);
+
 #ifdef MOZILLA_INTERNAL_API
-  if (!isDone(mIceConnectionState) && isDone(aState)) {
+  if (!isDone(mIceConnectionState) && isDone(domState)) {
     // mIceStartTime can be null if going directly from New to Closed, in which
     // case we don't count it as a success or a failure.
     if (!mIceStartTime.IsNull()){
       TimeDuration timeDelta = TimeStamp::Now() - mIceStartTime;
-      if (isSucceeded(aState)) {
+      if (isSucceeded(domState)) {
         Telemetry::Accumulate(Telemetry::WEBRTC_ICE_SUCCESS_TIME,
                               timeDelta.ToMilliseconds());
-      } else if (isFailed(aState)) {
+      } else if (isFailed(domState)) {
         Telemetry::Accumulate(Telemetry::WEBRTC_ICE_FAILURE_TIME,
                               timeDelta.ToMilliseconds());
       }
     }
 
-    if (isSucceeded(aState)) {
+    if (isSucceeded(domState)) {
       Telemetry::Accumulate(
           Telemetry::WEBRTC_ICE_ADD_CANDIDATE_ERRORS_GIVEN_SUCCESS,
           mAddCandidateErrorCount);
-    } else if (isFailed(aState)) {
+    } else if (isFailed(domState)) {
       Telemetry::Accumulate(
           Telemetry::WEBRTC_ICE_ADD_CANDIDATE_ERRORS_GIVEN_FAILURE,
           mAddCandidateErrorCount);
@@ -2233,7 +2159,7 @@ PeerConnectionImpl::IceConnectionStateChange_m(PCImplIceConnectionState aState)
   }
 #endif
 
-  mIceConnectionState = aState;
+  mIceConnectionState = domState;
 
   // Would be nice if we had a means of converting one of these dom enums
   // to a string that wasn't almost as much text as this switch statement...
@@ -2269,7 +2195,7 @@ PeerConnectionImpl::IceConnectionStateChange_m(PCImplIceConnectionState aState)
 
   nsRefPtr<PeerConnectionObserver> pco = do_QueryObjectReferent(mPCObserver);
   if (!pco) {
-    return NS_OK;
+    return;
   }
   WrappableJSErrorResult rv;
   RUN_ON_THREAD(mThread,
@@ -2278,17 +2204,18 @@ PeerConnectionImpl::IceConnectionStateChange_m(PCImplIceConnectionState aState)
                              PCObserverStateType::IceConnectionState,
                              rv, static_cast<JSCompartment*>(nullptr)),
                 NS_DISPATCH_NORMAL);
-  return NS_OK;
 }
 
-nsresult
-PeerConnectionImpl::IceGatheringStateChange_m(PCImplIceGatheringState aState)
+void
+PeerConnectionImpl::IceGatheringStateChange(
+    NrIceCtx* ctx,
+    NrIceCtx::GatheringState state)
 {
-  PC_AUTO_ENTER_API_CALL(false);
+  PC_AUTO_ENTER_API_CALL_VOID_RETURN(false);
 
   CSFLogDebug(logTag, "%s", __FUNCTION__);
 
-  mIceGatheringState = aState;
+  mIceGatheringState = toDomIceGatheringState(state);
 
   // Would be nice if we had a means of converting one of these dom enums
   // to a string that wasn't almost as much text as this switch statement...
@@ -2308,7 +2235,7 @@ PeerConnectionImpl::IceGatheringStateChange_m(PCImplIceGatheringState aState)
 
   nsRefPtr<PeerConnectionObserver> pco = do_QueryObjectReferent(mPCObserver);
   if (!pco) {
-    return NS_OK;
+    return;
   }
   WrappableJSErrorResult rv;
   RUN_ON_THREAD(mThread,
@@ -2322,8 +2249,6 @@ PeerConnectionImpl::IceGatheringStateChange_m(PCImplIceGatheringState aState)
       mCandidateBuffer.empty()) {
     SendLocalIceCandidateToContent(0, "", "");
   }
-
-  return NS_OK;
 }
 
 #ifdef MOZILLA_INTERNAL_API

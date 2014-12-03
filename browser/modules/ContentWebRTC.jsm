@@ -64,7 +64,7 @@ function handleRequest(aSubject, aTopic, aData) {
              constraints, devices, secure);
     },
     function (error) {
-      // bug 827146 -- In the future, the UI should catch NO_DEVICES_FOUND
+      // bug 827146 -- In the future, the UI should catch NotFoundError
       // and allow the user to plug in a device, instead of immediately failing.
       denyRequest({callID: aSubject.callID}, error);
     },
@@ -108,7 +108,7 @@ function prompt(aContentWindow, aWindowID, aCallID, aConstraints, aDevices, aSec
     requestTypes.push("Microphone");
 
   if (!requestTypes.length) {
-    denyRequest({callID: aCallID}, "NO_DEVICES_FOUND");
+    denyRequest({callID: aCallID}, "NotFoundError");
     return;
   }
 
@@ -158,8 +158,19 @@ function updateIndicators() {
     showScreenSharingIndicator: ""
   };
 
+  let cpmm = Cc["@mozilla.org/childprocessmessagemanager;1"]
+               .getService(Ci.nsIMessageSender);
+  cpmm.sendAsyncMessage("webrtc:UpdatingIndicators");
+
+  // If several iframes in the same page use media streams, it's possible to
+  // have the same top level window several times. We use a Set to avoid
+  // sending duplicate notifications.
+  let contentWindows = new Set();
   for (let i = 0; i < count; ++i) {
-    let contentWindow = contentWindowSupportsArray.GetElementAt(i);
+    contentWindows.add(contentWindowSupportsArray.GetElementAt(i).top);
+  }
+
+  for (let contentWindow of contentWindows) {
     let camera = {}, microphone = {}, screen = {}, window = {}, app = {};
     MediaManagerService.mediaCaptureWindowState(contentWindow, camera,
                                                 microphone, screen, window, app);
@@ -189,8 +200,6 @@ function updateIndicators() {
     mm.sendAsyncMessage("webrtc:UpdateBrowserIndicators", tabState);
   }
 
-  let cpmm = Cc["@mozilla.org/childprocessmessagemanager;1"]
-               .getService(Ci.nsIMessageSender);
   cpmm.sendAsyncMessage("webrtc:UpdateGlobalIndicators", state);
 }
 
