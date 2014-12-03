@@ -838,13 +838,6 @@ HandleFault(int signum, siginfo_t *info, void *ctx)
     uint8_t **ppc = ContextToPC(context);
     uint8_t *pc = *ppc;
 
-    if (HandleSigBusErrors() && signum == 10) {
-        if (faultingAddress == nullptr)
-            faultingAddress = pc;
-        else
-            return false;
-    }
-
     // Don't allow recursive handling of signals, see AutoSetHandlingSignal.
     JSRuntime *rt = RuntimeForCurrentThread();
     if (!rt || rt->handlingSignal)
@@ -1022,10 +1015,6 @@ js::EnsureSignalHandlersInstalled(JSRuntime *rt)
     struct sigaction prev;
     if (sigaction(sInterruptSignal, &interruptHandler, &prev))
         MOZ_CRASH("unable to install interrupt handler");
-    if (HandleSigBusErrors()) {
-        if (sigaction(SIGBUS, &sigAction, &sPrevHandler))
-            return false;
-    }
 
     // There shouldn't be any other handlers installed for sInterruptSignal. If
     // there are, we could always forward, but we need to understand what we're

@@ -168,11 +168,6 @@ PatchBackedge(CodeLocationJump &jump_, CodeLocationLabel label, JitRuntime::Back
 {
     PatchJump(jump_, label);
 }
-static inline void
-PatchBackedge(CodeLocationJump &jump_, CodeLocationLabel label, JitRuntime::BackedgeTarget target)
-{
-    PatchJump(jump_, label);
-}
 
 // Return operand from a JS -> JS call.
 static const ValueOperand JSReturnOperand = ValueOperand(JSReturnReg_Type, JSReturnReg_Data);

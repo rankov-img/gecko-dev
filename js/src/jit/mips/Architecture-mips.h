@@ -501,12 +501,6 @@ hasMultiAlias() {
     return true;
 }
 
-// Some MIPS CPUs can raise SIGBUS on mprotect instead of SIGSEGV.
-inline bool
-HandleSigBusErrors() {
-    return true;
-}
-
 } // namespace jit
 } // namespace js
 

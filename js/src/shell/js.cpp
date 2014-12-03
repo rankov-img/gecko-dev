@@ -5874,11 +5874,6 @@ main(int argc, char **argv, char **envp)
                              "simulator.")
         || !op.addIntOption('\0', "mips-sim-stop-at", "NUMBER", "Stop the MIPS simulator after the given "
                             "NUMBER of instructions.", -1)
-#elif JS_MIPS_SIMULATOR
-	|| !op.addBoolOption('\0', "mips-sim-icache-checks", "Enable icache flush checks in the MIPS "
-                             "simulator.")
-        || !op.addIntOption('\0', "mips-sim-stop-at", "NUMBER", "Stop the MIPS simulator after the given "
-                            "NUMBER of instructions.", -1)
 #endif
 #ifdef JSGC_GENERATIONAL
         || !op.addIntOption('\0', "nursery-size", "SIZE-MB", "Set the maximum nursery size in MB", 16)

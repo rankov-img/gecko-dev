@@ -583,11 +583,6 @@ static inline bool UseHardFpABI()
 }
 #endif
 
-inline bool
-HandleSigBusErrors() {
-    return false;
-}
-
 } // namespace jit
 } // namespace js
 
