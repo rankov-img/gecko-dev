@@ -26,7 +26,7 @@ typedef std::deque<mp4_demuxer::MP4Sample*> MP4SampleQueue;
 
 class MP4Stream;
 
-class MP4Reader : public MediaDecoderReader
+class MP4Reader MOZ_FINAL : public MediaDecoderReader
 {
   typedef mp4_demuxer::TrackType TrackType;
 
@@ -156,7 +156,6 @@ private:
       , mInputExhausted(false)
       , mError(false)
       , mIsFlushing(false)
-      , mDrainComplete(false)
       , mOutputRequested(false)
       , mUpdateScheduled(false)
       , mEOS(false)
@@ -186,7 +185,6 @@ private:
     bool mInputExhausted;
     bool mError;
     bool mIsFlushing;
-    bool mDrainComplete;
     bool mOutputRequested;
     bool mUpdateScheduled;
     bool mEOS;

@@ -586,7 +586,8 @@ public:
     SCROLLABLE_ONLY_ASYNC_SCROLLABLE = 0x04,
     /**
      * If the SCROLLABLE_ALWAYS_MATCH_ROOT flag is set, then return the
-     * root scrollable frame for the root content document if we hit it.
+     * root scrollable frame for the root content document if we don't hit
+     * anything else.
      */
     SCROLLABLE_ALWAYS_MATCH_ROOT = 0x08,
   };
@@ -1295,45 +1296,86 @@ public:
    *          and margin that goes outside the rect chosen by box-sizing.
    * @param aCoord The width value to compute.
    */
+  // XXX to be removed
   static nscoord ComputeWidthValue(
                    nsRenderingContext* aRenderingContext,
                    nsIFrame*            aFrame,
                    nscoord              aContainingBlockWidth,
                    nscoord              aContentEdgeToBoxSizing,
                    nscoord              aBoxSizingToMarginEdge,
-                   const nsStyleCoord&  aCoord);
+                   const nsStyleCoord&  aCoord)
+  {
+    return ComputeISizeValue(aRenderingContext,
+                             aFrame,
+                             aContainingBlockWidth,
+                             aContentEdgeToBoxSizing,
+                             aBoxSizingToMarginEdge,
+                             aCoord);
+  }
+
+  static nscoord ComputeISizeValue(
+                   nsRenderingContext* aRenderingContext,
+                   nsIFrame*           aFrame,
+                   nscoord             aContainingBlockISize,
+                   nscoord             aContentEdgeToBoxSizing,
+                   nscoord             aBoxSizingToMarginEdge,
+                   const nsStyleCoord& aCoord);
 
   /*
    * Convert nsStyleCoord to nscoord when percentages depend on the
    * containing block height.
    */
+  // XXX to be removed
   static nscoord ComputeHeightDependentValue(
                    nscoord              aContainingBlockHeight,
+                   const nsStyleCoord&  aCoord)
+  {
+    return ComputeBSizeDependentValue(aContainingBlockHeight, aCoord);
+  }
+
+  static nscoord ComputeBSizeDependentValue(
+                   nscoord              aContainingBlockBSize,
                    const nsStyleCoord&  aCoord);
 
   /*
    * Likewise, but for 'height', 'min-height', or 'max-height'.
    */
+  // XXX to be removed
   static nscoord ComputeHeightValue(nscoord aContainingBlockHeight,
                                     nscoord aContentEdgeToBoxSizingBoxEdge,
                                     const nsStyleCoord& aCoord)
   {
-    MOZ_ASSERT(aContainingBlockHeight != nscoord_MAX || !aCoord.HasPercent(),
-               "caller must deal with %% of unconstrained height");
+    return ComputeBSizeValue(aContainingBlockHeight,
+                             aContentEdgeToBoxSizingBoxEdge,
+                             aCoord);
+  }
+
+  static nscoord ComputeBSizeValue(nscoord aContainingBlockBSize,
+                                    nscoord aContentEdgeToBoxSizingBoxEdge,
+                                    const nsStyleCoord& aCoord)
+  {
+    MOZ_ASSERT(aContainingBlockBSize != nscoord_MAX || !aCoord.HasPercent(),
+               "caller must deal with %% of unconstrained block-size");
     MOZ_ASSERT(aCoord.IsCoordPercentCalcUnit());
 
     nscoord result =
-      nsRuleNode::ComputeCoordPercentCalc(aCoord, aContainingBlockHeight);
+      nsRuleNode::ComputeCoordPercentCalc(aCoord, aContainingBlockBSize);
     // Clamp calc(), and the subtraction for box-sizing.
     return std::max(0, result - aContentEdgeToBoxSizingBoxEdge);
   }
 
+  // XXX to be removed
   static bool IsAutoHeight(const nsStyleCoord &aCoord, nscoord aCBHeight)
+  {
+    return IsAutoBSize(aCoord, aCBHeight);
+  }
+
+  static bool IsAutoBSize(const nsStyleCoord &aCoord, nscoord aCBBSize)
   {
     nsStyleUnit unit = aCoord.GetUnit();
     return unit == eStyleUnit_Auto ||  // only for 'height'
            unit == eStyleUnit_None ||  // only for 'max-height'
-           (aCBHeight == nscoord_MAX && aCoord.HasPercent());
+           (aCBBSize == nscoord_MAX && aCoord.HasPercent());
   }
 
   static bool IsPaddingZero(const nsStyleCoord &aCoord)
